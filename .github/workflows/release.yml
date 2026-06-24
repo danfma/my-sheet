@@ -1,0 +1,62 @@
+name: Release
+
+# Manual, separate from CI: does NOT publish on every push to main.
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version bump commit + tag and create the GitHub release
+      id-token: write # OIDC token for NuGet trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so versionize can analyze conventional commits
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install versionize
+        run: |
+          dotnet tool install --global Versionize
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      # versionize bumps <Version> in MySheet.csproj, writes MySheet/CHANGELOG.md, commits and tags (vX.Y.Z).
+      - name: Bump version
+        working-directory: MySheet
+        run: versionize
+
+      - name: Push commit and tag
+        run: git push --follow-tags origin HEAD:main
+
+      - name: Pack
+        run: dotnet pack MySheet/MySheet.csproj -c Release -o artifacts
+
+      - name: NuGet login (OIDC → temporary API key)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }} # your nuget.org username (profile name), NOT your email
+
+      - name: Publish to NuGet
+        run: >
+          dotnet nuget push artifacts/*.nupkg
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(git describe --tags --abbrev=0)"
+          gh release create "$TAG" artifacts/*.nupkg --title "$TAG" --generate-notes
