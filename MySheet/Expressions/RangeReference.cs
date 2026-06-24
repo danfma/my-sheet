@@ -31,4 +31,22 @@ public sealed partial record RangeReference(string StartId, string EndId, string
             }
         }
     }
+
+    public int RowCount => Math.Abs(CellAddress.Parse(EndId).Row - CellAddress.Parse(StartId).Row) + 1;
+
+    public int ColumnCount => Math.Abs(CellAddress.Parse(EndId).Column - CellAddress.Parse(StartId).Column) + 1;
+
+    public int TopRow => Math.Min(CellAddress.Parse(StartId).Row, CellAddress.Parse(EndId).Row);
+
+    /// <summary>Returns the cell at a 1-based (row, column) position within the range (normalized corners).</summary>
+    public Expression CellAt(Workbook workbook, int row, int column)
+    {
+        var start = CellAddress.Parse(StartId);
+        var end = CellAddress.Parse(EndId);
+        var address = new CellAddress(
+            Math.Min(start.Column, end.Column) + column - 1,
+            Math.Min(start.Row, end.Row) + row - 1);
+
+        return workbook.Sheets[SheetName][address.ToId()];
+    }
 }

@@ -141,16 +141,18 @@ _(escrever quando a fase concluir)_
 ---
 
 ## Phase 5: Referência e lookup (difícil)
-Status: Not started
+Status: In progress
 
 Exige estender o modelo de range/referência (acesso 2D, indexação por linha/coluna, retorno de referência).
 
-- [ ] Estender `RangeReference`/modelo p/ acesso 2D (linha×coluna), dimensões (`Rows`/`Columns`), e
-      enumeração ordenada; util de endereço já existe (`CellAddress`).
-- [ ] Records + `FunctionSpec`: `ROW`(0–1), `ROWS`(1), `SHEET`(0–1), `MATCH`(2–3), `INDEX`(2–3),
-      `VLOOKUP`(3–4), `XLOOKUP`(3–6), `OFFSET`(3–5).
-- [ ] Definir como referências retornadas (INDEX/OFFSET) interagem com o resto (provavelmente resolvem
-      para valor no contexto escalar atual; documentar limites).
+- [x] `RangeReference` 2D: `RowCount`, `ColumnCount`, `TopRow`, `CellAt(workbook, row, column)` (1-based).
+- [x] Records + `FunctionSpec` (tags 43–46): `ROWS`(1), `ROW`(0–1, só forma com referência; 0-arg → #VALUE!
+      por falta de contexto da célula atual), `MATCH`(2–3, exato e aproximado asc/desc), `INDEX`(2–3, com
+      o quirk de range de 1 linha tratar o índice como coluna).
+- [ ] **Restante**: `VLOOKUP`(3–4), `XLOOKUP`(3–6), `OFFSET`(3–5), `SHEET`(0–1).
+- [ ] `ROW()`/`SHEET()` sem arg e retorno de referência (OFFSET) precisam de um contexto de avaliação
+      (célula atual / índice de planilha) — hoje `Compute(Workbook)` não carrega isso. Decidir: introduzir
+      contexto leve ou restringir essas formas.
 
 ### Verification Plan
 - Testes: `ROW(A5)`→5, `ROWS(A1:A3)`→3, `MATCH(2,A1:A3,0)`, `INDEX(A1:A3,2)`, `VLOOKUP`, `OFFSET(A1,1,0)`,

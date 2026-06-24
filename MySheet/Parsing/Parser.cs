@@ -56,6 +56,10 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             ["COUNTIFS"] = new(2, int.MaxValue, arguments => new CountIfs(arguments)),
             ["SUMIF"] = new(2, 3, arguments => new SumIf(arguments)),
             ["SUMIFS"] = new(3, int.MaxValue, arguments => new SumIfs(arguments)),
+            ["ROWS"] = new(1, 1, arguments => new Rows(arguments)),
+            ["ROW"] = new(0, 1, arguments => new Row(arguments)),
+            ["MATCH"] = new(2, 3, arguments => new Match(arguments)),
+            ["INDEX"] = new(2, 3, arguments => new MySheet.Expressions.Index(arguments)),
         };
 
     private int _index;

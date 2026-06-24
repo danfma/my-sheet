@@ -49,6 +49,10 @@ namespace MySheet.Expressions;
 [MemoryPackUnion(40, typeof(CountIfs))]
 [MemoryPackUnion(41, typeof(SumIf))]
 [MemoryPackUnion(42, typeof(SumIfs))]
+[MemoryPackUnion(43, typeof(Rows))]
+[MemoryPackUnion(44, typeof(Row))]
+[MemoryPackUnion(45, typeof(Match))]
+[MemoryPackUnion(46, typeof(Index))]
 public abstract partial record Expression
 {
     public abstract object? Compute(Workbook workbook);
