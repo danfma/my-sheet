@@ -65,6 +65,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             ["OFFSET"] = new(3, 5, arguments => new Offset(arguments)),
             ["LET"] = new(3, int.MaxValue, arguments => new Let(arguments)),
             ["TEXT"] = new(2, 2, arguments => new Text(arguments)),
+            ["SHEET"] = new(0, 1, arguments => new SheetNumber(arguments)),
         };
 
     private int _index;

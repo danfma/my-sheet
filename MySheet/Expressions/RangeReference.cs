@@ -61,15 +61,15 @@ public sealed partial record RangeReference(string StartId, string EndId, string
 
     public int TopRow => Math.Min(CellAddress.Parse(StartId).Row, CellAddress.Parse(EndId).Row);
 
-    /// <summary>Returns the cell at a 1-based (row, column) position within the range (normalized corners).</summary>
-    public Expression CellAt(EvaluationContext context, int row, int column)
+    /// <summary>Returns the memoized value of the cell at a 1-based (row, column) position (normalized corners).</summary>
+    public object? CellValueAt(EvaluationContext context, int row, int column)
     {
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
-        var address = new CellAddress(
+        var id = new CellAddress(
             Math.Min(start.Column, end.Column) + column - 1,
-            Math.Min(start.Row, end.Row) + row - 1);
+            Math.Min(start.Row, end.Row) + row - 1).ToId();
 
-        return context.Workbook.Sheets[SheetName][address.ToId()];
+        return context.Workbook.GetCellValue(SheetName, id);
     }
 }

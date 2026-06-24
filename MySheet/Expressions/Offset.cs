@@ -50,7 +50,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return ErrorValue.Reference;
         }
 
-        return context.Workbook.Sheets[sheetName][new CellAddress(column, row).ToId()].Compute(context);
+        return context.Workbook.GetCellValue(sheetName, new CellAddress(column, row).ToId());
     }
 
     private static bool TryBase(Expression reference, out string sheetName, out int column, out int row)

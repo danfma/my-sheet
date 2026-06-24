@@ -150,8 +150,11 @@ Status: Complete (exceto SHEET, adiado)
 - [x] Records + `FunctionSpec` (tags 43–49): `ROWS`, `ROW` (inclui 0-arg via `context.CellId`),
       `MATCH` (exato/aproximado), `INDEX` (quirk de 1 linha), `VLOOKUP`(3–4, exato/aproximado),
       `XLOOKUP`(3–6, exato + if_not_found), `OFFSET`(3–5, escalar).
-- [ ] **Adiado**: `SHEET` (precisa de ordenação/índice de planilhas, que o modelo
-      `ConcurrentDictionary` não tem). OFFSET multi-célula (retorno de range) também adiado — hoje só escalar.
+- [x] `SHEET`(0–1) (tag 53): `Sheet.Index` (ordem de inserção, atribuída em `Sheets.Add`); SHEET([ref/nome])
+      → número 1-based; SHEET() → planilha atual (via `context.SheetName`). Lookups (INDEX/VLOOKUP/OFFSET)
+      passaram a acessar células via `RangeReference.CellValueAt`/`GetCellValue` (cache + segurança de ciclo).
+- [ ] **Adiado (enhancements, não funções faltando)**: OFFSET multi-célula (retorno de range) e modos
+      avançados do XLOOKUP (match_mode/search_mode) — hoje OFFSET é escalar e XLOOKUP é exato.
 
 ### Phase Summary
 **142/142 verde**, 0 warnings. O `EvaluationContext` (escolha A do usuário) pavimenta LET (Fase 6) e a

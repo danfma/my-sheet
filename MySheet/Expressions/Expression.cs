@@ -59,6 +59,7 @@ namespace MySheet.Expressions;
 [MemoryPackUnion(50, typeof(NameReference))]
 [MemoryPackUnion(51, typeof(Let))]
 [MemoryPackUnion(52, typeof(Text))]
+[MemoryPackUnion(53, typeof(SheetNumber))]
 public abstract partial record Expression
 {
     public abstract object? Compute(EvaluationContext context);

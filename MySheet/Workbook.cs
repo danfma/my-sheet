@@ -89,7 +89,8 @@ public static class CollectionExtensions
 {
     extension(ConcurrentDictionary<string, Sheet> sheets)
     {
-        public Sheet Add(string name) => sheets.GetOrAdd(name, name => new Sheet { Name = name });
+        public Sheet Add(string name) =>
+            sheets.GetOrAdd(name, name => new Sheet { Name = name, Index = sheets.Count });
     }
 }
 
@@ -97,6 +98,9 @@ public static class CollectionExtensions
 public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>>
 {
     public required string Name { get; init; }
+
+    // 0-based insertion order, used by the SHEET function.
+    public int Index { get; init; }
 
     public Dictionary<string, Expression> Cells { get; init; } = new();
 

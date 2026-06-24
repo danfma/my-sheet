@@ -41,7 +41,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
             for (var row = 1; row <= table.RowCount; row++)
             {
-                if (table.CellAt(context, row, 1).Compute(context) is double key && key <= target)
+                if (table.CellValueAt(context, row, 1) is double key && key <= target)
                 {
                     matchRow = row;
                 }
@@ -51,7 +51,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         {
             for (var row = 1; row <= table.RowCount; row++)
             {
-                if (ValueCoercion.AreEqual(table.CellAt(context, row, 1).Compute(context), lookup))
+                if (ValueCoercion.AreEqual(table.CellValueAt(context, row, 1), lookup))
                 {
                     matchRow = row;
                     break;
@@ -60,7 +60,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         return matchRow >= 1
-            ? table.CellAt(context, matchRow, (int)columnIndex).Compute(context)
+            ? table.CellValueAt(context, matchRow, (int)columnIndex)
             : ErrorValue.NotAvailable;
     }
 }
