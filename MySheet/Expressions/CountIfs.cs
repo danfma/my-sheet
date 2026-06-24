@@ -5,15 +5,15 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record CountIfs(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
         var ranges = new List<List<object?>>();
         var criterias = new List<Criteria>();
 
         for (var i = 0; i + 1 < Arguments.Length; i += 2)
         {
-            ranges.Add(ArgumentFlattening.Expand(Arguments[i], workbook));
-            criterias.Add(Criteria.Parse(Arguments[i + 1].Compute(workbook)));
+            ranges.Add(ArgumentFlattening.Expand(Arguments[i], context));
+            criterias.Add(Criteria.Parse(Arguments[i + 1].Compute(context)));
         }
 
         var length = ranges[0].Count;

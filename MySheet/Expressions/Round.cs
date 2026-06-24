@@ -5,14 +5,14 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Round(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        if (ValueCoercion.TryToNumber(Arguments[0].Compute(workbook), out var number) is { } numberError)
+        if (ValueCoercion.TryToNumber(Arguments[0].Compute(context), out var number) is { } numberError)
         {
             return numberError;
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[1].Compute(workbook), out var digits) is { } digitsError)
+        if (ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var digits) is { } digitsError)
         {
             return digitsError;
         }

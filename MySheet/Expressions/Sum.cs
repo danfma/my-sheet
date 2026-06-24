@@ -5,10 +5,10 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Sum(Expression[] Expressions) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
         var fold = new SumFold();
-        var error = NumericAggregation.Fold(Expressions, workbook, ref fold);
+        var error = NumericAggregation.Fold(Expressions, context, ref fold);
 
         return error ?? (object)fold.Total;
     }

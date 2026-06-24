@@ -21,15 +21,15 @@ public enum BinaryOperator
 [MemoryPackable]
 public sealed partial record BinaryOperation(BinaryOperator Operator, Expression Left, Expression Right) : Expression
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        var leftValue = Left.Compute(workbook);
+        var leftValue = Left.Compute(context);
         if (leftValue is ErrorValue leftError)
         {
             return leftError;
         }
 
-        var rightValue = Right.Compute(workbook);
+        var rightValue = Right.Compute(context);
         if (rightValue is ErrorValue rightError)
         {
             return rightError;

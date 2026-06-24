@@ -5,19 +5,19 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Mid(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        if (ValueCoercion.TryToText(Arguments[0].Compute(workbook), out var text) is { } textError)
+        if (ValueCoercion.TryToText(Arguments[0].Compute(context), out var text) is { } textError)
         {
             return textError;
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[1].Compute(workbook), out var start) is { } startError)
+        if (ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var start) is { } startError)
         {
             return startError;
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[2].Compute(workbook), out var count) is { } countError)
+        if (ValueCoercion.TryToNumber(Arguments[2].Compute(context), out var count) is { } countError)
         {
             return countError;
         }

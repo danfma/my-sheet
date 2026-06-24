@@ -5,12 +5,12 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record CountIf(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        var criteria = Criteria.Parse(Arguments[1].Compute(workbook));
+        var criteria = Criteria.Parse(Arguments[1].Compute(context));
         var count = 0;
 
-        foreach (var value in ArgumentFlattening.Expand(Arguments[0], workbook))
+        foreach (var value in ArgumentFlattening.Expand(Arguments[0], context))
         {
             if (criteria.Matches(value))
             {

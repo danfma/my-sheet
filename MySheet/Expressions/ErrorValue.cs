@@ -11,5 +11,5 @@ public sealed partial record ErrorValue(string ErrorCode) : ValueExpression
     public static readonly ErrorValue DivByZero = new("#DIV/0!");
     public static readonly ErrorValue NotAvailable = new("#N/A");
 
-    public override object? Compute(Workbook workbook) => this;
+    public override object? Compute(EvaluationContext context) => this;
 }

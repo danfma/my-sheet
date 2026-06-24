@@ -5,14 +5,14 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Index(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
         if (Arguments[0] is not RangeReference range)
         {
             return ErrorValue.Reference;
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[1].Compute(workbook), out var first) is { } firstError)
+        if (ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var first) is { } firstError)
         {
             return firstError;
         }
@@ -22,7 +22,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (Arguments.Length == 3)
         {
-            if (ValueCoercion.TryToNumber(Arguments[2].Compute(workbook), out column) is { } columnError)
+            if (ValueCoercion.TryToNumber(Arguments[2].Compute(context), out column) is { } columnError)
             {
                 return columnError;
             }
@@ -46,6 +46,6 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return ErrorValue.Reference;
         }
 
-        return range.CellAt(workbook, (int)row, (int)column).Compute(workbook);
+        return range.CellAt(context, (int)row, (int)column).Compute(context);
     }
 }

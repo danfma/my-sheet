@@ -5,15 +5,15 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Match(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        var lookup = Arguments[0].Compute(workbook);
-        var array = ArgumentFlattening.Expand(Arguments[1], workbook);
+        var lookup = Arguments[0].Compute(context);
+        var array = ArgumentFlattening.Expand(Arguments[1], context);
 
         var matchType = 1.0;
 
         if (Arguments.Length == 3 &&
-            ValueCoercion.TryToNumber(Arguments[2].Compute(workbook), out matchType) is { } typeError)
+            ValueCoercion.TryToNumber(Arguments[2].Compute(context), out matchType) is { } typeError)
         {
             return typeError;
         }

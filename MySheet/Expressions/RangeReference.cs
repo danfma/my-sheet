@@ -6,15 +6,18 @@ namespace MySheet.Expressions;
 public sealed partial record RangeReference(string StartId, string EndId, string SheetName) : Reference
 {
     // A range has no scalar value: used outside a function that accepts ranges it is a #VALUE! error.
-    public override object? Compute(Workbook workbook) => ErrorValue.NotValue;
+    public override object? Compute(EvaluationContext context) => ErrorValue.NotValue;
+
+    // Backwards-compatible entry point used by tests and external callers.
+    public IEnumerable<Expression> Expand(Workbook workbook) => Expand(new EvaluationContext(workbook));
 
     /// <summary>
     /// Enumerates the stored expression of every cell in the rectangle (blank cells included as
     /// <see cref="BlankValue"/>). Reversed corners (e.g. <c>B2:A1</c>) are normalized.
     /// </summary>
-    public IEnumerable<Expression> Expand(Workbook workbook)
+    public IEnumerable<Expression> Expand(EvaluationContext context)
     {
-        var sheet = workbook.Sheets[SheetName];
+        var sheet = context.Workbook.Sheets[SheetName];
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
 
@@ -39,7 +42,7 @@ public sealed partial record RangeReference(string StartId, string EndId, string
     public int TopRow => Math.Min(CellAddress.Parse(StartId).Row, CellAddress.Parse(EndId).Row);
 
     /// <summary>Returns the cell at a 1-based (row, column) position within the range (normalized corners).</summary>
-    public Expression CellAt(Workbook workbook, int row, int column)
+    public Expression CellAt(EvaluationContext context, int row, int column)
     {
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
@@ -47,6 +50,6 @@ public sealed partial record RangeReference(string StartId, string EndId, string
             Math.Min(start.Column, end.Column) + column - 1,
             Math.Min(start.Row, end.Row) + row - 1);
 
-        return workbook.Sheets[SheetName][address.ToId()];
+        return context.Workbook.Sheets[SheetName][address.ToId()];
     }
 }

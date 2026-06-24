@@ -6,20 +6,20 @@ namespace MySheet.Expressions;
 /// </summary>
 internal static class ArgumentFlattening
 {
-    public static IEnumerable<object?> Flatten(Expression[] arguments, Workbook workbook)
+    public static IEnumerable<object?> Flatten(Expression[] arguments, EvaluationContext context)
     {
         foreach (var argument in arguments)
         {
             if (argument is RangeReference range)
             {
-                foreach (var cell in range.Expand(workbook))
+                foreach (var cell in range.Expand(context))
                 {
-                    yield return cell.Compute(workbook);
+                    yield return cell.Compute(context);
                 }
             }
             else
             {
-                yield return argument.Compute(workbook);
+                yield return argument.Compute(context);
             }
         }
     }
@@ -28,20 +28,20 @@ internal static class ArgumentFlattening
     /// Expands a single argument into an ordered list of computed values (a range yields one entry per
     /// cell). Used by the conditional aggregations to align parallel ranges by position.
     /// </summary>
-    public static List<object?> Expand(Expression argument, Workbook workbook)
+    public static List<object?> Expand(Expression argument, EvaluationContext context)
     {
         var values = new List<object?>();
 
         if (argument is RangeReference range)
         {
-            foreach (var cell in range.Expand(workbook))
+            foreach (var cell in range.Expand(context))
             {
-                values.Add(cell.Compute(workbook));
+                values.Add(cell.Compute(context));
             }
         }
         else
         {
-            values.Add(argument.Compute(workbook));
+            values.Add(argument.Compute(context));
         }
 
         return values;

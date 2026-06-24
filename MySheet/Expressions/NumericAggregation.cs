@@ -19,7 +19,7 @@ internal interface INumericFold
 /// </summary>
 internal static class NumericAggregation
 {
-    public static ErrorValue? Fold<TFold>(Expression[] arguments, Workbook workbook, ref TFold fold)
+    public static ErrorValue? Fold<TFold>(Expression[] arguments, EvaluationContext context, ref TFold fold)
         where TFold : struct, INumericFold
     {
         ErrorValue? error = null;
@@ -29,19 +29,19 @@ internal static class NumericAggregation
             switch (argument)
             {
                 case RangeReference range:
-                    foreach (var cell in range.Expand(workbook))
+                    foreach (var cell in range.Expand(context))
                     {
-                        AddReferenced(cell.Compute(workbook), ref fold, ref error);
+                        AddReferenced(cell.Compute(context), ref fold, ref error);
                     }
 
                     break;
 
                 case CellReference cell:
-                    AddReferenced(cell.Compute(workbook), ref fold, ref error);
+                    AddReferenced(cell.Compute(context), ref fold, ref error);
                     break;
 
                 default:
-                    AddDirect(argument.Compute(workbook), ref fold, ref error);
+                    AddDirect(argument.Compute(context), ref fold, ref error);
                     break;
             }
         }

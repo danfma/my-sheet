@@ -5,9 +5,9 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Not(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        if (ValueCoercion.TryToBool(Arguments[0].Compute(workbook), out var value) is { } error)
+        if (ValueCoercion.TryToBool(Arguments[0].Compute(context), out var value) is { } error)
         {
             return error;
         }

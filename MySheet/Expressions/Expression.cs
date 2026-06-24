@@ -55,7 +55,10 @@ namespace MySheet.Expressions;
 [MemoryPackUnion(46, typeof(Index))]
 public abstract partial record Expression
 {
-    public abstract object? Compute(Workbook workbook);
+    public abstract object? Compute(EvaluationContext context);
+
+    // Backwards-compatible entry point used by tests/benchmark and external callers.
+    public object? Compute(Workbook workbook) => Compute(new EvaluationContext(workbook));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static NumberValue Number(double value) => new(value);

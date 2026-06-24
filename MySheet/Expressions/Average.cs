@@ -5,10 +5,10 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Average(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
         var fold = new AverageFold();
-        var error = NumericAggregation.Fold(Arguments, workbook, ref fold);
+        var error = NumericAggregation.Fold(Arguments, context, ref fold);
 
         if (error is not null)
         {

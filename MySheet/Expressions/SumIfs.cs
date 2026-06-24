@@ -6,16 +6,16 @@ namespace MySheet.Expressions;
 public sealed partial record SumIfs(Expression[] Arguments) : Function
 {
     // SUMIFS(sum_range, range1, criteria1, …) — sums sum_range where every (range, criteria) pair matches.
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        var sumRange = ArgumentFlattening.Expand(Arguments[0], workbook);
+        var sumRange = ArgumentFlattening.Expand(Arguments[0], context);
         var ranges = new List<List<object?>>();
         var criterias = new List<Criteria>();
 
         for (var i = 1; i + 1 < Arguments.Length; i += 2)
         {
-            ranges.Add(ArgumentFlattening.Expand(Arguments[i], workbook));
-            criterias.Add(Criteria.Parse(Arguments[i + 1].Compute(workbook)));
+            ranges.Add(ArgumentFlattening.Expand(Arguments[i], context));
+            criterias.Add(Criteria.Parse(Arguments[i + 1].Compute(context)));
         }
 
         var length = sumRange.Count;

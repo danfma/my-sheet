@@ -12,9 +12,9 @@ public enum UnaryOperator
 [MemoryPackable]
 public sealed partial record UnaryOperation(UnaryOperator Operator, Expression Operand) : Expression
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        var value = Operand.Compute(workbook);
+        var value = Operand.Compute(context);
 
         if (ValueCoercion.TryToNumber(value, out var number) is { } error)
         {

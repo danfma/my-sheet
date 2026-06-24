@@ -6,11 +6,11 @@ namespace MySheet.Expressions;
 public sealed partial record SumIf(Expression[] Arguments) : Function
 {
     // SUMIF(range, criteria, [sum_range]) — sums sum_range (or range) where range matches the criteria.
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
-        var criteria = Criteria.Parse(Arguments[1].Compute(workbook));
-        var range = ArgumentFlattening.Expand(Arguments[0], workbook);
-        var sumRange = Arguments.Length == 3 ? ArgumentFlattening.Expand(Arguments[2], workbook) : range;
+        var criteria = Criteria.Parse(Arguments[1].Compute(context));
+        var range = ArgumentFlattening.Expand(Arguments[0], context);
+        var sumRange = Arguments.Length == 3 ? ArgumentFlattening.Expand(Arguments[2], context) : range;
 
         var total = 0.0;
         var length = Math.Min(range.Count, sumRange.Count);

@@ -5,11 +5,11 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Count(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook)
+    public override object? Compute(EvaluationContext context)
     {
         // COUNT only tallies numeric values and, unlike SUM, never propagates errors.
         var fold = new CountFold();
-        NumericAggregation.Fold(Arguments, workbook, ref fold);
+        NumericAggregation.Fold(Arguments, context, ref fold);
 
         return (double)fold.Count;
     }

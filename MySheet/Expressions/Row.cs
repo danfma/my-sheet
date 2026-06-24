@@ -5,7 +5,7 @@ namespace MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Row(Expression[] Arguments) : Function
 {
-    public override object? Compute(Workbook workbook) => Arguments switch
+    public override object? Compute(EvaluationContext context) => Arguments switch
     {
         [CellReference cell] => (double)CellAddress.Parse(cell.Id).Row,
         [RangeReference range] => (double)range.TopRow,
