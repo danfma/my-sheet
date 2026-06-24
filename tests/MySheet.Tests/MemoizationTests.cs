@@ -83,4 +83,23 @@ public class MemoizationTests
 
         await Assert.That(ExpressionParser.Parse("=A1", sheet).Compute(workbook)).IsEqualTo(ErrorValue.Reference);
     }
+
+    [Test]
+    public async Task RunWithLargeStack_HandlesDeepDependencyChain()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        // A cumulative chain deep enough to overflow the default (~1 MB) stack.
+        const int depth = 20000;
+        sheet["A1"] = new NumberValue(1);
+        for (var i = 2; i <= depth; i++)
+        {
+            sheet[$"A{i}"] = ExpressionParser.Parse($"=A{i - 1}+1", sheet);
+        }
+
+        var result = Workbook.RunWithLargeStack(() => sheet[$"A{depth}"].Compute(workbook)) as double?;
+
+        await Assert.That(result).IsEqualTo((double)depth);
+    }
 }

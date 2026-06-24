@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using MemoryPack;
 using MySheet.Expressions;
 
@@ -69,6 +70,39 @@ public sealed partial class Workbook
     }
 
     public void InvalidateCache() => _cache?.Clear();
+
+    /// <summary>
+    /// Runs an evaluation on a thread with a large stack so very deep dependency chains (e.g. a long
+    /// cumulative column) do not overflow. Wrap a whole extraction batch in one call — the thread cost
+    /// is paid once, not per cell. The large stack size is a reservation; physical memory grows only
+    /// with the depth actually reached.
+    /// </summary>
+    public static T RunWithLargeStack<T>(Func<T> work, int stackSizeBytes = 256 * 1024 * 1024)
+    {
+        var result = default(T)!;
+        ExceptionDispatchInfo? error = null;
+
+        var thread = new Thread(
+            () =>
+            {
+                try
+                {
+                    result = work();
+                }
+                catch (Exception exception)
+                {
+                    error = ExceptionDispatchInfo.Capture(exception);
+                }
+            },
+            stackSizeBytes);
+
+        thread.Start();
+        thread.Join();
+
+        error?.Throw();
+
+        return result;
+    }
 
     public void RegisterFunction(string name, CustomFunction function) =>
         (_functions ??= new(StringComparer.OrdinalIgnoreCase))[name] = function;

@@ -60,7 +60,16 @@ persistência do pré-cálculo.
   `A1=B1, B1=A1` é StackOverflow.
 - Fase 5 (opcional): atualizar benchmark para medir o caminho `GetCellValue`.
 
-## Consideração: profundidade de recursão (StackOverflow) — futuro
+## Profundidade de recursão (StackOverflow) — RESOLVIDO
+**Solução escolhida: `Workbook.RunWithLargeStack<T>(Func<T>)`** — roda a avaliação numa thread com stack
+grande (default 256 MB, reservado; RAM cresce só com a profundidade real). Cobre QUALQUER profundidade,
+estática e dinâmica (INDEX/OFFSET), sem mexer no avaliador. O consumidor envolve o lote de extração numa
+chamada (custo da thread pago 1× por lote). Decisão: heurística por tamanho descartada (tamanho ≠
+profundidade) e impossível recuperar reativamente (`StackOverflowException` no .NET é incatchável).
+Teste: cadeia cumulativa de 20.000 níveis (estoura a stack default) computa via `RunWithLargeStack`.
+Alternativa topológica (folha-primeiro) descartada: mais complexa e não cobre dependências dinâmicas.
+
+## (Histórico) Consideração inicial de recursão
 A avaliação é recursiva (`CellReference.Compute` → `Compute` da célula referenciada). O risco NÃO são
 fórmulas profundas (rasas na prática), e sim **cadeias longas de dependência entre células** — ex.: coluna
 cumulativa `B2=B1+A2`, `B3=B2+A3`, … por milhares de linhas. Computar a última célula recursiona a cadeia
