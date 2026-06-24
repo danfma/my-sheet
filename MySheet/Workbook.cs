@@ -23,6 +23,11 @@ public sealed partial class Workbook
     [MemoryPackIgnore]
     private ConcurrentDictionary<(string Sheet, string Id), object?>? _cache;
 
+    // Cells currently being evaluated on the calling thread, to detect circular references. Thread-local
+    // so concurrent (and benign) re-evaluation of the same cell on different threads is not a false cycle.
+    [ThreadStatic]
+    private static HashSet<(string Sheet, string Id)>? _evaluating;
+
     public ConcurrentDictionary<string, Sheet> Sheets { get; init; } = new();
 
     public Sheet this[string key] => Sheets[key];
@@ -41,11 +46,26 @@ public sealed partial class Workbook
             return cached;
         }
 
-        // Compute outside the dictionary (the formula recurses into GetCellValue), then store.
-        var value = Sheets[sheetName][id].Compute(new EvaluationContext(this, sheetName, id));
-        cache[key] = value;
+        var evaluating = _evaluating ??= new();
 
-        return value;
+        if (!evaluating.Add(key))
+        {
+            // The cell is already on this thread's evaluation stack: a circular reference.
+            return ErrorValue.Reference;
+        }
+
+        try
+        {
+            // Compute outside the dictionary (the formula recurses into GetCellValue), then store.
+            var value = Sheets[sheetName][id].Compute(new EvaluationContext(this, sheetName, id));
+            cache[key] = value;
+
+            return value;
+        }
+        finally
+        {
+            evaluating.Remove(key);
+        }
     }
 
     public void InvalidateCache() => _cache?.Clear();

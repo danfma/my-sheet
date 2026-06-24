@@ -29,9 +29,9 @@ internal static class NumericAggregation
             switch (argument)
             {
                 case RangeReference range:
-                    foreach (var cell in range.Expand(context))
+                    foreach (var value in range.ExpandValues(context))
                     {
-                        AddReferenced(cell.Compute(context), ref fold, ref error);
+                        AddReferenced(value, ref fold, ref error);
                     }
 
                     break;

@@ -2,8 +2,11 @@
 
 Cache lazy por célula no `Workbook` para evitar recomputar células-folha compartilhadas em carga
 read-heavy de extração em background. NÃO persiste (cache fora da serialização). Invalidação por
-flush total, disparada explicitamente. **Status: F1 + F3 prontos** (cache + `GetCellValue` +
-redirecionamento de `CellReference` + `InvalidateCache()`). Falta F2 (ranges pelo cache) e F4 (ciclos).
+flush total, disparada explicitamente. **Status: F1–F4 prontos.** (F5 benchmark já medido.)
+F2 = ranges roteados pelo cache (`RangeReference.ExpandValues` via `GetCellValue`, usado por
+`NumericAggregation`/`ArgumentFlattening`). F4 = detecção de ciclo via `[ThreadStatic]` set de células
+"em avaliação" no `GetCellValue` → `A1=B1, B1=A1` retorna `#REF!` em vez de StackOverflow.
+Pendência menor: acesso por `CellAt` (INDEX/VLOOKUP/OFFSET) ainda computa direto, fora do cache.
 
 ### Implementado (149/149 verde, 0 warnings)
 - `Workbook`: `[MemoryPackIgnore] ConcurrentDictionary<(string Sheet, string Id), object?> _cache` (lazy),

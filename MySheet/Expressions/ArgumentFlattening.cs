@@ -12,9 +12,9 @@ internal static class ArgumentFlattening
         {
             if (argument is RangeReference range)
             {
-                foreach (var cell in range.Expand(context))
+                foreach (var value in range.ExpandValues(context))
                 {
-                    yield return cell.Compute(context);
+                    yield return value;
                 }
             }
             else
@@ -34,9 +34,9 @@ internal static class ArgumentFlattening
 
         if (argument is RangeReference range)
         {
-            foreach (var cell in range.Expand(context))
+            foreach (var value in range.ExpandValues(context))
             {
-                values.Add(cell.Compute(context));
+                values.Add(value);
             }
         }
         else

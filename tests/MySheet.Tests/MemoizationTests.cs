@@ -48,4 +48,39 @@ public class MemoizationTests
 
         await Assert.That(sheet["B1"].Compute(workbook) as double?).IsEqualTo(20.0);
     }
+
+    [Test]
+    public async Task RangeAndDirectReference_ShareCache()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        var calls = 0;
+        workbook.RegisterFunction("TICK", (_, _) =>
+        {
+            calls++;
+            return 5.0;
+        });
+
+        sheet["A1"] = ExpressionParser.Parse("=TICK()", sheet);
+        sheet["B1"] = ExpressionParser.Parse("=SUM(A1:A1)+A1", sheet);
+
+        var result = sheet["B1"].Compute(workbook) as double?;
+
+        await Assert.That(result).IsEqualTo(10.0);
+        // A1 reached through the range expansion and the direct reference shares one cache entry.
+        await Assert.That(calls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task CircularReference_ReturnsRefError_NotStackOverflow()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        sheet["A1"] = ExpressionParser.Parse("=B1", sheet);
+        sheet["B1"] = ExpressionParser.Parse("=A1", sheet);
+
+        await Assert.That(ExpressionParser.Parse("=A1", sheet).Compute(workbook)).IsEqualTo(ErrorValue.Reference);
+    }
 }

@@ -35,6 +35,26 @@ public sealed partial record RangeReference(string StartId, string EndId, string
         }
     }
 
+    /// <summary>Enumerates the memoized value of every cell in the rectangle (via the workbook cache).</summary>
+    public IEnumerable<object?> ExpandValues(EvaluationContext context)
+    {
+        var start = CellAddress.Parse(StartId);
+        var end = CellAddress.Parse(EndId);
+
+        var minColumn = Math.Min(start.Column, end.Column);
+        var maxColumn = Math.Max(start.Column, end.Column);
+        var minRow = Math.Min(start.Row, end.Row);
+        var maxRow = Math.Max(start.Row, end.Row);
+
+        for (var column = minColumn; column <= maxColumn; column++)
+        {
+            for (var row = minRow; row <= maxRow; row++)
+            {
+                yield return context.Workbook.GetCellValue(SheetName, new CellAddress(column, row).ToId());
+            }
+        }
+    }
+
     public int RowCount => Math.Abs(CellAddress.Parse(EndId).Row - CellAddress.Parse(StartId).Row) + 1;
 
     public int ColumnCount => Math.Abs(CellAddress.Parse(EndId).Column - CellAddress.Parse(StartId).Column) + 1;
