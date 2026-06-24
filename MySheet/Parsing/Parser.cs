@@ -16,6 +16,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
     private const int AdditiveBindingPower = 20;
     private const int MultiplicativeBindingPower = 30;
     private const int PowerBindingPower = 40;
+    private const int PercentBindingPower = 44; // postfix '%' binds above '^', below unary minus
     private const int PrefixBindingPower = 45;
     private const int RangeBindingPower = 50;
 
@@ -131,6 +132,12 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         if (op.Type == TokenType.Colon)
         {
             return ParseRange(op, left);
+        }
+
+        // '%' is postfix: it divides the value to its left by 100, with no right operand.
+        if (op.Type == TokenType.Percent)
+        {
+            return new UnaryOperation(UnaryOperator.Percent, left);
         }
 
         var bindingPower = LeftBindingPower(op.Type);
@@ -294,6 +301,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         TokenType.Plus or TokenType.Minus => AdditiveBindingPower,
         TokenType.Star or TokenType.Slash => MultiplicativeBindingPower,
         TokenType.Caret => PowerBindingPower,
+        TokenType.Percent => PercentBindingPower,
         TokenType.Colon => RangeBindingPower,
         _ => 0,
     };

@@ -45,6 +45,16 @@ public class ExpressionParserTests
     }
 
     [Test]
+    public async Task Percent_PostfixOperator()
+    {
+        await Assert.That(Calc("=50%") as double?).IsEqualTo(0.5);
+        await Assert.That(Calc("=200%") as double?).IsEqualTo(2.0);
+        // '%' binds tighter than + and ^
+        await Assert.That(Calc("=100+50%") as double?).IsEqualTo(100.5);
+        await Assert.That(Calc("=2^200%") as double?).IsEqualTo(4.0);
+    }
+
+    [Test]
     public async Task Parentheses_OverridePrecedence()
     {
         await Assert.That(Calc("=(1+2)*3") as double?).IsEqualTo(9.0);

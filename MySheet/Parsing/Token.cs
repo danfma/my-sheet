@@ -17,6 +17,7 @@ internal enum TokenType
     LessEqual,
     GreaterEqual,
     Ampersand,
+    Percent,
     Comma,
     Colon,
     LParen,

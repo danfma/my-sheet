@@ -7,6 +7,7 @@ public enum UnaryOperator
     // NOTE: append-only — MemoryPack serializes enum members by their underlying value.
     Negate,
     Plus,
+    Percent,
 }
 
 [MemoryPackable]
@@ -25,6 +26,7 @@ public sealed partial record UnaryOperation(UnaryOperator Operator, Expression O
         {
             UnaryOperator.Negate => -number,
             UnaryOperator.Plus => number,
+            UnaryOperator.Percent => number / 100,
             _ => throw new ArgumentOutOfRangeException(nameof(Operator), Operator, null),
         };
     }
