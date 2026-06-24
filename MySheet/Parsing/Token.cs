@@ -16,6 +16,7 @@ internal enum TokenType
     Greater,
     LessEqual,
     GreaterEqual,
+    Ampersand,
     Comma,
     Colon,
     LParen,

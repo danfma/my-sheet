@@ -34,6 +34,17 @@ public class ExpressionParserTests
     }
 
     [Test]
+    public async Task Concatenation_Operator()
+    {
+        await Assert.That(Calc("=\"a\"&\"b\"") as string).IsEqualTo("ab");
+        await Assert.That(Calc("=1&2") as string).IsEqualTo("12");
+        // '+' binds tighter than '&'
+        await Assert.That(Calc("=\"x\"&1+1") as string).IsEqualTo("x2");
+        // '&' binds tighter than '='
+        await Assert.That(Calc("=\"a\"&\"b\"=\"ab\"") as bool?).IsEqualTo(true);
+    }
+
+    [Test]
     public async Task Parentheses_OverridePrecedence()
     {
         await Assert.That(Calc("=(1+2)*3") as double?).IsEqualTo(9.0);

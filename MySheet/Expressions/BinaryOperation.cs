@@ -16,6 +16,7 @@ public enum BinaryOperator
     GreaterThan,
     LessThanOrEqual,
     GreaterThanOrEqual,
+    Concat,
 }
 
 [MemoryPackable]
@@ -51,6 +52,19 @@ public sealed partial record BinaryOperation(BinaryOperator Operator, Expression
                 return ValueCoercion.Compare(leftValue, rightValue) <= 0;
             case BinaryOperator.GreaterThanOrEqual:
                 return ValueCoercion.Compare(leftValue, rightValue) >= 0;
+
+            case BinaryOperator.Concat:
+                if (ValueCoercion.TryToText(leftValue, out var leftText) is { } leftTextError)
+                {
+                    return leftTextError;
+                }
+
+                if (ValueCoercion.TryToText(rightValue, out var rightText) is { } rightTextError)
+                {
+                    return rightTextError;
+                }
+
+                return leftText + rightText;
         }
 
         if (ValueCoercion.TryToNumber(leftValue, out var left) is { } leftNumberError)

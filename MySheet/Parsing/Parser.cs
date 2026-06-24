@@ -12,6 +12,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
     // Binding powers (higher binds tighter). Unary prefix binds tighter than '^' so that
     // '-2^2' parses as '(-2)^2' == 4, matching Excel.
     private const int ComparisonBindingPower = 10;
+    private const int ConcatBindingPower = 15; // '&' binds below + - and above the comparators
     private const int AdditiveBindingPower = 20;
     private const int MultiplicativeBindingPower = 30;
     private const int PowerBindingPower = 40;
@@ -289,6 +290,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
     {
         TokenType.Equal or TokenType.NotEqual or TokenType.Less or TokenType.Greater
             or TokenType.LessEqual or TokenType.GreaterEqual => ComparisonBindingPower,
+        TokenType.Ampersand => ConcatBindingPower,
         TokenType.Plus or TokenType.Minus => AdditiveBindingPower,
         TokenType.Star or TokenType.Slash => MultiplicativeBindingPower,
         TokenType.Caret => PowerBindingPower,
@@ -309,6 +311,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         TokenType.Greater => BinaryOperator.GreaterThan,
         TokenType.LessEqual => BinaryOperator.LessThanOrEqual,
         TokenType.GreaterEqual => BinaryOperator.GreaterThanOrEqual,
+        TokenType.Ampersand => BinaryOperator.Concat,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 

@@ -193,6 +193,7 @@ internal sealed class Tokenizer(string text)
             case ')': _position++; return new Token(TokenType.RParen, ")", start);
             case '=': _position++; return new Token(TokenType.Equal, "=", start);
             case '!': _position++; return new Token(TokenType.Bang, "!", start);
+            case '&': _position++; return new Token(TokenType.Ampersand, "&", start);
 
             case '<':
                 _position++;
