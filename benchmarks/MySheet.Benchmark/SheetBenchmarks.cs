@@ -1,6 +1,8 @@
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using ClosedXML.Excel;
+using MySheet.Expressions;
+using MySheet.Parsing;
 using static MySheet.Expressions.Expression;
 
 namespace MySheet.Benchmark;
@@ -8,14 +10,24 @@ namespace MySheet.Benchmark;
 [MemoryDiagnoser, GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
 public class SheetBenchmarks
 {
+    private const string Formula = "=SUM(A1:A3) + AVERAGE(B1,B2)*2 - 3^2";
+
     private Workbook _mySheetWorkbook = null!;
     private XLWorkbook _closedXmlWorkbook = null!;
+    private Sheet _parseSheet = null!;
 
     [GlobalSetup]
     public void Setup()
     {
         _mySheetWorkbook = CreateMySheetWorkbook();
         _closedXmlWorkbook = CreateClosedXmlWorkbook();
+        _parseSheet = _mySheetWorkbook["Sheet1"];
+    }
+
+    [Benchmark, BenchmarkCategory("Parse")]
+    public Expression MySheetParse()
+    {
+        return ExpressionParser.Parse(Formula, _parseSheet);
     }
 
     [Benchmark, BenchmarkCategory("SheetInMemory")]
