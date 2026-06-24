@@ -63,6 +63,8 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             ["VLOOKUP"] = new(3, 4, arguments => new VLookup(arguments)),
             ["XLOOKUP"] = new(3, 6, arguments => new XLookup(arguments)),
             ["OFFSET"] = new(3, 5, arguments => new Offset(arguments)),
+            ["LET"] = new(3, int.MaxValue, arguments => new Let(arguments)),
+            ["TEXT"] = new(2, 2, arguments => new Text(arguments)),
         };
 
     private int _index;
@@ -165,8 +167,8 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             return new CellReference(token.Text.ToUpperInvariant(), sheetName);
         }
 
-        // Unknown name: a semantic error, surfaced as a node rather than thrown.
-        return ErrorValue.Name;
+        // A bare name: a LET-bound name resolved at evaluation time (#NAME? if unbound).
+        return new NameReference(token.Text);
     }
 
     private Expression ParseFunctionCall(Token name)

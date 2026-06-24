@@ -169,13 +169,19 @@ _(escrever quando a fase concluir)_
 ---
 
 ## Phase 6: Avançadas — LET e TEXT (formatação)
-Status: Not started
+Status: Complete
 
-- [ ] `LET`: parser para `LET(nome1, val1, …, calc)` (nomes ímpares = identificadores) + escopo de nomes
-      na avaliação (binding env passado no contexto; nomes resolvidos antes de cell ref). Pode exigir um
-      contexto de avaliação leve além do `Workbook` para o escopo local.
-- [ ] `TEXT`: subconjunto de códigos de formato do Excel (decimais, milhar, %, talvez data) — documentar
-      o subconjunto suportado; fora dele → texto cru/`#VALUE!`.
+- [x] `NameReference` (tag 50): identificador solto vira referência de nome resolvida no `EvaluationContext`
+      (unbound → #NAME?, retrocompatível com o antigo `ErrorValue.Name`).
+- [x] `EvaluationContext` ganhou binding de nomes (`WithName`/`TryGetName`, case-insensitive; nomes NÃO
+      vazam para células referenciadas via `WithCell`).
+- [x] `Let` (tag 51): `LET(nome1, val1, …, calc)`; valores posteriores enxergam nomes anteriores.
+- [x] `Text` (tag 52): delega ao `double.ToString(format, invariant)`, que cobre os códigos comuns
+      (`0`, `#`, `.`, milhar `,`, `%`). Códigos de data/cor/texto fora de escopo → `#VALUE!`.
+
+### Phase Summary
+**147/147 verde**, 0 warnings. LET usa o `EvaluationContext` (escolha A) para o escopo. TEXT limitado a
+formatos numéricos compatíveis com .NET.
 
 ### Verification Plan
 - Testes: `LET(x,2,x*x)`→4, `LET(x,2,y,3,x+y)`→5; `TEXT(1234.5,"#,##0.00")`→"1,234.50", `TEXT(0.5,"0%")`→"50%".
@@ -187,28 +193,49 @@ _(escrever quando a fase concluir)_
 ---
 
 ## Phase 7: Funções de domínio via extensão
-Status: Not started
+Status: Complete (mecanismo) — a lógica fica com o host
 
-- [ ] Validar o mecanismo da Fase 1 registrando as 10 funções de domínio (INCOME, PORTFOLIO, PROPERTY,
-      GAIN, CONTRIBUTIONS, ORGANIZATION, DETAIL, HIDDEN, A_HIDE, EXPR_SUM) como `CustomFunction` de exemplo
-      (stub/host-hook), provando que parseiam (`FunctionCall`), resolvem pelo registro e computam.
-- [ ] Documentar (README/doc curto) como o host registra funções customizadas com acesso a dados de domínio.
-
-### Verification Plan
-- Teste: registrar um `PORTFOLIO`/`PROPERTY` stub via `Workbook.RegisterFunction`, parsear/coputar uma
-  fórmula que os use, e verificar o resultado do stub; sem registro → `#NAME?`.
-- 0 Warning(s); suíte verde.
+As funções de domínio (INCOME, PORTFOLIO, PROPERTY, GAIN, CONTRIBUTIONS, ORGANIZATION, DETAIL, HIDDEN,
+A_HIDE, EXPR_SUM) já são totalmente suportadas pelo mecanismo da Fase 1: parseiam como `FunctionCall`,
+serializam com a planilha (nome + args), e resolvem via `Workbook.RegisterFunction(name, impl)`. O usuário
+decidiu manter a LÓGICA delas fora desta implementação (o host fornece). Provado por `FunctionExtensionTests`
+(registro/invocação, não registrada → #NAME?, round-trip de serialização).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Sem código adicional necessário — o mecanismo da Fase 1 cobre o requisito ("registrar + serializar com a
+planilha"). Limitação conhecida e comunicada: o *comportamento* (delegate) não serializa; o host re-registra
+na carga (comportamento executável não é serializável). Funções definidas como fórmula (estilo LAMBDA) seriam
+outra feature, não pedida.
 
 ---
 
 ## Final Recap
-_(escrever quando todas as fases concluírem)_
+Entregue um mecanismo de extensão de funções + ~40 funções do Excel, em 6 fases, via TDD.
+**Suíte final: 147/147 verde, 0 warnings.**
+
+- **Extensão (Fase 1)**: nó `FunctionCall` + `Workbook.RegisterFunction`/`TryGetFunction`; tokenizer aceita
+  `_`/`.`; prefixo `XLFN.` normalizado. As 10 funções de domínio do usuário funcionam por aqui (host registra).
+- **Funções built-in**: math/info (INT, ROUND, ROUNDUP, ABS, ISNUMBER, ISBLANK, IFNA), texto (UPPER, LOWER,
+  TRIM, LEN, LEFT, MID, VALUE, CONCAT, CONCATENATE, TEXTJOIN, TEXT), contagem/soma condicional (COUNTA,
+  COUNTBLANK, COUNTIF, COUNTIFS, SUMIF, SUMIFS + motor de critérios), referência/lookup (ROW, ROWS, MATCH,
+  INDEX, VLOOKUP, XLOOKUP, OFFSET) e LET — somadas a IF/AND/OR/NOT/IFERROR/SUM/AVERAGE/MIN/MAX/COUNT.
+- **Refactor habilitador**: `EvaluationContext` (Workbook + célula/sheet atual + escopo de nomes LET),
+  substituindo `Compute(Workbook)` com overload de compatibilidade — pavimenta também a memorização.
+
+Cobertura da lista original: tudo, exceto **SHEET** (adiado — precisa de ordenação de planilhas) e a
+**lógica** das funções de domínio (responsabilidade do host).
+
+Limitações conhecidas (registradas): SHEET; OFFSET só escalar (multi-célula adiado); XLOOKUP só exato;
+MATCH/VLOOKUP aproximado assume ordenação; TEXT só formatos numéricos compatíveis com .NET; comparadores
+sem ordenação de texto/cross-type (backlog em `plans/expression-parser.md`); memorização em `plans/memoization.md`.
 
 ## Deployment Plan
-_(escrever quando todas as fases concluírem — biblioteca; build verde + suíte verde + commit)_
+Biblioteca — sem infraestrutura. Integração:
+1. `dotnet build` (projetos) → 0 Warning(s)/Error(s).
+2. `dotnet run --project tests/MySheet.Tests/MySheet.Tests.csproj` → 147/147 verde.
+3. Host registra funções de domínio via `Workbook.RegisterFunction(name, (args, workbook) => ...)` após
+   carregar/desserializar a planilha.
+4. Commits já na `main` (histórico linear).
 
 ## Fora de escopo (registrado)
 - Memorização (`plans/memoization.md`) e o problema de profundidade de recursão (cadeias longas).
