@@ -485,6 +485,3 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-
-# Local working plans (not versioned for now)
-plans/

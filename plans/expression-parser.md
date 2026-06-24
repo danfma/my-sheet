@@ -232,6 +232,49 @@ comparadores; `:` só entre duas células (sem ranges 3D nem união/interseção
 `ParseException` é relativa ao corpo após o `=` (off-by-one); precedência exata do COUNT com logicais
 diretos não foi exaustivamente espelhada do Excel.
 
+## Performance (medido)
+
+Benchmark `SheetBenchmarks` em Apple M1 Pro, .NET 10, DefaultJob (`[MemoryDiagnoser]`).
+
+Primeira medição (logo após a Fase 4):
+
+| Método | Mean | Allocated |
+|---|---:|---:|
+| MySheetInMemory | 169 ns | 1.296 B |
+| ClosedXmlInMemory | 31.826 ns | 67.811 B |
+| MySheetSum (compute) | 70,6 ns | 160 B |
+| ClosedXmlSum (compute) | 180,3 ns | 136 B |
+| MySheetParse | 640,8 ns | 2.224 B |
+
+Leitura: MySheet ~188× mais rápido e ~52× menos memória que ClosedXML para montar a planilha; ~2,5×
+mais rápido no compute. **Porém** `MySheetSum` alocava 160 B/op — MAIS que o ClosedXML — porque o
+refactor do `Sum` (Fase 1) introduziu um `List<double>` por `Compute`.
+
+**Otimização aplicada (pós-benchmark)**: `NumericAggregation` reescrito como fold genérico sobre um
+`struct` accumulator (`Fold<TFold>(... ref TFold) where TFold : struct, INumericFold`). O JIT
+especializa por tipo e devirtualiza `Accept`, eliminando o `List<double>` do caminho quente. SUM/
+AVERAGE/MIN/MAX/COUNT agora têm structs `SumFold`/`AverageFold`/etc. internos. Resta apenas o boxing
+do resultado (inerente ao contrato `Compute : object?`). Comportamento idêntico — 73/73 testes verdes.
+Otimização de alocação ainda pendente: `RangeReference.Expand` usa `yield return` (aloca um enumerador
+por agregação sobre intervalo) — candidato a struct enumerator numa próxima iteração.
+
+Segunda medição (após a otimização do fold) — confirmada:
+
+| Método | Mean | Allocated |
+|---|---:|---:|
+| MySheetSum (compute) | **55,5 ns** | **72 B** |
+| ClosedXmlSum (compute) | 177,8 ns | 136 B |
+| MySheetParse | 672,7 ns | 2.224 B |
+| MySheetInMemory | 168,3 ns | 1.296 B |
+| ClosedXmlInMemory | 31.766 ns | 67.811 B |
+
+`MySheetSum`: 160 B → **72 B** (-55%) e 70,6 ns → **55,5 ns** (-21%). Agora aloca **menos** que o
+ClosedXML (72 B vs 136 B) e é ~3,2× mais rápido. Os 72 B restantes são boxing inerente ao contrato
+`object?`: computar `Sum(Cell A1, Cell A2)` faz boxing de 3 doubles (cada `NumberValue.Compute` e o
+resultado). Esse é o piso para o contrato atual; só um caminho de valor tipado (o redesenho `ExcelValue`
+da próxima iteração) chegaria abaixo disso. `MySheetParse` (2.224 B) inalterado — não é caminho quente
+(roda uma vez por edição) e é o maior candidato a um passo span-based futuro.
+
 ## Deployment Plan
 É uma biblioteca — não há infraestrutura a implantar. Para integrar:
 1. `dotnet build` (solução/projetos) → 0 Warning(s), 0 Error(s).
@@ -239,3 +282,28 @@ diretos não foi exaustivamente espelhada do Excel.
 3. Commit em branch (não `main` diretamente) e abrir PR. Mensagem sugerida:
    `feat(parsing): add Pratt formula parser and extend expression model`.
 4. (Opcional) Rodar o benchmark em Release para registrar baseline de alocação do parser antes do merge.
+
+---
+
+## Próxima iteração: paridade com Excel (backlog)
+
+Objetivo declarado pelo usuário: chegar o mais próximo possível do comportamento do Excel. Esta iteração
+priorizou a base do parser/avaliador; os pontos abaixo ficaram deliberadamente de fora e devem virar uma
+fase dedicada de paridade. Cada item deve nascer de um teste que codifique o comportamento exato do Excel.
+
+- **Comparadores com tipos mistos**: hoje coage tudo a número (texto → `#VALUE!`). Excel ordena
+  número < texto < FALSE < TRUE e compara texto de forma case-insensitive (`="a"="A"` → TRUE).
+- **Comparação com vazio/texto**: `=A1=""` (célula em branco = string vazia) → TRUE no Excel; hoje daria
+  `#VALUE!`. Em branco coage a 0 só no contexto numérico.
+- **Operador de concatenação `&`** (ex.: `="a"&"b"` → "ab") — falta no lexer, no modelo e no parser.
+- **Operador de porcentagem `%`** (pós-fixado, ex.: `50%` → 0.5).
+- **Semântica fina de COUNT/AVERAGE/MIN/MAX** com logicais e texto-numérico DIRETOS vs REFERENCIADOS —
+  espelhar as regras exatas do Excel (hoje há uma aproximação razoável em `NumericAggregation`).
+- **Mais erros e propagação**: `#REF!` para referência inválida, ordem de propagação de erros entre
+  operandos, `#NUM!`, `#N/A`.
+- **Posição de `ParseException`**: hoje é relativa ao corpo após o strip do `=` (off-by-one vs a string
+  original). Ajustar para refletir a coluna real digitada.
+- **Ranges avançados**: união (`,`), interseção (espaço) e ranges 3D entre planilhas; hoje `:` só liga
+  duas células da mesma planilha.
+- **Crescimento de funções**: IF, IFS, CONCAT, ROUND, etc. (feature, não estritamente paridade) — o
+  registro em `Parser.Functions` já é extensível para isso.
