@@ -7,28 +7,24 @@ public sealed partial record Max(Expression[] Arguments) : Function
 {
     public override object? Compute(Workbook workbook)
     {
-        var (numbers, error) = NumericAggregation.Gather(Arguments, workbook);
+        var fold = new MaxFold();
+        var error = NumericAggregation.Fold(Arguments, workbook, ref fold);
 
-        if (error is not null)
+        return error ?? (object)(fold.HasValue ? fold.Value : 0.0);
+    }
+
+    private struct MaxFold : INumericFold
+    {
+        public bool HasValue;
+        public double Value;
+
+        public void Accept(double value)
         {
-            return error;
-        }
-
-        if (numbers.Count == 0)
-        {
-            return 0.0;
-        }
-
-        var result = numbers[0];
-
-        foreach (var number in numbers)
-        {
-            if (number > result)
+            if (!HasValue || value > Value)
             {
-                result = number;
+                Value = value;
+                HasValue = true;
             }
         }
-
-        return result;
     }
 }

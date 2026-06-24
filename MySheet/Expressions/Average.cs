@@ -7,25 +7,26 @@ public sealed partial record Average(Expression[] Arguments) : Function
 {
     public override object? Compute(Workbook workbook)
     {
-        var (numbers, error) = NumericAggregation.Gather(Arguments, workbook);
+        var fold = new AverageFold();
+        var error = NumericAggregation.Fold(Arguments, workbook, ref fold);
 
         if (error is not null)
         {
             return error;
         }
 
-        if (numbers.Count == 0)
+        return fold.Count == 0 ? ErrorValue.DivByZero : fold.Total / fold.Count;
+    }
+
+    private struct AverageFold : INumericFold
+    {
+        public double Total;
+        public int Count;
+
+        public void Accept(double value)
         {
-            return ErrorValue.DivByZero;
+            Total += value;
+            Count++;
         }
-
-        var total = 0.0;
-
-        foreach (var number in numbers)
-        {
-            total += number;
-        }
-
-        return total / numbers.Count;
     }
 }

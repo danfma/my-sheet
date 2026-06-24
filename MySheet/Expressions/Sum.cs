@@ -7,20 +7,16 @@ public sealed partial record Sum(Expression[] Expressions) : Function
 {
     public override object? Compute(Workbook workbook)
     {
-        var (numbers, error) = NumericAggregation.Gather(Expressions, workbook);
+        var fold = new SumFold();
+        var error = NumericAggregation.Fold(Expressions, workbook, ref fold);
 
-        if (error is not null)
-        {
-            return error;
-        }
+        return error ?? (object)fold.Total;
+    }
 
-        var total = 0.0;
+    private struct SumFold : INumericFold
+    {
+        public double Total;
 
-        foreach (var number in numbers)
-        {
-            total += number;
-        }
-
-        return total;
+        public void Accept(double value) => Total += value;
     }
 }
