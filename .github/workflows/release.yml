@@ -30,13 +30,11 @@ jobs:
           dotnet tool install --global Versionize
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
-      # versionize bumps <Version> in MySheet.csproj, writes MySheet/CHANGELOG.md, commits and tags (vX.Y.Z).
+      # versionize bumps <Version> in MySheet.csproj, writes MySheet/CHANGELOG.md, commits and tags (vX.Y.Z)
+      # locally. The commit/tag are only pushed AFTER a successful publish, so a failed publish leaves main clean.
       - name: Bump version
         working-directory: MySheet
         run: versionize
-
-      - name: Push commit and tag
-        run: git push --follow-tags origin HEAD:main
 
       - name: Pack
         run: dotnet pack MySheet/MySheet.csproj -c Release -o artifacts
@@ -53,6 +51,9 @@ jobs:
           --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
+
+      - name: Push commit and tag
+        run: git push --follow-tags origin HEAD:main
 
       - name: GitHub Release
         env:

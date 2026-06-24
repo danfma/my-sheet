@@ -6,8 +6,8 @@
     <LangVersion>preview</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
-    <!-- Version is managed by versionize (conventional commits). -->
-    <Version>0.0.0</Version>
+    <!-- Seed version for the first release; versionize bumps it from conventional commits thereafter. -->
+    <Version>0.1.0</Version>
     <PackageId>MySheet</PackageId>
     <Authors>Daniel Ferreira Monteiro Alves</Authors>
     <Description>A fast, in-memory spreadsheet formula engine for .NET: parse Excel-style formulas, evaluate them with ~40 built-in functions, custom functions, per-cell memoization, and MemoryPack serialization.</Description>
