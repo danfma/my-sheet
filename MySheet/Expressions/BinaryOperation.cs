@@ -35,13 +35,22 @@ public sealed partial record BinaryOperation(BinaryOperator Operator, Expression
             return rightError;
         }
 
-        // Equality compares across types (numbers, strings, blanks); everything else is numeric.
+        // Equality and ordering compare across types (Excel order: number < text < boolean); only the
+        // arithmetic operators coerce to a number.
         switch (Operator)
         {
             case BinaryOperator.Equal:
                 return ValueCoercion.AreEqual(leftValue, rightValue);
             case BinaryOperator.NotEqual:
                 return !ValueCoercion.AreEqual(leftValue, rightValue);
+            case BinaryOperator.LessThan:
+                return ValueCoercion.Compare(leftValue, rightValue) < 0;
+            case BinaryOperator.GreaterThan:
+                return ValueCoercion.Compare(leftValue, rightValue) > 0;
+            case BinaryOperator.LessThanOrEqual:
+                return ValueCoercion.Compare(leftValue, rightValue) <= 0;
+            case BinaryOperator.GreaterThanOrEqual:
+                return ValueCoercion.Compare(leftValue, rightValue) >= 0;
         }
 
         if (ValueCoercion.TryToNumber(leftValue, out var left) is { } leftNumberError)
@@ -61,10 +70,6 @@ public sealed partial record BinaryOperation(BinaryOperator Operator, Expression
             BinaryOperator.Multiply => left * right,
             BinaryOperator.Divide => right == 0 ? ErrorValue.DivByZero : left / right,
             BinaryOperator.Power => Math.Pow(left, right),
-            BinaryOperator.LessThan => left < right,
-            BinaryOperator.GreaterThan => left > right,
-            BinaryOperator.LessThanOrEqual => left <= right,
-            BinaryOperator.GreaterThanOrEqual => left >= right,
             _ => throw new ArgumentOutOfRangeException(nameof(Operator), Operator, null),
         };
     }

@@ -140,6 +140,35 @@ internal static class ValueCoercion
         };
     }
 
+    /// <summary>
+    /// Excel-style ordering for <c>&lt; &gt; &lt;= &gt;=</c>: numbers sort before text, which sorts before
+    /// booleans (FALSE before TRUE); same-type text compares case-insensitively; blank counts as 0.
+    /// Callers must propagate <see cref="ErrorValue"/> operands before calling this.
+    /// </summary>
+    public static int Compare(object? left, object? right)
+    {
+        var (leftRank, leftNumber, leftText) = Classify(left);
+        var (rightRank, rightNumber, rightText) = Classify(right);
+
+        if (leftRank != rightRank)
+        {
+            return leftRank.CompareTo(rightRank);
+        }
+
+        return leftRank == 1
+            ? string.Compare(leftText, rightText, StringComparison.OrdinalIgnoreCase)
+            : leftNumber.CompareTo(rightNumber);
+    }
+
+    private static (int Rank, double Number, string Text) Classify(object? value) => value switch
+    {
+        null => (0, 0, string.Empty), // blank counts as 0
+        double d => (0, d, string.Empty),
+        string s => (1, 0, s),
+        bool b => (2, b ? 1 : 0, string.Empty),
+        _ => (1, 0, value.ToString() ?? string.Empty),
+    };
+
     private static bool IsBlankEquivalent(object value) => value switch
     {
         double d => d == 0,

@@ -43,9 +43,18 @@ public class ComparatorTests
     }
 
     [Test]
-    public async Task TextOrdering_StillErrors()
+    public async Task TextOrdering_IsCaseInsensitive()
     {
-        await Assert.That(Calc("=\"a\"<\"b\"")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=\"a\"<\"b\"") as bool?).IsEqualTo(true);
+        await Assert.That(Calc("=\"B\"<\"a\"") as bool?).IsEqualTo(false); // case-insensitive: B > a
+    }
+
+    [Test]
+    public async Task CrossTypeOrdering_NumberBeforeTextBeforeBoolean()
+    {
+        await Assert.That(Calc("=1<\"a\"") as bool?).IsEqualTo(true); // number < text
+        await Assert.That(Calc("=\"a\">1") as bool?).IsEqualTo(true);
+        await Assert.That(Calc("=\"z\"<TRUE") as bool?).IsEqualTo(true); // text < boolean
     }
 
     [Test]
