@@ -17,6 +17,13 @@ internal static class ArgumentFlattening
                     yield return value;
                 }
             }
+            else if (argument is UnionReference union)
+            {
+                foreach (var value in union.ExpandValues(context))
+                {
+                    yield return value;
+                }
+            }
             else
             {
                 var value = argument.Compute(context);
@@ -47,6 +54,13 @@ internal static class ArgumentFlattening
         if (argument is RangeReference range)
         {
             foreach (var value in range.ExpandValues(context))
+            {
+                values.Add(value);
+            }
+        }
+        else if (argument is UnionReference union)
+        {
+            foreach (var value in union.ExpandValues(context))
             {
                 values.Add(value);
             }

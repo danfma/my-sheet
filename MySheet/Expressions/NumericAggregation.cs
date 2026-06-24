@@ -40,6 +40,14 @@ internal static class NumericAggregation
                     AddReferenced(cell.Compute(context), ref fold, ref error);
                     break;
 
+                case UnionReference union:
+                    foreach (var value in union.ExpandValues(context))
+                    {
+                        AddReferenced(value, ref fold, ref error);
+                    }
+
+                    break;
+
                 default:
                     var argumentValue = argument.Compute(context);
 

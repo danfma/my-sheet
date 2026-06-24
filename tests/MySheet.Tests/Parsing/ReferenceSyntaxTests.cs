@@ -78,4 +78,22 @@ public class ReferenceSyntaxTests
         await Assert.That(ExpressionParser.Parse("='My Sheet'!B2", sheet1).Compute(workbook) as double?)
             .IsEqualTo(99.0);
     }
+
+    [Test]
+    public async Task UnionOperator_CombinesAreas()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(2);
+        sheet["A3"] = new NumberValue(3);
+        sheet["C1"] = new NumberValue(10);
+        sheet["C2"] = new NumberValue(20);
+        sheet["C3"] = new NumberValue(30);
+
+        await Assert.That(ExpressionParser.Parse("=SUM((A1:A3,C1:C3))", sheet).Compute(workbook) as double?)
+            .IsEqualTo(66.0);
+        await Assert.That(ExpressionParser.Parse("=COUNT((A1,A3,C2))", sheet).Compute(workbook) as double?)
+            .IsEqualTo(3.0);
+    }
 }

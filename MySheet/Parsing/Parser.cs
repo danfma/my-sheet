@@ -119,6 +119,22 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
             case TokenType.LParen:
                 var inner = ParseExpression(0);
+
+                // A comma inside parentheses is the reference-union operator: (A1:A3, C1:C3).
+                if (Current.Type == TokenType.Comma)
+                {
+                    var areas = new List<Expression> { inner };
+
+                    while (Current.Type == TokenType.Comma)
+                    {
+                        Advance();
+                        areas.Add(ParseExpression(0));
+                    }
+
+                    Expect(TokenType.RParen);
+                    return new UnionReference(areas.ToArray());
+                }
+
                 Expect(TokenType.RParen);
                 return inner;
 
