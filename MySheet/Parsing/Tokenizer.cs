@@ -43,7 +43,7 @@ internal sealed class Tokenizer(string text)
             return ReadNumber(start);
         }
 
-        if (char.IsLetter(c))
+        if (char.IsLetter(c) || c == '_')
         {
             return ReadIdentifier(start);
         }
@@ -101,7 +101,9 @@ internal sealed class Tokenizer(string text)
 
     private Token ReadIdentifier(int start)
     {
-        while (_position < text.Length && char.IsLetterOrDigit(text[_position]))
+        // Function names may contain '_' (A_HIDE) and '.' (XLFN.XLOOKUP); cell-ref classification in the
+        // parser still requires the strict [A-Za-z]+[0-9]+ shape, so those never become cell references.
+        while (_position < text.Length && (char.IsLetterOrDigit(text[_position]) || text[_position] is '_' or '.'))
         {
             _position++;
         }

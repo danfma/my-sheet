@@ -75,6 +75,40 @@ internal static class ValueCoercion
     }
 
     /// <summary>
+    /// Coerces a computed value into its text representation. Returns <c>null</c> on success, or the
+    /// <see cref="ErrorValue"/> to propagate. Blank→""; number→invariant string; bool→TRUE/FALSE.
+    /// </summary>
+    public static ErrorValue? TryToText(object? value, out string text)
+    {
+        switch (value)
+        {
+            case null:
+                text = string.Empty;
+                return null;
+
+            case string s:
+                text = s;
+                return null;
+
+            case double d:
+                text = d.ToString(CultureInfo.InvariantCulture);
+                return null;
+
+            case bool b:
+                text = b ? "TRUE" : "FALSE";
+                return null;
+
+            case ErrorValue error:
+                text = string.Empty;
+                return error;
+
+            default:
+                text = string.Empty;
+                return ErrorValue.NotValue;
+        }
+    }
+
+    /// <summary>
     /// Excel-style equality for the <c>=</c>/<c>&lt;&gt;</c> operators: numbers compare numerically,
     /// strings case-insensitively, and values of different types are never equal (so <c>1="1"</c> is
     /// false). A blank (<c>null</c>) is equal to the "empty" of the other operand: <c>0</c>, <c>""</c>

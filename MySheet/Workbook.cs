@@ -6,12 +6,36 @@ using MySheet.Expressions;
 
 namespace MySheet;
 
+/// <summary>
+/// A user-supplied function implementation. Receives the raw (unevaluated) arguments so it can decide
+/// what to evaluate (lazy/short-circuit) and the workbook for context.
+/// </summary>
+public delegate object? CustomFunction(Expression[] arguments, Workbook workbook);
+
 [MemoryPackable]
 public sealed partial class Workbook
 {
+    // Host-registered custom functions; not serialized (behavior is re-registered after deserialization).
+    [MemoryPackIgnore]
+    private Dictionary<string, CustomFunction>? _functions;
+
     public ConcurrentDictionary<string, Sheet> Sheets { get; init; } = new();
 
     public Sheet this[string key] => Sheets[key];
+
+    public void RegisterFunction(string name, CustomFunction function) =>
+        (_functions ??= new(StringComparer.OrdinalIgnoreCase))[name] = function;
+
+    public bool TryGetFunction(string name, [MaybeNullWhen(false)] out CustomFunction function)
+    {
+        if (_functions is null)
+        {
+            function = null;
+            return false;
+        }
+
+        return _functions.TryGetValue(name, out function);
+    }
 }
 
 public static class CollectionExtensions

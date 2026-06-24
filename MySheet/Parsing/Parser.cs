@@ -33,6 +33,29 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             ["OR"] = new(1, int.MaxValue, arguments => new Or(arguments)),
             ["NOT"] = new(1, 1, arguments => new Not(arguments)),
             ["IFERROR"] = new(2, 2, arguments => new IfError(arguments)),
+            ["INT"] = new(1, 1, arguments => new Int(arguments)),
+            ["ROUND"] = new(2, 2, arguments => new Round(arguments)),
+            ["ROUNDUP"] = new(2, 2, arguments => new RoundUp(arguments)),
+            ["ABS"] = new(1, 1, arguments => new Abs(arguments)),
+            ["ISNUMBER"] = new(1, 1, arguments => new IsNumber(arguments)),
+            ["ISBLANK"] = new(1, 1, arguments => new IsBlank(arguments)),
+            ["IFNA"] = new(2, 2, arguments => new IfNa(arguments)),
+            ["UPPER"] = new(1, 1, arguments => new Upper(arguments)),
+            ["LOWER"] = new(1, 1, arguments => new Lower(arguments)),
+            ["TRIM"] = new(1, 1, arguments => new Trim(arguments)),
+            ["LEN"] = new(1, 1, arguments => new Len(arguments)),
+            ["LEFT"] = new(1, 2, arguments => new Left(arguments)),
+            ["MID"] = new(3, 3, arguments => new Mid(arguments)),
+            ["VALUE"] = new(1, 1, arguments => new Value(arguments)),
+            ["CONCAT"] = new(1, int.MaxValue, arguments => new Concat(arguments)),
+            ["CONCATENATE"] = new(1, int.MaxValue, arguments => new Concatenate(arguments)),
+            ["TEXTJOIN"] = new(3, int.MaxValue, arguments => new TextJoin(arguments)),
+            ["COUNTA"] = new(1, int.MaxValue, arguments => new CountA(arguments)),
+            ["COUNTBLANK"] = new(1, int.MaxValue, arguments => new CountBlank(arguments)),
+            ["COUNTIF"] = new(2, 2, arguments => new CountIf(arguments)),
+            ["COUNTIFS"] = new(2, int.MaxValue, arguments => new CountIfs(arguments)),
+            ["SUMIF"] = new(2, 3, arguments => new SumIf(arguments)),
+            ["SUMIFS"] = new(3, int.MaxValue, arguments => new SumIfs(arguments)),
         };
 
     private int _index;
@@ -158,20 +181,39 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
         Expect(TokenType.RParen);
 
-        // Unknown function name is a semantic error (#NAME?); arity of a known function is structural,
-        // so a wrong count throws like Excel rejecting it at entry.
-        if (!Functions.TryGetValue(name.Text, out var spec))
+        var functionName = NormalizeFunctionName(name.Text);
+
+        // Built-in: typed record with parse-time arity validation (a wrong count throws, like Excel
+        // rejecting it at entry). Otherwise a generic call resolved at runtime against the workbook's
+        // custom-function registry (#NAME? if never registered).
+        if (!Functions.TryGetValue(functionName, out var spec))
         {
-            return ErrorValue.Name;
+            return new FunctionCall(functionName, arguments.ToArray());
         }
 
         if (arguments.Count < spec.MinArgs || arguments.Count > spec.MaxArgs)
         {
             throw new ParseException(
-                $"Function '{name.Text}' does not accept {arguments.Count} argument(s)", name.Position);
+                $"Function '{functionName}' does not accept {arguments.Count} argument(s)", name.Position);
         }
 
         return spec.Create(arguments.ToArray());
+    }
+
+    // Excel stores newer functions with an "_xlfn." prefix; normalize it (and the bare "XLFN.") away.
+    private static string NormalizeFunctionName(string name)
+    {
+        if (name.StartsWith("_xlfn.", StringComparison.OrdinalIgnoreCase))
+        {
+            return name["_xlfn.".Length..];
+        }
+
+        if (name.StartsWith("xlfn.", StringComparison.OrdinalIgnoreCase))
+        {
+            return name["xlfn.".Length..];
+        }
+
+        return name;
     }
 
     private Token Advance()
