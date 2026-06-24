@@ -110,6 +110,33 @@ public sealed partial class Workbook
         return result;
     }
 
+    /// <summary>
+    /// Serializes the workbook to a file (MemoryPack). The cell cache and registered custom functions are
+    /// not persisted — they are rebuilt/re-registered after loading.
+    /// </summary>
+    public void Save(string path) => File.WriteAllBytes(path, MemoryPackSerializer.Serialize(this));
+
+    /// <inheritdoc cref="Save"/>
+    public async Task SaveAsync(string path, CancellationToken cancellationToken = default)
+    {
+        await using var stream = File.Create(path);
+        await MemoryPackSerializer.SerializeAsync(stream, this, cancellationToken: cancellationToken);
+    }
+
+    /// <summary>Loads a workbook from a file written by <see cref="Save"/> and returns the new instance.</summary>
+    public static Workbook Load(string path) =>
+        MemoryPackSerializer.Deserialize<Workbook>(File.ReadAllBytes(path))
+        ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+
+    /// <inheritdoc cref="Load"/>
+    public static async Task<Workbook> LoadAsync(string path, CancellationToken cancellationToken = default)
+    {
+        await using var stream = File.OpenRead(path);
+
+        return await MemoryPackSerializer.DeserializeAsync<Workbook>(stream, cancellationToken: cancellationToken)
+            ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+    }
+
     public void RegisterFunction(string name, CustomFunction function) =>
         (_functions ??= new(StringComparer.OrdinalIgnoreCase))[name] = function;
 
