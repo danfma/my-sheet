@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="benchmarks/MySheet.Benchmark/MySheet.Benchmark.csproj" />
-  <Project Path="MySheet/MySheet.csproj" />
-  <Project Path="tests\MySheet.Tests\MySheet.Tests.csproj" />
-</Solution>

@@ -9,15 +9,15 @@ footer (or `!`) bumps the major.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request to `main`: it builds `MySheet.slnx`
-(Release) and runs the test suite (`dotnet run --project tests/MySheet.Tests/MySheet.Tests.csproj`).
+`.github/workflows/ci.yml` runs on every push and pull request to `main`: it builds `Danfma.MySheet.slnx`
+(Release) and runs the test suite (`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj`).
 The .NET SDK is pinned in `global.json`.
 
 ## Releasing
 
 Releases are **manual** and separate from `main` — pushing to `main` never publishes. The release runs
 through `.github/workflows/release.yml` (`workflow_dispatch`), which: bumps the version + `CHANGELOG.md`
-via versionize, commits and tags, packs `MySheet`, and publishes to NuGet.org using
+via versionize, commits and tags, packs `Danfma.MySheet`, and publishes to NuGet.org using
 **Trusted Publishing** (OIDC — no stored API key), then creates a GitHub Release.
 
 ### One-time setup

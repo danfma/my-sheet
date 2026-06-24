@@ -1,4 +1,4 @@
-# MySheet
+# Danfma.MySheet
 
 A fast, in-memory spreadsheet formula engine for .NET — parse Excel-style formulas, evaluate them, and
 extract data, without a full spreadsheet application.
@@ -21,10 +21,14 @@ extract data, without a full spreadsheet application.
 
 ## Quick start
 
+```
+dotnet add package Danfma.MySheet
+```
+
 ```csharp
-using MySheet;
-using MySheet.Parsing;
-using MySheet.Expressions;
+using Danfma.MySheet;
+using Danfma.MySheet.Parsing;
+using Danfma.MySheet.Expressions;
 
 var workbook = new Workbook();
 var sheet = workbook.Sheets.Add("Sheet1");

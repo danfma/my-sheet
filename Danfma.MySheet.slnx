@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="benchmarks\Danfma.MySheet.Benchmark\Danfma.MySheet.Benchmark.csproj" />
+  <Project Path="Danfma.MySheet\Danfma.MySheet.csproj" />
+  <Project Path="tests\Danfma.MySheet.Tests\Danfma.MySheet.Tests.csproj" />
+</Solution>
