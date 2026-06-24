@@ -145,7 +145,8 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
         if (left is CellReference start && right is CellReference end)
         {
-            return new RangeReference(start.Id, end.Id, sheetName);
+            // The range lives on the start cell's sheet (e.g. Sheet2!A1:B2 is all on Sheet2).
+            return new RangeReference(start.Id, end.Id, start.SheetName);
         }
 
         throw new ParseException("The ':' range operator requires cell references", colon.Position);
@@ -153,6 +154,12 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
     private Expression ParseIdentifier(Token token)
     {
+        // A name before '!' is a sheet qualifier: Sheet2!A1, 'My Sheet'!A1.
+        if (Current.Type == TokenType.Bang)
+        {
+            return ParseQualifiedReference(token.Text);
+        }
+
         if (Current.Type == TokenType.LParen)
         {
             return ParseFunctionCall(token);
@@ -165,12 +172,31 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
         if (IsCellReference(token.Text))
         {
-            return new CellReference(token.Text.ToUpperInvariant(), sheetName);
+            return new CellReference(NormalizeCellId(token.Text), sheetName);
         }
 
         // A bare name: a LET-bound name resolved at evaluation time (#NAME? if unbound).
         return new NameReference(token.Text);
     }
+
+    private Expression ParseQualifiedReference(string sheet)
+    {
+        Expect(TokenType.Bang);
+        var token = Advance();
+
+        if (token.Type != TokenType.Identifier || !IsCellReference(token.Text))
+        {
+            throw new ParseException("Expected a cell reference after '!'", token.Position);
+        }
+
+        return new CellReference(NormalizeCellId(token.Text), sheet);
+    }
+
+    // Strips absolute markers ('$') and upper-cases, e.g. $A$1 -> A1. The reference identifies the same
+    // cell regardless of '$'; absolute/relative only matters for Excel copy/fill, which we do not do.
+    private static string NormalizeCellId(string text) => StripDollars(text).ToUpperInvariant();
+
+    private static string StripDollars(string text) => text.Contains('$') ? text.Replace("$", string.Empty) : text;
 
     private Expression ParseFunctionCall(Token name)
     {
@@ -306,6 +332,8 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
     private static bool IsCellReference(string text)
     {
+        text = StripDollars(text);
+
         var letters = 0;
         while (letters < text.Length && char.IsLetter(text[letters]))
         {

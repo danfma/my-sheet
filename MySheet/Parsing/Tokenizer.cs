@@ -43,7 +43,7 @@ internal sealed class Tokenizer(string text)
             return ReadNumber(start);
         }
 
-        if (char.IsLetter(c) || c == '_')
+        if (char.IsLetter(c) || c is '_' or '$')
         {
             return ReadIdentifier(start);
         }
@@ -51,6 +51,11 @@ internal sealed class Tokenizer(string text)
         if (c == '"')
         {
             return ReadString(start);
+        }
+
+        if (c == '\'')
+        {
+            return ReadQuotedName(start);
         }
 
         return ReadOperator(start);
@@ -101,9 +106,9 @@ internal sealed class Tokenizer(string text)
 
     private Token ReadIdentifier(int start)
     {
-        // Function names may contain '_' (A_HIDE) and '.' (XLFN.XLOOKUP); cell-ref classification in the
-        // parser still requires the strict [A-Za-z]+[0-9]+ shape, so those never become cell references.
-        while (_position < text.Length && (char.IsLetterOrDigit(text[_position]) || text[_position] is '_' or '.'))
+        // Names may contain '_' (A_HIDE), '.' (XLFN.XLOOKUP) and '$' (absolute refs like $A$1); cell-ref
+        // classification in the parser strips '$' and requires the strict [A-Za-z]+[0-9]+ shape.
+        while (_position < text.Length && (char.IsLetterOrDigit(text[_position]) || text[_position] is '_' or '.' or '$'))
         {
             _position++;
         }
@@ -141,6 +146,36 @@ internal sealed class Tokenizer(string text)
         throw new ParseException("Unterminated string literal", start);
     }
 
+    // A sheet name in single quotes (allows spaces/specials), e.g. 'My Sheet'!A1. '' is an escaped quote.
+    private Token ReadQuotedName(int start)
+    {
+        _position++; // opening quote
+        var builder = new StringBuilder();
+
+        while (_position < text.Length)
+        {
+            var c = text[_position];
+
+            if (c == '\'')
+            {
+                if (_position + 1 < text.Length && text[_position + 1] == '\'')
+                {
+                    builder.Append('\'');
+                    _position += 2;
+                    continue;
+                }
+
+                _position++; // closing quote
+                return new Token(TokenType.Identifier, builder.ToString(), start);
+            }
+
+            builder.Append(c);
+            _position++;
+        }
+
+        throw new ParseException("Unterminated quoted name", start);
+    }
+
     private Token ReadOperator(int start)
     {
         var c = text[_position];
@@ -157,6 +192,7 @@ internal sealed class Tokenizer(string text)
             case '(': _position++; return new Token(TokenType.LParen, "(", start);
             case ')': _position++; return new Token(TokenType.RParen, ")", start);
             case '=': _position++; return new Token(TokenType.Equal, "=", start);
+            case '!': _position++; return new Token(TokenType.Bang, "!", start);
 
             case '<':
                 _position++;

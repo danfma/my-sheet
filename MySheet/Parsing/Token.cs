@@ -20,6 +20,7 @@ internal enum TokenType
     Colon,
     LParen,
     RParen,
+    Bang,
     EndOfInput,
 }
 
