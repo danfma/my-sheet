@@ -20,6 +20,11 @@ namespace MySheet.Expressions;
 [MemoryPackUnion(11, typeof(Min))]
 [MemoryPackUnion(12, typeof(Max))]
 [MemoryPackUnion(13, typeof(Count))]
+[MemoryPackUnion(14, typeof(If))]
+[MemoryPackUnion(15, typeof(And))]
+[MemoryPackUnion(16, typeof(Or))]
+[MemoryPackUnion(17, typeof(Not))]
+[MemoryPackUnion(18, typeof(IfError))]
 public abstract partial record Expression
 {
     public abstract object? Compute(Workbook workbook);

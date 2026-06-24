@@ -7,10 +7,10 @@ public sealed partial record CellReference(string Id, string SheetName) : Refere
 {
     public override object? Compute(Workbook workbook)
     {
-        var cell = workbook.Sheets[SheetName].Cells[Id];
+        // Sheet indexer returns BlankValue for missing cells, so referencing an empty cell is blank
+        // rather than throwing.
+        var cell = workbook.Sheets[SheetName][Id];
 
         return cell.Compute(workbook);
     }
-
-    public Expression? Resolve(Workbook workbook) => workbook.Sheets[SheetName].Cells[Id];
 }

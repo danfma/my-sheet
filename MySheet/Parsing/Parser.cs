@@ -18,14 +18,21 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
     private const int PrefixBindingPower = 45;
     private const int RangeBindingPower = 50;
 
-    private static readonly Dictionary<string, Func<Expression[], Expression>> Functions =
+    private readonly record struct FunctionSpec(int MinArgs, int MaxArgs, Func<Expression[], Expression> Create);
+
+    private static readonly Dictionary<string, FunctionSpec> Functions =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["SUM"] = arguments => new Sum(arguments),
-            ["AVERAGE"] = arguments => new Average(arguments),
-            ["MIN"] = arguments => new Min(arguments),
-            ["MAX"] = arguments => new Max(arguments),
-            ["COUNT"] = arguments => new Count(arguments),
+            ["SUM"] = new(0, int.MaxValue, arguments => new Sum(arguments)),
+            ["AVERAGE"] = new(0, int.MaxValue, arguments => new Average(arguments)),
+            ["MIN"] = new(0, int.MaxValue, arguments => new Min(arguments)),
+            ["MAX"] = new(0, int.MaxValue, arguments => new Max(arguments)),
+            ["COUNT"] = new(0, int.MaxValue, arguments => new Count(arguments)),
+            ["IF"] = new(2, 3, arguments => new If(arguments)),
+            ["AND"] = new(1, int.MaxValue, arguments => new And(arguments)),
+            ["OR"] = new(1, int.MaxValue, arguments => new Or(arguments)),
+            ["NOT"] = new(1, 1, arguments => new Not(arguments)),
+            ["IFERROR"] = new(2, 2, arguments => new IfError(arguments)),
         };
 
     private int _index;
@@ -151,9 +158,20 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
         Expect(TokenType.RParen);
 
-        return Functions.TryGetValue(name.Text, out var factory)
-            ? factory(arguments.ToArray())
-            : ErrorValue.Name;
+        // Unknown function name is a semantic error (#NAME?); arity of a known function is structural,
+        // so a wrong count throws like Excel rejecting it at entry.
+        if (!Functions.TryGetValue(name.Text, out var spec))
+        {
+            return ErrorValue.Name;
+        }
+
+        if (arguments.Count < spec.MinArgs || arguments.Count > spec.MaxArgs)
+        {
+            throw new ParseException(
+                $"Function '{name.Text}' does not accept {arguments.Count} argument(s)", name.Position);
+        }
+
+        return spec.Create(arguments.ToArray());
     }
 
     private Token Advance()
