@@ -19,7 +19,19 @@ internal static class ArgumentFlattening
             }
             else
             {
-                yield return argument.Compute(context);
+                var value = argument.Compute(context);
+
+                if (value is RangeReference resultRange)
+                {
+                    foreach (var cellValue in resultRange.ExpandValues(context))
+                    {
+                        yield return cellValue;
+                    }
+                }
+                else
+                {
+                    yield return value;
+                }
             }
         }
     }
@@ -41,7 +53,19 @@ internal static class ArgumentFlattening
         }
         else
         {
-            values.Add(argument.Compute(context));
+            var value = argument.Compute(context);
+
+            if (value is RangeReference resultRange)
+            {
+                foreach (var cellValue in resultRange.ExpandValues(context))
+                {
+                    values.Add(cellValue);
+                }
+            }
+            else
+            {
+                values.Add(value);
+            }
         }
 
         return values;

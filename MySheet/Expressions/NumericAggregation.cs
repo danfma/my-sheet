@@ -41,7 +41,21 @@ internal static class NumericAggregation
                     break;
 
                 default:
-                    AddDirect(argument.Compute(context), ref fold, ref error);
+                    var argumentValue = argument.Compute(context);
+
+                    // A function (e.g. OFFSET) may yield a range value; expand it as referenced cells.
+                    if (argumentValue is RangeReference resultRange)
+                    {
+                        foreach (var cellValue in resultRange.ExpandValues(context))
+                        {
+                            AddReferenced(cellValue, ref fold, ref error);
+                        }
+                    }
+                    else
+                    {
+                        AddDirect(argumentValue, ref fold, ref error);
+                    }
+
                     break;
             }
         }

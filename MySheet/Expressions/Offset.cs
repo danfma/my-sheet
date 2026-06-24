@@ -36,21 +36,24 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return e2;
         }
 
-        if (height != 1 || width != 1)
-        {
-            // A multi-cell OFFSET result has no scalar value in the current model.
-            return ErrorValue.NotValue;
-        }
+        var startColumn = baseColumn + (int)columns;
+        var startRow = baseRow + (int)rows;
 
-        var column = baseColumn + (int)columns;
-        var row = baseRow + (int)rows;
-
-        if (column < 1 || row < 1)
+        if (startColumn < 1 || startRow < 1)
         {
             return ErrorValue.Reference;
         }
 
-        return context.Workbook.GetCellValue(sheetName, new CellAddress(column, row).ToId());
+        if (height == 1 && width == 1)
+        {
+            return context.Workbook.GetCellValue(sheetName, new CellAddress(startColumn, startRow).ToId());
+        }
+
+        // A multi-cell result is a range, expanded by functions that accept ranges (e.g. SUM(OFFSET(...))).
+        return new RangeReference(
+            new CellAddress(startColumn, startRow).ToId(),
+            new CellAddress(startColumn + (int)width - 1, startRow + (int)height - 1).ToId(),
+            sheetName);
     }
 
     private static bool TryBase(Expression reference, out string sheetName, out int column, out int row)

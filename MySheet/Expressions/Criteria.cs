@@ -104,7 +104,7 @@ internal sealed class Criteria
         _ => string.Empty,
     };
 
-    private static bool WildcardMatch(string pattern, string text)
+    internal static bool WildcardMatch(string pattern, string text)
     {
         var regex = new StringBuilder("^");
 

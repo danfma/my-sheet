@@ -180,12 +180,12 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
         if (Current.Type != TokenType.RParen)
         {
-            arguments.Add(ParseExpression(0));
+            arguments.Add(ParseArgument());
 
             while (Current.Type == TokenType.Comma)
             {
                 Advance();
-                arguments.Add(ParseExpression(0));
+                arguments.Add(ParseArgument());
             }
         }
 
@@ -208,6 +208,17 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         }
 
         return spec.Create(arguments.ToArray());
+    }
+
+    private Expression ParseArgument()
+    {
+        // An omitted argument (e.g. XLOOKUP(a,b,c,,2) or a trailing comma) is treated as blank.
+        if (Current.Type is TokenType.Comma or TokenType.RParen)
+        {
+            return BlankValue.Instance;
+        }
+
+        return ParseExpression(0);
     }
 
     // Excel stores newer functions with an "_xlfn." prefix; normalize it (and the bare "XLFN.") away.

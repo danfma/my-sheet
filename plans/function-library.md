@@ -153,8 +153,10 @@ Status: Complete (exceto SHEET, adiado)
 - [x] `SHEET`(0–1) (tag 53): `Sheet.Index` (ordem de inserção, atribuída em `Sheets.Add`); SHEET([ref/nome])
       → número 1-based; SHEET() → planilha atual (via `context.SheetName`). Lookups (INDEX/VLOOKUP/OFFSET)
       passaram a acessar células via `RangeReference.CellValueAt`/`GetCellValue` (cache + segurança de ciclo).
-- [ ] **Adiado (enhancements, não funções faltando)**: OFFSET multi-célula (retorno de range) e modos
-      avançados do XLOOKUP (match_mode/search_mode) — hoje OFFSET é escalar e XLOOKUP é exato.
+- [x] **Enhancements fechados**: OFFSET multi-célula retorna `RangeReference` (expandido por SUM/etc. via
+      "valor que é range → expande" em `NumericAggregation`/`ArgumentFlattening`); XLOOKUP com match_mode
+      (-1/0/1/2, curinga reusa `Criteria.WildcardMatch`) e search_mode (1/-1). **Argumento omitido** no
+      parser (`XLOOKUP(a,b,c,,2)` → blank; vírgula final deixou de lançar) — essencial para dados Excel reais.
 
 ### Phase Summary
 **142/142 verde**, 0 warnings. O `EvaluationContext` (escolha A do usuário) pavimenta LET (Fase 6) e a

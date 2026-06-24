@@ -208,11 +208,12 @@ public class ExpressionParserTests
     // --- Syntax errors throw ParseException ---
 
     [Test]
-    public async Task TrailingComma_Throws()
+    public async Task TrailingComma_IsOmittedArgument()
     {
-        var (_, sheet) = Grid();
+        var (workbook, sheet) = Grid(("A1", 5));
 
-        await Assert.That(() => ExpressionParser.Parse("=SUM(A1,)", sheet)).Throws<ParseException>();
+        // A trailing/omitted argument is blank (ignored by SUM), like Excel — not a syntax error.
+        await Assert.That(ExpressionParser.Parse("=SUM(A1,)", sheet).Compute(workbook) as double?).IsEqualTo(5.0);
     }
 
     [Test]
