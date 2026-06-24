@@ -19,9 +19,36 @@ public sealed partial class Workbook
     [MemoryPackIgnore]
     private Dictionary<string, CustomFunction>? _functions;
 
+    // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache).
+    [MemoryPackIgnore]
+    private ConcurrentDictionary<(string Sheet, string Id), object?>? _cache;
+
     public ConcurrentDictionary<string, Sheet> Sheets { get; init; } = new();
 
     public Sheet this[string key] => Sheets[key];
+
+    /// <summary>
+    /// Returns the computed value of a cell, memoizing it. The cache is NOT invalidated automatically on
+    /// mutation — call <see cref="InvalidateCache"/> after editing cells.
+    /// </summary>
+    public object? GetCellValue(string sheetName, string id)
+    {
+        var cache = _cache ??= new();
+        var key = (sheetName, id);
+
+        if (cache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        // Compute outside the dictionary (the formula recurses into GetCellValue), then store.
+        var value = Sheets[sheetName][id].Compute(new EvaluationContext(this, sheetName, id));
+        cache[key] = value;
+
+        return value;
+    }
+
+    public void InvalidateCache() => _cache?.Clear();
 
     public void RegisterFunction(string name, CustomFunction function) =>
         (_functions ??= new(StringComparer.OrdinalIgnoreCase))[name] = function;

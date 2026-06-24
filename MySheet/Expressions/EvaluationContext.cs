@@ -2,9 +2,10 @@ namespace MySheet.Expressions;
 
 /// <summary>
 /// Evaluation context threaded through Compute: the workbook, the cell currently being evaluated
-/// (null at the root), and local LET name bindings. Enables ROW()/SHEET(), LET scopes and memoization.
+/// (null at the root), and local LET name bindings. A readonly struct so threading it through the
+/// recursion allocates nothing (only the LET name map, when used, lives on the heap).
 /// </summary>
-public sealed class EvaluationContext
+public readonly struct EvaluationContext
 {
     private readonly IReadOnlyDictionary<string, object?>? _names;
 

@@ -2,7 +2,19 @@
 
 Cache lazy por célula no `Workbook` para evitar recomputar células-folha compartilhadas em carga
 read-heavy de extração em background. NÃO persiste (cache fora da serialização). Invalidação por
-flush total, disparada explicitamente. **Status: Not started** (a fazer após os condicionais).
+flush total, disparada explicitamente. **Status: F1 + F3 prontos** (cache + `GetCellValue` +
+redirecionamento de `CellReference` + `InvalidateCache()`). Falta F2 (ranges pelo cache) e F4 (ciclos).
+
+### Implementado (149/149 verde, 0 warnings)
+- `Workbook`: `[MemoryPackIgnore] ConcurrentDictionary<(string Sheet, string Id), object?> _cache` (lazy),
+  `GetCellValue(sheet, id)` (TryGetValue → computa fora → grava) e `InvalidateCache()` (flush total explícito).
+- `CellReference.Compute` delega a `GetCellValue` → célula referenciada por N fórmulas computa 1×.
+- **Otimização**: `EvaluationContext` virou `readonly struct` → threading do contexto NÃO aloca; toda
+  computação caiu para **24 B** (só o resultado boxed; era 72 B). Benchmark confirmado.
+- Testes: `MemoizationTests` (computa-1× via contador; `InvalidateCache` atualiza após mutação).
+- Trade-off medido: cache adiciona um lookup por referência (custo de tempo para células triviais),
+  compensado por não recomputar células caras/compartilhadas (o caso de uso). `null` (blank) é valor
+  cacheado válido; `ConcurrentDictionary` cobre o uso concorrente em background.
 
 ## Context
 Uso: extrair/processar dados de planilha em background, leitura-pesada, mutações raras após a montagem.
