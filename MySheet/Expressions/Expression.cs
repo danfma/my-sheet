@@ -53,6 +53,9 @@ namespace MySheet.Expressions;
 [MemoryPackUnion(44, typeof(Row))]
 [MemoryPackUnion(45, typeof(Match))]
 [MemoryPackUnion(46, typeof(Index))]
+[MemoryPackUnion(47, typeof(VLookup))]
+[MemoryPackUnion(48, typeof(XLookup))]
+[MemoryPackUnion(49, typeof(Offset))]
 public abstract partial record Expression
 {
     public abstract object? Compute(EvaluationContext context);

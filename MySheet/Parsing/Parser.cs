@@ -60,6 +60,9 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             ["ROW"] = new(0, 1, arguments => new Row(arguments)),
             ["MATCH"] = new(2, 3, arguments => new Match(arguments)),
             ["INDEX"] = new(2, 3, arguments => new MySheet.Expressions.Index(arguments)),
+            ["VLOOKUP"] = new(3, 4, arguments => new VLookup(arguments)),
+            ["XLOOKUP"] = new(3, 6, arguments => new XLookup(arguments)),
+            ["OFFSET"] = new(3, 5, arguments => new Offset(arguments)),
         };
 
     private int _index;

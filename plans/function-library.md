@@ -141,18 +141,22 @@ _(escrever quando a fase concluir)_
 ---
 
 ## Phase 5: Referência e lookup (difícil)
-Status: In progress
+Status: Complete (exceto SHEET, adiado)
 
-Exige estender o modelo de range/referência (acesso 2D, indexação por linha/coluna, retorno de referência).
+- [x] `RangeReference` 2D: `RowCount`, `ColumnCount`, `TopRow`, `CellAt` (1-based).
+- [x] **Contexto de avaliação introduzido** (`EvaluationContext`: Workbook + sheet/célula atual);
+      `Compute(EvaluationContext)` com overload `Compute(Workbook)` de compatibilidade; `CellReference`
+      seta a célula atual. (Refactor mecânico via subagente; commit `7c9ab7b`.)
+- [x] Records + `FunctionSpec` (tags 43–49): `ROWS`, `ROW` (inclui 0-arg via `context.CellId`),
+      `MATCH` (exato/aproximado), `INDEX` (quirk de 1 linha), `VLOOKUP`(3–4, exato/aproximado),
+      `XLOOKUP`(3–6, exato + if_not_found), `OFFSET`(3–5, escalar).
+- [ ] **Adiado**: `SHEET` (precisa de ordenação/índice de planilhas, que o modelo
+      `ConcurrentDictionary` não tem). OFFSET multi-célula (retorno de range) também adiado — hoje só escalar.
 
-- [x] `RangeReference` 2D: `RowCount`, `ColumnCount`, `TopRow`, `CellAt(workbook, row, column)` (1-based).
-- [x] Records + `FunctionSpec` (tags 43–46): `ROWS`(1), `ROW`(0–1, só forma com referência; 0-arg → #VALUE!
-      por falta de contexto da célula atual), `MATCH`(2–3, exato e aproximado asc/desc), `INDEX`(2–3, com
-      o quirk de range de 1 linha tratar o índice como coluna).
-- [ ] **Restante**: `VLOOKUP`(3–4), `XLOOKUP`(3–6), `OFFSET`(3–5), `SHEET`(0–1).
-- [ ] `ROW()`/`SHEET()` sem arg e retorno de referência (OFFSET) precisam de um contexto de avaliação
-      (célula atual / índice de planilha) — hoje `Compute(Workbook)` não carrega isso. Decidir: introduzir
-      contexto leve ou restringir essas formas.
+### Phase Summary
+**142/142 verde**, 0 warnings. O `EvaluationContext` (escolha A do usuário) pavimenta LET (Fase 6) e a
+memorização. Limitações registradas: SHEET adiado; OFFSET só escalar; XLOOKUP só modo exato; MATCH/VLOOKUP
+aproximado assume ordenação.
 
 ### Verification Plan
 - Testes: `ROW(A5)`→5, `ROWS(A1:A3)`→3, `MATCH(2,A1:A3,0)`, `INDEX(A1:A3,2)`, `VLOOKUP`, `OFFSET(A1,1,0)`,
