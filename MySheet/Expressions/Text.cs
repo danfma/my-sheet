@@ -22,9 +22,11 @@ public sealed partial record Text(Expression[] Arguments) : Function
 
         try
         {
-            return number.ToString(format, CultureInfo.InvariantCulture);
+            return ExcelDateFormat.IsDateOrTime(format)
+                ? DateTime.FromOADate(number).ToString(ExcelDateFormat.ToDotNet(format), CultureInfo.InvariantCulture)
+                : number.ToString(format, CultureInfo.InvariantCulture);
         }
-        catch (FormatException)
+        catch (Exception exception) when (exception is FormatException or ArgumentException or OverflowException)
         {
             return ErrorValue.NotValue;
         }

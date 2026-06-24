@@ -29,7 +29,13 @@ public sealed partial class Workbook
     [ThreadStatic]
     private static HashSet<(string Sheet, string Id)>? _evaluating;
 
-    public ConcurrentDictionary<string, Sheet> Sheets { get; init; } = new();
+    // Sheet names are case-insensitive, like Excel.
+    public ConcurrentDictionary<string, Sheet> Sheets { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // MemoryPack rebuilds the dictionary with the default (case-sensitive) comparer; restore ours.
+    [MemoryPackOnDeserialized]
+    private void RestoreSheetComparer() =>
+        Sheets = new ConcurrentDictionary<string, Sheet>(Sheets, StringComparer.OrdinalIgnoreCase);
 
     public Sheet this[string key] => Sheets[key];
 

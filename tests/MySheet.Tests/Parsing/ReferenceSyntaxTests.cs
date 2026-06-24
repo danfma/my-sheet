@@ -1,3 +1,4 @@
+using MemoryPack;
 using MySheet.Expressions;
 using MySheet.Parsing;
 
@@ -5,6 +6,30 @@ namespace MySheet.Tests.Parsing;
 
 public class ReferenceSyntaxTests
 {
+    [Test]
+    public async Task SheetNames_AreCaseInsensitive()
+    {
+        var workbook = new Workbook();
+        var sheet1 = workbook.Sheets.Add("Sheet1");
+        var other = workbook.Sheets.Add("Other");
+        sheet1["A1"] = new NumberValue(5);
+
+        await Assert.That(ExpressionParser.Parse("=SHEET1!A1", other).Compute(workbook) as double?).IsEqualTo(5.0);
+    }
+
+    [Test]
+    public async Task SheetNames_AreCaseInsensitive_AfterRoundTrip()
+    {
+        var workbook = new Workbook();
+        var sheet1 = workbook.Sheets.Add("Sheet1");
+        sheet1["A1"] = new NumberValue(5);
+
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(MemoryPackSerializer.Serialize(workbook))!;
+        var context = restored.Sheets.Add("Other");
+
+        await Assert.That(ExpressionParser.Parse("=sheet1!A1", context).Compute(restored) as double?).IsEqualTo(5.0);
+    }
+
     [Test]
     public async Task AbsoluteMarkers_AreIgnored()
     {

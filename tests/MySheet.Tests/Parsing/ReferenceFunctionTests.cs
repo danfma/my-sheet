@@ -119,6 +119,21 @@ public class ReferenceFunctionTests
     }
 
     [Test]
+    public async Task XLookup_BinarySearchModesReturnCorrectResults()
+    {
+        var (workbook, sheet) = Grid(
+            ("A1", N(1)), ("B1", T("a")),
+            ("A2", N(2)), ("B2", T("b")),
+            ("A3", N(3)), ("B3", T("c")));
+
+        // search_mode 2 / -2 (binary) are not optimized but must still return the correct match.
+        await Assert.That(ExpressionParser.Parse("=XLOOKUP(2,A1:A3,B1:B3,,0,2)", sheet).Compute(workbook) as string)
+            .IsEqualTo("b");
+        await Assert.That(ExpressionParser.Parse("=XLOOKUP(2,A1:A3,B1:B3,,0,-2)", sheet).Compute(workbook) as string)
+            .IsEqualTo("b");
+    }
+
+    [Test]
     public async Task XLookup_ReverseSearchFindsLast()
     {
         var (workbook, sheet) = Grid(
