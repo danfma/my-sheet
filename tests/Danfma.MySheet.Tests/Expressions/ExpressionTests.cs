@@ -34,4 +34,17 @@ public class ExpressionTests
 
         await Assert.That(result).IsEqualTo(3);
     }
+
+    [Test]
+    public async Task String_CreatesStringValue()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        sheet["A1"] = String("hello");
+
+        var result = sheet["A1"].Compute(workbook) as string;
+
+        await Assert.That(result).IsEqualTo("hello");
+    }
 }

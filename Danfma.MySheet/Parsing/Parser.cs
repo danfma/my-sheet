@@ -73,6 +73,15 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["LET"] = new(3, int.MaxValue, arguments => new Let(arguments)),
         ["TEXT"] = new(2, 2, arguments => new Text(arguments)),
         ["SHEET"] = new(0, 1, arguments => new SheetNumber(arguments)),
+        ["PMT"] = new(3, 5, arguments => new Pmt(arguments)),
+        ["PV"] = new(3, 5, arguments => new Pv(arguments)),
+        ["FV"] = new(3, 5, arguments => new Fv(arguments)),
+        ["NPER"] = new(3, 5, arguments => new Nper(arguments)),
+        ["IPMT"] = new(4, 6, arguments => new Ipmt(arguments)),
+        ["PPMT"] = new(4, 6, arguments => new Ppmt(arguments)),
+        ["NPV"] = new(2, int.MaxValue, arguments => new Npv(arguments)),
+        ["RATE"] = new(3, 6, arguments => new Rate(arguments)),
+        ["IRR"] = new(1, 2, arguments => new Irr(arguments)),
     };
 
     private int _index;

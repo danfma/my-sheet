@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" Version="1.*" />
+    <!-- Test-only oracle: a .NET port of Excel's financial functions, used to cross-check
+         our implementations against Excel's results. NOT referenced by the published library. -->
+    <PackageReference Include="ExcelFinancialFunctions" Version="3.2.0" />
   </ItemGroup>
 
   <ItemGroup>

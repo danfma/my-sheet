@@ -61,6 +61,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(52, typeof(Text))]
 [MemoryPackUnion(53, typeof(SheetNumber))]
 [MemoryPackUnion(54, typeof(UnionReference))]
+[MemoryPackUnion(55, typeof(Pmt))]
+[MemoryPackUnion(56, typeof(Pv))]
+[MemoryPackUnion(57, typeof(Fv))]
+[MemoryPackUnion(58, typeof(Nper))]
+[MemoryPackUnion(59, typeof(Ipmt))]
+[MemoryPackUnion(60, typeof(Ppmt))]
+[MemoryPackUnion(61, typeof(Npv))]
+[MemoryPackUnion(62, typeof(Rate))]
+[MemoryPackUnion(63, typeof(Irr))]
 public abstract partial record Expression
 {
     public abstract object? Compute(EvaluationContext context);
@@ -70,6 +79,9 @@ public abstract partial record Expression
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static NumberValue Number(double value) => new(value);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static StringValue String(string value) => new(value);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static CellReference Cell(string id, Sheet sheet) => Cell(id, sheet.Name);
