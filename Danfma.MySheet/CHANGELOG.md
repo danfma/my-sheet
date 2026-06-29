@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="0.2.0"></a>
+## [0.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v0.2.0) (2026-06-29)
+
+### Features
+
+* **financial:** adiciona PMT, PV, FV, NPER, IPMT, PPMT, NPV, RATE e IRR ([da1b9b8](https://www.github.com/danfma/my-sheet/commit/da1b9b865fbe5dd91287d936c71db47c0b500d67))
+
 <a name="0.1.1"></a>
 ## [0.1.1](https://www.github.com/danfma/my-sheet/releases/tag/v0.1.1) (2026-06-29)
 
