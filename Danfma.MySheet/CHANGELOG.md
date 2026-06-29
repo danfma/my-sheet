@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="0.1.1"></a>
+## [0.1.1](https://www.github.com/danfma/my-sheet/releases/tag/v0.1.1) (2026-06-29)
+
+### Bug Fixes
+
+* **lookup:** approximate-match compara chaves de texto em VLOOKUP/MATCH/XLOOKUP ([3460bb3](https://www.github.com/danfma/my-sheet/commit/3460bb3eaae706b5a854ce3fd1b330d82c8ca4aa))
+
 <a name="0.1.0"></a>
 ## [0.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v0.1.0) (2026-06-25)
 
