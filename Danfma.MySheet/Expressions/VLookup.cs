@@ -39,15 +39,27 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return modeError;
         }
 
+        if (lookup is ErrorValue lookupError)
+        {
+            return lookupError;
+        }
+
         var matchRow = -1;
 
         if (approximate)
         {
-            ValueCoercion.TryToNumber(lookup, out var target);
-
+            // Largest first-column key <= lookup, assuming the table is sorted ascending. Cross-type
+            // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like the
+            // <= operator — not only numeric keys.
             for (var row = 1; row <= table.RowCount; row++)
             {
-                if (table.CellValueAt(context, row, 1) is double key && key <= target)
+                var key = table.CellValueAt(context, row, 1);
+                if (key is null or ErrorValue)
+                {
+                    continue;
+                }
+
+                if (ValueCoercion.Compare(key, lookup) <= 0)
                 {
                     matchRow = row;
                 }

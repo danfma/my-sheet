@@ -35,8 +35,9 @@ public sealed partial record Match(Expression[] Arguments) : Function
         }
 
         // Approximate: matchType > 0 assumes ascending (largest value <= lookup); < 0 assumes
-        // descending (smallest value >= lookup).
-        if (ValueCoercion.TryToNumber(lookup, out var target) is { } lookupError)
+        // descending (smallest value >= lookup). Cross-type ordering (ValueCoercion.Compare) lets text
+        // keys sort lexicographically, exactly like the <= operator — not only numeric keys.
+        if (lookup is ErrorValue lookupError)
         {
             return lookupError;
         }
@@ -45,16 +46,19 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         for (var i = 0; i < array.Count; i++)
         {
-            if (array[i] is not double value)
+            var value = array[i];
+            if (value is null or ErrorValue)
             {
                 continue;
             }
 
-            if (matchType > 0 && value <= target)
+            var comparison = ValueCoercion.Compare(value, lookup);
+
+            if (matchType > 0 && comparison <= 0)
             {
                 position = i + 1;
             }
-            else if (matchType < 0 && value >= target)
+            else if (matchType < 0 && comparison >= 0)
             {
                 position = i + 1;
             }

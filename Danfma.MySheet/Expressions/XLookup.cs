@@ -95,22 +95,39 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
     private static int Closest(object? lookup, List<object?> array, int count, bool below)
     {
-        if (ValueCoercion.TryToNumber(lookup, out var target) is not null)
+        // An error has no place in the ordering, so there is no closest match.
+        if (lookup is ErrorValue)
         {
             return -1;
         }
 
+        // below: exact-or-next-smaller -> largest value <= lookup. !below: exact-or-next-larger ->
+        // smallest value >= lookup. Cross-type ordering (ValueCoercion.Compare) lets text keys sort
+        // lexicographically, exactly like the <= operator — not only numeric keys.
         var best = -1;
-        var bestValue = below ? double.NegativeInfinity : double.PositiveInfinity;
+        object? bestValue = null;
 
         for (var i = 0; i < count; i++)
         {
-            if (array[i] is not double value)
+            var value = array[i];
+            if (value is null or ErrorValue)
             {
                 continue;
             }
 
-            if (below ? value <= target && value > bestValue : value >= target && value < bestValue)
+            if (below ? ValueCoercion.Compare(value, lookup) > 0 : ValueCoercion.Compare(value, lookup) < 0)
+            {
+                continue;
+            }
+
+            if (
+                best < 0
+                || (
+                    below
+                        ? ValueCoercion.Compare(value, bestValue) > 0
+                        : ValueCoercion.Compare(value, bestValue) < 0
+                )
+            )
             {
                 best = i;
                 bestValue = value;
