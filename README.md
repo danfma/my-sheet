@@ -1,5 +1,7 @@
 # Danfma.MySheet
 
+[![NuGet](https://img.shields.io/nuget/v/Danfma.MySheet.svg)](https://www.nuget.org/packages/Danfma.MySheet/)
+
 A fast, in-memory spreadsheet formula engine for .NET — parse Excel-style formulas, evaluate them, and
 extract data, without a full spreadsheet application.
 
@@ -7,10 +9,10 @@ extract data, without a full spreadsheet application.
 
 - **Formula parser** (Pratt parser) for the Excel operator set: `+ - * / ^ %`, `&` (text), comparisons
   `= <> < > <= >=` (Excel cross-type ordering), and references `: ! ,` plus grouping `( )`.
-- **~40 built-in functions**: `IF/AND/OR/NOT/IFERROR/IFNA`, `SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK`,
+- **~50 built-in functions**: `IF/AND/OR/NOT/IFERROR/IFNA`, `SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK`,
   `COUNTIF(S)/SUMIF(S)`, text (`UPPER/LOWER/TRIM/LEN/LEFT/MID/VALUE/CONCAT/CONCATENATE/TEXTJOIN/TEXT`),
   math (`INT/ROUND/ROUNDUP/ABS`), info (`ISNUMBER/ISBLANK`), lookup (`ROW/ROWS/SHEET/MATCH/INDEX/VLOOKUP/
-  XLOOKUP/OFFSET`), and `LET`.
+  XLOOKUP/OFFSET`), financial (`PMT/PV/FV/NPER/IPMT/PPMT/NPV/RATE/IRR`), and `LET`.
 - **References**: sheet-qualified (`Sheet2!A1`, `'My Sheet'!A1:B2`), absolute markers (`$A$1`), and
   case-insensitive sheet names.
 - **Custom functions**: register host functions by name (`Workbook.RegisterFunction`) — they parse and
