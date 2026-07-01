@@ -485,3 +485,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Agent-Native Plans local bridge token
+.plan-url
+**/.plan-url

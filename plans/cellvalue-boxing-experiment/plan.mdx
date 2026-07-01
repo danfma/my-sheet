@@ -1,0 +1,345 @@
+---
+title: "Experimento: CellValue struct vs. object? — eliminar boxing no avaliador"
+kind: plan
+---
+
+# Experimento: `CellValue` struct vs. `object?`
+
+Provar, com BenchmarkDotNet e em escala pequena, se trocar o retorno de `Expression.Compute` de `object?`
+por um value type opaco `CellValue` elimina o boxing do caminho numérico **e** melhora o throughput o
+suficiente para justificar a migração completa do avaliador. O experimento roda na branch
+`experiment/cellvalue-struct` como um spike isolado no projeto de benchmark — **nenhum** dos 64 overrides
+de produção é tocado até o número decidir.
+
+**Done** = a tabela do BenchmarkDotNet compara as duas variantes nos mesmos workloads, e existe um veredito
+explícito (migrar / plano-B / abandonar) escrito contra um gate definido de antemão.
+
+**Fora de escopo:** migrar os 64 `Compute` reais, mexer no `Workbook._cache`, ou tocar em `ValueCoercion`
+de produção. Isso só acontece num plano futuro, se o gate for atingido.
+
+### Por que o boxing é o alvo
+
+Hoje `Expression.Compute(EvaluationContext) : object?` (`Danfma.MySheet/Expressions/Expression.cs:75`). O
+plano de memoização já mediu que, depois de `EvaluationContext` virar `readonly struct`, sobra **um único
+alocador no caminho quente: o box do `double`** (24 B por resultado). Cada célula numérica computada aloca
+um box de curta vida que morre em Gen0. Em extração em lote de milhares de células, isso vira pressão de GC
+real. É esse box que o experimento tenta matar.
+
+<Callout id="mechanism-decision" tone="decision">
+
+**Mecanismo travado: `readonly struct` de dois campos + tag — sem `Unsafe`.** A ideia original de emular
+uma union sobrepondo `double` e uma referência (`IntPtr`) via `[StructLayout(Explicit)]`/`Unsafe` **não
+carrega no CLR**: o GC é preciso e proíbe sobrepor um campo gerenciado (`object`/`string`) com um
+não-gerenciado no mesmo offset (`TypeLoadException` na carga do tipo). Guardar objeto como `IntPtr` cru
+exigiria `GCHandle`/pinning — mais caro que o box que se quer evitar. C# 14 / .NET 10 ainda não têm
+discriminated unions nativas, então emula-se com struct + tag. Nada de `Unsafe`, `FieldOffset`, `IntPtr`.
+
+</Callout>
+
+### Layout de memória: hoje vs. proposto
+
+<Diagram id="memory-layout" caption="object? aloca um box no heap; CellValue mora inline na pilha, com o caminho numérico sem alocação.">
+
+```html
+<div class="diagram-panel" data-rough>
+  <div class="diagram-card">
+    <div class="diagram-muted">Hoje — object?</div>
+    <div class="diagram-node">Compute() devolve object?</div>
+    <div class="diagram-box">heap: box do double · ~24 B</div>
+    <div class="diagram-muted">aloca por resultado + pointer-chase no unbox</div>
+  </div>
+  <div class="diagram-card">
+    <div class="diagram-muted">Proposto — CellValue (readonly struct, ~24 B)</div>
+    <div class="diagram-node">_num : double — Number | Bool(0/1) | Error(code) | Blank</div>
+    <div class="diagram-node">_ref : object? — Text | Reference (ref já existente)</div>
+    <div class="diagram-node">_kind : byte</div>
+    <div class="diagram-muted">na pilha/registradores · zero alloc no caminho numérico</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-panel { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
+.diagram-card { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
+.diagram-node, .diagram-box { padding: 8px 10px; }
+```
+
+</Diagram>
+
+O ponto elegante: Number, Bool, Blank e Error cabem todos no campo `double` + tag, então o caminho quente
+fica **livre de alocação** — inclusive os erros deixam de ser objetos no heap (o código do erro vai como
+`int` no `_num`). Só Text/Reference tocam o campo `object?`, e mesmo esses guardam uma referência que já
+existe, sem alocar nada novo.
+
+### Esboço do `CellValue`
+
+<Code
+  id="cellvalue-sketch"
+  filename="benchmarks/Danfma.MySheet.Benchmark/Spike/CellValue.cs"
+  language="csharp"
+  caption="Struct de dois campos + tag. Sem Unsafe. AsObject() é a ponte para os call sites antigos durante uma futura migração."
+  code={`public enum CellValueKind : byte { Blank, Number, Boolean, Error, Text, Reference }
+
+public readonly struct CellValue
+{
+    private readonly double _num;    // Number | Boolean(0/1) | Error(code) | Blank
+    private readonly object? _ref;    // Text(string) | Reference — null nos escalares
+    private readonly CellValueKind _kind;
+
+    private CellValue(double num, object? reference, CellValueKind kind)
+        => (_num, _ref, _kind) = (num, reference, kind);
+
+    public static readonly CellValue Blank = new(0, null, CellValueKind.Blank);
+    public static CellValue Number(double n) => new(n, null, CellValueKind.Number);
+    public static CellValue Bool(bool b) => new(b ? 1 : 0, null, CellValueKind.Boolean);
+    public static CellValue Error(int code) => new(code, null, CellValueKind.Error);
+    public static CellValue Text(string s) => new(0, s, CellValueKind.Text);
+
+    public CellValueKind Kind => _kind;
+
+    // Caminho quente: sem unbox, sem checagem de tipo por reflexão.
+    public bool TryGetNumber(out double value)
+    {
+        value = _num;
+        return _kind is CellValueKind.Number or CellValueKind.Boolean;
+    }
+
+    // Ponte para call sites que ainda esperam object? (migração gradual).
+    public object? AsObject() => _kind switch
+    {
+        CellValueKind.Number => _num,
+        CellValueKind.Boolean => _num != 0,
+        CellValueKind.Blank => null,
+        _ => _ref,
+    };
+}`}
+/>
+
+<Callout id="copy-risk" tone="risk">
+
+**O que pode matar o ganho — e por isso medimos.** `CellValue` (~24 B) é 3× o tamanho de um `object?`
+(8 B) para passar por valor num avaliador recursivo (105 call sites), acima do ponto-doce de 16 B onde o
+JIT enregistra o struct com folga. Parte do ganho de não-alocar pode voltar como tráfego de cópia na pilha.
+O saldo é *provavelmente* positivo, mas não é garantido — a decisão de migrar 64 arquivos tem que sair de
+um número, não de convicção.
+
+</Callout>
+
+### Escopo do experimento
+
+Spike isolado em `benchmarks/Danfma.MySheet.Benchmark`, com dois mini-ASTs equivalentes — uma variante
+`object?` (baseline, espelhando o `ValueCoercion.TryToNumber` atual com unbox) e uma variante `CellValue`
+(coerção via `TryGetNumber`, sem unbox). Modela o **domínio escalar completo** (Number/Bool/Blank/Error
+inline; Text/Reference no campo `object?`), com cargas **dominadas por aritmética** para refletir o caso de
+uso real de extração numérica.
+
+### Matriz de benchmark
+
+<Table
+  id="benchmark-matrix"
+  columns={["Workload", "O que exercita", "Variantes", "Métricas comparadas"]}
+  rows={[
+    ["SumFold(N)", "Soma de N filhos — aritmética pura, caminho quente", "object? vs CellValue", "Mean (ns), Allocated (B), Gen0"],
+    ["CumChain(N)", "Cadeia cumulativa profundidade N — captura o custo de cópia de 24 B na recursão", "object? vs CellValue", "Mean (ns), Allocated (B), Gen0"],
+    ["Mixed(N)", "Numérico dominante + ~5% Text/Error — workload realista", "object? vs CellValue", "Mean (ns), Allocated (B), Gen0"],
+  ]}
+/>
+
+### O gate de decisão
+
+<Diagram id="decision-gate" caption="O benchmark decide o desfecho; a migração dos 64 arquivos só acontece se ambas as condições passarem.">
+
+```html
+<div class="diagram-panel" data-rough>
+  <div class="diagram-node">Benchmark · MemoryDiagnoser</div>
+  <div class="diagram-gates">
+    <div class="diagram-pill">alloc ~0 no caminho numérico?</div>
+    <div class="diagram-pill">E ganho de throughput ≥ 15%?</div>
+  </div>
+  <div class="diagram-outcomes">
+    <div class="diagram-box">Ambos sim → Migrar (plano próprio, 64 arquivos)</div>
+    <div class="diagram-box">Só alloc caiu → Plano-B: box-cache de 0/1/true/false</div>
+    <div class="diagram-box">Nenhum → Abandonar + registrar o porquê</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-panel { display: flex; flex-direction: column; gap: 14px; }
+.diagram-gates { display: flex; gap: 12px; flex-wrap: wrap; }
+.diagram-pill { flex: 1 1 220px; padding: 10px 12px; text-align: center; }
+.diagram-outcomes { display: flex; flex-direction: column; gap: 8px; }
+.diagram-box { padding: 10px 12px; }
+```
+
+</Diagram>
+
+## Phase 1 — Spike: `CellValue` + mini-AST dual · ✅ Concluída
+
+Objetivo: montar o struct e os dois mini-ASTs equivalentes, garantindo que compilam sem `Unsafe` e que
+produzem os mesmos valores (medimos caminhos equivalentes, não um mais curto).
+
+<Checklist
+  id="phase1-items"
+  items={[
+    { id: "p1-cellvalue", label: "Criar Spike/CellValue.cs: readonly struct de dois campos + CellValueKind, fábricas e acessores. Sem Unsafe/FieldOffset/IntPtr.", checked: true },
+    { id: "p1-baseline", label: "Mini-AST variante A (object?): NumObj/BoolObj/TextObj/ErrObj, AddObj, SumObj; coerção via object? (unbox).", checked: true },
+    { id: "p1-experiment", label: "Mini-AST variante B (CellValue): mesmos nós retornando CellValue; coerção via TryGetNumber (sem unbox).", checked: true },
+    { id: "p1-domain", label: "Caminho Text (numérico) e Error (SpikeError singleton em cache) em ambas as variantes — só o box do double difere.", checked: true },
+    { id: "p1-build", label: "dotnet build -c Release do projeto de benchmark → 0 erros, 0 warnings.", checked: true },
+  ]}
+/>
+
+<Callout id="phase1-result" tone="success">
+
+**Verificado.** `dotnet build -c Release` → `Build succeeded`, **0 Warning(s)/0 Error(s)** (o struct compila
+sem `Unsafe` — não caímos na armadilha do `FieldOffset` overlap). `dotnet run -- --check` imprime
+`Spike self-check OK`: A e B batem em `SumFold(100)`=5050, `CumChain(100)`=5050, `Mixed(100)`, coerção de
+texto (`"3"+4`=7) e propagação de erro (código 3). Arquivos novos só em `Spike/`; core intocado.
+
+</Callout>
+
+<Callout id="phase2-stackoverflow" tone="warning">
+
+**Para a Fase 2:** `CumChain` recursiona a profundidade inteira; ~100k estoura a stack default (~1 MB) — o
+MySheet real usa `RunWithLargeStack`. No harness, usar profundidades seguras para `CumChain` (1.000 e ~5.000)
+e reservar o `N` grande (100.000) para `SumFold`/`Mixed`, que são folds largos (loop, sem recursão profunda).
+
+</Callout>
+
+## Phase 2 — Harness BenchmarkDotNet + medição · ✅ Concluída
+
+Objetivo: medir Mean, Allocated e Gen0 das três variantes nos três workloads e registrar os números.
+
+<Checklist
+  id="phase2-items"
+  items={[
+    { id: "p2-harness", label: "Spike/CellValueBenchmarks.cs com [MemoryDiagnoser], [ShortRunJob] e _Object como Baseline (coluna Ratio). Duas classes: FoldBenchmarks (N=1k/100k) e ChainBenchmarks (Depth=1k/3k).", checked: true },
+    { id: "p2-pairs", label: "Trios pareados por categoria: SumFold/Mixed/CumChain × _Object / _BoxCache / _CellValue.", checked: true },
+    { id: "p2-boxcache", label: "Variante box-cache (plano-B) em Spike/BoxCacheNodes.cs: cache de boxes de int 0..255 + true/false.", checked: true },
+    { id: "p2-runner", label: "Program.cs roda a suíte via BenchmarkSwitcher (-- --filter *Spike*); --check preservado.", checked: true },
+    { id: "p2-record", label: "Rodar em Release; relatórios salvos em plans/cellvalue-boxing-experiment/results-fold.md e results-chain.md.", checked: true },
+  ]}
+/>
+
+### Resultados medidos
+
+Ambiente: Apple M1 Pro, .NET 10.0.9, BenchmarkDotNet 0.15.8, `ShortRunJob`. Ratio = Mean / baseline
+`_Object` (menor = mais rápido); Allocated = alocação por operação.
+
+<Table
+  id="phase2-results"
+  columns={["Workload", "Object (baseline)", "Box-cache (plano-B)", "CellValue"]}
+  rows={[
+    ["SumFold N=1.000", "4,35 µs · 24.024 B", "3,80 µs (0,87×) · 17.904 B", "1,10 µs (0,25×) · 0 B"],
+    ["SumFold N=100.000", "476,9 µs · 2,40 MB", "437,1 µs (0,92×) · 2,39 MB", "111,8 µs (0,23×) · 0 B"],
+    ["Mixed N=1.000", "6,61 µs · 22.824 B", "5,87 µs (0,89×) · 17.016 B", "2,42 µs (0,37×) · 0 B"],
+    ["Mixed N=100.000", "611,7 µs · 2,28 MB", "638,3 µs (1,04× — mais lento) · 2,27 MB", "202,4 µs (0,33×) · 0 B"],
+    ["CumChain d=1.000", "13,31 µs · 47.976 B", "13,34 µs (1,00×) · 41.352 B", "5,85 µs (0,44×) · 0 B"],
+    ["CumChain d=3.000", "44,43 µs · 143.976 B", "43,74 µs (0,98×) · 137.352 B", "18,45 µs (0,42×) · 0 B"],
+  ]}
+/>
+
+<Callout id="phase2-reading" tone="info">
+
+`CellValue` zera a alocação (**0 B**, Gen0 `-`) em todos os casos e é **2,3×–4,3× mais rápido**. O box-cache
+mal arranha: remove 5–25% da alocação (só literais ≤255) e o throughput oscila entre 0,87× e **1,04×**
+(às vezes mais lento). Caveat: `ShortRunJob`/N=3 deixa alguns intervalos de confiança largos, mas os
+`RatioSD` são minúsculos e os efeitos (2–4×) são grandes demais para o ruído mudar a conclusão.
+
+</Callout>
+
+## Phase 2b — Cenário fiel: grafo memoizado + cache `CellValue` · ✅ Concluída
+
+O spike da Fase 2 isolava o box transitório num `Eval` puro — não cobria ranges, grafo de dependências com
+caminhos cruzados/compartilhados (A←B←C, D←B), nem o **cache**. É no cache que o boxing mais pesa: hoje
+`Workbook._cache` é `ConcurrentDictionary<…, object?>`, então cada valor numérico cacheado é um **box de vida
+longa** (promove para Gen1/Gen2). Este experimento compara `Dictionary<string, object?>` vs
+`Dictionary<string, CellValue>` numa extração em lote memoizada.
+
+<Table
+  id="phase2b-results"
+  columns={["Extração", "Mean", "Ratio", "Gen0", "Gen1", "Allocated"]}
+  rows={[
+    ["Graph_ObjCache 10k", "477,1 µs", "1,00", "38,1", "9,3", "239.904 B"],
+    ["Graph_CvCache 10k", "456,0 µs", "0,96", "–", "–", "0 B"],
+    ["Graph_ObjCache 100k", "5.642 µs", "1,00", "375,0", "171,9", "2.399.904 B"],
+    ["Graph_CvCache 100k", "4.949 µs", "0,88", "–", "–", "0 B"],
+  ]}
+/>
+
+<Callout id="phase2b-reading" tone="risk">
+
+**Dois achados — um corrige o veredito da Fase 2.** (1) **Alocação confirmada exatamente:** o cache `object?`
+boxa **24,0 B/célula** (medido 23,99 B) de **vida longa** → dispara **Gen1** (171,9/1000 ops em 100k); o cache
+`CellValue` aloca **0 B** e tem **zero** coletas (Gen0 e Gen1). Elimina a pressão de GC de geração alta — o que
+mais importa num extrator de background. (2) **Throughput modesto aqui:** só **4–12%** mais rápido —
+**abaixo dos 15%** — porque lookups de `Dictionary<string,…>` dominam esse caminho, não o box. Contrasta com
+os 2,3×–4,3× do caminho aritmético puro.
+
+</Callout>
+
+## Phase 3 — Decisão contra o gate · ✅ Concluída (veredito: MIGRAR, por GC/memória)
+
+Objetivo: comparar os números ao gate e escrever o veredito, sem tocar produção.
+
+<Callout id="phase3-verdict" tone="decision">
+
+**MIGRAR — com o argumento correto: memória/GC, não só velocidade.** `CellValue` zera a alocação em TODOS os
+cenários, mas o throughput depende do caminho: **2,3×–4,3×** no eval-heavy (aritmética, gate passa folgado) vs
+**4–12%** no cache-heavy (extração em lote de grafo — o caso de uso real declarado — **abaixo dos 15%**). A
+justificativa forte e universal é a **eliminação de alocação + pressão de Gen1** num processo de longa duração
+(alvo do memoization plan). O plano-B (box-cache) foi rejeitado; o risco da cópia de 24 B não se materializou.
+Se a decisão pesar só throughput bruto no caminho cache-heavy, o gate não é cruzado; se pesar GC/latência de
+cauda, o caso é forte. Migração dos 64 arquivos = plano separado, não executada aqui.
+
+</Callout>
+
+<Checklist
+  id="phase3-items"
+  items={[
+    { id: "p3-compare", label: "Comparar ao gate: alocação ~0 E ≥15% de Mean → ambos superados (0 B e 56–77% mais rápido).", checked: true },
+    { id: "p3-verdict", label: "Veredito escrito: MIGRAR; box-cache rejeitado com os números.", checked: true },
+    { id: "p3-migration-sketch", label: "Esboço da migração dos 64 arquivos registrado (CellValue no core → Compute base + ponte AsObject → ValueCoercion → nós folha→composto → _cache CellValue → remover ponte).", checked: true },
+    { id: "p3-branch", label: "Destino da branch — decisão do usuário (pendente): manter o spike como evidência (recomendado) ou descartar.", checked: false },
+  ]}
+/>
+
+**Verificação (autônoma):** Nenhum arquivo de produção alterado — `git diff --stat main -- Danfma.MySheet/`
+**vazio** (confirmado; o spike vive só em `benchmarks/.../Spike/` + `Program.cs`). Relatórios do
+BenchmarkDotNet preservados em `results-fold.md` / `results-chain.md`.
+
+### Open Questions
+
+O experimento está fechado (as decisões de escopo — box-cache como 3ª variante e `N`=1.000/100.000 —
+foram tomadas e executadas). Resta decidir o encaminhamento.
+
+<QuestionForm
+  id="open-questions"
+  questions={[
+    {
+      id: "branch-destiny",
+      title: "O que fazer com a branch experiment/cellvalue-struct?",
+      subtitle: "git diff do core está vazio — nada de produção a reverter; o spike vive só em benchmarks/.../Spike/.",
+      mode: "single",
+      options: [
+        { id: "keep", label: "Manter o spike como evidência (merge para main)", detail: "O spike + os relatórios justificam a migração e viram baseline reproduzível.", recommended: true },
+        { id: "alive", label: "Manter a branch viva até o plano de migração", detail: "Não faz merge ainda; a migração cresce na mesma branch." },
+        { id: "discard", label: "Descartar a branch", detail: "Guarda só os relatórios em plans/; remove o código do spike." },
+      ],
+      required: true,
+    },
+    {
+      id: "migration-go",
+      title: "Abrir agora o plano de migração dos 64 arquivos?",
+      subtitle: "Executado num plano próprio, TDD nó a nó, mantendo a suíte 177/177 verde.",
+      mode: "single",
+      options: [
+        { id: "now", label: "Sim — criar o plano de migração", detail: "Parte do Esboço da migração (Fase 3) como plano executável.", recommended: true },
+        { id: "later", label: "Depois — só registrar o veredito por ora", detail: "A migração fica no backlog; nada é iniciado agora." },
+      ],
+      required: true,
+    },
+  ]}
+  submitLabel="Responder"
+/>

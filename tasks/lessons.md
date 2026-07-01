@@ -20,3 +20,20 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   `dotnet run --project tests/...Tests.csproj -c Release -- --treenode-filter "/*/*/Classe/*"`.
 - **`.Within(tolerance)` do TUnit exige `double` (não `double?`).** Extrair o número com um helper que vira
   `NaN` quando vier `ErrorValue`, para o assert falhar limpo no RED em vez de lançar exceção no cast.
+
+## MySheet — design de API pública / refactor de representação (2026-07-01)
+
+- **Separar mudança de representação interna da forma da API pública.** No experimento `ComputedValue`
+  (trocar `object?` por struct para matar boxing), meu esboço de migração assumiu de cara "manter `object?`
+  público / remover a ponte `AsObject`" — um default conservador apresentado como se fosse obviamente certo.
+  O usuário queria justamente o oposto: **retornar** o novo tipo publicamente, com helpers ergonômicos. Lição:
+  o ganho de GC vem do interno (cache + nós passando o struct); a forma da API pública é decisão de produto
+  do usuário — apresentar como opções (A: preservar / B: opt-in / C: trocar), não cravar a conservadora.
+- **Validar a semântica do domínio de valor no código antes de opinar.** Sobre "qual o valor de uma range?":
+  o código já separa duas camadas — `RangeReference.Compute` → `#VALUE!`, `Expand()` → `IEnumerable<Expression>`
+  (referência), `ExpandValues()` → valores via cache. `IEnumerable<Expression>` NÃO sai do `Compute`; é camada
+  de referência. Ler `RangeReference.cs` antes de propor evitou confirmar uma modelagem que misturava camadas.
+- **Boxing no cache pesa mais que o transitório.** Medido: cache `object?` boxa 24 B/célula de **vida longa**
+  → dispara **Gen1**; cache `Dictionary<string, ComputedValue>` → 0 B, zero coletas. O throughput no caminho
+  cache-heavy sobe só 4–12% (lookups de Dictionary dominam), mas o ganho de GC é o argumento forte, não a
+  velocidade bruta. Não vender um refactor de perf só pelo throughput sem medir o eixo de alocação/GC.
