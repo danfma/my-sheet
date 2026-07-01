@@ -12,6 +12,4 @@ public sealed partial record IfError(Expression[] Arguments) : Function
         // The fallback is only computed when the first argument is an error (short-circuit).
         return value.Kind == ComputedValueKind.Error ? Arguments[1].Evaluate(context) : value;
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

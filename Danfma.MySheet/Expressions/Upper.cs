@@ -14,6 +14,4 @@ public sealed partial record Upper(Expression[] Arguments) : Function
 
         return ComputedValue.Text(text.ToUpperInvariant());
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

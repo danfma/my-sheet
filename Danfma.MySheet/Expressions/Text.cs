@@ -36,6 +36,4 @@ public sealed partial record Text(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Value);
         }
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

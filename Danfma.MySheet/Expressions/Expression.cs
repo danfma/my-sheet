@@ -72,17 +72,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(63, typeof(Irr))]
 public abstract partial record Expression
 {
-    public abstract object? Compute(EvaluationContext context);
-
-    // Backwards-compatible entry point used by tests/benchmark and external callers.
-    public object? Compute(Workbook workbook) => Compute(new EvaluationContext(workbook));
-
-    // New primary contract (returns a value type — no boxing). The default bridges from the legacy
-    // Compute so un-migrated nodes keep working; migrated nodes override this and route Compute through
-    // AsObject(). This is the transitional seam of the ComputedValue migration.
-    public virtual ComputedValue Evaluate(EvaluationContext context) => ComputedValue.From(Compute(context));
+    // Primary contract: evaluate the node to a value type, with no boxing. Every node implements this.
+    public abstract ComputedValue Evaluate(EvaluationContext context);
 
     public ComputedValue Evaluate(Workbook workbook) => Evaluate(new EvaluationContext(workbook));
+
+    // Interop/escape hatch: the loosely-typed boxed value, for callers that want `object?`.
+    public object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
+
+    public object? Compute(Workbook workbook) => Evaluate(new EvaluationContext(workbook)).AsObject();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static NumberValue Number(double value) => new(value);

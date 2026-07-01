@@ -22,6 +22,4 @@ public sealed partial record SheetNumber(Expression[] Arguments) : Function
             ? ComputedValue.Number(sheet.Index + 1)
             : ComputedValue.Error(Error.Ref);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

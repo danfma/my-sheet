@@ -41,8 +41,6 @@ public sealed partial record SumIfs(Expression[] Arguments) : Function
         return ComputedValue.Number(total);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private static bool AllMatch(List<List<object?>> ranges, List<Criteria> criterias, int index)
     {
         for (var j = 0; j < criterias.Count; j++)

@@ -14,6 +14,4 @@ public sealed partial record Not(Expression[] Arguments) : Function
 
         return ComputedValue.Boolean(!value);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

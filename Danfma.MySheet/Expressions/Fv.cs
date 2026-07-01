@@ -44,6 +44,4 @@ public sealed partial record Fv(Expression[] Arguments) : Function
         var result = TimeValueOfMoney.Fv(rate, nper, pmt, pv, type != 0 ? 1 : 0);
         return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

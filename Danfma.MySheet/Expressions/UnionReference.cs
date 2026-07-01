@@ -11,8 +11,6 @@ public sealed partial record UnionReference(Expression[] Areas) : Reference
 {
     public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     public IEnumerable<object?> ExpandValues(EvaluationContext context)
     {
         foreach (var area in Areas)

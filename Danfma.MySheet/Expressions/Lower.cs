@@ -14,6 +14,4 @@ public sealed partial record Lower(Expression[] Arguments) : Function
 
         return ComputedValue.Text(text.ToLowerInvariant());
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

@@ -14,6 +14,4 @@ public sealed partial record IfNa(Expression[] Arguments) : Function
             ? Arguments[1].Evaluate(context)
             : value;
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

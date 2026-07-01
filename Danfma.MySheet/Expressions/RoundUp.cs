@@ -24,6 +24,4 @@ public sealed partial record RoundUp(Expression[] Arguments) : Function
 
         return ComputedValue.Number(rounded / factor);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

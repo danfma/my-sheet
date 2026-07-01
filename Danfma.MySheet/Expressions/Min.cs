@@ -14,8 +14,6 @@ public sealed partial record Min(Expression[] Arguments) : Function
             : ComputedValue.Number(fold.HasValue ? fold.Value : 0.0);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private struct MinFold : INumericFold
     {
         public bool HasValue;

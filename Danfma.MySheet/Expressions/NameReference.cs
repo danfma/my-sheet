@@ -14,5 +14,4 @@ public sealed partial record NameReference(string Name) : Expression
             ? ComputedValue.From(value)
             : ComputedValue.Error(Error.Name);
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

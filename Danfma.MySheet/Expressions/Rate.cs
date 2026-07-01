@@ -60,6 +60,4 @@ public sealed partial record Rate(Expression[] Arguments) : Function
         var result = TimeValueOfMoney.Solve(Residual, guess);
         return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

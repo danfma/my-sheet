@@ -15,5 +15,4 @@ public sealed partial record FunctionCall(string Name, Expression[] Arguments) :
             ? ComputedValue.From(function(Arguments, context.Workbook))
             : ComputedValue.Error(Error.Name);
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

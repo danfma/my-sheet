@@ -21,6 +21,4 @@ public sealed partial record Or(Expression[] Arguments) : Function
 
         return ComputedValue.Boolean(result);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

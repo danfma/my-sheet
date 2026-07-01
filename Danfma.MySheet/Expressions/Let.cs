@@ -28,6 +28,4 @@ public sealed partial record Let(Expression[] Arguments) : Function
 
         return Arguments[^1].Evaluate(scope);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

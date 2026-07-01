@@ -20,6 +20,4 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
 
         return ComputedValue.Number(count);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

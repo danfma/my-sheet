@@ -22,6 +22,4 @@ public sealed partial record Concatenate(Expression[] Arguments) : Function
 
         return ComputedValue.Text(builder.ToString());
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

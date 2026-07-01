@@ -14,6 +14,4 @@ public sealed partial record Int(Expression[] Arguments) : Function
 
         return ComputedValue.Number(Math.Floor(number));
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

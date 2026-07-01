@@ -72,8 +72,6 @@ public sealed partial record Npv(Expression[] Arguments) : Function
         return error is { } propagated ? ComputedValue.From(propagated) : ComputedValue.Number(sum);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private static void AddReferenced(
         object? value,
         double denominator,

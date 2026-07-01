@@ -91,6 +91,4 @@ public sealed partial record BinaryOperation(
             _ => throw new ArgumentOutOfRangeException(nameof(Operator), Operator, null),
         };
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

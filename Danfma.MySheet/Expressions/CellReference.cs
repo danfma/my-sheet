@@ -10,5 +10,4 @@ public sealed partial record CellReference(string Id, string SheetName) : Refere
     public override ComputedValue Evaluate(EvaluationContext context) =>
         context.Workbook.GetCellComputedValue(SheetName, Id);
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

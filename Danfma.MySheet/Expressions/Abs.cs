@@ -14,6 +14,4 @@ public sealed partial record Abs(Expression[] Arguments) : Function
 
         return ComputedValue.Number(Math.Abs(number));
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

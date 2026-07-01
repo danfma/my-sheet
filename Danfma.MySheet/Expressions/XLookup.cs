@@ -45,8 +45,6 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             : ComputedValue.Error(Error.NA);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private static int FindMatch(
         object? lookup,
         List<object?> array,

@@ -58,6 +58,4 @@ public sealed partial record Ppmt(Expression[] Arguments) : Function
         var result = payment - interest;
         return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

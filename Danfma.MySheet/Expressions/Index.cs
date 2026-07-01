@@ -48,6 +48,4 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         return ComputedValue.From(range.CellValueAt(context, (int)row, (int)column));
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

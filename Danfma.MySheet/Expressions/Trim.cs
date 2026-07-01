@@ -15,6 +15,4 @@ public sealed partial record Trim(Expression[] Arguments) : Function
         // Excel TRIM strips leading/trailing spaces and collapses internal runs of spaces to one.
         return ComputedValue.Text(string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries)));
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

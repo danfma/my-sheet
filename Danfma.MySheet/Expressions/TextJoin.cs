@@ -36,6 +36,4 @@ public sealed partial record TextJoin(Expression[] Arguments) : Function
 
         return ComputedValue.Text(string.Join(delimiter, parts));
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

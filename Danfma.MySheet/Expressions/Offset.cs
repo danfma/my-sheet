@@ -62,8 +62,6 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         );
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private static bool TryBase(
         Expression reference,
         out string sheetName,

@@ -77,6 +77,4 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             ? ComputedValue.From(table.CellValueAt(context, matchRow, (int)columnIndex))
             : ComputedValue.Error(Error.NA);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

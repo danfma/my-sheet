@@ -15,5 +15,4 @@ public sealed partial record Row(Expression[] Arguments) : Function
             _ => ComputedValue.Error(Error.Value),
         };
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

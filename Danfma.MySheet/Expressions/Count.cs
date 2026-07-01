@@ -14,8 +14,6 @@ public sealed partial record Count(Expression[] Arguments) : Function
         return ComputedValue.Number(fold.Count);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private struct CountFold : INumericFold
     {
         public int Count;

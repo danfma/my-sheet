@@ -29,6 +29,4 @@ public sealed partial record Left(Expression[] Arguments) : Function
 
         return ComputedValue.Text(text[..Math.Min((int)count, text.Length)]);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

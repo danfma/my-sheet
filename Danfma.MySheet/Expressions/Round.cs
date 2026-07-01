@@ -21,6 +21,4 @@ public sealed partial record Round(Expression[] Arguments) : Function
 
         return ComputedValue.Number(Math.Round(number * factor, MidpointRounding.AwayFromZero) / factor);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

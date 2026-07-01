@@ -60,8 +60,6 @@ public sealed partial record Irr(Expression[] Arguments) : Function
         return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private static bool HasSignChange(List<double> flows)
     {
         var hasPositive = false;

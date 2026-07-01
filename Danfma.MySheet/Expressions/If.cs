@@ -20,6 +20,4 @@ public sealed partial record If(Expression[] Arguments) : Function
 
         return Arguments.Length == 3 ? Arguments[2].Evaluate(context) : ComputedValue.Boolean(false);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

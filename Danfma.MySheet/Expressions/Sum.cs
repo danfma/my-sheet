@@ -14,8 +14,6 @@ public sealed partial record Sum(Expression[] Expressions) : Function
             : ComputedValue.Number(fold.Total);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private struct SumFold : INumericFold
     {
         public double Total;

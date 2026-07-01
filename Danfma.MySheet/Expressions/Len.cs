@@ -14,6 +14,4 @@ public sealed partial record Len(Expression[] Arguments) : Function
 
         return ComputedValue.Number(text.Length);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

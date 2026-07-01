@@ -36,6 +36,4 @@ public sealed partial record Mid(Expression[] Arguments) : Function
 
         return ComputedValue.Text(text.Substring((int)start - 1, Math.Min((int)count, available)));
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

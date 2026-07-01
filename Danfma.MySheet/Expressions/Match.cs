@@ -65,6 +65,4 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         return position >= 1 ? ComputedValue.Number(position) : ComputedValue.Error(Error.NA);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

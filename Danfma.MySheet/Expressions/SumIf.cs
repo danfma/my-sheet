@@ -26,6 +26,4 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
 
         return ComputedValue.Number(total);
     }
-
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

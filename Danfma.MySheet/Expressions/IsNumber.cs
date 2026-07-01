@@ -9,5 +9,4 @@ public sealed partial record IsNumber(Expression[] Arguments) : Function
     public override ComputedValue Evaluate(EvaluationContext context) =>
         ComputedValue.Boolean(Arguments[0].Evaluate(context).Kind == ComputedValueKind.Number);
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

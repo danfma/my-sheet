@@ -19,8 +19,6 @@ public sealed partial record Average(Expression[] Arguments) : Function
             : ComputedValue.Number(fold.Total / fold.Count);
     }
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
     private struct AverageFold : INumericFold
     {
         public double Total;

@@ -9,5 +9,4 @@ public sealed partial record BlankValue : ValueExpression
 
     public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Blank;
 
-    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }
