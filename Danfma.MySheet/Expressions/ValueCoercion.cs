@@ -49,11 +49,13 @@ internal static class ValueCoercion
         }
     }
 
-    // --- Overloads nativos sobre ComputedValue (mesma semântica; sem boxing). A coerção é interna ao
-    // engine — o `Error` retornado é o que os nós migrados propagam. ---
+    // --- Coerção nativa sobre ComputedValue (mesma semântica; sem boxing). NÃO são métodos `Try*` (não
+    // retornam bool): devolvem o `Error` a propagar (ou `null` no sucesso), que os nós migrados encaminham
+    // via `if (CoerceTo…(x, out var v) is { } error) return error;`. A coerção é interna ao engine. ---
 
-    /// <summary>Coerção numérica nativa. Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
-    public static Error? TryToNumber(in ComputedValue value, out double number)
+    /// <summary>Coage a número (estilo-Excel). Retorna <c>null</c> no sucesso (valor em <paramref name="number"/>),
+    /// ou o <see cref="Error"/> a propagar na falha.</summary>
+    public static Error? CoerceToNumber(in ComputedValue value, out double number)
     {
         switch (value.Kind)
         {
@@ -87,8 +89,8 @@ internal static class ValueCoercion
         }
     }
 
-    /// <summary>Coerção booleana nativa (truthiness do Excel).</summary>
-    public static Error? TryToBool(in ComputedValue value, out bool result)
+    /// <summary>Coage a booleano (truthiness do Excel). Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
+    public static Error? CoerceToBool(in ComputedValue value, out bool result)
     {
         switch (value.Kind)
         {
@@ -116,8 +118,8 @@ internal static class ValueCoercion
         }
     }
 
-    /// <summary>Coerção textual nativa (blank→""; number→invariant; bool→TRUE/FALSE).</summary>
-    public static Error? TryToText(in ComputedValue value, out string text)
+    /// <summary>Coage a texto (blank→""; number→invariant; bool→TRUE/FALSE). Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
+    public static Error? CoerceToText(in ComputedValue value, out string text)
     {
         switch (value.Kind)
         {

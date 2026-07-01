@@ -50,43 +50,43 @@ public class EvaluateBridgeTests
     }
 
     [Test]
-    public async Task NativeCoercion_TryToNumber()
+    public async Task NativeCoercion_CoerceToNumber()
     {
-        await Assert.That(ValueCoercion.TryToNumber(ComputedValue.Number(2), out var number)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToNumber(ComputedValue.Number(2), out var number)).IsNull();
         await Assert.That(number).IsEqualTo(2.0);
 
-        await Assert.That(ValueCoercion.TryToNumber(ComputedValue.Boolean(true), out var boolean)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToNumber(ComputedValue.Boolean(true), out var boolean)).IsNull();
         await Assert.That(boolean).IsEqualTo(1.0);
 
-        await Assert.That(ValueCoercion.TryToNumber(ComputedValue.Text("3.5"), out var text)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToNumber(ComputedValue.Text("3.5"), out var text)).IsNull();
         await Assert.That(text).IsEqualTo(3.5);
 
-        await Assert.That(ValueCoercion.TryToNumber(ComputedValue.Blank, out var blank)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToNumber(ComputedValue.Blank, out var blank)).IsNull();
         await Assert.That(blank).IsEqualTo(0.0);
 
         // Texto não-numérico → #VALUE!; erro propaga.
-        await Assert.That(ValueCoercion.TryToNumber(ComputedValue.Text("abc"), out _)!.Value).IsEqualTo(Error.Value);
+        await Assert.That(ValueCoercion.CoerceToNumber(ComputedValue.Text("abc"), out _)!.Value).IsEqualTo(Error.Value);
         await Assert
-            .That(ValueCoercion.TryToNumber(ComputedValue.Error(Error.DivZero), out _)!.Value)
+            .That(ValueCoercion.CoerceToNumber(ComputedValue.Error(Error.DivZero), out _)!.Value)
             .IsEqualTo(Error.DivZero);
     }
 
     [Test]
-    public async Task NativeCoercion_TryToTextAndBool()
+    public async Task NativeCoercion_CoerceToTextAndBool()
     {
-        await Assert.That(ValueCoercion.TryToText(ComputedValue.Number(12.5), out var text)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToText(ComputedValue.Number(12.5), out var text)).IsNull();
         await Assert.That(text).IsEqualTo("12.5");
 
-        await Assert.That(ValueCoercion.TryToText(ComputedValue.Boolean(true), out var boolText)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToText(ComputedValue.Boolean(true), out var boolText)).IsNull();
         await Assert.That(boolText).IsEqualTo("TRUE");
 
-        await Assert.That(ValueCoercion.TryToBool(ComputedValue.Number(1), out var truthy)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToBool(ComputedValue.Number(1), out var truthy)).IsNull();
         await Assert.That(truthy).IsTrue();
 
-        await Assert.That(ValueCoercion.TryToBool(ComputedValue.Blank, out var falsy)).IsNull();
+        await Assert.That(ValueCoercion.CoerceToBool(ComputedValue.Blank, out var falsy)).IsNull();
         await Assert.That(falsy).IsFalse();
 
         // Texto num contexto booleano → #VALUE!.
-        await Assert.That(ValueCoercion.TryToBool(ComputedValue.Text("x"), out _)!.Value).IsEqualTo(Error.Value);
+        await Assert.That(ValueCoercion.CoerceToBool(ComputedValue.Text("x"), out _)!.Value).IsEqualTo(Error.Value);
     }
 }
