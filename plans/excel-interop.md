@@ -92,10 +92,11 @@ todo o trabalho do `ComputedValue` (breaking `feat!` → major); o release sai e
 - [x] Seed de versão do Excel alinhado ao core (`0.2.0`) — o versionize exige versões consistentes
       (**validado por dry-run local**: descobre exatamente os 2 projetos, propõe `0.2.0 → 1.0.0` pelos
       `feat!`, e o changelog já lista o `feat(excel)` do reader).
-- [ ] Fast-forward `feature/excel-interop` → `main` (a excel está 1 commit à frente; merge trivial).
-- [ ] `git push origin main` — **requer aval do usuário** (leva ~25 commits locais, incluindo o breaking).
+- [x] Fast-forward `feature/excel-interop` → `main` (90a6d71..771e033).
+- [x] `git push origin main` — feito com aval do usuário (b98d7da..771e033, 28 commits).
 - [ ] Disparar o workflow **Release** (workflow_dispatch) → publica os 2 pacotes no NuGet (OIDC) + tag
-      `v1.0.0` + GitHub Release.
+      `v1.0.0` + GitHub Release. **Ação do usuário** (`gh workflow run release.yml`), quando quiser.
+      Depois do release, dar `git pull` na main local (o workflow empurra o commit de bump + tag).
 
 ### Verification Plan
 - `versionize --dry-run` local: bump `0.2.0 → 1.0.0`, 2 projetos, changelog com `feat(excel)` — **já validado**.
