@@ -33,12 +33,4 @@ public sealed partial record UnionReference(Expression[] Areas) : Reference
         }
     }
 
-    /// <summary>Boxed (<c>object?</c>) view of <see cref="ExpandComputedValues"/>, for interop.</summary>
-    public IEnumerable<object?> ExpandValues(EvaluationContext context)
-    {
-        foreach (var value in ExpandComputedValues(context))
-        {
-            yield return value.AsObject();
-        }
-    }
 }

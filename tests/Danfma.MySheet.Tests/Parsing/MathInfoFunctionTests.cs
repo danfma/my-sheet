@@ -15,7 +15,7 @@ public class MathInfoFunctionTests
             sheet[id] = value;
         }
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     [Test]

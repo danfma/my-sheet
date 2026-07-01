@@ -72,15 +72,11 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(63, typeof(Irr))]
 public abstract partial record Expression
 {
-    // Primary contract: evaluate the node to a value type, with no boxing. Every node implements this.
+    // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a
+    // loosely-typed value call `.AsObject()` on the result.
     public abstract ComputedValue Evaluate(EvaluationContext context);
 
     public ComputedValue Evaluate(Workbook workbook) => Evaluate(new EvaluationContext(workbook));
-
-    // Interop/escape hatch: the loosely-typed boxed value, for callers that want `object?`.
-    public object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
-
-    public object? Compute(Workbook workbook) => Evaluate(new EvaluationContext(workbook)).AsObject();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static NumberValue Number(double value) => new(value);

@@ -3,60 +3,16 @@ using System.Globalization;
 namespace Danfma.MySheet.Expressions;
 
 /// <summary>
-/// Coerces the loosely-typed values returned by <see cref="Expression.Compute"/>
-/// (raw CLR scalars or an <see cref="ErrorValue"/> node) into numbers, propagating errors.
+/// Excel-style coercion and comparison over <see cref="ComputedValue"/>, kept internal to the engine (it is
+/// not part of the public value surface). The coercion helpers are extension methods, so they read fluently
+/// as <c>value.CoerceToNumber(out var n)</c>; they are NOT <c>Try*</c> (they do not return a bool) — they
+/// return the <see cref="Error"/> to propagate, or <c>null</c> on success, consumed via
+/// <c>if (value.CoerceTo…(out var v) is { } error) return error;</c>.
 /// </summary>
 internal static class ValueCoercion
 {
-    /// <summary>
-    /// Tries to coerce a computed value into a number. Returns <c>null</c> on success (with the
-    /// number in <paramref name="number"/>), or the <see cref="ErrorValue"/> to propagate on failure.
-    /// Blank/null coerces to 0; booleans to 1/0; numeric strings parse with the invariant culture.
-    /// </summary>
-    public static ErrorValue? TryToNumber(object? value, out double number)
-    {
-        switch (value)
-        {
-            case null:
-                number = 0;
-                return null;
-
-            case double d:
-                number = d;
-                return null;
-
-            case bool b:
-                number = b ? 1 : 0;
-                return null;
-
-            case string s
-                when double.TryParse(
-                    s,
-                    NumberStyles.Any,
-                    CultureInfo.InvariantCulture,
-                    out var parsed
-                ):
-                number = parsed;
-                return null;
-
-            case ErrorValue error:
-                number = 0;
-                return error;
-
-            default:
-                number = 0;
-                return ErrorValue.NotValue;
-        }
-    }
-
-    // --- Coerção nativa sobre ComputedValue, como EXTENSION methods (`this in ComputedValue`) → chamada
-    // fluente `value.CoerceToNumber(out var n)`, mantendo a coerção `internal` (fora da API pública do
-    // struct). NÃO são `Try*` (não retornam bool): devolvem o `Error` a propagar (ou `null` no sucesso),
-    // encaminhado via `if (value.CoerceTo…(out var v) is { } error) return error;`. Os legados `TryTo*(object?)`
-    // NÃO viram extensions de propósito (apareceriam em todo `object`). ---
-
-    /// <summary>Coage a número (estilo-Excel). Retorna <c>null</c> no sucesso (valor em <paramref name="number"/>),
-    /// ou o <see cref="Error"/> a propagar na falha.</summary>
+    /// <summary>Coerces to a number (Excel-style). <c>null</c> on success (value in <paramref name="number"/>),
+    /// or the <see cref="Error"/> to propagate on failure.</summary>
     public static Error? CoerceToNumber(this in ComputedValue value, out double number)
     {
         switch (value.Kind)
@@ -91,7 +47,7 @@ internal static class ValueCoercion
         }
     }
 
-    /// <summary>Coage a booleano (truthiness do Excel). Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
+    /// <summary>Coerces to a boolean condition (Excel truthiness). <c>null</c> on success, or the <see cref="Error"/> to propagate.</summary>
     public static Error? CoerceToBool(this in ComputedValue value, out bool result)
     {
         switch (value.Kind)
@@ -120,7 +76,7 @@ internal static class ValueCoercion
         }
     }
 
-    /// <summary>Coage a texto (blank→""; number→invariant; bool→TRUE/FALSE). Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
+    /// <summary>Coerces to text (blank→""; number→invariant; bool→TRUE/FALSE). <c>null</c> on success, or the <see cref="Error"/> to propagate.</summary>
     public static Error? CoerceToText(this in ComputedValue value, out string text)
     {
         switch (value.Kind)
@@ -155,143 +111,10 @@ internal static class ValueCoercion
     }
 
     /// <summary>
-    /// Tries to coerce a computed value into a boolean condition (Excel truthiness). Returns <c>null</c>
-    /// on success, or the <see cref="ErrorValue"/> to propagate. Blank→false; number→(≠0); text→#VALUE!.
+    /// Excel-style equality for <c>=</c>/<c>&lt;&gt;</c>: numbers compare numerically, strings
+    /// case-insensitively, different types are never equal (so <c>1="1"</c> is false); a blank equals the
+    /// "empty" of the other operand (<c>0</c>/<c>""</c>/<c>false</c>). Callers propagate errors first.
     /// </summary>
-    public static ErrorValue? TryToBool(object? value, out bool result)
-    {
-        switch (value)
-        {
-            case null:
-                result = false;
-                return null;
-
-            case bool b:
-                result = b;
-                return null;
-
-            case double d:
-                result = d != 0;
-                return null;
-
-            case ErrorValue error:
-                result = false;
-                return error;
-
-            default:
-                result = false;
-                return ErrorValue.NotValue;
-        }
-    }
-
-    /// <summary>
-    /// Coerces a computed value into its text representation. Returns <c>null</c> on success, or the
-    /// <see cref="ErrorValue"/> to propagate. Blank→""; number→invariant string; bool→TRUE/FALSE.
-    /// </summary>
-    public static ErrorValue? TryToText(object? value, out string text)
-    {
-        switch (value)
-        {
-            case null:
-                text = string.Empty;
-                return null;
-
-            case string s:
-                text = s;
-                return null;
-
-            case double d:
-                text = d.ToString(CultureInfo.InvariantCulture);
-                return null;
-
-            case bool b:
-                text = b ? "TRUE" : "FALSE";
-                return null;
-
-            case ErrorValue error:
-                text = string.Empty;
-                return error;
-
-            default:
-                text = string.Empty;
-                return ErrorValue.NotValue;
-        }
-    }
-
-    /// <summary>
-    /// Excel-style equality for the <c>=</c>/<c>&lt;&gt;</c> operators: numbers compare numerically,
-    /// strings case-insensitively, and values of different types are never equal (so <c>1="1"</c> is
-    /// false). A blank (<c>null</c>) is equal to the "empty" of the other operand: <c>0</c>, <c>""</c>
-    /// or <c>false</c>. Callers must propagate <see cref="ErrorValue"/> operands before calling this.
-    /// </summary>
-    public static bool AreEqual(object? left, object? right)
-    {
-        if (left is null && right is null)
-        {
-            return true;
-        }
-
-        if (left is null)
-        {
-            return IsBlankEquivalent(right!);
-        }
-
-        if (right is null)
-        {
-            return IsBlankEquivalent(left);
-        }
-
-        return (left, right) switch
-        {
-            (double l, double r) => l == r,
-            (bool l, bool r) => l == r,
-            (string l, string r) => string.Equals(l, r, StringComparison.OrdinalIgnoreCase),
-            _ => false,
-        };
-    }
-
-    /// <summary>
-    /// Excel-style ordering for <c>&lt; &gt; &lt;= &gt;=</c>: numbers sort before text, which sorts before
-    /// booleans (FALSE before TRUE); same-type text compares case-insensitively; blank counts as 0.
-    /// Callers must propagate <see cref="ErrorValue"/> operands before calling this.
-    /// </summary>
-    public static int Compare(object? left, object? right)
-    {
-        var (leftRank, leftNumber, leftText) = Classify(left);
-        var (rightRank, rightNumber, rightText) = Classify(right);
-
-        if (leftRank != rightRank)
-        {
-            return leftRank.CompareTo(rightRank);
-        }
-
-        return leftRank == 1
-            ? string.Compare(leftText, rightText, StringComparison.OrdinalIgnoreCase)
-            : leftNumber.CompareTo(rightNumber);
-    }
-
-    private static (int Rank, double Number, string Text) Classify(object? value) =>
-        value switch
-        {
-            null => (0, 0, string.Empty), // blank counts as 0
-            double d => (0, d, string.Empty),
-            string s => (1, 0, s),
-            bool b => (2, b ? 1 : 0, string.Empty),
-            _ => (1, 0, value.ToString() ?? string.Empty),
-        };
-
-    private static bool IsBlankEquivalent(object value) =>
-        value switch
-        {
-            double d => d == 0,
-            string s => s.Length == 0,
-            bool b => b == false,
-            _ => false,
-        };
-
-    // --- Igualdade/ordenação nativas sobre ComputedValue (mesma semântica das versões object?; sem boxing).
-    // Os chamadores propagam erros antes; aqui só chegam Number/Boolean/Text/Blank. ---
-
     public static bool AreEqual(in ComputedValue left, in ComputedValue right)
     {
         if (left.Kind == ComputedValueKind.Blank && right.Kind == ComputedValueKind.Blank)
@@ -336,6 +159,10 @@ internal static class ValueCoercion
         }
     }
 
+    /// <summary>
+    /// Excel-style ordering for <c>&lt; &gt; &lt;= &gt;=</c>: number &lt; text &lt; boolean (FALSE before
+    /// TRUE); same-type text compares case-insensitively; blank counts as 0. Callers propagate errors first.
+    /// </summary>
     public static int Compare(in ComputedValue left, in ComputedValue right)
     {
         var (leftRank, leftNumber, leftText) = Classify(left);
@@ -368,7 +195,7 @@ internal static class ValueCoercion
             return (2, boolean ? 1 : 0, string.Empty);
         }
 
-        // Blank conta como 0 (rank 0), como na versão object?; demais (Reference) conservador como texto.
+        // Blank counts as 0 (rank 0); other kinds (Reference) are conservatively treated as text.
         return value.Kind == ComputedValueKind.Blank ? (0, 0, string.Empty) : (1, 0, string.Empty);
     }
 

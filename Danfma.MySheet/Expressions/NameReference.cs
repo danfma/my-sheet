@@ -10,8 +10,6 @@ namespace Danfma.MySheet.Expressions;
 public sealed partial record NameReference(string Name) : Expression
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        context.TryGetName(Name, out var value)
-            ? ComputedValue.From(value)
-            : ComputedValue.Error(Error.Name);
+        context.TryGetName(Name, out var value) ? value : ComputedValue.Error(Error.Name);
 
 }

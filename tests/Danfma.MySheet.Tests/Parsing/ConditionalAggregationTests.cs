@@ -15,7 +15,7 @@ public class ConditionalAggregationTests
             sheet[id] = value;
         }
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     private static (string, Expression) N(string id, double v) => (id, new NumberValue(v));

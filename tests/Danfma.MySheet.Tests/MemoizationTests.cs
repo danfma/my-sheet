@@ -24,7 +24,7 @@ public class MemoizationTests
         sheet["A1"] = ExpressionParser.Parse("=TICK()", sheet);
         sheet["B1"] = ExpressionParser.Parse("=A1+A1", sheet);
 
-        var result = sheet["B1"].Compute(workbook) as double?;
+        var result = sheet["B1"].Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(10.0);
         // A1 is referenced twice but cached, so TICK runs once.
@@ -40,16 +40,16 @@ public class MemoizationTests
         sheet["A1"] = new NumberValue(10);
         sheet["B1"] = ExpressionParser.Parse("=A1", sheet);
 
-        await Assert.That(sheet["B1"].Compute(workbook) as double?).IsEqualTo(10.0);
+        await Assert.That(sheet["B1"].Evaluate(workbook).AsObject() as double?).IsEqualTo(10.0);
 
         sheet["A1"] = new NumberValue(20);
 
         // The cache is explicit: without invalidation the old value is still served.
-        await Assert.That(sheet["B1"].Compute(workbook) as double?).IsEqualTo(10.0);
+        await Assert.That(sheet["B1"].Evaluate(workbook).AsObject() as double?).IsEqualTo(10.0);
 
         workbook.InvalidateCache();
 
-        await Assert.That(sheet["B1"].Compute(workbook) as double?).IsEqualTo(20.0);
+        await Assert.That(sheet["B1"].Evaluate(workbook).AsObject() as double?).IsEqualTo(20.0);
     }
 
     [Test]
@@ -71,7 +71,7 @@ public class MemoizationTests
         sheet["A1"] = ExpressionParser.Parse("=TICK()", sheet);
         sheet["B1"] = ExpressionParser.Parse("=SUM(A1:A1)+A1", sheet);
 
-        var result = sheet["B1"].Compute(workbook) as double?;
+        var result = sheet["B1"].Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(10.0);
         // A1 reached through the range expansion and the direct reference shares one cache entry.
@@ -88,7 +88,7 @@ public class MemoizationTests
         sheet["B1"] = ExpressionParser.Parse("=A1", sheet);
 
         await Assert
-            .That(ExpressionParser.Parse("=A1", sheet).Compute(workbook))
+            .That(ExpressionParser.Parse("=A1", sheet).Evaluate(workbook).AsObject())
             .IsEqualTo(ErrorValue.Reference);
     }
 
@@ -107,7 +107,7 @@ public class MemoizationTests
         }
 
         var result =
-            Workbook.RunWithLargeStack(() => sheet[$"A{depth}"].Compute(workbook)) as double?;
+            Workbook.RunWithLargeStack(() => sheet[$"A{depth}"].Evaluate(workbook).AsObject()) as double?;
 
         await Assert.That(result).IsEqualTo((double)depth);
     }

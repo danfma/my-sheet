@@ -15,7 +15,7 @@ public class ExpressionTests
         sheet["A2"] = Number(2);
         sheet["A3"] = Sum(Cell("A1", sheet), Cell("A2", sheet));
 
-        var result = sheet["A3"].Compute(workbook) as double?;
+        var result = sheet["A3"].Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(3);
     }
@@ -30,7 +30,7 @@ public class ExpressionTests
         sheet["A2"] = Number(2);
         sheet["A3"] = ExpressionParser.Parse("=SUM(A1,A2)", sheet);
 
-        var result = sheet["A3"].Compute(workbook) as double?;
+        var result = sheet["A3"].Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(3);
     }
@@ -43,7 +43,7 @@ public class ExpressionTests
 
         sheet["A1"] = String("hello");
 
-        var result = sheet["A1"].Compute(workbook) as string;
+        var result = sheet["A1"].Evaluate(workbook).AsObject() as string;
 
         await Assert.That(result).IsEqualTo("hello");
     }

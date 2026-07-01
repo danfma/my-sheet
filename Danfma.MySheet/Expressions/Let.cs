@@ -23,7 +23,7 @@ public sealed partial record Let(Expression[] Arguments) : Function
                 return ComputedValue.Error(Error.Value);
             }
 
-            scope = scope.WithName(name.Name, Arguments[i + 1].Compute(scope));
+            scope = scope.WithName(name.Name, Arguments[i + 1].Evaluate(scope));
         }
 
         return Arguments[^1].Evaluate(scope);

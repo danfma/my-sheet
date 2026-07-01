@@ -10,27 +10,27 @@ public class UnaryOperationTests
     [Test]
     public async Task Negate_NegatesNumber()
     {
-        await Assert.That(Negate(Number(2)).Compute(Workbook) as double?).IsEqualTo(-2.0);
+        await Assert.That(Negate(Number(2)).Evaluate(Workbook).AsObject() as double?).IsEqualTo(-2.0);
     }
 
     [Test]
     public async Task Negate_Stacked_CancelsOut()
     {
         // -(-2) == 2
-        await Assert.That(Negate(Negate(Number(2))).Compute(Workbook) as double?).IsEqualTo(2.0);
+        await Assert.That(Negate(Negate(Number(2))).Evaluate(Workbook).AsObject() as double?).IsEqualTo(2.0);
     }
 
     [Test]
     public async Task Plus_KeepsNumber()
     {
-        await Assert.That(Plus(Number(3)).Compute(Workbook) as double?).IsEqualTo(3.0);
+        await Assert.That(Plus(Number(3)).Evaluate(Workbook).AsObject() as double?).IsEqualTo(3.0);
     }
 
     [Test]
     public async Task Negate_PropagatesError()
     {
         await Assert
-            .That(Negate(Divide(Number(1), Number(0))).Compute(Workbook))
+            .That(Negate(Divide(Number(1), Number(0))).Evaluate(Workbook).AsObject())
             .IsEqualTo(ErrorValue.DivByZero);
     }
 }

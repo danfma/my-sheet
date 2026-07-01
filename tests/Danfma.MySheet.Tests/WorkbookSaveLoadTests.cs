@@ -25,7 +25,7 @@ public class WorkbookSaveLoadTests
             Sample().Save(path);
             var loaded = Workbook.Load(path);
 
-            await Assert.That(loaded["Sheet1"]["A3"].Compute(loaded) as double?).IsEqualTo(3.0);
+            await Assert.That(loaded["Sheet1"]["A3"].Evaluate(loaded).AsObject() as double?).IsEqualTo(3.0);
         }
         finally
         {
@@ -43,7 +43,7 @@ public class WorkbookSaveLoadTests
             await Sample().SaveAsync(path);
             var loaded = await Workbook.LoadAsync(path);
 
-            await Assert.That(loaded["Sheet1"]["A3"].Compute(loaded) as double?).IsEqualTo(3.0);
+            await Assert.That(loaded["Sheet1"]["A3"].Evaluate(loaded).AsObject() as double?).IsEqualTo(3.0);
         }
         finally
         {

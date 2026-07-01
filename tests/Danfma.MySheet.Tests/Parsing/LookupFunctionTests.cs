@@ -15,7 +15,7 @@ public class LookupFunctionTests
             sheet[id] = new NumberValue(value);
         }
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     private static object? CalcMixed(string formula, params (string Id, object Value)[] cells)
@@ -34,7 +34,7 @@ public class LookupFunctionTests
             };
         }
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     [Test]

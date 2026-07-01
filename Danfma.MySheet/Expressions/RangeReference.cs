@@ -53,20 +53,11 @@ public sealed partial record RangeReference(string StartId, string EndId, string
         {
             for (var row = minRow; row <= maxRow; row++)
             {
-                yield return context.Workbook.GetCellComputedValue(
+                yield return context.Workbook.GetCellValue(
                     SheetName,
                     new CellAddress(column, row).ToId()
                 );
             }
-        }
-    }
-
-    /// <summary>Boxed (<c>object?</c>) view of <see cref="ExpandComputedValues"/>, for interop.</summary>
-    public IEnumerable<object?> ExpandValues(EvaluationContext context)
-    {
-        foreach (var value in ExpandComputedValues(context))
-        {
-            yield return value.AsObject();
         }
     }
 
@@ -88,10 +79,6 @@ public sealed partial record RangeReference(string StartId, string EndId, string
             Math.Min(start.Row, end.Row) + row - 1
         ).ToId();
 
-        return context.Workbook.GetCellComputedValue(SheetName, id);
+        return context.Workbook.GetCellValue(SheetName, id);
     }
-
-    /// <summary>Boxed (<c>object?</c>) view of <see cref="CellComputedValueAt"/>, for interop.</summary>
-    public object? CellValueAt(EvaluationContext context, int row, int column) =>
-        CellComputedValueAt(context, row, column).AsObject();
 }

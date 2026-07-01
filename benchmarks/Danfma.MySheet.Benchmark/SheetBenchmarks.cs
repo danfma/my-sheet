@@ -51,7 +51,7 @@ public class SheetBenchmarks
     [Benchmark, BenchmarkCategory("Compute")]
     public double? MySheetSum()
     {
-        return _mySheetWorkbook["Sheet1"]["A3"].Compute(_mySheetWorkbook) as double?;
+        return _mySheetWorkbook["Sheet1"]["A3"].Evaluate(_mySheetWorkbook).AsObject() as double?;
     }
 
     [Benchmark, BenchmarkCategory("Compute")]
@@ -63,7 +63,7 @@ public class SheetBenchmarks
     [Benchmark, BenchmarkCategory("Comparison")]
     public object? MySheetComparison()
     {
-        return _mySheetWorkbook["Sheet1"]["B1"].Compute(_mySheetWorkbook);
+        return _mySheetWorkbook["Sheet1"]["B1"].Evaluate(_mySheetWorkbook).AsObject();
     }
 
     [Benchmark, BenchmarkCategory("Comparison")]
@@ -75,7 +75,7 @@ public class SheetBenchmarks
     [Benchmark, BenchmarkCategory("TextEquality")]
     public object? MySheetTextEquality()
     {
-        return _mySheetWorkbook["Sheet1"]["B2"].Compute(_mySheetWorkbook);
+        return _mySheetWorkbook["Sheet1"]["B2"].Evaluate(_mySheetWorkbook).AsObject();
     }
 
     [Benchmark, BenchmarkCategory("TextEquality")]
@@ -87,7 +87,7 @@ public class SheetBenchmarks
     [Benchmark, BenchmarkCategory("Conditional")]
     public double? MySheetConditional()
     {
-        return _mySheetWorkbook["Sheet1"]["B3"].Compute(_mySheetWorkbook) as double?;
+        return _mySheetWorkbook["Sheet1"]["B3"].Evaluate(_mySheetWorkbook).AsObject() as double?;
     }
 
     [Benchmark, BenchmarkCategory("Conditional")]

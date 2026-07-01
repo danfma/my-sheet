@@ -10,7 +10,7 @@ public class LetFunctionTests
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     [Test]

@@ -15,7 +15,7 @@ public class ConditionalTests
             sheet[id] = value;
         }
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     private static Expression ParseOnly(string formula)

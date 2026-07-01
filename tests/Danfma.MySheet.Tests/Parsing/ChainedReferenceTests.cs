@@ -15,7 +15,7 @@ public class ChainedReferenceTests
         sheet["C1"] = ExpressionParser.Parse("=B1 & \"!\"", sheet);
 
         // C1 -> B1 -> A1
-        await Assert.That(sheet["C1"].Compute(workbook) as string).IsEqualTo("Hello, World!");
+        await Assert.That(sheet["C1"].Evaluate(workbook).AsObject() as string).IsEqualTo("Hello, World!");
     }
 
     [Test]
@@ -38,7 +38,7 @@ public class ChainedReferenceTests
         sheet["B1"] = ExpressionParser.Parse("=A1 & \" Lovelace\"", sheet);
         sheet["C1"] = ExpressionParser.Parse("=B1 & \" — \" & A1", sheet); // references A1 again
 
-        await Assert.That(sheet["C1"].Compute(workbook) as string).IsEqualTo("Ada Lovelace — Ada");
+        await Assert.That(sheet["C1"].Evaluate(workbook).AsObject() as string).IsEqualTo("Ada Lovelace — Ada");
         // A1 is reached via B1 and directly, but memoized → NAME() runs once.
         await Assert.That(calls).IsEqualTo(1);
     }

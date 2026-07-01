@@ -22,7 +22,7 @@ public class ExpressionParserTests
     {
         var (workbook, sheet) = Grid();
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     // --- Precedence / associativity ---
@@ -137,7 +137,7 @@ public class ExpressionParserTests
     {
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2));
 
-        var result = ExpressionParser.Parse("=SUM(A1,A2)", sheet).Compute(workbook) as double?;
+        var result = ExpressionParser.Parse("=SUM(A1,A2)", sheet).Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(3.0);
     }
@@ -147,7 +147,7 @@ public class ExpressionParserTests
     {
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2));
 
-        var result = ExpressionParser.Parse("=sum(a1,a2)", sheet).Compute(workbook) as double?;
+        var result = ExpressionParser.Parse("=sum(a1,a2)", sheet).Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(3.0);
     }
@@ -157,7 +157,7 @@ public class ExpressionParserTests
     {
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2));
 
-        var result = ExpressionParser.Parse("=AVERAGE(A1,A2)", sheet).Compute(workbook) as double?;
+        var result = ExpressionParser.Parse("=AVERAGE(A1,A2)", sheet).Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(1.5);
     }
@@ -167,7 +167,7 @@ public class ExpressionParserTests
     {
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
 
-        var result = ExpressionParser.Parse("=SUM(A1:A3)", sheet).Compute(workbook) as double?;
+        var result = ExpressionParser.Parse("=SUM(A1:A3)", sheet).Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(6.0);
     }
@@ -177,7 +177,7 @@ public class ExpressionParserTests
     {
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3), ("B1", 10));
 
-        var result = ExpressionParser.Parse("=SUM(A1:A3, B1)", sheet).Compute(workbook) as double?;
+        var result = ExpressionParser.Parse("=SUM(A1:A3, B1)", sheet).Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(16.0);
     }
@@ -188,7 +188,7 @@ public class ExpressionParserTests
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
 
         await Assert
-            .That(ExpressionParser.Parse("=A1:A3", sheet).Compute(workbook))
+            .That(ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook).AsObject())
             .IsEqualTo(ErrorValue.NotValue);
     }
 
@@ -216,7 +216,7 @@ public class ExpressionParserTests
         var (workbook, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
 
         var result =
-            ExpressionParser.Parse("=SUM(SUM(A1,A2),A3)", sheet).Compute(workbook) as double?;
+            ExpressionParser.Parse("=SUM(SUM(A1,A2),A3)", sheet).Evaluate(workbook).AsObject() as double?;
 
         await Assert.That(result).IsEqualTo(6.0);
     }
@@ -227,7 +227,7 @@ public class ExpressionParserTests
         var (workbook, sheet) = Grid(("A1", 1));
 
         await Assert
-            .That(ExpressionParser.Parse("=A1+FOO()", sheet).Compute(workbook))
+            .That(ExpressionParser.Parse("=A1+FOO()", sheet).Evaluate(workbook).AsObject())
             .IsEqualTo(ErrorValue.Name);
     }
 
@@ -240,7 +240,7 @@ public class ExpressionParserTests
 
         // A trailing/omitted argument is blank (ignored by SUM), like Excel — not a syntax error.
         await Assert
-            .That(ExpressionParser.Parse("=SUM(A1,)", sheet).Compute(workbook) as double?)
+            .That(ExpressionParser.Parse("=SUM(A1,)", sheet).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(5.0);
     }
 

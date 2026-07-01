@@ -29,7 +29,7 @@ public class AggregateFunctionTests
 
         var expr = Sum(Add(Number(1), Number(1)), Number(3));
 
-        await Assert.That(expr.Compute(workbook) as double?).IsEqualTo(5.0);
+        await Assert.That(expr.Evaluate(workbook).AsObject() as double?).IsEqualTo(5.0);
     }
 
     [Test]
@@ -41,7 +41,7 @@ public class AggregateFunctionTests
 
         var expr = Sum(Cell("A3", sheet), Number(1));
 
-        await Assert.That(expr.Compute(workbook) as double?).IsEqualTo(4.0);
+        await Assert.That(expr.Evaluate(workbook).AsObject() as double?).IsEqualTo(4.0);
     }
 
     [Test]
@@ -51,7 +51,7 @@ public class AggregateFunctionTests
 
         var expr = Sum(Range("A1", "A3", sheet));
 
-        await Assert.That(expr.Compute(workbook) as double?).IsEqualTo(6.0);
+        await Assert.That(expr.Evaluate(workbook).AsObject() as double?).IsEqualTo(6.0);
     }
 
     [Test]
@@ -61,7 +61,7 @@ public class AggregateFunctionTests
 
         var expr = Sum(new Danfma.MySheet.Expressions.StringValue("abc"), Number(1));
 
-        await Assert.That(expr.Compute(workbook)).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(expr.Evaluate(workbook).AsObject()).IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]
@@ -71,7 +71,7 @@ public class AggregateFunctionTests
 
         var expr = Sum(Cell("A1", sheet), Number(1));
 
-        await Assert.That(expr.Compute(workbook) as double?).IsEqualTo(1.0);
+        await Assert.That(expr.Evaluate(workbook).AsObject() as double?).IsEqualTo(1.0);
     }
 
     [Test]
@@ -81,7 +81,7 @@ public class AggregateFunctionTests
 
         var expr = Sum(Cell("A1", sheet), Number(1));
 
-        await Assert.That(expr.Compute(workbook)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(expr.Evaluate(workbook).AsObject()).IsEqualTo(ErrorValue.DivByZero);
     }
 
     // --- Average / Min / Max / Count ---
@@ -92,7 +92,7 @@ public class AggregateFunctionTests
         var (workbook, _) = Sheet();
 
         await Assert
-            .That(Average(Number(1), Number(3)).Compute(workbook) as double?)
+            .That(Average(Number(1), Number(3)).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(2.0);
     }
 
@@ -101,7 +101,7 @@ public class AggregateFunctionTests
     {
         var (workbook, _) = Sheet();
 
-        await Assert.That(Average().Compute(workbook)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Average().Evaluate(workbook).AsObject()).IsEqualTo(ErrorValue.DivByZero);
     }
 
     [Test]
@@ -110,7 +110,7 @@ public class AggregateFunctionTests
         var (workbook, _) = Sheet();
 
         await Assert
-            .That(Min(Number(3), Number(1), Number(2)).Compute(workbook) as double?)
+            .That(Min(Number(3), Number(1), Number(2)).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(1.0);
     }
 
@@ -120,7 +120,7 @@ public class AggregateFunctionTests
         var (workbook, _) = Sheet();
 
         await Assert
-            .That(Max(Number(3), Number(1), Number(2)).Compute(workbook) as double?)
+            .That(Max(Number(3), Number(1), Number(2)).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(3.0);
     }
 
@@ -129,7 +129,7 @@ public class AggregateFunctionTests
     {
         var (workbook, _) = Sheet();
 
-        await Assert.That(Min().Compute(workbook) as double?).IsEqualTo(0.0);
+        await Assert.That(Min().Evaluate(workbook).AsObject() as double?).IsEqualTo(0.0);
     }
 
     [Test]
@@ -143,6 +143,6 @@ public class AggregateFunctionTests
 
         var expr = Count(Range("A1", "A3", sheet));
 
-        await Assert.That(expr.Compute(workbook) as double?).IsEqualTo(2.0);
+        await Assert.That(expr.Evaluate(workbook).AsObject() as double?).IsEqualTo(2.0);
     }
 }

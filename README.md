@@ -19,8 +19,8 @@ extract data, without a full spreadsheet application.
   serialize with the workbook.
 - **Allocation-free evaluation**: `expression.Evaluate(workbook)` returns a `ComputedValue` — an opaque
   value-type union (number / boolean / text / blank / error / reference) that does **not** box numbers.
-  Extract strictly with `TryGetNumber`/`AsDouble`/`ToDouble` (and `TryGetError(out Error)`), or fall back
-  to the boxed `object?` via `Compute(...)` / `AsObject()` for interop.
+  Extract strictly with `TryGetNumber`/`AsDouble`/`ToDouble` (and `TryGetError(out Error)`), or get the
+  boxed `object?` via `AsObject()` for interop.
 - **Memoization**: per-cell cache (storing `ComputedValue` inline — no long-lived per-cell box) with
   explicit invalidation; circular references become `#REF!` instead of a stack overflow.
 - **MemoryPack serialization** of the workbook.
@@ -174,8 +174,7 @@ if (result.TryGetError(out Error error))     // e.g. error.Display == "#DIV/0!"
     // handle the error
 }
 
-// Or the boxed object? form, for interop:
-object? boxed = sheet["A3"].Compute(workbook); // 3.0 (double)
+object? boxed = result.AsObject();           // 3.0 (double) — for object?-based interop
 ```
 
 For deep dependency chains, wrap the evaluation in a large-stack thread:

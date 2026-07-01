@@ -12,7 +12,7 @@ public class BinaryOperationTests
     {
         var expr = Add(Number(1), Number(2));
 
-        await Assert.That(expr.Compute(Workbook) as double?).IsEqualTo(3.0);
+        await Assert.That(expr.Evaluate(Workbook).AsObject() as double?).IsEqualTo(3.0);
     }
 
     [Test]
@@ -21,7 +21,7 @@ public class BinaryOperationTests
         // (2 - 3) - 4 == -5
         var expr = Subtract(Subtract(Number(2), Number(3)), Number(4));
 
-        await Assert.That(expr.Compute(Workbook) as double?).IsEqualTo(-5.0);
+        await Assert.That(expr.Evaluate(Workbook).AsObject() as double?).IsEqualTo(-5.0);
     }
 
     [Test]
@@ -29,7 +29,7 @@ public class BinaryOperationTests
     {
         var expr = Power(Number(2), Number(3));
 
-        await Assert.That(expr.Compute(Workbook) as double?).IsEqualTo(8.0);
+        await Assert.That(expr.Evaluate(Workbook).AsObject() as double?).IsEqualTo(8.0);
     }
 
     [Test]
@@ -37,7 +37,7 @@ public class BinaryOperationTests
     {
         var expr = Divide(Number(1), Number(0));
 
-        await Assert.That(expr.Compute(Workbook)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(expr.Evaluate(Workbook).AsObject()).IsEqualTo(ErrorValue.DivByZero);
     }
 
     [Test]
@@ -45,7 +45,7 @@ public class BinaryOperationTests
     {
         var expr = GreaterThan(Number(2), Number(1));
 
-        await Assert.That(expr.Compute(Workbook) as bool?).IsTrue();
+        await Assert.That(expr.Evaluate(Workbook).AsObject() as bool?).IsTrue();
     }
 
     [Test]
@@ -54,7 +54,7 @@ public class BinaryOperationTests
         // 1 + (1 / 0) propagates #DIV/0!
         var expr = Add(Number(1), Divide(Number(1), Number(0)));
 
-        await Assert.That(expr.Compute(Workbook)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(expr.Evaluate(Workbook).AsObject()).IsEqualTo(ErrorValue.DivByZero);
     }
 
     [Test]
@@ -62,6 +62,6 @@ public class BinaryOperationTests
     {
         var expr = Add(new Danfma.MySheet.Expressions.StringValue("abc"), Number(1));
 
-        await Assert.That(expr.Compute(Workbook)).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(expr.Evaluate(Workbook).AsObject()).IsEqualTo(ErrorValue.NotValue);
     }
 }

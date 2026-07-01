@@ -3,28 +3,8 @@ using static Danfma.MySheet.Expressions.Expression;
 
 namespace Danfma.MySheet.Tests.Expressions;
 
-public class EvaluateBridgeTests
+public class EvaluateNativeTests
 {
-    private static Expression[] ValueNodes() =>
-    [
-        Number(3),
-        String("hi"),
-        new BooleanValue(true),
-        BlankValue.Instance,
-        ErrorValue.NotValue,
-    ];
-
-    [Test]
-    public async Task Evaluate_AsObject_MatchesLegacyCompute()
-    {
-        var workbook = new Workbook();
-
-        foreach (var node in ValueNodes())
-        {
-            await Assert.That(node.Evaluate(workbook).AsObject()).IsEqualTo(node.Compute(workbook));
-        }
-    }
-
     [Test]
     public async Task Evaluate_ProducesTypedKind()
     {
@@ -88,11 +68,10 @@ public class EvaluateBridgeTests
     }
 
     [Test]
-    public async Task Evaluate_UnmigratedNode_BridgesFromCompute()
+    public async Task Evaluate_Aggregation_Native()
     {
         var workbook = new Workbook();
 
-        // Sum ainda não foi migrado → usa o Evaluate default da base (From(Compute())).
         var result = Sum(Number(1), Number(2)).Evaluate(workbook);
 
         await Assert.That(result.Kind).IsEqualTo(ComputedValueKind.Number);

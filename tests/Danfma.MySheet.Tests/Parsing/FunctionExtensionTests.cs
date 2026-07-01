@@ -20,11 +20,11 @@ public class FunctionExtensionTests
         var (workbook, sheet) = NewSheet();
         workbook.RegisterFunction(
             "DOUBLE",
-            (args, wb) => (args[0].Compute(wb) as double? ?? 0) * 2
+            (args, wb) => (args[0].Evaluate(wb).AsObject() as double? ?? 0) * 2
         );
 
         await Assert
-            .That(ExpressionParser.Parse("=DOUBLE(21)", sheet).Compute(workbook) as double?)
+            .That(ExpressionParser.Parse("=DOUBLE(21)", sheet).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(42.0);
     }
 
@@ -34,7 +34,7 @@ public class FunctionExtensionTests
         var (workbook, sheet) = NewSheet();
 
         await Assert
-            .That(ExpressionParser.Parse("=NOPE()", sheet).Compute(workbook))
+            .That(ExpressionParser.Parse("=NOPE()", sheet).Evaluate(workbook).AsObject())
             .IsEqualTo(ErrorValue.Name);
     }
 
@@ -45,10 +45,10 @@ public class FunctionExtensionTests
         workbook.RegisterFunction("MYFN", (_, _) => 7.0);
 
         await Assert
-            .That(ExpressionParser.Parse("=XLFN.MYFN()", sheet).Compute(workbook) as double?)
+            .That(ExpressionParser.Parse("=XLFN.MYFN()", sheet).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(7.0);
         await Assert
-            .That(ExpressionParser.Parse("=_xlfn.MYFN()", sheet).Compute(workbook) as double?)
+            .That(ExpressionParser.Parse("=_xlfn.MYFN()", sheet).Evaluate(workbook).AsObject() as double?)
             .IsEqualTo(7.0);
     }
 
@@ -59,7 +59,7 @@ public class FunctionExtensionTests
         workbook.RegisterFunction("A_HIDE", (_, _) => true);
 
         await Assert
-            .That(ExpressionParser.Parse("=A_HIDE()", sheet).Compute(workbook) as bool?)
+            .That(ExpressionParser.Parse("=A_HIDE()", sheet).Evaluate(workbook).AsObject() as bool?)
             .IsTrue();
     }
 
@@ -76,9 +76,9 @@ public class FunctionExtensionTests
         restored.RegisterFunction(
             "CUSTOM",
             (args, wb) =>
-                (args[0].Compute(wb) as double? ?? 0) + (args[1].Compute(wb) as double? ?? 0)
+                (args[0].Evaluate(wb).AsObject() as double? ?? 0) + (args[1].Evaluate(wb).AsObject() as double? ?? 0)
         );
 
-        await Assert.That(restored["Sheet1"]["A1"].Compute(restored) as double?).IsEqualTo(3.0);
+        await Assert.That(restored["Sheet1"]["A1"].Evaluate(restored).AsObject() as double?).IsEqualTo(3.0);
     }
 }

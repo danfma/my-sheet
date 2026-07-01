@@ -1,0 +1,324 @@
+---
+title: "ComputedValue: elimina boxing no avaliador (experimento + Fases 1–2)"
+kind: recap
+localOnly: true
+---
+
+# ComputedValue: elimina boxing no avaliador
+
+Branch `feature/computed-value` sobre `main`. Migração incremental para trocar o retorno `object?` do
+avaliador por um value type `ComputedValue`, eliminando o boxing. Três capítulos: o **experimento** que prova
+o ganho, a **Fase 1** (tipos core, aditivo) e a **Fase 2** (o *seam* `Evaluate` + coerção nativa + nós-valor).
+
+**Motivação medida:** o cache do avaliador (`Dictionary<…, object?>`) boxa **24 B por célula** de vida longa
+→ dispara coletas **Gen1**. Com `Dictionary<…, ComputedValue>`: **0 B, zero coletas**. No caminho aritmético
+o struct é 2,3×–4,3× mais rápido; no caminho de extração em lote o ganho é 4–12% de throughput — mas o
+argumento forte é memória/GC num extrator de background.
+
+**Estratégia sempre-verde:** a base ganhou `Evaluate(ctx) : ComputedValue` com bridge default
+`From(Compute())`. Cada nó fica em um de dois estados consistentes; migrar = mover do estado "legado" para o
+"nativo", um nó por vez, com a suíte sempre verde (240/240). Nada breaking ainda — a virada da assinatura
+pública de `Compute` fica para fases seguintes.
+
+<Diagram id="mem-layout" caption="object? boxa cada valor no heap; ComputedValue mora inline. Medido: 0 B e zero Gen1 no cache.">
+
+```html
+<div class="diagram-panel" data-rough>
+  <div class="diagram-card">
+    <div class="diagram-muted">Hoje — cache object?</div>
+    <div class="diagram-node">Dictionary&lt;id, object?&gt;</div>
+    <div class="diagram-box">box do double · 24 B/célula · vida longa → Gen1</div>
+  </div>
+  <div class="diagram-card">
+    <div class="diagram-muted">ComputedValue — cache do struct</div>
+    <div class="diagram-node">_num : double | _ref : object? | _kind : byte</div>
+    <div class="diagram-box">struct inline · 0 B/célula · zero coletas Gen0/Gen1</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-panel { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
+.diagram-card { flex: 1 1 280px; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
+.diagram-node, .diagram-box { padding: 8px 10px; }
+```
+
+</Diagram>
+
+<Diagram id="seam" caption="O seam da migração: cada nó em um de dois estados consistentes por construção.">
+
+```html
+<div class="seam-panel" data-rough>
+  <div class="seam-row">
+    <div class="diagram-card">
+      <div class="diagram-muted">Nó NÃO migrado</div>
+      <div class="diagram-node">Compute nativo → object?</div>
+      <div class="diagram-node">Evaluate herdado = From(Compute())</div>
+    </div>
+    <div class="diagram-card">
+      <div class="diagram-muted">Nó migrado</div>
+      <div class="diagram-node">Evaluate nativo → ComputedValue</div>
+      <div class="diagram-node">Compute = Evaluate().AsObject()</div>
+    </div>
+  </div>
+  <div class="diagram-pill">migrar = mover da esquerda para a direita, um nó por vez, sempre verde</div>
+</div>
+```
+
+```css
+.seam-panel { display: flex; flex-direction: column; gap: 12px; }
+.seam-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.seam-row .diagram-card { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; padding: 14px; }
+.diagram-node { padding: 8px 10px; }
+.diagram-pill { padding: 8px 12px; text-align: center; }
+```
+
+</Diagram>
+
+<FileTree
+  id="files"
+  title="Arquivos (delta da branch sobre main)"
+  entries={[
+    { path: "Danfma.MySheet/Expressions/ComputedValue.cs", change: "added", note: "Tipo core: struct de dois campos + tag; TryGet*/As*/To*/EnumerateValues/AsObject/From." },
+    { path: "Danfma.MySheet/Expressions/Error.cs", change: "added", note: "Smart-enum struct dos erros do Excel (alloc-free); ToString=Display; ponte com ErrorValue." },
+    { path: "Danfma.MySheet/Expressions/Expression.cs", change: "modified", note: "Seam: Evaluate(ctx): ComputedValue virtual com bridge default From(Compute())." },
+    { path: "Danfma.MySheet/Expressions/NumberValue.cs", change: "modified", note: "Migrado: Evaluate nativo + Compute delega." },
+    { path: "Danfma.MySheet/Expressions/StringValue.cs", change: "modified", note: "Migrado (idem)." },
+    { path: "Danfma.MySheet/Expressions/BooleanValue.cs", change: "modified", note: "Migrado (idem)." },
+    { path: "Danfma.MySheet/Expressions/BlankValue.cs", change: "modified", note: "Migrado (idem)." },
+    { path: "Danfma.MySheet/Expressions/ErrorValue.cs", change: "modified", note: "Reconciliação com Error (AsError); Compute mantido = this (zero-risco)." },
+    { path: "Danfma.MySheet/Expressions/ValueCoercion.cs", change: "modified", note: "Coerção nativa como extension methods fluentes (CoerceTo*), internal." },
+    { path: "tests/Danfma.MySheet.Tests/Expressions/ComputedValueTests.cs", change: "added", note: "Contrato do ComputedValue." },
+    { path: "tests/Danfma.MySheet.Tests/Expressions/ErrorTests.cs", change: "added", note: "Contrato do Error." },
+    { path: "tests/Danfma.MySheet.Tests/Expressions/EvaluateBridgeTests.cs", change: "added", note: "Consistência Evaluate/Compute + coerção nativa fluente." },
+    { path: "benchmarks/Danfma.MySheet.Benchmark/Spike/", change: "added", note: "Experimento BenchmarkDotNet (fold/chain/graph) que prova o ganho." },
+    { path: "plans/computed-value-migration.md", change: "added", note: "Plano faseado (6 fases); Fases 1–2 Complete." },
+  ]}
+/>
+
+## Key changes
+
+<TabsBlock
+  id="key-changes"
+  tabs={[
+    {
+      id: "tab-computedvalue",
+      label: "ComputedValue.cs",
+      blocks: [
+        {
+          id: "cv-code",
+          type: "annotated-code",
+          data: {
+            filename: "Danfma.MySheet/Expressions/ComputedValue.cs",
+            language: "csharp",
+            summary: "Trecho: a forma do struct (união de dois campos + tag) e as fábricas.",
+            code: `public enum ComputedValueKind : byte { Blank, Number, Boolean, Text, Error, Reference }
+
+public readonly struct ComputedValue
+{
+    private readonly double _num;    // Number | Boolean(0/1) | Error(código)
+    private readonly object? _ref;   // Text(string) | Reference(Reference) — null nos escalares
+    private readonly ComputedValueKind _kind;
+
+    public static readonly ComputedValue Blank = new(0d, null, ComputedValueKind.Blank);
+
+    public static ComputedValue Number(double value) => new(value, null, ComputedValueKind.Number);
+
+    public static ComputedValue Boolean(bool value) => new(value ? 1d : 0d, null, ComputedValueKind.Boolean);
+
+    public static ComputedValue Text(string? value) =>
+        value is null ? Blank : new(0d, value, ComputedValueKind.Text);
+
+    public static ComputedValue Error(Error error) => new(error.Code, null, ComputedValueKind.Error);
+}`,
+            annotations: [
+              { lines: "5-7", label: "União de dois campos (sem Unsafe)", note: "Number/Boolean/Blank/Error cabem no _num (alloc-free); só Text/Reference tocam o _ref." },
+              { lines: "16-17", label: "Text nulo → Blank", note: "string null vira Blank, não Text(null)." },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-error",
+      label: "Error.cs",
+      blocks: [
+        {
+          id: "err-code",
+          type: "annotated-code",
+          data: {
+            filename: "Danfma.MySheet/Expressions/Error.cs",
+            language: "csharp",
+            summary: "Trecho: smart-enum struct alloc-free; ToString imprime o Display.",
+            code: `public readonly struct Error : IEquatable<Error>
+{
+    private readonly int _code;
+
+    public static readonly Error DivZero = new(1);
+    public static readonly Error Value = new(2);
+    public static readonly Error NA = new(6);
+
+    public string Display => (uint)_code < (uint)Displays.Length ? Displays[_code] : "#ERR?";
+
+    public override string ToString() => Display;
+
+    public static bool operator ==(Error left, Error right) => left._code == right._code;
+}`,
+            annotations: [
+              { lines: "3-6", label: "Alloc-free + well-known", note: "int code cabe no ComputedValue; erros do Excel como estáticos nomeados. Register() custom fica para depois." },
+              { lines: "10", label: "ToString = Display", note: "imprime \"#VALUE!\", \"#DIV/0!\", etc." },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-seam",
+      label: "Expression.cs (seam Evaluate)",
+      blocks: [
+        {
+          id: "seam-diff",
+          type: "diff",
+          data: {
+            filename: "Danfma.MySheet/Expressions/Expression.cs",
+            language: "csharp",
+            mode: "split",
+            summary: "Adiciona o contrato Evaluate na base, com bridge default a partir do Compute legado.",
+            before: `    // Backwards-compatible entry point used by tests/benchmark and external callers.
+    public object? Compute(Workbook workbook) => Compute(new EvaluationContext(workbook));
+`,
+            after: `    // Backwards-compatible entry point used by tests/benchmark and external callers.
+    public object? Compute(Workbook workbook) => Compute(new EvaluationContext(workbook));
+
+    // New primary contract (returns a value type — no boxing). The default bridges from the legacy
+    // Compute so un-migrated nodes keep working; migrated nodes override this and route Compute through
+    // AsObject(). This is the transitional seam of the ComputedValue migration.
+    public virtual ComputedValue Evaluate(EvaluationContext context) => ComputedValue.From(Compute(context));
+
+    public ComputedValue Evaluate(Workbook workbook) => Evaluate(new EvaluationContext(workbook));
+`,
+            annotations: [
+              { side: "after", lines: "7", label: "Bridge default", note: "nós não-migrados ganham Evaluate de graça (= From(Compute())) → suíte sempre verde durante a migração." },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-numbervalue",
+      label: "NumberValue.cs (migração)",
+      blocks: [
+        {
+          id: "num-diff",
+          type: "diff",
+          data: {
+            filename: "Danfma.MySheet/Expressions/NumberValue.cs",
+            language: "csharp",
+            mode: "split",
+            summary: "Padrão da migração de um nó-valor: Evaluate nativo tipado, Compute delega.",
+            before: `public sealed partial record NumberValue(double Value) : ValueExpression
+{
+    public override object? Compute(EvaluationContext context) => Value;
+}
+`,
+            after: `public sealed partial record NumberValue(double Value) : ValueExpression
+{
+    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Number(Value);
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
+}
+`,
+            annotations: [
+              { side: "after", lines: "3", label: "Evaluate nativo", note: "resultado tipado, sem boxing." },
+              { side: "after", lines: "5", label: "Compute delega", note: "single source of truth = Evaluate; Compute só faz a ponte AsObject()." },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-coercion",
+      label: "ValueCoercion.cs (coerção fluente)",
+      blocks: [
+        {
+          id: "coerce-code",
+          type: "annotated-code",
+          data: {
+            filename: "Danfma.MySheet/Expressions/ValueCoercion.cs",
+            language: "csharp",
+            summary: "Coerção nativa como extension method internal → chamada fluente, sem boxing.",
+            code: `// extension method → value.CoerceToNumber(out var n); internal (a coerção não vaza para a API pública)
+public static Error? CoerceToNumber(this in ComputedValue value, out double number)
+{
+    switch (value.Kind)
+    {
+        case ComputedValueKind.Blank:
+            number = 0;
+            return null;
+        case ComputedValueKind.Number:
+            value.TryGetNumber(out number);
+            return null;
+        case ComputedValueKind.Boolean:
+            value.TryGetBoolean(out var boolean);
+            number = boolean ? 1 : 0;
+            return null;
+        case ComputedValueKind.Error:
+            value.TryGetError(out var error);
+            number = 0;
+            return error;
+        default:
+            number = 0;
+            return Error.Value;
+    }
+}`,
+            annotations: [
+              { lines: "2", label: "this in → fluente, e NÃO é Try*", note: "chamada value.CoerceToNumber(out n); retorna Error? (o erro a propagar) — não bool, por isso não é Try*." },
+              { lines: "12-14", label: "Coerção interna", note: "bool→1 é semântica Excel interna; a API pública do struct continua estrita." },
+              { lines: "16-18", label: "Erro propaga", note: "operando de erro → devolve o Error via `is { } error`." },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      id: "tab-tests",
+      label: "EvaluateBridgeTests.cs",
+      blocks: [
+        {
+          id: "tests-code",
+          type: "annotated-code",
+          data: {
+            filename: "tests/Danfma.MySheet.Tests/Expressions/EvaluateBridgeTests.cs",
+            language: "csharp",
+            summary: "Trecho: consistência Evaluate/Compute e coerção nativa fluente.",
+            code: `[Test]
+public async Task Evaluate_AsObject_MatchesLegacyCompute()
+{
+    var workbook = new Workbook();
+
+    foreach (var node in ValueNodes())
+    {
+        await Assert.That(node.Evaluate(workbook).AsObject()).IsEqualTo(node.Compute(workbook));
+    }
+}
+
+[Test]
+public async Task NativeCoercion_CoerceToNumber()
+{
+    // Forma fluente (extension method): value.CoerceToNumber(out ...).
+    await Assert.That(ComputedValue.Number(2).CoerceToNumber(out var number)).IsNull();
+    await Assert.That(number).IsEqualTo(2.0);
+
+    await Assert.That(ComputedValue.Boolean(true).CoerceToNumber(out var boolean)).IsNull();
+    await Assert.That(boolean).IsEqualTo(1.0);
+}`,
+            annotations: [
+              { lines: "6-9", label: "Consistência do seam", note: "para cada nó-valor: Evaluate().AsObject() == Compute() legado." },
+              { lines: "15-16", label: "DX fluente", note: "valida a chamada value.CoerceToNumber(out ...) via extension." },
+            ],
+          },
+        },
+      ],
+    },
+  ]}
+/>

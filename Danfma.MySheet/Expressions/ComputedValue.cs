@@ -178,7 +178,7 @@ public readonly struct ComputedValue
         }
     }
 
-    /// <summary>Overload de conveniência (espelha <see cref="Expression.Compute(Workbook)"/>).</summary>
+    /// <summary>Overload de conveniência (espelha <see cref="Expression.Evaluate(Workbook)"/>).</summary>
     public IEnumerable<ComputedValue> EnumerateValues(Workbook workbook) =>
         EnumerateValues(new EvaluationContext(workbook));
 

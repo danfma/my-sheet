@@ -33,59 +33,6 @@ internal sealed class Criteria
         _text = text;
     }
 
-    public static Criteria Parse(object? value)
-    {
-        switch (value)
-        {
-            case double d:
-                return new Criteria(Op.Equal, numeric: true, d, string.Empty);
-            case bool b:
-                return new Criteria(Op.Equal, numeric: false, 0, b ? "TRUE" : "FALSE");
-            case null:
-                return new Criteria(Op.Equal, numeric: false, 0, string.Empty);
-        }
-
-        var (op, rest) = SplitOperator(value.ToString() ?? string.Empty);
-
-        return double.TryParse(rest, NumberStyles.Any, CultureInfo.InvariantCulture, out var number)
-            ? new Criteria(op, numeric: true, number, rest)
-            : new Criteria(op, numeric: false, 0, rest);
-    }
-
-    public bool Matches(object? cellValue)
-    {
-        if (_numeric)
-        {
-            if (cellValue is not double cell)
-            {
-                // A non-numeric cell only satisfies a numeric criterion under "<>".
-                return _op == Op.NotEqual;
-            }
-
-            return _op switch
-            {
-                Op.Equal => cell == _number,
-                Op.NotEqual => cell != _number,
-                Op.Greater => cell > _number,
-                Op.Less => cell < _number,
-                Op.GreaterOrEqual => cell >= _number,
-                Op.LessOrEqual => cell <= _number,
-                _ => false,
-            };
-        }
-
-        var text = CellText(cellValue);
-
-        return _op switch
-        {
-            Op.Equal => WildcardMatch(_text, text),
-            Op.NotEqual => !WildcardMatch(_text, text),
-            _ => false, // ordering is not defined for text criteria
-        };
-    }
-
-    // --- ComputedValue overloads (no boxing) ---
-
     public static Criteria Parse(in ComputedValue value)
     {
         if (value.TryGetNumber(out var d))
@@ -173,16 +120,6 @@ internal sealed class Criteria
             return (Op.Equal, s[1..]);
         return (Op.Equal, s);
     }
-
-    private static string CellText(object? value) =>
-        value switch
-        {
-            null => string.Empty,
-            string s => s,
-            double d => d.ToString(CultureInfo.InvariantCulture),
-            bool b => b ? "TRUE" : "FALSE",
-            _ => string.Empty,
-        };
 
     internal static bool WildcardMatch(string pattern, string text)
     {

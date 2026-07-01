@@ -46,14 +46,12 @@ public sealed partial class Workbook
     /// Returns the computed value of a cell, memoizing it. The cache is NOT invalidated automatically on
     /// mutation — call <see cref="InvalidateCache"/> after editing cells.
     /// </summary>
-    public object? GetCellValue(string sheetName, string id) =>
-        GetCellComputedValue(sheetName, id).AsObject();
-
     /// <summary>
-    /// The memoized <see cref="ComputedValue"/> of a cell — the cache stores the struct inline, so a cell
-    /// referenced by many formulas is computed once with no per-cell heap box.
+    /// Returns the memoized <see cref="ComputedValue"/> of a cell — the cache stores the struct inline, so a
+    /// cell referenced by many formulas is computed once with no per-cell heap box. The cache is NOT
+    /// invalidated automatically on mutation — call <see cref="InvalidateCache"/> after editing cells.
     /// </summary>
-    internal ComputedValue GetCellComputedValue(string sheetName, string id)
+    public ComputedValue GetCellValue(string sheetName, string id)
     {
         var cache = _cache ??= new();
         var key = (sheetName, id);

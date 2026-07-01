@@ -99,25 +99,4 @@ internal static class ArgumentFlattening
         return values;
     }
 
-    /// <summary>Boxed (<c>object?</c>) view of <see cref="FlattenComputedValues"/>, for interop.</summary>
-    public static IEnumerable<object?> Flatten(Expression[] arguments, EvaluationContext context)
-    {
-        foreach (var value in FlattenComputedValues(arguments, context))
-        {
-            yield return value.AsObject();
-        }
-    }
-
-    /// <summary>Boxed (<c>object?</c>) view of <see cref="ExpandComputedValues"/>, for interop.</summary>
-    public static List<object?> Expand(Expression argument, EvaluationContext context)
-    {
-        var values = new List<object?>();
-
-        foreach (var value in ExpandComputedValues(argument, context))
-        {
-            values.Add(value.AsObject());
-        }
-
-        return values;
-    }
 }

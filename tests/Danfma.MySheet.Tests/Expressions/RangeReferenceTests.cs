@@ -24,7 +24,7 @@ public class RangeReferenceTests
         var (workbook, sheet) = Grid();
 
         await Assert
-            .That(Range("A1", "B2", sheet).Compute(workbook))
+            .That(Range("A1", "B2", sheet).Evaluate(workbook).AsObject())
             .IsEqualTo(ErrorValue.NotValue);
     }
 
@@ -36,7 +36,7 @@ public class RangeReferenceTests
         var cells = Range("A1", "B2", sheet).Expand(workbook).ToList();
 
         await Assert.That(cells.Count).IsEqualTo(4);
-        await Assert.That(cells.Sum(e => (double)e.Compute(workbook)!)).IsEqualTo(10.0);
+        await Assert.That(cells.Sum(e => (double)e.Evaluate(workbook).AsObject()!)).IsEqualTo(10.0);
     }
 
     [Test]

@@ -23,7 +23,7 @@ public class FinancialFunctionTests
             sheet[id] = new NumberValue(value);
         }
 
-        return ExpressionParser.Parse(formula, sheet).Compute(workbook);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
     // Extracts the numeric result for tolerance comparison; a non-numeric result (e.g. an
@@ -287,15 +287,15 @@ public class FinancialFunctionTests
             var loadedSheet = loaded["Sheet1"];
 
             await Assert
-                .That(Num(loadedSheet["A1"].Compute(loaded)))
+                .That(Num(loadedSheet["A1"].Evaluate(loaded).AsObject()))
                 .IsEqualTo(Financial.Pmt(0.05, 10, -1000, 0, PaymentDue.EndOfPeriod))
                 .Within(Tolerance);
             await Assert
-                .That(Num(loadedSheet["A4"].Compute(loaded)))
+                .That(Num(loadedSheet["A4"].Evaluate(loaded).AsObject()))
                 .IsEqualTo(Financial.NPer(0.05, -100, 1000, 0, PaymentDue.EndOfPeriod))
                 .Within(Tolerance);
             await Assert
-                .That(Num(loadedSheet["A7"].Compute(loaded)))
+                .That(Num(loadedSheet["A7"].Evaluate(loaded).AsObject()))
                 .IsEqualTo(Financial.Npv(0.1, [-10000.0, 3000, 4200, 6800]))
                 .Within(Tolerance);
         }
@@ -400,7 +400,7 @@ public class FinancialFunctionTests
         sheet["A3"] = new NumberValue(4200);
         sheet["A4"] = new NumberValue(6800);
 
-        var result = ExpressionParser.Parse("=IRR(A1:A4)", sheet).Compute(workbook);
+        var result = ExpressionParser.Parse("=IRR(A1:A4)", sheet).Evaluate(workbook).AsObject();
         await Assert.That(result).IsEqualTo(ErrorValue.DivByZero);
     }
 
@@ -425,11 +425,11 @@ public class FinancialFunctionTests
             var loadedSheet = loaded["Sheet1"];
 
             await Assert
-                .That(Num(loadedSheet["B1"].Compute(loaded)))
+                .That(Num(loadedSheet["B1"].Evaluate(loaded).AsObject()))
                 .IsEqualTo(Financial.Rate(10, -129.5046, 1000, 0, PaymentDue.EndOfPeriod, 0.1))
                 .Within(Tolerance);
             await Assert
-                .That(Num(loadedSheet["B2"].Compute(loaded)))
+                .That(Num(loadedSheet["B2"].Evaluate(loaded).AsObject()))
                 .IsEqualTo(Financial.Irr([-10000.0, 3000, 4200, 6800], 0.1))
                 .Within(Tolerance);
         }
