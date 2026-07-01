@@ -38,6 +38,32 @@ public class EvaluateBridgeTests
     }
 
     [Test]
+    public async Task Evaluate_LogicNodes_Native()
+    {
+        var workbook = new Workbook();
+
+        // IF(TRUE, 1, <#DIV/0!>) → 1 (o ramo falso NÃO é avaliado — curto-circuito nativo).
+        var ifNode = new If([new BooleanValue(true), Number(1), Divide(Number(1), Number(0))]);
+        var taken = ifNode.Evaluate(workbook);
+        await Assert.That(taken.Kind).IsEqualTo(ComputedValueKind.Number);
+        await Assert.That(taken.ToDouble()).IsEqualTo(1.0);
+
+        // IFERROR(#VALUE!, 42) → 42.
+        await Assert.That(new IfError([ErrorValue.NotValue, Number(42)]).Evaluate(workbook).ToDouble()).IsEqualTo(42.0);
+
+        // IFNA só pega #N/A; outros erros passam.
+        await Assert.That(new IfNa([ErrorValue.NotAvailable, Number(7)]).Evaluate(workbook).ToDouble()).IsEqualTo(7.0);
+        await Assert.That(new IfNa([ErrorValue.NotValue, Number(7)]).Evaluate(workbook).TryGetError(out var passed)).IsTrue();
+        await Assert.That(passed).IsEqualTo(Error.Value);
+
+        // AND(TRUE, FALSE) → false; NOT(FALSE) → true.
+        await Assert.That(new And([new BooleanValue(true), new BooleanValue(false)]).Evaluate(workbook).TryGetBoolean(out var and)).IsTrue();
+        await Assert.That(and).IsFalse();
+        await Assert.That(new Not([new BooleanValue(false)]).Evaluate(workbook).TryGetBoolean(out var not)).IsTrue();
+        await Assert.That(not).IsTrue();
+    }
+
+    [Test]
     public async Task Evaluate_UnmigratedNode_BridgesFromCompute()
     {
         var workbook = new Workbook();

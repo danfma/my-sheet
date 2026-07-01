@@ -121,19 +121,28 @@ Decisões/aprendizados:
 ---
 
 ## Phase 3: Migrar nós compostos (math/texto/info/lógica/contagem)
-Status: Not started
+Status: In progress
 
-- [ ] Migrar para `Evaluate` nativo: operadores (`BinaryOperation`/`UnaryOperation`), agregação
-      (`Sum/Average/Min/Max/Count` + `NumericAggregation`), lógica (`If/And/Or/Not/IfError/IfNa`), math
-      (`Int/Round/RoundUp/Abs`), info (`IsNumber/IsBlank`), texto (`Upper/Lower/Trim/Len/Left/Mid/Value/
-      Concat/Concatenate/TextJoin/Text`), contagem/soma condicional (`CountA/CountBlank/CountIf(s)/SumIf(s)`
-      + `Criteria`/`ArgumentFlattening`). Cada nó: `Evaluate` nativo, `Compute` delega, testes verdes.
+Faseada em lotes coesos (sempre-verde a cada lote). Ordem escolhida: primeiro os que **não** dependem dos
+helpers de range (escalares), depois os que exigem migrar `NumericAggregation`/`ArgumentFlattening`/`Criteria`.
+
+- [x] **3a — Lógica** (`If/And/Or/Not/IfError/IfNa`): `Evaluate` nativo consumindo `CoerceToBool` + checagem
+      de erro; `Compute` delega. Curto-circuito preservado (`If`/`IfError`/`IfNa` só avaliam o ramo tomado).
+      Zero helper novo. **Concluído** (241/241 verde).
+- [ ] **3b — Operadores** (`BinaryOperation`/`UnaryOperation`): aritmética via `CoerceToNumber`; comparação
+      exige adicionar overloads nativos `AreEqual`/`Compare(in ComputedValue, in ComputedValue)` em `ValueCoercion`.
+- [ ] **3c — Math/Info escalares** (`Int/Round/RoundUp/Abs`, `IsNumber/IsBlank`).
+- [ ] **3d — Texto escalar** (`Upper/Lower/Trim/Len/Left/Mid/Value/Text`).
+- [ ] **3e — Agregação + variádicos + condicional** (`Sum/Average/Min/Max/Count`, `Concat/Concatenate/TextJoin`,
+      `CountA/CountBlank/CountIf(s)/SumIf(s)`): exige migrar `NumericAggregation`/`ArgumentFlattening`/`Criteria`
+      para produzir/consumir `ComputedValue`.
 
 ### Verification Plan
-- Suíte verde a cada nó migrado; `git diff` toca só os nós da fase + helpers compartilhados.
+- Suíte verde a cada lote; `git diff` toca só os nós do lote + helpers compartilhados. Os testes antigos de
+  cada função (que exercitam `Compute` → agora roteado por `Evaluate`) continuam verdes, provando semântica.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+_(escrever quando a fase concluir — lote 3a concluído)_
 
 ---
 

@@ -5,13 +5,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Not(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToBool(Arguments[0].Compute(context), out var value) is { } error)
+        if (Arguments[0].Evaluate(context).CoerceToBool(out var value) is { } error)
         {
-            return error;
+            return ComputedValue.Error(error);
         }
 
-        return !value;
+        return ComputedValue.Boolean(!value);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }
