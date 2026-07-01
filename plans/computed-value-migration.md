@@ -200,8 +200,8 @@ Status: Complete (exceto publish — aguarda aval)
 - [x] `README.md` atualizado: bullet de "allocation-free evaluation" + quick-start com `Evaluate`/`ToDouble`/
       `TryGetError` e o form `Compute : object?` para interop.
 - [x] Solução inteira compila (core + tests + benchmark) 0 warnings; benchmark usa `.Compute` e compila →
-      confirma não-breaking. **Versão: minor** (aditivo), não major — a migração saiu não-breaking; `versionize`
-      derivará `0.3.0` dos commits `feat`.
+      confirma que, **até a Fase 6**, a migração era não-breaking (aditiva). A Fase 8 (remoção do `Compute`,
+      decidida depois) tornou-a **breaking → major** (ver Deployment Plan).
 - [ ] **(Aguarda aval)** push / PR / publish no NuGet — passo externo/irreversível, não executado.
 
 ### Verification Plan
@@ -224,11 +224,12 @@ Migração `Compute → ComputedValue` **concluída em 6 fases, sempre-verde (24
 - **API pública**: `Evaluate(ctx/Workbook) : ComputedValue` (sem boxing) + `Compute(ctx/Workbook) : object?`
   (interop, inalterado). `GetCellValue : object?` inalterado.
 
-**Decisão em aberto (a única):** a migração saiu **não-breaking** porque `Evaluate` é a API tipada e `Compute`
-seguiu como interop `object?`. O usuário havia preferido que **o próprio `Compute` retornasse `ComputedValue`**
-(breaking). Fazer isso agora seria um rename `Evaluate→Compute` que quebra ~105 call sites (testes/benchmark/
-README/consumidores) por ganho cosmético — o valor (GC + API tipada) já está entregue. **Recomendo manter o
-dual-API não-breaking**; se o usuário quiser o rename breaking, é uma fase própria (com bump de major).
+**Decisão tomada (Fase 8) — remover `Compute` de vez:** por ser uma lib pré-1.0 sem consumidores, o usuário
+optou por cortar a dívida de interop em vez de mantê-la. `Expression.Compute(object?)` foi **removido**;
+`Evaluate(ctx/Workbook) : ComputedValue` é a **única** API de avaliação. Todas as superfícies `object?` irmãs
+(`Workbook.GetCellValue`, `RangeReference`/`UnionReference`/`ArgumentFlattening`/`Criteria`/`ValueCoercion`)
+também caíram — `GetCellValue` agora é público retornando `ComputedValue`. Quem quer `object?` chama `.AsObject()`
+no resultado. Isto é um **breaking change (major bump)**, assumido de propósito enquanto é barato.
 
 **Caminho de range fechado (Fase 7):** os helpers `NumericAggregation`/`ArgumentFlattening`/`Criteria` e as
 leituras `ExpandComputedValues`/`CellComputedValueAt` agora consomem `ComputedValue` **direto do cache** (sem
@@ -251,12 +252,29 @@ Status: Complete
 - **Verificação:** 242/242 verde a cada lote (7a agregação, 7b variádicos/condicional, 7c lookups+NPV/IRR).
   Grep confirma: zero chamadas internas às versões `object?` dos helpers de range.
 
+## Phase 8: Remoção do `Compute` (breaking, major)
+Status: Complete
+
+- [x] Migrado o escopo de nomes do `LET` para `ComputedValue` (`EvaluationContext.WithName`/`TryGetName`,
+      `NameReference`) — elimina o último `object?` interno.
+- [x] Removido `Expression.Compute(ctx)`/`Compute(Workbook)`; `Evaluate` é a única API.
+- [x] Removidas as superfícies `object?` irmãs (todas mortas, 0 uso): `Workbook.GetCellValue:object?` (o
+      `ComputedValue` virou público como `GetCellValue`), `RangeReference`/`UnionReference` `ExpandValues`/
+      `CellValueAt` `object?`, `ArgumentFlattening.Flatten`/`Expand` `object?`, `Criteria.Parse`/`Matches`
+      `object?`, `ValueCoercion.TryTo*`/`AreEqual`/`Compare` `object?`.
+- [x] Migrados ~102 call sites de testes + 4 do benchmark (`.Compute(x)` → `.Evaluate(x).AsObject()`); README
+      atualizado (só `Evaluate` + `.AsObject()` para interop). `ComputedValue.From`/`AsObject` permanecem (a
+      ponte usada por `FunctionCall`, cujo delegate `CustomFunction` retorna `object?`).
+- **Verificação:** build de todos os projetos 0 warnings; **241/241 verde**; grep confirma zero `Compute`
+  público no core.
+
 ## Deployment Plan
-Biblioteca — a mudança é **não-breaking/aditiva** (semver **minor** → `0.3.0`; `versionize` deriva dos commits
-`feat`). Passos (só com aval do usuário; nada externo executado):
+Biblioteca — a mudança é **breaking** (semver **major** → `1.0.0`; ou `versionize` derivando do commit
+`feat!`/`BREAKING CHANGE`). Passos (só com aval do usuário; nada externo executado):
 1. Merge de `feature/computed-value` → `main` (PR ou fast-forward).
-2. Deixar o CI (`versionize` + release GitHub Actions/OIDC) publicar no NuGet a partir dos commits convencionais.
-3. Nota de release: destacar a nova API `Evaluate : ComputedValue` (avaliação sem boxing) e o cache
-   alloc-free; `Compute : object?` permanece para compatibilidade.
-4. (Opcional) fase futura: rename breaking `Compute : ComputedValue` (major) + migração dos helpers de range
-   para eliminar o re-box transiente.
+2. Deixar o CI (`versionize` + release GitHub Actions/OIDC) publicar no NuGet — o commit `feat!` dispara major.
+3. Nota de release / guia de migração: `Compute(...)` foi removido → use `Evaluate(...)` (retorna
+   `ComputedValue`); extraia com `TryGetNumber`/`ToDouble`/`AsDouble`/`TryGetError`, ou `.AsObject()` para o
+   `object?` de interop. `Workbook.GetCellValue` agora retorna `ComputedValue`.
+4. Resíduo opcional (não-breaking, futuro): migrar o delegate `CustomFunction` para retornar `ComputedValue`
+   (hoje retorna `object?`, embrulhado via `From`), eliminando o último `object?` da superfície pública.
