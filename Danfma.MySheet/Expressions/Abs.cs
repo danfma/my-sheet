@@ -5,13 +5,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Abs(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToNumber(Arguments[0].Compute(context), out var number) is { } error)
+        if (Arguments[0].Evaluate(context).CoerceToNumber(out var number) is { } error)
         {
-            return error;
+            return ComputedValue.Error(error);
         }
 
-        return Math.Abs(number);
+        return ComputedValue.Number(Math.Abs(number));
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

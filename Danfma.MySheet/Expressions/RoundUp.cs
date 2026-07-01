@@ -5,22 +5,16 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record RoundUp(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (
-            ValueCoercion.TryToNumber(Arguments[0].Compute(context), out var number) is
-            { } numberError
-        )
+        if (Arguments[0].Evaluate(context).CoerceToNumber(out var number) is { } numberError)
         {
-            return numberError;
+            return ComputedValue.Error(numberError);
         }
 
-        if (
-            ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var digits) is
-            { } digitsError
-        )
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var digits) is { } digitsError)
         {
-            return digitsError;
+            return ComputedValue.Error(digitsError);
         }
 
         var factor = Math.Pow(10, digits);
@@ -28,6 +22,8 @@ public sealed partial record RoundUp(Expression[] Arguments) : Function
         // Round away from zero.
         var rounded = scaled < 0 ? Math.Floor(scaled) : Math.Ceiling(scaled);
 
-        return rounded / factor;
+        return ComputedValue.Number(rounded / factor);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }
