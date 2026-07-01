@@ -5,13 +5,16 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Min(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var fold = new MinFold();
-        var error = NumericAggregation.Fold(Arguments, context, ref fold);
 
-        return error ?? (object)(fold.HasValue ? fold.Value : 0.0);
+        return NumericAggregation.Fold(Arguments, context, ref fold) is { } error
+            ? ComputedValue.From(error)
+            : ComputedValue.Number(fold.HasValue ? fold.Value : 0.0);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private struct MinFold : INumericFold
     {

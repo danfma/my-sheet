@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Concat(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var builder = new StringBuilder();
 
@@ -14,12 +14,14 @@ public sealed partial record Concat(Expression[] Arguments) : Function
         {
             if (ValueCoercion.TryToText(value, out var text) is { } error)
             {
-                return error;
+                return ComputedValue.From(error);
             }
 
             builder.Append(text);
         }
 
-        return builder.ToString();
+        return ComputedValue.Text(builder.ToString());
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

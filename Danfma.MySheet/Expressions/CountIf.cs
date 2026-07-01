@@ -5,7 +5,7 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record CountIf(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var criteria = Criteria.Parse(Arguments[1].Compute(context));
         var count = 0;
@@ -18,6 +18,8 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
             }
         }
 
-        return (double)count;
+        return ComputedValue.Number(count);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

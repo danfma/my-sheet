@@ -5,7 +5,7 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record CountIfs(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var ranges = new List<List<object?>>();
         var criterias = new List<Criteria>();
@@ -22,7 +22,7 @@ public sealed partial record CountIfs(Expression[] Arguments) : Function
         {
             if (range.Count != length)
             {
-                return ErrorValue.NotValue;
+                return ComputedValue.Error(Error.Value);
             }
         }
 
@@ -36,8 +36,10 @@ public sealed partial record CountIfs(Expression[] Arguments) : Function
             }
         }
 
-        return (double)count;
+        return ComputedValue.Number(count);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private static bool AllMatch(List<List<object?>> ranges, List<Criteria> criterias, int index)
     {

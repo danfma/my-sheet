@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Expressions;
 public sealed partial record SumIf(Expression[] Arguments) : Function
 {
     // SUMIF(range, criteria, [sum_range]) — sums sum_range (or range) where range matches the criteria.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var criteria = Criteria.Parse(Arguments[1].Compute(context));
         var range = ArgumentFlattening.Expand(Arguments[0], context);
@@ -24,6 +24,8 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
             }
         }
 
-        return total;
+        return ComputedValue.Number(total);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

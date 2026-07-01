@@ -5,18 +5,21 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Average(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var fold = new AverageFold();
-        var error = NumericAggregation.Fold(Arguments, context, ref fold);
 
-        if (error is not null)
+        if (NumericAggregation.Fold(Arguments, context, ref fold) is { } error)
         {
-            return error;
+            return ComputedValue.From(error);
         }
 
-        return fold.Count == 0 ? ErrorValue.DivByZero : fold.Total / fold.Count;
+        return fold.Count == 0
+            ? ComputedValue.Error(Error.DivZero)
+            : ComputedValue.Number(fold.Total / fold.Count);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private struct AverageFold : INumericFold
     {

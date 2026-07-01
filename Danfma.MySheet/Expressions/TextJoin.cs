@@ -5,22 +5,16 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record TextJoin(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (
-            ValueCoercion.TryToText(Arguments[0].Compute(context), out var delimiter) is
-            { } delimiterError
-        )
+        if (Arguments[0].Evaluate(context).CoerceToText(out var delimiter) is { } delimiterError)
         {
-            return delimiterError;
+            return ComputedValue.Error(delimiterError);
         }
 
-        if (
-            ValueCoercion.TryToBool(Arguments[1].Compute(context), out var ignoreEmpty) is
-            { } ignoreError
-        )
+        if (Arguments[1].Evaluate(context).CoerceToBool(out var ignoreEmpty) is { } ignoreError)
         {
-            return ignoreError;
+            return ComputedValue.Error(ignoreError);
         }
 
         var parts = new List<string>();
@@ -29,7 +23,7 @@ public sealed partial record TextJoin(Expression[] Arguments) : Function
         {
             if (ValueCoercion.TryToText(value, out var text) is { } error)
             {
-                return error;
+                return ComputedValue.From(error);
             }
 
             if (ignoreEmpty && text.Length == 0)
@@ -40,6 +34,8 @@ public sealed partial record TextJoin(Expression[] Arguments) : Function
             parts.Add(text);
         }
 
-        return string.Join(delimiter, parts);
+        return ComputedValue.Text(string.Join(delimiter, parts));
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

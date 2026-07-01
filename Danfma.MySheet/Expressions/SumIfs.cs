@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Expressions;
 public sealed partial record SumIfs(Expression[] Arguments) : Function
 {
     // SUMIFS(sum_range, range1, criteria1, …) — sums sum_range where every (range, criteria) pair matches.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var sumRange = ArgumentFlattening.Expand(Arguments[0], context);
         var ranges = new List<List<object?>>();
@@ -24,7 +24,7 @@ public sealed partial record SumIfs(Expression[] Arguments) : Function
         {
             if (range.Count != length)
             {
-                return ErrorValue.NotValue;
+                return ComputedValue.Error(Error.Value);
             }
         }
 
@@ -38,8 +38,10 @@ public sealed partial record SumIfs(Expression[] Arguments) : Function
             }
         }
 
-        return total;
+        return ComputedValue.Number(total);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private static bool AllMatch(List<List<object?>> ranges, List<Criteria> criterias, int index)
     {
