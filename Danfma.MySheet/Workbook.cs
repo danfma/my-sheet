@@ -45,10 +45,6 @@ public sealed partial class Workbook
     public Sheet this[string key] => Sheets[key];
 
     /// <summary>
-    /// Returns the computed value of a cell, memoizing it. The cache is NOT invalidated automatically on
-    /// mutation — call <see cref="InvalidateCache"/> after editing cells.
-    /// </summary>
-    /// <summary>
     /// Returns the memoized <see cref="ComputedValue"/> of a cell — the cache stores the struct inline, so a
     /// cell referenced by many formulas is computed once with no per-cell heap box. The cache is NOT
     /// invalidated automatically on mutation — call <see cref="InvalidateCache"/> after editing cells.
