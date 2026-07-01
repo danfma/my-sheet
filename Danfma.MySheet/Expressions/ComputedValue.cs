@@ -193,16 +193,4 @@ public readonly struct ComputedValue
         _ => null,
     };
 
-    /// <summary>Ponte inversa: envolve um valor cru do avaliador legado num <see cref="ComputedValue"/>.</summary>
-    public static ComputedValue From(object? value) => value switch
-    {
-        null => Blank,
-        double d => Number(d),
-        bool b => Boolean(b),
-        string s => Text(s),
-        ErrorValue e => Error(Expressions.Error.FromDisplay(e.ErrorCode)),
-        Reference r => Reference(r),
-        ComputedValue cv => cv,
-        _ => Error(Expressions.Error.Value),
-    };
 }

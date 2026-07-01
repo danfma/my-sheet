@@ -9,9 +9,11 @@ namespace Danfma.MySheet;
 
 /// <summary>
 /// A user-supplied function implementation. Receives the raw (unevaluated) arguments so it can decide
-/// what to evaluate (lazy/short-circuit) and the workbook for context.
+/// what to evaluate (lazy/short-circuit) and the workbook for context. Returns a <see cref="ComputedValue"/>
+/// — a scalar (<c>double</c>/<c>bool</c>/<c>string</c>) converts implicitly; use <c>ComputedValue.Blank</c>
+/// or <c>ComputedValue.Error(...)</c> for the rest.
 /// </summary>
-public delegate object? CustomFunction(Expression[] arguments, Workbook workbook);
+public delegate ComputedValue CustomFunction(Expression[] arguments, Workbook workbook);
 
 [MemoryPackable]
 public sealed partial class Workbook

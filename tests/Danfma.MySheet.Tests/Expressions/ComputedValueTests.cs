@@ -109,19 +109,6 @@ public class ComputedValueTests
     }
 
     [Test]
-    public async Task From_WrapsLegacyValues()
-    {
-        await Assert.That(ComputedValue.From(null).Kind).IsEqualTo(ComputedValueKind.Blank);
-        await Assert.That(ComputedValue.From(2.0).TryGetNumber(out var n)).IsTrue();
-        await Assert.That(n).IsEqualTo(2.0);
-        await Assert.That(ComputedValue.From(true).Kind).IsEqualTo(ComputedValueKind.Boolean);
-        await Assert.That(ComputedValue.From("s").Kind).IsEqualTo(ComputedValueKind.Text);
-
-        ComputedValue.From(ErrorValue.NotValue).TryGetError(out var e);
-        await Assert.That(e).IsEqualTo(Error.Value);
-    }
-
-    [Test]
     public async Task EnumerateValues_OverRange_YieldsCellValues()
     {
         var workbook = new Workbook();

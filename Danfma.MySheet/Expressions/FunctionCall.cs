@@ -12,7 +12,7 @@ public sealed partial record FunctionCall(string Name, Expression[] Arguments) :
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
         context.Workbook.TryGetFunction(Name, out var function)
-            ? ComputedValue.From(function(Arguments, context.Workbook))
+            ? function(Arguments, context.Workbook)
             : ComputedValue.Error(Error.Name);
 
 }
