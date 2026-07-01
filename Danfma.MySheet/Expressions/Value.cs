@@ -5,14 +5,16 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Value(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         // Reuse numeric coercion: numeric text parses, non-numeric text → #VALUE!.
-        if (ValueCoercion.TryToNumber(Arguments[0].Compute(context), out var number) is { } error)
+        if (Arguments[0].Evaluate(context).CoerceToNumber(out var number) is { } error)
         {
-            return error;
+            return ComputedValue.Error(error);
         }
 
-        return number;
+        return ComputedValue.Number(number);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

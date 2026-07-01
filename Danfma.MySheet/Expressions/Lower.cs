@@ -5,13 +5,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Lower(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToText(Arguments[0].Compute(context), out var text) is { } error)
+        if (Arguments[0].Evaluate(context).CoerceToText(out var text) is { } error)
         {
-            return error;
+            return ComputedValue.Error(error);
         }
 
-        return text.ToLowerInvariant();
+        return ComputedValue.Text(text.ToLowerInvariant());
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

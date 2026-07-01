@@ -5,28 +5,30 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Left(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToText(Arguments[0].Compute(context), out var text) is { } textError)
+        if (Arguments[0].Evaluate(context).CoerceToText(out var text) is { } textError)
         {
-            return textError;
+            return ComputedValue.Error(textError);
         }
 
         var count = 1.0;
 
         if (
             Arguments.Length == 2
-            && ValueCoercion.TryToNumber(Arguments[1].Compute(context), out count) is { } countError
+            && Arguments[1].Evaluate(context).CoerceToNumber(out count) is { } countError
         )
         {
-            return countError;
+            return ComputedValue.Error(countError);
         }
 
         if (count < 0)
         {
-            return ErrorValue.NotValue;
+            return ComputedValue.Error(Error.Value);
         }
 
-        return text[..Math.Min((int)count, text.Length)];
+        return ComputedValue.Text(text[..Math.Min((int)count, text.Length)]);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

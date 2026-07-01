@@ -5,41 +5,37 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Mid(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToText(Arguments[0].Compute(context), out var text) is { } textError)
+        if (Arguments[0].Evaluate(context).CoerceToText(out var text) is { } textError)
         {
-            return textError;
+            return ComputedValue.Error(textError);
         }
 
-        if (
-            ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var start) is
-            { } startError
-        )
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var start) is { } startError)
         {
-            return startError;
+            return ComputedValue.Error(startError);
         }
 
-        if (
-            ValueCoercion.TryToNumber(Arguments[2].Compute(context), out var count) is
-            { } countError
-        )
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var count) is { } countError)
         {
-            return countError;
+            return ComputedValue.Error(countError);
         }
 
         if (start < 1 || count < 0)
         {
-            return ErrorValue.NotValue;
+            return ComputedValue.Error(Error.Value);
         }
 
         if (start > text.Length)
         {
-            return string.Empty;
+            return ComputedValue.Text(string.Empty);
         }
 
         var available = text.Length - ((int)start - 1);
 
-        return text.Substring((int)start - 1, Math.Min((int)count, available));
+        return ComputedValue.Text(text.Substring((int)start - 1, Math.Min((int)count, available)));
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }
