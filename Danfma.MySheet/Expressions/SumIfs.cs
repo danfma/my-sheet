@@ -8,14 +8,14 @@ public sealed partial record SumIfs(Expression[] Arguments) : Function
     // SUMIFS(sum_range, range1, criteria1, …) — sums sum_range where every (range, criteria) pair matches.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var sumRange = ArgumentFlattening.Expand(Arguments[0], context);
-        var ranges = new List<List<object?>>();
+        var sumRange = ArgumentFlattening.ExpandComputedValues(Arguments[0], context);
+        var ranges = new List<List<ComputedValue>>();
         var criterias = new List<Criteria>();
 
         for (var i = 1; i + 1 < Arguments.Length; i += 2)
         {
-            ranges.Add(ArgumentFlattening.Expand(Arguments[i], context));
-            criterias.Add(Criteria.Parse(Arguments[i + 1].Compute(context)));
+            ranges.Add(ArgumentFlattening.ExpandComputedValues(Arguments[i], context));
+            criterias.Add(Criteria.Parse(Arguments[i + 1].Evaluate(context)));
         }
 
         var length = sumRange.Count;
@@ -32,7 +32,7 @@ public sealed partial record SumIfs(Expression[] Arguments) : Function
 
         for (var i = 0; i < length; i++)
         {
-            if (AllMatch(ranges, criterias, i) && sumRange[i] is double number)
+            if (AllMatch(ranges, criterias, i) && sumRange[i].TryGetNumber(out var number))
             {
                 total += number;
             }
@@ -41,7 +41,7 @@ public sealed partial record SumIfs(Expression[] Arguments) : Function
         return ComputedValue.Number(total);
     }
 
-    private static bool AllMatch(List<List<object?>> ranges, List<Criteria> criterias, int index)
+    private static bool AllMatch(List<List<ComputedValue>> ranges, List<Criteria> criterias, int index)
     {
         for (var j = 0; j < criterias.Count; j++)
         {

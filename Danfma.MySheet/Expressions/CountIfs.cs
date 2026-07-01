@@ -7,13 +7,13 @@ public sealed partial record CountIfs(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var ranges = new List<List<object?>>();
+        var ranges = new List<List<ComputedValue>>();
         var criterias = new List<Criteria>();
 
         for (var i = 0; i + 1 < Arguments.Length; i += 2)
         {
-            ranges.Add(ArgumentFlattening.Expand(Arguments[i], context));
-            criterias.Add(Criteria.Parse(Arguments[i + 1].Compute(context)));
+            ranges.Add(ArgumentFlattening.ExpandComputedValues(Arguments[i], context));
+            criterias.Add(Criteria.Parse(Arguments[i + 1].Evaluate(context)));
         }
 
         var length = ranges[0].Count;
@@ -39,7 +39,7 @@ public sealed partial record CountIfs(Expression[] Arguments) : Function
         return ComputedValue.Number(count);
     }
 
-    private static bool AllMatch(List<List<object?>> ranges, List<Criteria> criterias, int index)
+    private static bool AllMatch(List<List<ComputedValue>> ranges, List<Criteria> criterias, int index)
     {
         for (var j = 0; j < criterias.Count; j++)
         {

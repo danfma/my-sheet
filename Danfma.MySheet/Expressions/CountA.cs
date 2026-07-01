@@ -9,9 +9,9 @@ public sealed partial record CountA(Expression[] Arguments) : Function
     {
         var count = 0;
 
-        foreach (var value in ArgumentFlattening.Flatten(Arguments, context))
+        foreach (var value in ArgumentFlattening.FlattenComputedValues(Arguments, context))
         {
-            if (value is not null)
+            if (value.Kind != ComputedValueKind.Blank)
             {
                 count++;
             }

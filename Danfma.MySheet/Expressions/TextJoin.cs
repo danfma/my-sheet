@@ -19,11 +19,11 @@ public sealed partial record TextJoin(Expression[] Arguments) : Function
 
         var parts = new List<string>();
 
-        foreach (var value in ArgumentFlattening.Flatten(Arguments[2..], context))
+        foreach (var value in ArgumentFlattening.FlattenComputedValues(Arguments[2..], context))
         {
-            if (ValueCoercion.TryToText(value, out var text) is { } error)
+            if (value.CoerceToText(out var text) is { } error)
             {
-                return ComputedValue.From(error);
+                return ComputedValue.Error(error);
             }
 
             if (ignoreEmpty && text.Length == 0)

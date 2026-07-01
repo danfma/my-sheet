@@ -10,11 +10,11 @@ public sealed partial record Concatenate(Expression[] Arguments) : Function
     {
         var builder = new StringBuilder();
 
-        foreach (var value in ArgumentFlattening.Flatten(Arguments, context))
+        foreach (var value in ArgumentFlattening.FlattenComputedValues(Arguments, context))
         {
-            if (ValueCoercion.TryToText(value, out var text) is { } error)
+            if (value.CoerceToText(out var text) is { } error)
             {
-                return ComputedValue.From(error);
+                return ComputedValue.Error(error);
             }
 
             builder.Append(text);

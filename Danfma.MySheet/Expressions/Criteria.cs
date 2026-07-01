@@ -84,6 +84,79 @@ internal sealed class Criteria
         };
     }
 
+    // --- ComputedValue overloads (no boxing) ---
+
+    public static Criteria Parse(in ComputedValue value)
+    {
+        if (value.TryGetNumber(out var d))
+        {
+            return new Criteria(Op.Equal, numeric: true, d, string.Empty);
+        }
+
+        if (value.TryGetBoolean(out var b))
+        {
+            return new Criteria(Op.Equal, numeric: false, 0, b ? "TRUE" : "FALSE");
+        }
+
+        var (op, rest) = SplitOperator(value.TryGetText(out var s) ? s : string.Empty);
+
+        return double.TryParse(rest, NumberStyles.Any, CultureInfo.InvariantCulture, out var number)
+            ? new Criteria(op, numeric: true, number, rest)
+            : new Criteria(op, numeric: false, 0, rest);
+    }
+
+    public bool Matches(in ComputedValue cellValue)
+    {
+        if (_numeric)
+        {
+            if (!cellValue.TryGetNumber(out var cell))
+            {
+                // A non-numeric cell only satisfies a numeric criterion under "<>".
+                return _op == Op.NotEqual;
+            }
+
+            return _op switch
+            {
+                Op.Equal => cell == _number,
+                Op.NotEqual => cell != _number,
+                Op.Greater => cell > _number,
+                Op.Less => cell < _number,
+                Op.GreaterOrEqual => cell >= _number,
+                Op.LessOrEqual => cell <= _number,
+                _ => false,
+            };
+        }
+
+        var text = CellText(cellValue);
+
+        return _op switch
+        {
+            Op.Equal => WildcardMatch(_text, text),
+            Op.NotEqual => !WildcardMatch(_text, text),
+            _ => false,
+        };
+    }
+
+    private static string CellText(in ComputedValue value)
+    {
+        if (value.TryGetText(out var s))
+        {
+            return s;
+        }
+
+        if (value.TryGetNumber(out var d))
+        {
+            return d.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (value.TryGetBoolean(out var b))
+        {
+            return b ? "TRUE" : "FALSE";
+        }
+
+        return string.Empty;
+    }
+
     private static (Op, string) SplitOperator(string s)
     {
         if (s.StartsWith(">=", StringComparison.Ordinal))
