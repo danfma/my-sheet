@@ -49,13 +49,15 @@ internal static class ValueCoercion
         }
     }
 
-    // --- Coerção nativa sobre ComputedValue (mesma semântica; sem boxing). NÃO são métodos `Try*` (não
-    // retornam bool): devolvem o `Error` a propagar (ou `null` no sucesso), que os nós migrados encaminham
-    // via `if (CoerceTo…(x, out var v) is { } error) return error;`. A coerção é interna ao engine. ---
+    // --- Coerção nativa sobre ComputedValue, como EXTENSION methods (`this in ComputedValue`) → chamada
+    // fluente `value.CoerceToNumber(out var n)`, mantendo a coerção `internal` (fora da API pública do
+    // struct). NÃO são `Try*` (não retornam bool): devolvem o `Error` a propagar (ou `null` no sucesso),
+    // encaminhado via `if (value.CoerceTo…(out var v) is { } error) return error;`. Os legados `TryTo*(object?)`
+    // NÃO viram extensions de propósito (apareceriam em todo `object`). ---
 
     /// <summary>Coage a número (estilo-Excel). Retorna <c>null</c> no sucesso (valor em <paramref name="number"/>),
     /// ou o <see cref="Error"/> a propagar na falha.</summary>
-    public static Error? CoerceToNumber(in ComputedValue value, out double number)
+    public static Error? CoerceToNumber(this in ComputedValue value, out double number)
     {
         switch (value.Kind)
         {
@@ -90,7 +92,7 @@ internal static class ValueCoercion
     }
 
     /// <summary>Coage a booleano (truthiness do Excel). Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
-    public static Error? CoerceToBool(in ComputedValue value, out bool result)
+    public static Error? CoerceToBool(this in ComputedValue value, out bool result)
     {
         switch (value.Kind)
         {
@@ -119,7 +121,7 @@ internal static class ValueCoercion
     }
 
     /// <summary>Coage a texto (blank→""; number→invariant; bool→TRUE/FALSE). Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
-    public static Error? CoerceToText(in ComputedValue value, out string text)
+    public static Error? CoerceToText(this in ComputedValue value, out string text)
     {
         switch (value.Kind)
         {

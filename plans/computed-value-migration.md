@@ -84,10 +84,12 @@ Status: Complete
 - [x] Base `Expression`: `public virtual ComputedValue Evaluate(EvaluationContext ctx) =>
       ComputedValue.From(Compute(ctx));` (default bridged) + overload `Evaluate(Workbook)`. `Compute`
       intacto → tudo verde.
-- [x] `ValueCoercion` ganhou métodos de coerção nativos sobre `ComputedValue` (`CoerceToNumber`/`CoerceToBool`/
-      `CoerceToText` `(in ComputedValue, out …) : Error?`), coexistindo com os `TryTo*(object?)` legados.
-      **Não** são `Try*` (não retornam `bool`): devolvem o `Error` a propagar (ou `null`), consumidos via
-      `is { } error`. Coerção continua **interna**. (Os `TryTo*(object?)` legados serão deletados nas Fases 3–5.)
+- [x] `ValueCoercion` ganhou coerção nativa sobre `ComputedValue` como **extension methods**
+      (`CoerceToNumber`/`CoerceToBool`/`CoerceToText` `(this in ComputedValue, out …) : Error?`) → chamada
+      **fluente** `value.CoerceToNumber(out var n)`, mantendo a coerção `internal` (fora da API pública do
+      struct). **Não** são `Try*` (não retornam `bool`): devolvem o `Error` a propagar (ou `null`), via
+      `if (value.CoerceTo…(out var v) is { } error) return error;`. Os `TryTo*(object?)` legados continuam
+      estáticos (extension sobre `object?` seria ruim) e serão deletados nas Fases 3–5.
 - [x] Migrar nós-valor literais (`NumberValue`, `StringValue`, `BooleanValue`, `BlankValue`) para override
       `Evaluate` nativo; `Compute` de cada um passa a `=> Evaluate(ctx).AsObject()`.
 - [x] `ErrorValue`: override `Evaluate => ComputedValue.Error(AsError())` + `internal Error AsError()`
