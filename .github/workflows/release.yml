@@ -30,14 +30,17 @@ jobs:
           dotnet tool install --global Versionize
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
-      # versionize bumps <Version> in the csproj, writes CHANGELOG.md, commits and tags (vX.Y.Z) locally.
-      # The commit/tag are only pushed AFTER a successful publish, so a failed publish leaves main clean.
+      # versionize (run at the repo root) bumps <Version> in every versioned csproj in lockstep
+      # (Danfma.MySheet + Danfma.MySheet.Excel), writes the root CHANGELOG.md, commits and tags (vX.Y.Z)
+      # locally. The commit/tag are only pushed AFTER a successful publish, so a failed publish leaves
+      # main clean.
       - name: Bump version
-        working-directory: Danfma.MySheet
         run: versionize
 
       - name: Pack
-        run: dotnet pack Danfma.MySheet/Danfma.MySheet.csproj -c Release -o artifacts
+        run: |
+          dotnet pack Danfma.MySheet/Danfma.MySheet.csproj -c Release -o artifacts
+          dotnet pack Danfma.MySheet.Excel/Danfma.MySheet.Excel.csproj -c Release -o artifacts
 
       - name: NuGet login (OIDC → temporary API key)
         id: login

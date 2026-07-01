@@ -20,7 +20,7 @@ computados num `.xlsx` existente (template).
   básicos (número/texto/booleano/erro/blank), shared strings. **Fora do MVP**: estilos, formatos numéricos,
   datas-como-data (entram/saem como número serial), merged cells, larguras, streaming/SAX.
 - **Un-parser de fórmula no CORE** (`Danfma.MySheet`): simétrico ao parser, `Expression → texto de fórmula
-  Excel` (sem o `=` inicial). Reutilizável, mantém a lib de interop fina. Necessário só a partir da Fase 2.
+  Excel` (sem o `=` inicial). Reutilizável, mantém a lib de interop fina. Necessário só a partir da Fase 3.
 - **Projeto/API**: `Danfma.MySheet.Excel`; reader como `ExcelFile.Load(path) : Workbook` (espelha
   `Workbook.Load`); escrita como **extension methods** no `Workbook`: `SaveAsExcel(...)`, `MergeIntoExcel(...)`
   (dois overloads: template→saída não-destrutivo, e in-place).
@@ -78,7 +78,37 @@ escrava → literal do `<v>`, célula sem valor → blank. Verificação: soluç
 
 ---
 
-## Phase 2: Un-parser de fórmula no core (`Expression → texto Excel`)
+## Phase 2: Publicação do loader (merge na main + release conjunto)
+Status: In progress
+
+Decisão do usuário (2026-07-01): publicar o reader antes de seguir para o writer. A `main` local já contém
+todo o trabalho do `ComputedValue` (breaking `feat!` → major); o release sai em **lockstep**: `Danfma.MySheet
+1.0.0` + `Danfma.MySheet.Excel 1.0.0` juntos, com o Excel dependendo do core na mesma versão.
+
+- [x] CI (`ci.yml`): passa a rodar também a suíte da lib Excel (`Danfma.MySheet.Excel.Tests`).
+- [x] Release (`release.yml`): `versionize` agora roda na **raiz** (lockstep dos 2 pacotes) e o `Pack`
+      empacota os dois csproj. `CHANGELOG.md` movido de `Danfma.MySheet/` para a raiz (histórico preservado;
+      é onde o versionize passará a escrever).
+- [x] Seed de versão do Excel alinhado ao core (`0.2.0`) — o versionize exige versões consistentes
+      (**validado por dry-run local**: descobre exatamente os 2 projetos, propõe `0.2.0 → 1.0.0` pelos
+      `feat!`, e o changelog já lista o `feat(excel)` do reader).
+- [ ] Fast-forward `feature/excel-interop` → `main` (a excel está 1 commit à frente; merge trivial).
+- [ ] `git push origin main` — **requer aval do usuário** (leva ~25 commits locais, incluindo o breaking).
+- [ ] Disparar o workflow **Release** (workflow_dispatch) → publica os 2 pacotes no NuGet (OIDC) + tag
+      `v1.0.0` + GitHub Release.
+
+### Verification Plan
+- `versionize --dry-run` local: bump `0.2.0 → 1.0.0`, 2 projetos, changelog com `feat(excel)` — **já validado**.
+- CI verde na `main` após o push (build + suíte core + suíte Excel).
+- Pós-release: `Danfma.MySheet 1.0.0` e `Danfma.MySheet.Excel 1.0.0` no NuGet; o nupkg do Excel depende de
+  `Danfma.MySheet >= 1.0.0`.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 3: Un-parser de fórmula no core (`Expression → texto Excel`)
 Status: Not started
 
 - [ ] `Danfma.MySheet/Parsing/FormulaWriter.cs` (ou `Expression.ToFormula()`): renderiza qualquer nó para
@@ -107,7 +137,7 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 3: Export completo (`SaveAsExcel`)
+## Phase 4: Export completo (`SaveAsExcel`)
 Status: Not started
 
 - [ ] `ExcelExportOptions { FormulaMode FormulaMode = ValuesOnly }` (enum `FormulaMode { Formulas, ValuesOnly }`).
@@ -133,7 +163,7 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 4: Merge de valores num `.xlsx` existente (`MergeIntoExcel`)
+## Phase 5: Merge de valores num `.xlsx` existente (`MergeIntoExcel`)
 Status: Not started
 
 - [ ] Overloads: `MergeIntoExcel(this Workbook, string templatePath, string outputPath, …)` (não-destrutivo:
@@ -155,7 +185,7 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 5 (futuro / fora do MVP): estilos, formatos, datas, streaming, shared formulas
+## Phase 6 (futuro / fora do MVP): estilos, formatos, datas, streaming, shared formulas
 Status: Not started
 
 - [ ] Formatos numéricos + datas-como-data (round-trip de `numFmt`/`cellFormats`), estilos básicos, merged
@@ -169,9 +199,9 @@ Status: Not started
 _(escrever quando a fase concluir)_
 
 ## Final Recap
-_(escrever quando as fases 1–4 concluírem)_
+_(escrever quando as fases 1–5 concluírem)_
 
 ## Deployment Plan
 _(escrever quando concluir: novo pacote NuGet `Danfma.MySheet.Excel` — versão inicial; depende de
 `Danfma.MySheet` + `DocumentFormat.OpenXml`; publicar junto no CI. Core inalterado exceto o `FormulaWriter`.
-Nota: esta branch parte de `feature/computed-value` — precisa dela mergeada em `main` antes.)_
+A publicação inicial (1.0.0, lockstep com o core) acontece na Fase 2; releases seguintes idem via versionize.)_

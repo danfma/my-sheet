@@ -20,5 +20,8 @@ jobs:
       - name: Build
         run: dotnet build Danfma.MySheet.slnx -c Release
 
-      - name: Test
+      - name: Test (core)
         run: dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release --no-build
+
+      - name: Test (Excel interop)
+        run: dotnet run --project tests/Danfma.MySheet.Excel.Tests/Danfma.MySheet.Excel.Tests.csproj -c Release --no-build
