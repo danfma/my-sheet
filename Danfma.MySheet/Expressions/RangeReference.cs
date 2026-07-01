@@ -7,7 +7,9 @@ public sealed partial record RangeReference(string StartId, string EndId, string
     : Reference
 {
     // A range has no scalar value: used outside a function that accepts ranges it is a #VALUE! error.
-    public override object? Compute(EvaluationContext context) => ErrorValue.NotValue;
+    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     // Backwards-compatible entry point used by tests and external callers.
     public IEnumerable<Expression> Expand(Workbook workbook) =>

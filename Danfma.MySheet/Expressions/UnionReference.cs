@@ -9,7 +9,9 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record UnionReference(Expression[] Areas) : Reference
 {
-    public override object? Compute(EvaluationContext context) => ErrorValue.NotValue;
+    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     public IEnumerable<object?> ExpandValues(EvaluationContext context)
     {

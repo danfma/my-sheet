@@ -46,8 +46,9 @@ public sealed partial record Offset(Expression[] Arguments) : Function
 
         if (height == 1 && width == 1)
         {
-            return ComputedValue.From(
-                context.Workbook.GetCellValue(sheetName, new CellAddress(startColumn, startRow).ToId())
+            return context.Workbook.GetCellComputedValue(
+                sheetName,
+                new CellAddress(startColumn, startRow).ToId()
             );
         }
 

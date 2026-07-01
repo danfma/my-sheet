@@ -20,9 +20,11 @@ public sealed partial class Workbook
     [MemoryPackIgnore]
     private Dictionary<string, CustomFunction>? _functions;
 
-    // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache).
+    // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache). Stores the
+    // ComputedValue struct inline — no long-lived per-cell box (the source of the Gen1 pressure the
+    // ComputedValue migration removes).
     [MemoryPackIgnore]
-    private ConcurrentDictionary<(string Sheet, string Id), object?>? _cache;
+    private ConcurrentDictionary<(string Sheet, string Id), ComputedValue>? _cache;
 
     // Cells currently being evaluated on the calling thread, to detect circular references. Thread-local
     // so concurrent (and benign) re-evaluation of the same cell on different threads is not a false cycle.
@@ -44,7 +46,14 @@ public sealed partial class Workbook
     /// Returns the computed value of a cell, memoizing it. The cache is NOT invalidated automatically on
     /// mutation — call <see cref="InvalidateCache"/> after editing cells.
     /// </summary>
-    public object? GetCellValue(string sheetName, string id)
+    public object? GetCellValue(string sheetName, string id) =>
+        GetCellComputedValue(sheetName, id).AsObject();
+
+    /// <summary>
+    /// The memoized <see cref="ComputedValue"/> of a cell — the cache stores the struct inline, so a cell
+    /// referenced by many formulas is computed once with no per-cell heap box.
+    /// </summary>
+    internal ComputedValue GetCellComputedValue(string sheetName, string id)
     {
         var cache = _cache ??= new();
         var key = (sheetName, id);
@@ -59,13 +68,13 @@ public sealed partial class Workbook
         if (!evaluating.Add(key))
         {
             // The cell is already on this thread's evaluation stack: a circular reference.
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
         try
         {
-            // Compute outside the dictionary (the formula recurses into GetCellValue), then store.
-            var value = Sheets[sheetName][id].Compute(new EvaluationContext(this, sheetName, id));
+            // Compute outside the dictionary (the formula recurses back in), then store.
+            var value = Sheets[sheetName][id].Evaluate(new EvaluationContext(this, sheetName, id));
             cache[key] = value;
 
             return value;
