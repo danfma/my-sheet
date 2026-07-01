@@ -104,7 +104,7 @@ public static class ExcelExport
 
         // OpenXML requires rows in order and cells in column order within the row.
         var orderedCells = sheet
-            .Select(entry => (entry.Key, Position: ParseCellId(entry.Key), Expression: entry.Value))
+            .Select(entry => (entry.Key, Position: CellId.Parse(entry.Key), Expression: entry.Value))
             .OrderBy(cell => cell.Position.Row)
             .ThenBy(cell => cell.Position.Column);
 
@@ -230,20 +230,6 @@ public static class ExcelExport
         value.TryGetError(out var error);
         cell.DataType = CellValues.Error;
         cell.CellValue = new CellValue(error.ToString());
-    }
-
-    private static (int Row, int Column) ParseCellId(string id)
-    {
-        var index = 0;
-        var column = 0;
-
-        while (index < id.Length && char.IsLetter(id[index]))
-        {
-            column = column * 26 + (char.ToUpperInvariant(id[index]) - 'A' + 1);
-            index++;
-        }
-
-        return (int.Parse(id[index..], CultureInfo.InvariantCulture), column);
     }
 
     /// <summary>Deduplicating shared-string table, written to the workbook only when any text was used.</summary>

@@ -24,6 +24,28 @@ extract data, without a full spreadsheet application.
 - **Memoization**: per-cell cache (storing `ComputedValue` inline — no long-lived per-cell box) with
   explicit invalidation; circular references become `#REF!` instead of a stack overflow.
 - **MemoryPack serialization** of the workbook.
+- **Excel (.xlsx) interop** via the companion `Danfma.MySheet.Excel` package (OpenXML SDK, cross-platform,
+  no Excel installation): load `.xlsx` files into a `Workbook` (formulas become real expression trees,
+  re-evaluated by this engine), export workbooks (`ValuesOnly` snapshot or `Formulas` with cached values),
+  and merge computed values into an existing template preserving its formatting.
+
+## Excel interop (`Danfma.MySheet.Excel`)
+
+```csharp
+using Danfma.MySheet.Excel;
+
+// Load: formulas come back as real expression trees, re-evaluated by MySheet.
+Workbook workbook = ExcelFile.Load("input.xlsx");
+double total = workbook.GetCellValue("Data", "A4").ToDouble();
+
+// Export: a flattened snapshot (default), or keep formulas + cached values.
+workbook.SaveAsExcel("snapshot.xlsx");
+workbook.SaveAsExcel("live.xlsx", new ExcelExportOptions { FormulaMode = FormulaMode.Formulas });
+
+// Merge: inject computed values into an existing template (formatting preserved,
+// target-cell formulas replaced by the literal values).
+workbook.MergeIntoExcel("template.xlsx", "report.xlsx"); // or in place: MergeIntoExcel("report.xlsx")
+```
 
 ## Excel function coverage
 

@@ -182,15 +182,15 @@ aliases Xlsx*.
 ---
 
 ## Phase 5: Merge de valores num `.xlsx` existente (`MergeIntoExcel`)
-Status: Not started
+Status: Complete
 
-- [ ] Overloads: `MergeIntoExcel(this Workbook, string templatePath, string outputPath, …)` (não-destrutivo:
+- [x] Overloads: `MergeIntoExcel(this Workbook, string templatePath, string outputPath, …)` (não-destrutivo:
       copia o template → escreve no output) e `MergeIntoExcel(this Workbook, string path, …)` (in-place).
-- [ ] Para cada planilha nossa (casa por nome, case-insensitive; ausente no alvo → pula e conta): para cada
+- [x] Para cada planilha nossa (casa por nome, case-insensitive; ausente no alvo → pula): para cada
       célula nossa, computa o valor e grava como **literal** na célula correspondente do alvo — **dropa** a
       fórmula que houvesse ali; cria a célula se não existir (mantendo a ordem coluna/linha do OpenXML); blank →
       não escreve. Todo o resto do alvo (formatação, outras células/planilhas, shared strings) é preservado.
-- [ ] Testes: gera um template `.xlsx` (fórmulas + uma célula "formatada"/extra como fixture), roda o merge dos
+- [x] Testes: gera um template `.xlsx` (fórmulas + célula extra como fixture), roda o merge dos
       nossos valores, relê e asseri: valores injetados corretos, fórmula da célula-alvo removida (virou literal),
       células/planilhas não-alvo intactas, planilha ausente no template ignorada.
 
@@ -199,7 +199,16 @@ Status: Not started
   incl. os testes de merge (não-destrutivo e in-place; template preservado; fórmula-alvo dropada).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+TDD (RED 2 → GREEN 12/12 na suíte Excel). `ExcelMerge.MergeIntoExcel(this Workbook, template, output)`
+(copia e edita o output) e `(this Workbook, path)` (in-place). Avalia tudo num `RunWithLargeStack`; casa
+sheet por nome case-insensitive (ausente → pula); blank não escreve; linha/célula criadas em ordem quando
+faltam (`InsertBefore` no primeiro maior); `WriteLiteral` limpa `<f>`/conteúdo mas NÃO toca `StyleIndex`
+(formatação do template preservada). Texto vai como **inline string** (`t="inlineStr"`) para não mexer na
+shared-string table do alvo — desvio consciente do padrão do export, registrado aqui. `CellId.Parse`
+extraído como helper interno compartilhado com o `ExcelExport`. Testes (oráculo ClosedXML): valor injetado
+como literal com fórmula-alvo dropada, células novas criadas, célula/planilha não-alvo intactas, sheet
+ausente pulada, template original preservado no modo não-destrutivo, e o modo in-place. 12/12; core 274/274;
+solução 0 warnings.
 
 ---
 
@@ -217,9 +226,23 @@ Status: Not started
 _(escrever quando a fase concluir)_
 
 ## Final Recap
-_(escrever quando as fases 1–5 concluírem)_
+MVP completo (Fases 1–5, todas TDD sempre-verde, na branch `feature/excel-writer` a partir da 3):
+1. **Reader** `ExcelFile.Load(path|Stream) : Workbook` — fórmulas viram `Expression` reais (reavaliadas pelo
+   nosso engine), literais tipados, shared strings, `$` normalizado, shared-formula escrava → valor cacheado.
+2. **Publicação do loader** — CI roda as 2 suítes; release em lockstep (versionize na raiz + pack duplo);
+   main pushada (771e033). Release dispatch = ação do usuário.
+3. **Un-parser** `Expression.ToFormula(contextSheet)` no core — parênteses mínimos espelhando o Pratt parser,
+   52 funções mapeadas, round-trip provado por string exata + igualdade estrutural MemoryPack.
+4. **Export** `SaveAsExcel(path|Stream, options)` — `ValuesOnly` (snapshot achatado, default) ou `Formulas`
+   (`<f>` + `<v>` cacheado); shared strings dedupadas; validado pelo nosso reader + oráculo ClosedXML.
+5. **Merge** `MergeIntoExcel(template, output | path)` — injeta valores computados como literais no template,
+   dropando fórmulas-alvo e preservando todo o resto (estilos intactos via StyleIndex não tocado).
+Total: suíte Excel 12/12, core 274/274 (34 novos do FormulaWriter), solução 0 warnings.
 
 ## Deployment Plan
-_(escrever quando concluir: novo pacote NuGet `Danfma.MySheet.Excel` — versão inicial; depende de
-`Danfma.MySheet` + `DocumentFormat.OpenXml`; publicar junto no CI. Core inalterado exceto o `FormulaWriter`.
-A publicação inicial (1.0.0, lockstep com o core) acontece na Fase 2; releases seguintes idem via versionize.)_
+1. Merge `feature/excel-writer` → `main` (a Fase 2 já publicou a main com o reader; este merge leva
+   un-parser + export + merge — commits `feat` → minor bump no próximo release).
+2. Push da `main` (aval do usuário) → CI verde (build + 2 suítes).
+3. `gh workflow run release.yml` → versionize bumpa os 2 pacotes em lockstep + NuGet + GitHub Release.
+   (Se o release do loader (1.0.0) ainda não rodou, um único release cobre tudo.)
+4. Pós-release: `git pull` na main local (o workflow empurra commit de bump + tag).
