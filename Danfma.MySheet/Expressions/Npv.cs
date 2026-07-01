@@ -9,17 +9,17 @@ public sealed partial record Npv(Expression[] Arguments) : Function
     // NPV(rate, value1, [value2], …) — net present value of a series of cash flows, the first
     // discounted by one period. Like Excel, numeric text and logicals passed *directly* count, but
     // text/logicals/blanks pulled from *referenced* cells are ignored.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToNumber(Arguments[0].Compute(context), out var rate) is { } rateError)
+        if (Arguments[0].Evaluate(context).CoerceToNumber(out var rate) is { } rateError)
         {
-            return rateError;
+            return ComputedValue.Error(rateError);
         }
 
         var denominator = 1 + rate;
         if (denominator == 0)
         {
-            return ErrorValue.DivByZero;
+            return ComputedValue.Error(Error.DivZero);
         }
 
         var sum = 0.0;
@@ -69,8 +69,10 @@ public sealed partial record Npv(Expression[] Arguments) : Function
             }
         }
 
-        return error ?? (object)sum;
+        return error is { } propagated ? ComputedValue.From(propagated) : ComputedValue.Number(sum);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private static void AddReferenced(
         object? value,

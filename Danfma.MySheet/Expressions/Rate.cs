@@ -7,48 +7,48 @@ public sealed partial record Rate(Expression[] Arguments) : Function
 {
     // RATE(nper, pmt, pv, [fv], [type], [guess]) — the periodic interest rate of an annuity. There
     // is no closed form, so it is solved iteratively from `guess` (default 0.1); #NUM! if it fails.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (ValueCoercion.TryToNumber(Arguments[0].Compute(context), out var nper) is { } nperError)
+        if (Arguments[0].Evaluate(context).CoerceToNumber(out var nper) is { } nperError)
         {
-            return nperError;
+            return ComputedValue.Error(nperError);
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var pmt) is { } pmtError)
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var pmt) is { } pmtError)
         {
-            return pmtError;
+            return ComputedValue.Error(pmtError);
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[2].Compute(context), out var pv) is { } pvError)
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var pv) is { } pvError)
         {
-            return pvError;
+            return ComputedValue.Error(pvError);
         }
 
         var fv = 0.0;
         if (
             Arguments.Length > 3
-            && ValueCoercion.TryToNumber(Arguments[3].Compute(context), out fv) is { } fvError
+            && Arguments[3].Evaluate(context).CoerceToNumber(out fv) is { } fvError
         )
         {
-            return fvError;
+            return ComputedValue.Error(fvError);
         }
 
         var type = 0.0;
         if (
             Arguments.Length > 4
-            && ValueCoercion.TryToNumber(Arguments[4].Compute(context), out type) is { } typeError
+            && Arguments[4].Evaluate(context).CoerceToNumber(out type) is { } typeError
         )
         {
-            return typeError;
+            return ComputedValue.Error(typeError);
         }
 
         var guess = 0.1;
         if (
             Arguments.Length > 5
-            && ValueCoercion.TryToNumber(Arguments[5].Compute(context), out guess) is { } guessError
+            && Arguments[5].Evaluate(context).CoerceToNumber(out guess) is { } guessError
         )
         {
-            return guessError;
+            return ComputedValue.Error(guessError);
         }
 
         var normalizedType = type != 0 ? 1 : 0;
@@ -58,6 +58,8 @@ public sealed partial record Rate(Expression[] Arguments) : Function
             TimeValueOfMoney.Fv(rate, nper, pmt, pv, normalizedType) - fv;
 
         var result = TimeValueOfMoney.Solve(Residual, guess);
-        return double.IsFinite(result) ? result : ErrorValue.Number;
+        return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

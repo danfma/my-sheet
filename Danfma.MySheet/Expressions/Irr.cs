@@ -8,7 +8,7 @@ public sealed partial record Irr(Expression[] Arguments) : Function
     // IRR(values, [guess]) — the internal rate of return: the rate at which the cash flows (the
     // first at period 0) have a net present value of zero. Solved iteratively from `guess`
     // (default 0.1). #NUM! when the flows never change sign or the solver fails to converge.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var flows = new List<double>();
 
@@ -17,7 +17,7 @@ public sealed partial record Irr(Expression[] Arguments) : Function
             switch (value)
             {
                 case ErrorValue error:
-                    return error;
+                    return ComputedValue.From(error);
 
                 case double number:
                     flows.Add(number);
@@ -30,15 +30,15 @@ public sealed partial record Irr(Expression[] Arguments) : Function
         var guess = 0.1;
         if (
             Arguments.Length > 1
-            && ValueCoercion.TryToNumber(Arguments[1].Compute(context), out guess) is { } guessError
+            && Arguments[1].Evaluate(context).CoerceToNumber(out guess) is { } guessError
         )
         {
-            return guessError;
+            return ComputedValue.Error(guessError);
         }
 
         if (!HasSignChange(flows))
         {
-            return ErrorValue.Number;
+            return ComputedValue.Error(Error.Num);
         }
 
         // The IRR is the root of the period-0 NPV: Σ flow_t / (1+rate)^t.
@@ -57,8 +57,10 @@ public sealed partial record Irr(Expression[] Arguments) : Function
         }
 
         var result = TimeValueOfMoney.Solve(Npv, guess);
-        return double.IsFinite(result) ? result : ErrorValue.Number;
+        return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private static bool HasSignChange(List<double> flows)
     {
