@@ -8,7 +8,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
     // XLOOKUP(lookup, lookup_array, return_array, [if_not_found], [match_mode], [search_mode]).
     // match_mode: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
     // search_mode: 1 first-to-last, -1 last-to-first (binary modes not supported).
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var lookup = Arguments[0].Compute(context);
         var lookupArray = ArgumentFlattening.Expand(Arguments[1], context);
@@ -17,21 +17,19 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         var matchMode = 0.0;
         if (
             Arguments.Length >= 5
-            && ValueCoercion.TryToNumber(Arguments[4].Compute(context), out matchMode)
-                is { } matchError
+            && Arguments[4].Evaluate(context).CoerceToNumber(out matchMode) is { } matchError
         )
         {
-            return matchError;
+            return ComputedValue.Error(matchError);
         }
 
         var searchMode = 1.0;
         if (
             Arguments.Length >= 6
-            && ValueCoercion.TryToNumber(Arguments[5].Compute(context), out searchMode)
-                is { } searchError
+            && Arguments[5].Evaluate(context).CoerceToNumber(out searchMode) is { } searchError
         )
         {
-            return searchError;
+            return ComputedValue.Error(searchError);
         }
 
         var count = Math.Min(lookupArray.Count, returnArray.Count);
@@ -39,13 +37,15 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         if (match >= 0)
         {
-            return returnArray[match];
+            return ComputedValue.From(returnArray[match]);
         }
 
         return Arguments.Length >= 4 && Arguments[3] is not BlankValue
-            ? Arguments[3].Compute(context)
-            : ErrorValue.NotAvailable;
+            ? ComputedValue.From(Arguments[3].Compute(context))
+            : ComputedValue.Error(Error.NA);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private static int FindMatch(
         object? lookup,

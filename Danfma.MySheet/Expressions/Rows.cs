@@ -5,6 +5,8 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Rows(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context) =>
-        Arguments[0] is RangeReference range ? (double)range.RowCount : 1.0;
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Number(Arguments[0] is RangeReference range ? range.RowCount : 1.0);
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

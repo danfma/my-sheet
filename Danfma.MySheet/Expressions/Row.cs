@@ -5,13 +5,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Row(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context) =>
+    public override ComputedValue Evaluate(EvaluationContext context) =>
         Arguments switch
         {
-            [CellReference cell] => (double)CellAddress.Parse(cell.Id).Row,
-            [RangeReference range] => (double)range.TopRow,
+            [CellReference cell] => ComputedValue.Number(CellAddress.Parse(cell.Id).Row),
+            [RangeReference range] => ComputedValue.Number(range.TopRow),
             // ROW() with no argument uses the cell currently being evaluated, when one is known.
-            [] when context.CellId is { } id => (double)CellAddress.Parse(id).Row,
-            _ => ErrorValue.NotValue,
+            [] when context.CellId is { } id => ComputedValue.Number(CellAddress.Parse(id).Row),
+            _ => ComputedValue.Error(Error.Value),
         };
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

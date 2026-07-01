@@ -5,19 +5,16 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Index(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments[0] is not RangeReference range)
         {
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
-        if (
-            ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var first) is
-            { } firstError
-        )
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
         {
-            return firstError;
+            return ComputedValue.Error(firstError);
         }
 
         double row;
@@ -25,12 +22,9 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (Arguments.Length == 3)
         {
-            if (
-                ValueCoercion.TryToNumber(Arguments[2].Compute(context), out column) is
-                { } columnError
-            )
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out column) is { } columnError)
             {
-                return columnError;
+                return ComputedValue.Error(columnError);
             }
 
             row = first;
@@ -49,9 +43,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row < 1 || column < 1 || row > range.RowCount || column > range.ColumnCount)
         {
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
-        return range.CellValueAt(context, (int)row, (int)column);
+        return ComputedValue.From(range.CellValueAt(context, (int)row, (int)column));
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

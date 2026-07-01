@@ -7,11 +7,11 @@ public sealed partial record Let(Expression[] Arguments) : Function
 {
     // LET(name1, value1, …, calculation) — binds each name to its value (later values may use earlier
     // names), then evaluates the final calculation in that scope.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments.Length < 3 || Arguments.Length % 2 == 0)
         {
-            return ErrorValue.NotValue;
+            return ComputedValue.Error(Error.Value);
         }
 
         var scope = context;
@@ -20,12 +20,14 @@ public sealed partial record Let(Expression[] Arguments) : Function
         {
             if (Arguments[i] is not NameReference name)
             {
-                return ErrorValue.NotValue;
+                return ComputedValue.Error(Error.Value);
             }
 
             scope = scope.WithName(name.Name, Arguments[i + 1].Compute(scope));
         }
 
-        return Arguments[^1].Compute(scope);
+        return Arguments[^1].Evaluate(scope);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

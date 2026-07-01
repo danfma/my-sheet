@@ -5,7 +5,7 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record Match(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var lookup = Arguments[0].Compute(context);
         var array = ArgumentFlattening.Expand(Arguments[1], context);
@@ -14,11 +14,10 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         if (
             Arguments.Length == 3
-            && ValueCoercion.TryToNumber(Arguments[2].Compute(context), out matchType)
-                is { } typeError
+            && Arguments[2].Evaluate(context).CoerceToNumber(out matchType) is { } typeError
         )
         {
-            return typeError;
+            return ComputedValue.Error(typeError);
         }
 
         if (matchType == 0)
@@ -27,11 +26,11 @@ public sealed partial record Match(Expression[] Arguments) : Function
             {
                 if (ValueCoercion.AreEqual(array[i], lookup))
                 {
-                    return (double)(i + 1);
+                    return ComputedValue.Number(i + 1);
                 }
             }
 
-            return ErrorValue.NotAvailable;
+            return ComputedValue.Error(Error.NA);
         }
 
         // Approximate: matchType > 0 assumes ascending (largest value <= lookup); < 0 assumes
@@ -39,7 +38,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // keys sort lexicographically, exactly like the <= operator — not only numeric keys.
         if (lookup is ErrorValue lookupError)
         {
-            return lookupError;
+            return ComputedValue.From(lookupError);
         }
 
         var position = -1;
@@ -64,6 +63,8 @@ public sealed partial record Match(Expression[] Arguments) : Function
             }
         }
 
-        return position >= 1 ? (double)position : ErrorValue.NotAvailable;
+        return position >= 1 ? ComputedValue.Number(position) : ComputedValue.Error(Error.NA);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

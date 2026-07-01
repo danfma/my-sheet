@@ -6,43 +6,34 @@ namespace Danfma.MySheet.Expressions;
 public sealed partial record Offset(Expression[] Arguments) : Function
 {
     // OFFSET(reference, rows, cols, [height], [width]) — scalar (single-cell) result only for now.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (!TryBase(Arguments[0], out var sheetName, out var baseColumn, out var baseRow))
         {
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
-        if (ValueCoercion.TryToNumber(Arguments[1].Compute(context), out var rows) is { } rowsError)
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var rows) is { } rowsError)
         {
-            return rowsError;
+            return ComputedValue.Error(rowsError);
         }
 
-        if (
-            ValueCoercion.TryToNumber(Arguments[2].Compute(context), out var columns) is
-            { } columnsError
-        )
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columns) is { } columnsError)
         {
-            return columnsError;
+            return ComputedValue.Error(columnsError);
         }
 
         var height = 1.0;
         var width = 1.0;
 
-        if (
-            Arguments.Length >= 4
-            && ValueCoercion.TryToNumber(Arguments[3].Compute(context), out height) is { } e1
-        )
+        if (Arguments.Length >= 4 && Arguments[3].Evaluate(context).CoerceToNumber(out height) is { } e1)
         {
-            return e1;
+            return ComputedValue.Error(e1);
         }
 
-        if (
-            Arguments.Length >= 5
-            && ValueCoercion.TryToNumber(Arguments[4].Compute(context), out width) is { } e2
-        )
+        if (Arguments.Length >= 5 && Arguments[4].Evaluate(context).CoerceToNumber(out width) is { } e2)
         {
-            return e2;
+            return ComputedValue.Error(e2);
         }
 
         var startColumn = baseColumn + (int)columns;
@@ -50,24 +41,27 @@ public sealed partial record Offset(Expression[] Arguments) : Function
 
         if (startColumn < 1 || startRow < 1)
         {
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
         if (height == 1 && width == 1)
         {
-            return context.Workbook.GetCellValue(
-                sheetName,
-                new CellAddress(startColumn, startRow).ToId()
+            return ComputedValue.From(
+                context.Workbook.GetCellValue(sheetName, new CellAddress(startColumn, startRow).ToId())
             );
         }
 
-        // A multi-cell result is a range, expanded by functions that accept ranges (e.g. SUM(OFFSET(...))).
-        return new RangeReference(
-            new CellAddress(startColumn, startRow).ToId(),
-            new CellAddress(startColumn + (int)width - 1, startRow + (int)height - 1).ToId(),
-            sheetName
+        // A multi-cell result is a range (Reference kind), expanded by functions that accept ranges.
+        return ComputedValue.Reference(
+            new RangeReference(
+                new CellAddress(startColumn, startRow).ToId(),
+                new CellAddress(startColumn + (int)width - 1, startRow + (int)height - 1).ToId(),
+                sheetName
+            )
         );
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 
     private static bool TryBase(
         Expression reference,

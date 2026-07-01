@@ -10,8 +10,10 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record FunctionCall(string Name, Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context) =>
+    public override ComputedValue Evaluate(EvaluationContext context) =>
         context.Workbook.TryGetFunction(Name, out var function)
-            ? function(Arguments, context.Workbook)
-            : ErrorValue.Name;
+            ? ComputedValue.From(function(Arguments, context.Workbook))
+            : ComputedValue.Error(Error.Name);
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

@@ -6,42 +6,38 @@ namespace Danfma.MySheet.Expressions;
 public sealed partial record VLookup(Expression[] Arguments) : Function
 {
     // VLOOKUP(lookup, table, column_index, [range_lookup]) — searches the table's first column.
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments[1] is not RangeReference table)
         {
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
         var lookup = Arguments[0].Compute(context);
 
-        if (
-            ValueCoercion.TryToNumber(Arguments[2].Compute(context), out var columnIndex) is
-            { } columnError
-        )
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
         {
-            return columnError;
+            return ComputedValue.Error(columnError);
         }
 
         if (columnIndex < 1 || columnIndex > table.ColumnCount)
         {
-            return ErrorValue.Reference;
+            return ComputedValue.Error(Error.Ref);
         }
 
         var approximate = true;
 
         if (
             Arguments.Length == 4
-            && ValueCoercion.TryToBool(Arguments[3].Compute(context), out approximate)
-                is { } modeError
+            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
         )
         {
-            return modeError;
+            return ComputedValue.Error(modeError);
         }
 
         if (lookup is ErrorValue lookupError)
         {
-            return lookupError;
+            return ComputedValue.From(lookupError);
         }
 
         var matchRow = -1;
@@ -78,7 +74,9 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         return matchRow >= 1
-            ? table.CellValueAt(context, matchRow, (int)columnIndex)
-            : ErrorValue.NotAvailable;
+            ? ComputedValue.From(table.CellValueAt(context, matchRow, (int)columnIndex))
+            : ComputedValue.Error(Error.NA);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

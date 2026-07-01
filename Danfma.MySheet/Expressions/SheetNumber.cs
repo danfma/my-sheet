@@ -6,20 +6,22 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record SheetNumber(Expression[] Arguments) : Function
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
         var sheetName = Arguments switch
         {
             [] => context.SheetName,
             [CellReference cell] => cell.SheetName,
             [RangeReference range] => range.SheetName,
-            [var argument] => argument.Compute(context) as string,
+            [var argument] => argument.Evaluate(context).AsString(),
             _ => null,
         };
 
         return
             sheetName is not null && context.Workbook.Sheets.TryGetValue(sheetName, out var sheet)
-            ? (double)(sheet.Index + 1)
-            : ErrorValue.Reference;
+            ? ComputedValue.Number(sheet.Index + 1)
+            : ComputedValue.Error(Error.Ref);
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }
