@@ -79,23 +79,40 @@ Decisões/aprendizados registrados:
 ---
 
 ## Phase 2: Contrato `Evaluate` + coerção nativa + nós-valor
-Status: Not started
+Status: Complete
 
-- [ ] Base `Expression`: adicionar `public virtual ComputedValue Evaluate(EvaluationContext ctx) =>
-      ComputedValue.From(Compute(ctx));` (default bridged). Mantém `Compute` como está → tudo verde.
-- [ ] `ValueCoercion` ganha overloads nativos sobre `ComputedValue` (`ToNumber(in ComputedValue)` etc.),
-      coexistindo com os de `object?`. Coerção continua **interna**.
-- [ ] Migrar nós-folha (`NumberValue`, `StringValue`, `BooleanValue`, `BlankValue`, `ErrorValue`,
-      `CellReference`, `RangeReference`, `NameReference`, `UnionReference`) para **override `Evaluate`
-      nativo**; o `Compute` de cada um passa a `=> Evaluate(ctx).AsObject()`.
-- [ ] `ErrorValue` passa a embrulhar/expor um `Error` (reconciliação do código de erro).
+- [x] Base `Expression`: `public virtual ComputedValue Evaluate(EvaluationContext ctx) =>
+      ComputedValue.From(Compute(ctx));` (default bridged) + overload `Evaluate(Workbook)`. `Compute`
+      intacto → tudo verde.
+- [x] `ValueCoercion` ganhou overloads nativos sobre `ComputedValue` (`TryToNumber`/`TryToBool`/`TryToText`
+      `(in ComputedValue, out …) : Error?`), coexistindo com os de `object?`. Coerção continua **interna**.
+- [x] Migrar nós-valor literais (`NumberValue`, `StringValue`, `BooleanValue`, `BlankValue`) para override
+      `Evaluate` nativo; `Compute` de cada um passa a `=> Evaluate(ctx).AsObject()`.
+- [x] `ErrorValue`: override `Evaluate => ComputedValue.Error(AsError())` + `internal Error AsError()`
+      (reconciliação). `Compute` mantido como `=> this` (zero-risco; todos os `ErrorValue` são singletons
+      well-known → ponte lossless, confirmado por grep de `new ErrorValue(`).
+- **Escopo ajustado (registrado):** as **referências** (`CellReference`/`RangeReference`/`NameReference`/
+  `UnionReference`) NÃO foram migradas aqui — elas leem do cache `object?` e não ganham nada nativo até o
+  cache virar `ComputedValue` (Fase 5). Ficam no bridge da base (correto) até lá.
 
 ### Verification Plan
-- Suíte verde. Um teste novo prova consistência: para um conjunto de nós, `node.Evaluate(ctx).AsObject()`
-  equivale ao antigo `node.Compute(ctx)`.
+- Suíte verde. Teste `EvaluateBridgeTests` prova: `node.Evaluate(wb).AsObject()` == `node.Compute(wb)` para
+  os nós-valor; nó não-migrado (`Sum`) roteia pelo bridge da base; coerção nativa (número/bool/texto/blank/
+  erro) espelha a de `object?`.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+**Concluída.** Build core 0 Warning(s)/0 Error(s); suíte **240/240 verde** (235 + 5 novos). Sempre-verde
+mantido: `Compute` de todos os call sites (~105) continua funcionando — os nós migrados roteiam por
+`Evaluate().AsObject()`, os não-migrados usam o bridge `From(Compute())` da base.
+
+Decisões/aprendizados:
+- **Seam de migração**: a base tem os dois caminhos consistentes por construção. Um nó está em UM de dois
+  estados: (a) `Compute` nativo + `Evaluate` herdado (bridge), ou (b) `Evaluate` nativo + `Compute` delega.
+  Migrar = mover de (a) para (b), um nó por vez, sempre verde.
+- **`ErrorValue.Compute` intocado de propósito**: preservar a identidade exata do nó (não normalizar via
+  `Error`) é zero-risco; a normalização só aconteceria em erros não-well-known, que não existem no engine.
+- **Coerção nativa retorna `Error?`** (não `ErrorValue?`) — é o que os nós compostos vão propagar na Fase 3.
+- Referências adiadas para depois do cache (Fase 5) — evita `From()` wrapping sem ganho.
 
 ---
 

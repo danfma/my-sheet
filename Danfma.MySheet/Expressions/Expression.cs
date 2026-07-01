@@ -77,6 +77,13 @@ public abstract partial record Expression
     // Backwards-compatible entry point used by tests/benchmark and external callers.
     public object? Compute(Workbook workbook) => Compute(new EvaluationContext(workbook));
 
+    // New primary contract (returns a value type — no boxing). The default bridges from the legacy
+    // Compute so un-migrated nodes keep working; migrated nodes override this and route Compute through
+    // AsObject(). This is the transitional seam of the ComputedValue migration.
+    public virtual ComputedValue Evaluate(EvaluationContext context) => ComputedValue.From(Compute(context));
+
+    public ComputedValue Evaluate(Workbook workbook) => Evaluate(new EvaluationContext(workbook));
+
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static NumberValue Number(double value) => new(value);
 

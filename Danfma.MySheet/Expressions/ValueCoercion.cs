@@ -49,6 +49,107 @@ internal static class ValueCoercion
         }
     }
 
+    // --- Overloads nativos sobre ComputedValue (mesma semântica; sem boxing). A coerção é interna ao
+    // engine — o `Error` retornado é o que os nós migrados propagam. ---
+
+    /// <summary>Coerção numérica nativa. Retorna <c>null</c> no sucesso, ou o <see cref="Error"/> a propagar.</summary>
+    public static Error? TryToNumber(in ComputedValue value, out double number)
+    {
+        switch (value.Kind)
+        {
+            case ComputedValueKind.Blank:
+                number = 0;
+                return null;
+
+            case ComputedValueKind.Number:
+                value.TryGetNumber(out number);
+                return null;
+
+            case ComputedValueKind.Boolean:
+                value.TryGetBoolean(out var boolean);
+                number = boolean ? 1 : 0;
+                return null;
+
+            case ComputedValueKind.Text
+                when value.TryGetText(out var text)
+                    && double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed):
+                number = parsed;
+                return null;
+
+            case ComputedValueKind.Error:
+                value.TryGetError(out var error);
+                number = 0;
+                return error;
+
+            default:
+                number = 0;
+                return Error.Value;
+        }
+    }
+
+    /// <summary>Coerção booleana nativa (truthiness do Excel).</summary>
+    public static Error? TryToBool(in ComputedValue value, out bool result)
+    {
+        switch (value.Kind)
+        {
+            case ComputedValueKind.Blank:
+                result = false;
+                return null;
+
+            case ComputedValueKind.Boolean:
+                value.TryGetBoolean(out result);
+                return null;
+
+            case ComputedValueKind.Number:
+                value.TryGetNumber(out var number);
+                result = number != 0;
+                return null;
+
+            case ComputedValueKind.Error:
+                value.TryGetError(out var error);
+                result = false;
+                return error;
+
+            default:
+                result = false;
+                return Error.Value;
+        }
+    }
+
+    /// <summary>Coerção textual nativa (blank→""; number→invariant; bool→TRUE/FALSE).</summary>
+    public static Error? TryToText(in ComputedValue value, out string text)
+    {
+        switch (value.Kind)
+        {
+            case ComputedValueKind.Blank:
+                text = string.Empty;
+                return null;
+
+            case ComputedValueKind.Text:
+                value.TryGetText(out text!);
+                return null;
+
+            case ComputedValueKind.Number:
+                value.TryGetNumber(out var number);
+                text = number.ToString(CultureInfo.InvariantCulture);
+                return null;
+
+            case ComputedValueKind.Boolean:
+                value.TryGetBoolean(out var boolean);
+                text = boolean ? "TRUE" : "FALSE";
+                return null;
+
+            case ComputedValueKind.Error:
+                value.TryGetError(out var error);
+                text = string.Empty;
+                return error;
+
+            default:
+                text = string.Empty;
+                return Error.Value;
+        }
+    }
+
     /// <summary>
     /// Tries to coerce a computed value into a boolean condition (Excel truthiness). Returns <c>null</c>
     /// on success, or the <see cref="ErrorValue"/> to propagate. Blank→false; number→(≠0); text→#VALUE!.
