@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="1.0.0"></a>
+## [1.0.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.0.0) (2026-07-01)
+
+### Features
+
+* **core:** cache de celula passa a armazenar ComputedValue (Fase 5a) ([d7e0628](https://www.github.com/danfma/my-sheet/commit/d7e0628916c9848658e0c90e42ffb0fff6b19da7))
+* **core:** CustomFunction retorna ComputedValue; remove ComputedValue.From ([8443dff](https://www.github.com/danfma/my-sheet/commit/8443dffdff47a1ca2ce9c0e836945a588ef86891))
+* **excel:** MergeIntoExcel — injeta valores computados em .xlsx existente ([5e4c42b](https://www.github.com/danfma/my-sheet/commit/5e4c42beb22e2bc9cf8e43119dcdc80f7dd5c84e))
+* **excel:** nova lib Danfma.MySheet.Excel com reader ExcelFile.Load (.xlsx -> Workbook) ([c038257](https://www.github.com/danfma/my-sheet/commit/c0382578736f93c223e4277e4b49bf59d7c50dc3))
+* **excel:** SaveAsExcel — exporta Workbook para .xlsx (ValuesOnly | Formulas) ([5de9fde](https://www.github.com/danfma/my-sheet/commit/5de9fdec13990db59ff034596fa8806f15d72cc0))
+* **expressions:** adiciona ComputedValue e Error (tipos core, aditivo) ([903aadf](https://www.github.com/danfma/my-sheet/commit/903aadfe07f58a4cc8a93b002f630d746147eac0))
+* **expressions:** contrato Evaluate + coercao nativa + nos-valor (Fase 2) ([53b71fb](https://www.github.com/danfma/my-sheet/commit/53b71fb66d1c99b336d0a11b2238d8531f6cb853))
+* **expressions:** migra agregacao/variadicos/condicionais (Fase 3e) ([256a506](https://www.github.com/danfma/my-sheet/commit/256a506173f5bcc2f9baefd6ee41db6eb1431f6b))
+* **expressions:** migra financeiras para Evaluate nativo (Fase 4a) ([044a5e2](https://www.github.com/danfma/my-sheet/commit/044a5e294b9466e12a3498ac31b6c50a73845f47))
+* **expressions:** migra lookup/LET/FunctionCall para Evaluate nativo (Fase 4b) ([8d4bb70](https://www.github.com/danfma/my-sheet/commit/8d4bb702fb6aa9c0f2f5d6ae3d4bf009e747fa8a))
+* **expressions:** migra math/info escalares para Evaluate nativo (Fase 3c) ([25907f1](https://www.github.com/danfma/my-sheet/commit/25907f157a024eb0343300e853d3ad537902920f))
+* **expressions:** migra nos logicos para Evaluate nativo (Fase 3a) ([fa7466f](https://www.github.com/danfma/my-sheet/commit/fa7466f655b7b275cf82ab8089c9f56fb2347d8d))
+* **expressions:** migra operadores para Evaluate nativo (Fase 3b) ([6f5457c](https://www.github.com/danfma/my-sheet/commit/6f5457c3e41e8138d1e5bc4d31715d8c878575fe))
+* **expressions:** migra texto escalar para Evaluate nativo (Fase 3d) ([c233019](https://www.github.com/danfma/my-sheet/commit/c233019ca7608fa6a3aeda0cd860a4f0735b817b))
+* **expressions:** remove Compute; Evaluate:ComputedValue e a unica API ([19b389b](https://www.github.com/danfma/my-sheet/commit/19b389b917613897a97e247ac446f4ecaa965c64))
+* **parsing:** FormulaWriter — un-parse de Expression para texto de formula Excel ([6e4b381](https://www.github.com/danfma/my-sheet/commit/6e4b3818d1e331ebf6b3f07a696bfc0129cb34d8))
+
+### Breaking Changes
+
+* **core:** CustomFunction retorna ComputedValue; remove ComputedValue.From ([8443dff](https://www.github.com/danfma/my-sheet/commit/8443dffdff47a1ca2ce9c0e836945a588ef86891))
+* **expressions:** remove Compute; Evaluate:ComputedValue e a unica API ([19b389b](https://www.github.com/danfma/my-sheet/commit/19b389b917613897a97e247ac446f4ecaa965c64))
+
 <a name="0.2.0"></a>
 ## [0.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v0.2.0) (2026-06-29)
 
