@@ -10,7 +10,7 @@ public sealed partial record Sum(Expression[] Expressions) : Function
         var fold = new SumFold();
 
         return NumericAggregation.Fold(Expressions, context, ref fold) is { } error
-            ? ComputedValue.From(error)
+            ? ComputedValue.Error(error)
             : ComputedValue.Number(fold.Total);
     }
 

@@ -11,7 +11,7 @@ public sealed partial record Average(Expression[] Arguments) : Function
 
         if (NumericAggregation.Fold(Arguments, context, ref fold) is { } error)
         {
-            return ComputedValue.From(error);
+            return ComputedValue.Error(error);
         }
 
         return fold.Count == 0

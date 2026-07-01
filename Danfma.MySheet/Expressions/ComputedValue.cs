@@ -157,15 +157,23 @@ public readonly struct ComputedValue
         switch (_ref)
         {
             case RangeReference range:
-                foreach (var value in range.ExpandValues(context))
+                foreach (var value in range.ExpandComputedValues(context))
                 {
-                    yield return From(value);
+                    yield return value;
+                }
+
+                break;
+
+            case UnionReference union:
+                foreach (var value in union.ExpandComputedValues(context))
+                {
+                    yield return value;
                 }
 
                 break;
 
             case Reference reference:
-                yield return From(reference.Compute(context));
+                yield return reference.Evaluate(context);
                 break;
         }
     }

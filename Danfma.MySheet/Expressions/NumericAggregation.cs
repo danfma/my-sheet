@@ -12,28 +12,29 @@ internal interface INumericFold
 }
 
 /// <summary>
-/// Shared single-pass numeric gathering for aggregate functions (SUM, AVERAGE, MIN, MAX, COUNT).
-/// Mirrors Excel's rule: numeric text and logicals passed <em>directly</em> as arguments are counted,
-/// but text/logicals/blanks pulled from <em>referenced</em> cells are ignored. The first error
-/// encountered is returned; the caller decides whether to propagate it (SUM…) or ignore it (COUNT).
+/// Shared single-pass numeric gathering for aggregate functions (SUM, AVERAGE, MIN, MAX, COUNT), reading
+/// each cell as a <see cref="ComputedValue"/> straight from the cache (no boxing). Mirrors Excel's rule:
+/// numeric text and logicals passed <em>directly</em> as arguments are counted, but text/logicals/blanks
+/// pulled from <em>referenced</em> cells are ignored. The first error encountered is returned; the caller
+/// decides whether to propagate it (SUM…) or ignore it (COUNT).
 /// </summary>
 internal static class NumericAggregation
 {
-    public static ErrorValue? Fold<TFold>(
+    public static Error? Fold<TFold>(
         Expression[] arguments,
         EvaluationContext context,
         ref TFold fold
     )
         where TFold : struct, INumericFold
     {
-        ErrorValue? error = null;
+        Error? error = null;
 
         foreach (var argument in arguments)
         {
             switch (argument)
             {
                 case RangeReference range:
-                    foreach (var value in range.ExpandValues(context))
+                    foreach (var value in range.ExpandComputedValues(context))
                     {
                         AddReferenced(value, ref fold, ref error);
                     }
@@ -41,11 +42,11 @@ internal static class NumericAggregation
                     break;
 
                 case CellReference cell:
-                    AddReferenced(cell.Compute(context), ref fold, ref error);
+                    AddReferenced(cell.Evaluate(context), ref fold, ref error);
                     break;
 
                 case UnionReference union:
-                    foreach (var value in union.ExpandValues(context))
+                    foreach (var value in union.ExpandComputedValues(context))
                     {
                         AddReferenced(value, ref fold, ref error);
                     }
@@ -53,12 +54,12 @@ internal static class NumericAggregation
                     break;
 
                 default:
-                    var argumentValue = argument.Compute(context);
+                    var argumentValue = argument.Evaluate(context);
 
                     // A function (e.g. OFFSET) may yield a range value; expand it as referenced cells.
-                    if (argumentValue is RangeReference resultRange)
+                    if (argumentValue.Kind == ComputedValueKind.Reference)
                     {
-                        foreach (var cellValue in resultRange.ExpandValues(context))
+                        foreach (var cellValue in argumentValue.EnumerateValues(context))
                         {
                             AddReferenced(cellValue, ref fold, ref error);
                         }
@@ -75,56 +76,56 @@ internal static class NumericAggregation
         return error;
     }
 
-    private static void AddReferenced<TFold>(object? value, ref TFold fold, ref ErrorValue? error)
+    private static void AddReferenced<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
         where TFold : struct, INumericFold
     {
-        switch (value)
+        if (value.TryGetError(out var referencedError))
         {
-            case ErrorValue referencedError:
-                error ??= referencedError;
-                break;
-
-            case double number:
-                fold.Accept(number);
-                break;
-
-            // Referenced text, logicals and blanks are ignored, matching Excel.
+            error ??= referencedError;
         }
+        else if (value.TryGetNumber(out var number))
+        {
+            fold.Accept(number);
+        }
+
+        // Referenced text, logicals and blanks are ignored, matching Excel.
     }
 
-    private static void AddDirect<TFold>(object? value, ref TFold fold, ref ErrorValue? error)
+    private static void AddDirect<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
         where TFold : struct, INumericFold
     {
-        switch (value)
+        switch (value.Kind)
         {
-            case ErrorValue directError:
+            case ComputedValueKind.Error:
+                value.TryGetError(out var directError);
                 error ??= directError;
                 break;
 
-            case double number:
+            case ComputedValueKind.Number:
+                value.TryGetNumber(out var number);
                 fold.Accept(number);
                 break;
 
-            case bool boolean:
+            case ComputedValueKind.Boolean:
+                value.TryGetBoolean(out var boolean);
                 fold.Accept(boolean ? 1 : 0);
                 break;
 
-            case null:
+            case ComputedValueKind.Blank:
                 // Blank ignored.
                 break;
 
-            case string text
-                when double.TryParse(
-                    text,
-                    NumberStyles.Any,
-                    CultureInfo.InvariantCulture,
-                    out var parsed
-                ):
-                fold.Accept(parsed);
-                break;
+            case ComputedValueKind.Text:
+                value.TryGetText(out var text);
+                if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    fold.Accept(parsed);
+                }
+                else
+                {
+                    error ??= Error.Value;
+                }
 
-            case string:
-                error ??= ErrorValue.NotValue;
                 break;
         }
     }

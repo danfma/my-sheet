@@ -10,7 +10,7 @@ public sealed partial record Max(Expression[] Arguments) : Function
         var fold = new MaxFold();
 
         return NumericAggregation.Fold(Arguments, context, ref fold) is { } error
-            ? ComputedValue.From(error)
+            ? ComputedValue.Error(error)
             : ComputedValue.Number(fold.HasValue ? fold.Value : 0.0);
     }
 

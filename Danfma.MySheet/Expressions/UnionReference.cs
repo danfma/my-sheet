@@ -11,14 +11,15 @@ public sealed partial record UnionReference(Expression[] Areas) : Reference
 {
     public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
 
-    public IEnumerable<object?> ExpandValues(EvaluationContext context)
+    /// <summary>The allocation-free <see cref="ComputedValue"/> view of every area's cells.</summary>
+    internal IEnumerable<ComputedValue> ExpandComputedValues(EvaluationContext context)
     {
         foreach (var area in Areas)
         {
             switch (area)
             {
                 case RangeReference range:
-                    foreach (var value in range.ExpandValues(context))
+                    foreach (var value in range.ExpandComputedValues(context))
                     {
                         yield return value;
                     }
@@ -26,9 +27,18 @@ public sealed partial record UnionReference(Expression[] Areas) : Reference
                     break;
 
                 default:
-                    yield return area.Compute(context);
+                    yield return area.Evaluate(context);
                     break;
             }
+        }
+    }
+
+    /// <summary>Boxed (<c>object?</c>) view of <see cref="ExpandComputedValues"/>, for interop.</summary>
+    public IEnumerable<object?> ExpandValues(EvaluationContext context)
+    {
+        foreach (var value in ExpandComputedValues(context))
+        {
+            yield return value.AsObject();
         }
     }
 }

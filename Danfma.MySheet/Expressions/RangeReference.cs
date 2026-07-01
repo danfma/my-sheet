@@ -37,8 +37,9 @@ public sealed partial record RangeReference(string StartId, string EndId, string
         }
     }
 
-    /// <summary>Enumerates the memoized value of every cell in the rectangle (via the workbook cache).</summary>
-    public IEnumerable<object?> ExpandValues(EvaluationContext context)
+    /// <summary>Enumerates the memoized <see cref="ComputedValue"/> of every cell in the rectangle (via the
+    /// workbook cache) — the allocation-free path used by range-consuming functions.</summary>
+    internal IEnumerable<ComputedValue> ExpandComputedValues(EvaluationContext context)
     {
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
@@ -52,11 +53,20 @@ public sealed partial record RangeReference(string StartId, string EndId, string
         {
             for (var row = minRow; row <= maxRow; row++)
             {
-                yield return context.Workbook.GetCellValue(
+                yield return context.Workbook.GetCellComputedValue(
                     SheetName,
                     new CellAddress(column, row).ToId()
                 );
             }
+        }
+    }
+
+    /// <summary>Boxed (<c>object?</c>) view of <see cref="ExpandComputedValues"/>, for interop.</summary>
+    public IEnumerable<object?> ExpandValues(EvaluationContext context)
+    {
+        foreach (var value in ExpandComputedValues(context))
+        {
+            yield return value.AsObject();
         }
     }
 
@@ -68,8 +78,8 @@ public sealed partial record RangeReference(string StartId, string EndId, string
 
     public int TopRow => Math.Min(CellAddress.Parse(StartId).Row, CellAddress.Parse(EndId).Row);
 
-    /// <summary>Returns the memoized value of the cell at a 1-based (row, column) position (normalized corners).</summary>
-    public object? CellValueAt(EvaluationContext context, int row, int column)
+    /// <summary>The memoized <see cref="ComputedValue"/> at a 1-based (row, column) position (normalized corners).</summary>
+    internal ComputedValue CellComputedValueAt(EvaluationContext context, int row, int column)
     {
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
@@ -78,6 +88,10 @@ public sealed partial record RangeReference(string StartId, string EndId, string
             Math.Min(start.Row, end.Row) + row - 1
         ).ToId();
 
-        return context.Workbook.GetCellValue(SheetName, id);
+        return context.Workbook.GetCellComputedValue(SheetName, id);
     }
+
+    /// <summary>Boxed (<c>object?</c>) view of <see cref="CellComputedValueAt"/>, for interop.</summary>
+    public object? CellValueAt(EvaluationContext context, int row, int column) =>
+        CellComputedValueAt(context, row, column).AsObject();
 }
