@@ -47,16 +47,25 @@ public static class ExcelFile
             var sheet = workbook.Sheets.Add(name);
             var worksheetPart = (WorksheetPart)workbookPart.GetPartById(relationshipId);
 
+            // Masters of shared-formula groups, per worksheet: si → (master cell, formula text). Document
+            // order guarantees the master (the first cell of the group's ref) is seen before its slaves.
+            var sharedFormulas = new Dictionary<uint, (string MasterId, string Formula)>();
+
             foreach (var cell in worksheetPart.Worksheet?.Descendants<Cell>() ?? [])
             {
-                LoadCell(cell, sheet, sharedStrings);
+                LoadCell(cell, sheet, sharedStrings, sharedFormulas);
             }
         }
 
         return workbook;
     }
 
-    private static void LoadCell(Cell cell, Sheet sheet, IReadOnlyList<string> sharedStrings)
+    private static void LoadCell(
+        Cell cell,
+        Sheet sheet,
+        IReadOnlyList<string> sharedStrings,
+        Dictionary<uint, (string MasterId, string Formula)> sharedFormulas
+    )
     {
         if (cell.CellReference?.Value is not { } id)
         {
@@ -64,10 +73,30 @@ public static class ExcelFile
         }
 
         // A formula cell becomes a real expression tree, re-evaluated by the MySheet engine (the cached
-        // <v> is ignored). A shared-formula slave (<f> with no text) falls back to the cached literal below.
+        // <v> is ignored). A shared-formula master also registers its text for the group.
         if (cell.CellFormula?.Text is { Length: > 0 } formula)
         {
+            if (cell.CellFormula.FormulaType?.Value == CellFormulaValues.Shared
+                && cell.CellFormula.SharedIndex?.Value is { } masterIndex)
+            {
+                sharedFormulas[masterIndex] = (id, formula);
+            }
+
             sheet[id] = ExpressionParser.Parse("=" + formula, sheet);
+
+            return;
+        }
+
+        // A shared-formula slave carries no text: expand it from its master, shifting relative references
+        // by the cell delta — exactly what Excel does. Without a known master it falls back to the cached
+        // literal below.
+        if (cell.CellFormula?.FormulaType?.Value == CellFormulaValues.Shared
+            && cell.CellFormula.SharedIndex?.Value is { } slaveIndex
+            && sharedFormulas.TryGetValue(slaveIndex, out var master))
+        {
+            var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
+
+            sheet[id] = ExpressionParser.Parse("=" + shifted, sheet);
 
             return;
         }

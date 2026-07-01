@@ -32,9 +32,8 @@ computados num `.xlsx` existente (template).
   - A AST não guarda marcadores absolutos (`$A$1`). No **reader** isso NÃO é limitação: o tokenizer já aceita
     `$` e a classificação de cell-ref o descarta (`$A$1` → `A1`, verificado por teste). A perda de fidelidade
     é só no **un-parse** (writer), que produzirá referências relativas; fica para fase futura se necessário.
-  - **Shared formulas** (xlsx real usa `<f t="shared">` para fórmulas arrastadas): a célula-mestre tem o texto
-    (parseia normal); as células-escravas vêm sem texto → fallback para o **valor cacheado** `<v>` como literal.
-    Expansão real (shift de referências na AST) fica para fase futura.
+  - ~~Shared formulas: escravas caíam para o valor cacheado~~ — **RESOLVIDO na Fase 6a**: escravas são
+    expandidas por shift de texto da fórmula-mestre (refs relativas deslocam, `$` fica, strings intactas).
 
 ## For Future Agents
 Marque `- [x]`; ao fechar fase, Status `Complete` + Phase Summary + rode a Verification. TDD por unidade.
@@ -218,27 +217,35 @@ solução 0 warnings.
 ---
 
 ## Phase 6a: Shared formulas no reader (expansão real)
-Status: In progress
+Status: Complete
 
 Prioridade escolhida dentro da Fase 6 por ser **correção**, não conveniência: arquivos salvos pelo Excel
 usam `<f t="shared">` para fórmulas arrastadas; sem expansão, células escravas viram literais estáticos no
 `Load` — fórmulas se perdem silenciosamente no caso de uso âncora (servidor com Excel como fonte da verdade).
 
-- [ ] Reader: registrar por worksheet o mapa `si → (id da célula mestre, texto da fórmula)` ao encontrar
+- [x] Reader: registrar por worksheet o mapa `si → (id da célula mestre, texto da fórmula)` ao encontrar
       `<f t="shared">` com texto; célula com `<f t="shared" si>` SEM texto → shift do texto da mestre pelo
       delta (linha/coluna) e parse do resultado.
-- [ ] Shift no NÍVEL DO TEXTO (não na AST — a AST não guarda `$`, e refs absolutas NÃO devem deslocar):
+- [x] Shift no NÍVEL DO TEXTO (não na AST — a AST não guarda `$`, e refs absolutas NÃO devem deslocar):
       scanner que pula strings `"…"` e nomes `'…'`, reconhece refs `($?)LETRAS($?)DÍGITOS` standalone
       (não precedidas/seguidas de caracteres de identificador; não seguidas de `(`), desloca só os
       componentes sem `$`.
-- [ ] Testes com fixture OpenXML crua (ClosedXML não escreve shared formulas): mestre + escravas,
+- [x] Testes com fixture OpenXML crua (ClosedXML não escreve shared formulas): mestre + escravas,
       refs relativas deslocam, absolutas (`$A$1`) ficam, refs dentro de strings não mudam.
 
 ### Verification Plan
 - Suíte Excel verde com os novos testes de shared formula; core intacto; 0 warnings.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+TDD (RED 4 → GREEN 16/16 na suíte Excel; sem stub — o comportamento antigo, escrava→literal congelado, era
+o próprio RED). `SharedFormulaShifter.Shift(formula, fromId, toId)`: scanner de texto que pula `"…"`/`'…'`
+(com escapes duplicados), lê tokens de identificador e desloca apenas refs de célula standalone
+(`(\$?)(LETRAS{1,3})(\$?)(DÍGITOS)` não seguidas de `(` — função — nem `!` — nome de sheet), preservando
+componentes com `$`. `ExcelFile.LoadCell` registra masters (`t="shared"` com texto + si) por worksheet e
+expande escravas (si sem texto) shiftando pelo delta master→escrava; sem master conhecido, mantém o
+fallback antigo (literal do `<v>`). Testes provam: escravas viram fórmulas reais que REAGEM a mudanças de
+input (muda A2 + InvalidateCache → B2 recomputa), absolutas não deslocam, refs dentro de strings intactas.
+A "limitação conhecida" de shared formulas do Context está RESOLVIDA. Core 274/274; 0 warnings.
 
 ---
 
