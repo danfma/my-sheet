@@ -110,9 +110,9 @@ _(escrever quando a fase concluir)_
 ---
 
 ## Phase 3: Un-parser de fórmula no core (`Expression → texto Excel`)
-Status: Not started
+Status: Complete
 
-- [ ] `Danfma.MySheet/Parsing/FormulaWriter.cs` (ou `Expression.ToFormula()`): renderiza qualquer nó para
+- [x] `Danfma.MySheet/Parsing/FormulaWriter.cs` (`Expression.ToFormula(contextSheetName)`): renderiza qualquer nó para
       texto de fórmula Excel **sem** o `=` inicial. Cobrir todos os tipos de nó:
       - Valores: `NumberValue` (invariant), `StringValue` (`"..."` com escape de aspas), `BooleanValue`
         (`TRUE`/`FALSE`), `BlankValue` (vazio), `ErrorValue` (`#VALUE!` etc.).
@@ -121,9 +121,9 @@ Status: Not started
       - Operadores: `BinaryOperation` com **parentetização por precedência** (aritmética/comparação/`&`),
         `UnaryOperation` (`-x`, `+x`, `x%`).
       - Funções: cada `record : Function` → `NOME(arg1,arg2,…)`; `FunctionCall` custom → `Nome(args)`; `Let`.
-- [ ] Mapa **tipo-de-nó → nome de função Excel** (espelha o `Functions` do `Parser`): switch central no
-      `FormulaWriter` (preferido, para não engordar cada nó).
-- [ ] Testes em `tests/Danfma.MySheet.Tests/Parsing/FormulaWriterTests.cs`: round-trip
+- [x] Mapa **tipo-de-nó → nome de função Excel** (espelha o `Functions` do `Parser`): switch central no
+      `FormulaWriter` (`Call(Function) → (nome, args)`; única exceção de shape: `Sum.Expressions`).
+- [x] Testes em `tests/Danfma.MySheet.Tests/Parsing/FormulaWriterTests.cs`: round-trip
       `Parse(f) → ToFormula → Parse` com um corpus (aritmética com precedência, comparações, `&`, `%`, ranges,
       sheet-qualified, funções variádicas/aninhadas, IF, VLOOKUP, LET, custom `FunctionCall`); asserir
       igualdade estrutural (re-parse) e string onde determinístico.
@@ -134,7 +134,15 @@ Status: Not started
 - Build do core 0 Warning(s).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+TDD (RED 34 casos `NotImplementedException` → GREEN 34/34). `FormulaWriter.ToFormula(this Expression, string
+contextSheetName)` em `Danfma.MySheet.Parsing`: espelha os binding powers do Pratt parser (10/15/20/30/40,
+`%`=44 posfixo, prefixo=45) e emite parênteses mínimos — `Write(nó, minPrecedence)` parentetiza quando a
+precedência do nó < mínimo; binários left-assoc apertam a direita (`p+1`), `^` right-assoc aperta a esquerda.
+Referências qualificam só fora do contexto (`Sheet2!A1`; aspas simples com escape `''` quando o nome não é
+identificador simples); strings escapam `"`→`""`; `SHEET` é a única função cujo nome não é o uppercase do
+tipo; `Sum` é o único record cujo parâmetro não se chama `Arguments` (`Expressions`). Cobertura: 30 fórmulas
+canônicas (string exata), 3 normalizações (igualdade estrutural via bytes MemoryPack) e as 52 funções
+built-in (round-trip estrutural). Core: 274/274; solução 0 warnings.
 
 ---
 
