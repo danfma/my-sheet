@@ -80,7 +80,7 @@ escrava → literal do `<v>`, célula sem valor → blank. Verificação: soluç
 ---
 
 ## Phase 2: Publicação do loader (merge na main + release conjunto)
-Status: In progress
+Status: Complete
 
 Decisão do usuário (2026-07-01): publicar o reader antes de seguir para o writer. A `main` local já contém
 todo o trabalho do `ComputedValue` (breaking `feat!` → major); o release sai em **lockstep**: `Danfma.MySheet
@@ -95,9 +95,9 @@ todo o trabalho do `ComputedValue` (breaking `feat!` → major); o release sai e
       `feat!`, e o changelog já lista o `feat(excel)` do reader).
 - [x] Fast-forward `feature/excel-interop` → `main` (90a6d71..771e033).
 - [x] `git push origin main` — feito com aval do usuário (b98d7da..771e033, 28 commits).
-- [ ] Disparar o workflow **Release** (workflow_dispatch) → publica os 2 pacotes no NuGet (OIDC) + tag
-      `v1.0.0` + GitHub Release. **Ação do usuário** (`gh workflow run release.yml`), quando quiser.
-      Depois do release, dar `git pull` na main local (o workflow empurra o commit de bump + tag).
+- [x] Workflow **Release** disparado pelo usuário (2026-07-01): run verde em 35s → `v1.0.0` com
+      `Danfma.MySheet.1.0.0.nupkg` + `Danfma.MySheet.Excel.1.0.0.nupkg`; bump commit (6b28424) e tag
+      puxados para a main local.
 
 ### Verification Plan
 - `versionize --dry-run` local: bump `0.2.0 → 1.0.0`, 2 projetos, changelog com `feat(excel)` — **já validado**.
@@ -106,7 +106,10 @@ todo o trabalho do `ComputedValue` (breaking `feat!` → major); o release sai e
   `Danfma.MySheet >= 1.0.0`.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Release **1.0.0 publicado** (lockstep validado em produção): versionize na raiz bumpou os 2 csproj
+(0.2.0→1.0.0 pelos `feat!` do ComputedValue), changelog na raiz, tag `v1.0.0`, 2 nupkgs no NuGet + GitHub
+Release. Na prática o release saiu DEPOIS das fases 3-5, então o 1.0.0 já incluiu reader + un-parser +
+export + merge de uma vez. CI da main verde em todos os pushes.
 
 ---
 
@@ -214,12 +217,37 @@ solução 0 warnings.
 
 ---
 
-## Phase 6 (futuro / fora do MVP): estilos, formatos, datas, streaming, shared formulas
+## Phase 6a: Shared formulas no reader (expansão real)
+Status: In progress
+
+Prioridade escolhida dentro da Fase 6 por ser **correção**, não conveniência: arquivos salvos pelo Excel
+usam `<f t="shared">` para fórmulas arrastadas; sem expansão, células escravas viram literais estáticos no
+`Load` — fórmulas se perdem silenciosamente no caso de uso âncora (servidor com Excel como fonte da verdade).
+
+- [ ] Reader: registrar por worksheet o mapa `si → (id da célula mestre, texto da fórmula)` ao encontrar
+      `<f t="shared">` com texto; célula com `<f t="shared" si>` SEM texto → shift do texto da mestre pelo
+      delta (linha/coluna) e parse do resultado.
+- [ ] Shift no NÍVEL DO TEXTO (não na AST — a AST não guarda `$`, e refs absolutas NÃO devem deslocar):
+      scanner que pula strings `"…"` e nomes `'…'`, reconhece refs `($?)LETRAS($?)DÍGITOS` standalone
+      (não precedidas/seguidas de caracteres de identificador; não seguidas de `(`), desloca só os
+      componentes sem `$`.
+- [ ] Testes com fixture OpenXML crua (ClosedXML não escreve shared formulas): mestre + escravas,
+      refs relativas deslocam, absolutas (`$A$1`) ficam, refs dentro de strings não mudam.
+
+### Verification Plan
+- Suíte Excel verde com os novos testes de shared formula; core intacto; 0 warnings.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 6 (futuro / fora do MVP): estilos, formatos, datas, streaming
 Status: Not started
 
 - [ ] Formatos numéricos + datas-como-data (round-trip de `numFmt`/`cellFormats`), estilos básicos, merged
       cells, larguras. Streaming (SAX `OpenXmlWriter`) para arquivos grandes. Fidelidade de `$` (absolutos) na
-      AST. Expansão de shared formulas no reader (shift de referências na AST parseada da célula-mestre).
+      AST (writer).
 
 ### Verification Plan
 - (definir quando/se a fase for priorizada)
