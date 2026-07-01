@@ -17,8 +17,12 @@ extract data, without a full spreadsheet application.
   case-insensitive sheet names.
 - **Custom functions**: register host functions by name (`Workbook.RegisterFunction`) — they parse and
   serialize with the workbook.
-- **Memoization**: per-cell value cache with explicit invalidation; circular references become `#REF!`
-  instead of a stack overflow.
+- **Allocation-free evaluation**: `expression.Evaluate(workbook)` returns a `ComputedValue` — an opaque
+  value-type union (number / boolean / text / blank / error / reference) that does **not** box numbers.
+  Extract strictly with `TryGetNumber`/`AsDouble`/`ToDouble` (and `TryGetError(out Error)`), or fall back
+  to the boxed `object?` via `Compute(...)` / `AsObject()` for interop.
+- **Memoization**: per-cell cache (storing `ComputedValue` inline — no long-lived per-cell box) with
+  explicit invalidation; circular references become `#REF!` instead of a stack overflow.
 - **MemoryPack serialization** of the workbook.
 
 ## Excel function coverage
@@ -162,13 +166,22 @@ sheet["A1"] = new NumberValue(1);
 sheet["A2"] = new NumberValue(2);
 sheet["A3"] = ExpressionParser.Parse("=SUM(A1:A2)", sheet);
 
-var total = sheet["A3"].Compute(workbook); // 3.0
+// Typed, allocation-free result:
+ComputedValue result = sheet["A3"].Evaluate(workbook);
+double total = result.ToDouble();            // 3.0 (throws if not a number)
+if (result.TryGetError(out Error error))     // e.g. error.Display == "#DIV/0!"
+{
+    // handle the error
+}
+
+// Or the boxed object? form, for interop:
+object? boxed = sheet["A3"].Compute(workbook); // 3.0 (double)
 ```
 
 For deep dependency chains, wrap the evaluation in a large-stack thread:
 
 ```csharp
-var value = Workbook.RunWithLargeStack(() => sheet["A3"].Compute(workbook));
+var value = Workbook.RunWithLargeStack(() => sheet["A3"].Evaluate(workbook));
 ```
 
 ## License

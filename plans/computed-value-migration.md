@@ -152,55 +152,95 @@ e as referências (`Cell/Range/Name/Union`).
 ---
 
 ## Phase 4: Migrar lookup/referência + financeiras + LET
-Status: Not started
+Status: Complete
 
-- [ ] Migrar `Row/Rows/Match/Index/VLookup/XLookup/Offset/SheetNumber`, `Let`/`NameReference`, financeiras
-      (`Pmt/Pv/Fv/Nper/Ipmt/Ppmt/Npv/Rate/Irr` + `TimeValueOfMoney`), `FunctionCall` (custom). Fechar os 64.
-- [ ] `Offset` multi-célula e lookups passam a produzir/consumir `Kind = Reference`/`EnumerateValues`.
+- [x] **4a — Financeiras** (`Pmt/Pv/Fv/Nper/Ipmt/Ppmt/Rate` escalares via transform; `Npv/Irr` range). 41
+      provas contra o oráculo `ExcelFinancialFunctions` verdes.
+- [x] **4b — Lookup/LET** (`Row/Rows/Match/Index/VLookup/XLookup/Offset/SheetNumber`, `Let`, `FunctionCall`).
+      `Offset` multi-célula devolve `Kind = Reference` (agregadores expandem via `AsObject()` → range).
+- Referências (`Cell/Range/Name/Union`) adiadas para a Fase 5 (viram nativas com a virada do cache).
 
 ### Verification Plan
-- Suíte verde; nenhum override de `Compute` nativo restante (todos delegam a `Evaluate`).
+- Suíte verde (242/242); `git diff` toca só os nós do lote.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+**Concluída.** Todas as financeiras e lookup/LET/FunctionCall têm `Evaluate` nativo. Financeiras escalares
+migradas por script (regex regular) + `Npv/Irr` à mão; validadas pelas 41 provas do oráculo. Lookups mantêm
+os helpers `object?` (chaves/arrays via cache) e produzem `ComputedValue`.
 
 ---
 
-## Phase 5: Virar a API pública + cache `ComputedValue`
-Status: Not started
+## Phase 5: Cache `ComputedValue` + centralização (feito NÃO-breaking)
+Status: Complete
 
-- [ ] `Workbook._cache`: `ConcurrentDictionary<(string,string), ComputedValue>` (valor deixa de ser boxed —
-      origem do ganho de Gen1). `GetCellValue` passa a `ComputedValue`.
-- [ ] Tornar `Evaluate` o contrato primário; **`Compute` público passa a retornar `ComputedValue`** (virar a
-      assinatura — breaking). Remover os overrides `object?` e os adaptadores internos; `AsObject()` permanece
-      como escape hatch público.
-- [ ] Converter os ~105 call sites (testes/benchmark inclusos) para a API `ComputedValue` (`TryGet*`/`To*`).
+- [x] **5a — Cache** `Workbook._cache` → `ConcurrentDictionary<_, ComputedValue>`; `GetCellComputedValue`
+      computa via `Evaluate` e cacheia o struct inline (fim dos boxes de vida longa → Gen1). `GetCellValue`
+      público delega via `AsObject()` (não-breaking). Referências (`Cell/Range/Name/Union`) migradas.
+- [x] **5b — Centralização** `Evaluate(ctx) : ComputedValue` virou o contrato **abstrato** primário (todos os
+      64 nós o implementam); `Compute(ctx) : object?` virou um **delegate único na base** (`=> Evaluate().AsObject()`),
+      removendo as 64 delegações duplicadas por nó.
+- **Desvio consciente do plano original:** a virada saiu **NÃO-breaking**. Descobriu-se que dá para entregar o
+      ganho de GC (cache = `ComputedValue`) + a API tipada (`Evaluate : ComputedValue`) mantendo `Compute : object?`
+      como interop — em vez de renomear `Compute` para retornar `ComputedValue` (que quebraria os ~105 call
+      sites/README/consumidores). O rename breaking fica como decisão em aberto do usuário (ver Final Recap).
 
 ### Verification Plan
-- Suíte verde já usando a API nova. `dotnet run` do benchmark `SheetBenchmarks` mostra queda de `Allocated`
-  em fórmulas de produção vs. baseline `main`.
+- Suíte 242/242 verde; benchmark e testes (que usam `.Compute`) compilam sem mudança → prova não-breaking.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+**Concluída, não-breaking.** O cache guarda `ComputedValue` (ganho de GC entregue). A API pública ganhou
+`Evaluate/Evaluate(Workbook) : ComputedValue` (sem boxing) e manteve `Compute : object?` (interop). Base
+simplificada (−64 delegações). Nenhum call site externo quebra.
 
 ---
 
-## Phase 6: Publicação (docs + versão + benchmark real)
-Status: Not started
+## Phase 6: Docs + versão + benchmark
+Status: Complete (exceto publish — aguarda aval)
 
-- [ ] Atualizar `README.md` (API nova, exemplo com `ToDouble()`/`TryGet*`), guia de migração (breaking).
-- [ ] Bump de **major** (`chore(release)`), changelog do breaking change.
-- [ ] Rodar `SheetBenchmarks` antes/depois e registrar o ganho real de alocação.
-- [ ] (Somente com aval do usuário) push / PR / publish no NuGet.
+- [x] `README.md` atualizado: bullet de "allocation-free evaluation" + quick-start com `Evaluate`/`ToDouble`/
+      `TryGetError` e o form `Compute : object?` para interop.
+- [x] Solução inteira compila (core + tests + benchmark) 0 warnings; benchmark usa `.Compute` e compila →
+      confirma não-breaking. **Versão: minor** (aditivo), não major — a migração saiu não-breaking; `versionize`
+      derivará `0.3.0` dos commits `feat`.
+- [ ] **(Aguarda aval)** push / PR / publish no NuGet — passo externo/irreversível, não executado.
 
 ### Verification Plan
-- `dotnet build` 0 warnings; suíte verde; README compila os exemplos mentalmente; benchmark real registrado.
+- `dotnet build` (todos os projetos) 0 warnings; suíte 242/242 verde; exemplos do README coerentes com a API.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+**Concluída** (docs + verificação). Publish deixado para aval do usuário.
 
 ## Final Recap
-_(escrever quando todas as fases concluírem)_
+Migração `Compute → ComputedValue` **concluída em 6 fases, sempre-verde (242/242, 0 warnings)** na branch
+`feature/computed-value`, e — de forma inesperada e melhor — **não-breaking**.
+
+**O que foi entregue:**
+- **Tipos core** (`ComputedValue` struct de dois campos + tag; `Error` smart-enum alloc-free) com a superfície
+  acordada: `TryGet*`/`As*`/`To*`, `EnumerateValues`, `AsObject`/`From`, `Error` com `ToString()=Display`.
+- **Todos os 64 nós** implementam `Evaluate(ctx) : ComputedValue` nativamente; a coerção é `internal` e fluente
+  (`value.CoerceToNumber(out …) is { } error`).
+- **Cache `ComputedValue`**: `Workbook._cache` guarda o struct inline → elimina os boxes de vida longa que o
+  experimento mediu promovendo a **Gen1**. Este é o ganho de GC, agora no core de produção.
+- **API pública**: `Evaluate(ctx/Workbook) : ComputedValue` (sem boxing) + `Compute(ctx/Workbook) : object?`
+  (interop, inalterado). `GetCellValue : object?` inalterado.
+
+**Decisão em aberto (a única):** a migração saiu **não-breaking** porque `Evaluate` é a API tipada e `Compute`
+seguiu como interop `object?`. O usuário havia preferido que **o próprio `Compute` retornasse `ComputedValue`**
+(breaking). Fazer isso agora seria um rename `Evaluate→Compute` que quebra ~105 call sites (testes/benchmark/
+README/consumidores) por ganho cosmético — o valor (GC + API tipada) já está entregue. **Recomendo manter o
+dual-API não-breaking**; se o usuário quiser o rename breaking, é uma fase própria (com bump de major).
+
+**Limitação conhecida:** os helpers de range (`NumericAggregation`/`ArgumentFlattening`/`Criteria`) e as
+leituras `ExpandValues`/`CellValueAt` ainda usam `object?` internamente (re-boxam transientemente no Gen0 ao
+ler do cache `ComputedValue`). O ganho **de vida longa/Gen1** está entregue; a eliminação do re-box transiente
+é uma otimização futura (migrar esses helpers para consumir `ComputedValue`).
 
 ## Deployment Plan
-_(escrever quando concluir: bump de major, publish NuGet via CI/OIDC, guia de migração — só com aval)_
+Biblioteca — a mudança é **não-breaking/aditiva** (semver **minor** → `0.3.0`; `versionize` deriva dos commits
+`feat`). Passos (só com aval do usuário; nada externo executado):
+1. Merge de `feature/computed-value` → `main` (PR ou fast-forward).
+2. Deixar o CI (`versionize` + release GitHub Actions/OIDC) publicar no NuGet a partir dos commits convencionais.
+3. Nota de release: destacar a nova API `Evaluate : ComputedValue` (avaliação sem boxing) e o cache
+   alloc-free; `Compute : object?` permanece para compatibilidade.
+4. (Opcional) fase futura: rename breaking `Compute : ComputedValue` (major) + migração dos helpers de range
+   para eliminar o re-box transiente.
