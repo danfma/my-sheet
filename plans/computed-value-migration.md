@@ -121,28 +121,33 @@ Decisões/aprendizados:
 ---
 
 ## Phase 3: Migrar nós compostos (math/texto/info/lógica/contagem)
-Status: In progress
+Status: Complete
 
-Faseada em lotes coesos (sempre-verde a cada lote). Ordem escolhida: primeiro os que **não** dependem dos
-helpers de range (escalares), depois os que exigem migrar `NumericAggregation`/`ArgumentFlattening`/`Criteria`.
+Faseada em lotes coesos (sempre-verde a cada lote). Ordem: primeiro os que **não** dependem dos helpers de
+range (escalares), depois os que envolvem `NumericAggregation`/`ArgumentFlattening`/`Criteria`.
 
-- [x] **3a — Lógica** (`If/And/Or/Not/IfError/IfNa`): `Evaluate` nativo consumindo `CoerceToBool` + checagem
-      de erro; `Compute` delega. Curto-circuito preservado (`If`/`IfError`/`IfNa` só avaliam o ramo tomado).
-      Zero helper novo. **Concluído** (241/241 verde).
-- [ ] **3b — Operadores** (`BinaryOperation`/`UnaryOperation`): aritmética via `CoerceToNumber`; comparação
-      exige adicionar overloads nativos `AreEqual`/`Compare(in ComputedValue, in ComputedValue)` em `ValueCoercion`.
-- [ ] **3c — Math/Info escalares** (`Int/Round/RoundUp/Abs`, `IsNumber/IsBlank`).
-- [ ] **3d — Texto escalar** (`Upper/Lower/Trim/Len/Left/Mid/Value/Text`).
-- [ ] **3e — Agregação + variádicos + condicional** (`Sum/Average/Min/Max/Count`, `Concat/Concatenate/TextJoin`,
-      `CountA/CountBlank/CountIf(s)/SumIf(s)`): exige migrar `NumericAggregation`/`ArgumentFlattening`/`Criteria`
-      para produzir/consumir `ComputedValue`.
+- [x] **3a — Lógica** (`If/And/Or/Not/IfError/IfNa`): `CoerceToBool` + checagem de erro; curto-circuito preservado.
+- [x] **3b — Operadores** (`BinaryOperation`/`UnaryOperation`): aritmética via `CoerceToNumber`; comparação via
+      novos `AreEqual`/`Compare(in ComputedValue, in ComputedValue)` nativos (cross-type, sem boxing).
+- [x] **3c — Math/Info escalares** (`Int/Round/RoundUp/Abs`, `IsNumber/IsBlank`).
+- [x] **3d — Texto escalar** (`Upper/Lower/Trim/Len/Left/Mid/Value/Text`).
+- [x] **3e — Agregação + variádicos + condicional** (`Sum/Average/Min/Max/Count`, `Concat/Concatenate/TextJoin`,
+      `CountA/CountBlank/CountIf(s)/SumIf(s)`): nós migrados **envolvendo** os helpers `object?` existentes
+      (`NumericAggregation`/`ArgumentFlattening`/`Criteria`) — resultado deixa de re-boxar; o boxing **interno**
+      dos helpers some quando o cache virar `ComputedValue` (Fase 5). Baixo risco, helpers testados intactos.
 
 ### Verification Plan
-- Suíte verde a cada lote; `git diff` toca só os nós do lote + helpers compartilhados. Os testes antigos de
-  cada função (que exercitam `Compute` → agora roteado por `Evaluate`) continuam verdes, provando semântica.
+- Suíte verde a cada lote; os testes antigos de cada função (que exercitam `Compute` → agora roteado por
+  `Evaluate`) continuam verdes, provando semântica. Novos testes nativos: `Evaluate_LogicNodes_Native`,
+  `Evaluate_Operators_Native`.
 
 ### Phase Summary
-_(escrever quando a fase concluir — lote 3a concluído)_
+**Concluída (5 lotes, sempre-verde).** Todos os ~30 nós compostos de math/texto/info/lógica/contagem têm
+`Evaluate` nativo; `Compute` delega. **242/242 verde, 0 warnings.** `ValueCoercion` ganhou `AreEqual`/`Compare`
+nativos. Decisão registrada: os nós que dependem de range (3e) **envolvem** os helpers `object?` em vez de
+migrá-los — completa a fase (nós nativos) com risco mínimo; a eliminação do boxing interno dos helpers pega
+carona na virada do cache (Fase 5). Restam para a Fase 4: lookup/referência, financeiras, LET, `FunctionCall`
+e as referências (`Cell/Range/Name/Union`).
 
 ---
 
