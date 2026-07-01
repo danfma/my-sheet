@@ -12,19 +12,19 @@ public sealed partial record Irr(Expression[] Arguments) : Function
     {
         var flows = new List<double>();
 
-        foreach (var value in ArgumentFlattening.Expand(Arguments[0], context))
+        foreach (var value in ArgumentFlattening.ExpandComputedValues(Arguments[0], context))
         {
-            switch (value)
+            if (value.TryGetError(out var error))
             {
-                case ErrorValue error:
-                    return ComputedValue.From(error);
-
-                case double number:
-                    flows.Add(number);
-                    break;
-
-                // Text, logicals and blanks are ignored, matching Excel.
+                return ComputedValue.Error(error);
             }
+
+            if (value.TryGetNumber(out var number))
+            {
+                flows.Add(number);
+            }
+
+            // Text, logicals and blanks are ignored, matching Excel.
         }
 
         var guess = 0.1;

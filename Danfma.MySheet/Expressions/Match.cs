@@ -7,8 +7,8 @@ public sealed partial record Match(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var lookup = Arguments[0].Compute(context);
-        var array = ArgumentFlattening.Expand(Arguments[1], context);
+        var lookup = Arguments[0].Evaluate(context);
+        var array = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
 
         var matchType = 1.0;
 
@@ -36,9 +36,9 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // Approximate: matchType > 0 assumes ascending (largest value <= lookup); < 0 assumes
         // descending (smallest value >= lookup). Cross-type ordering (ValueCoercion.Compare) lets text
         // keys sort lexicographically, exactly like the <= operator — not only numeric keys.
-        if (lookup is ErrorValue lookupError)
+        if (lookup.Kind == ComputedValueKind.Error)
         {
-            return ComputedValue.From(lookupError);
+            return lookup;
         }
 
         var position = -1;
@@ -46,7 +46,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
         for (var i = 0; i < array.Count; i++)
         {
             var value = array[i];
-            if (value is null or ErrorValue)
+            if (value.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
             {
                 continue;
             }

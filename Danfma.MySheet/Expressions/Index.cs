@@ -46,6 +46,6 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Ref);
         }
 
-        return ComputedValue.From(range.CellValueAt(context, (int)row, (int)column));
+        return range.CellComputedValueAt(context, (int)row, (int)column);
     }
 }

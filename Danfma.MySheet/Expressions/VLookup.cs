@@ -13,7 +13,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Ref);
         }
 
-        var lookup = Arguments[0].Compute(context);
+        var lookup = Arguments[0].Evaluate(context);
 
         if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
         {
@@ -35,9 +35,9 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(modeError);
         }
 
-        if (lookup is ErrorValue lookupError)
+        if (lookup.Kind == ComputedValueKind.Error)
         {
-            return ComputedValue.From(lookupError);
+            return lookup;
         }
 
         var matchRow = -1;
@@ -49,8 +49,8 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             // <= operator — not only numeric keys.
             for (var row = 1; row <= table.RowCount; row++)
             {
-                var key = table.CellValueAt(context, row, 1);
-                if (key is null or ErrorValue)
+                var key = table.CellComputedValueAt(context, row, 1);
+                if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
                 {
                     continue;
                 }
@@ -65,7 +65,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         {
             for (var row = 1; row <= table.RowCount; row++)
             {
-                if (ValueCoercion.AreEqual(table.CellValueAt(context, row, 1), lookup))
+                if (ValueCoercion.AreEqual(table.CellComputedValueAt(context, row, 1), lookup))
                 {
                     matchRow = row;
                     break;
@@ -74,7 +74,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         return matchRow >= 1
-            ? ComputedValue.From(table.CellValueAt(context, matchRow, (int)columnIndex))
+            ? table.CellComputedValueAt(context, matchRow, (int)columnIndex)
             : ComputedValue.Error(Error.NA);
     }
 }

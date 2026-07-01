@@ -24,14 +24,14 @@ public sealed partial record Npv(Expression[] Arguments) : Function
 
         var sum = 0.0;
         var discount = 1.0; // (1+rate)^period; multiplied by the denominator before each cash flow.
-        ErrorValue? error = null;
+        Error? error = null;
 
         for (var i = 1; i < Arguments.Length && error is null; i++)
         {
             switch (Arguments[i])
             {
                 case RangeReference range:
-                    foreach (var value in range.ExpandValues(context))
+                    foreach (var value in range.ExpandComputedValues(context))
                     {
                         AddReferenced(value, denominator, ref discount, ref sum, ref error);
                     }
@@ -39,11 +39,11 @@ public sealed partial record Npv(Expression[] Arguments) : Function
                     break;
 
                 case CellReference cell:
-                    AddReferenced(cell.Compute(context), denominator, ref discount, ref sum, ref error);
+                    AddReferenced(cell.Evaluate(context), denominator, ref discount, ref sum, ref error);
                     break;
 
                 case UnionReference union:
-                    foreach (var value in union.ExpandValues(context))
+                    foreach (var value in union.ExpandComputedValues(context))
                     {
                         AddReferenced(value, denominator, ref discount, ref sum, ref error);
                     }
@@ -51,11 +51,11 @@ public sealed partial record Npv(Expression[] Arguments) : Function
                     break;
 
                 default:
-                    var argumentValue = Arguments[i].Compute(context);
+                    var argumentValue = Arguments[i].Evaluate(context);
 
-                    if (argumentValue is RangeReference resultRange)
+                    if (argumentValue.Kind == ComputedValueKind.Reference)
                     {
-                        foreach (var cellValue in resultRange.ExpandValues(context))
+                        foreach (var cellValue in argumentValue.EnumerateValues(context))
                         {
                             AddReferenced(cellValue, denominator, ref discount, ref sum, ref error);
                         }
@@ -69,72 +69,72 @@ public sealed partial record Npv(Expression[] Arguments) : Function
             }
         }
 
-        return error is { } propagated ? ComputedValue.From(propagated) : ComputedValue.Number(sum);
+        return error is { } propagated ? ComputedValue.Error(propagated) : ComputedValue.Number(sum);
     }
 
     private static void AddReferenced(
-        object? value,
+        in ComputedValue value,
         double denominator,
         ref double discount,
         ref double sum,
-        ref ErrorValue? error
+        ref Error? error
     )
     {
-        switch (value)
+        if (value.TryGetError(out var referencedError))
         {
-            case ErrorValue referencedError:
-                error ??= referencedError;
-                break;
-
-            case double number:
-                discount *= denominator;
-                sum += number / discount;
-                break;
-
-            // Referenced text, logicals and blanks are ignored, matching Excel.
+            error ??= referencedError;
         }
+        else if (value.TryGetNumber(out var number))
+        {
+            discount *= denominator;
+            sum += number / discount;
+        }
+
+        // Referenced text, logicals and blanks are ignored, matching Excel.
     }
 
     private static void AddDirect(
-        object? value,
+        in ComputedValue value,
         double denominator,
         ref double discount,
         ref double sum,
-        ref ErrorValue? error
+        ref Error? error
     )
     {
-        switch (value)
+        switch (value.Kind)
         {
-            case ErrorValue directError:
+            case ComputedValueKind.Error:
+                value.TryGetError(out var directError);
                 error ??= directError;
                 break;
 
-            case double number:
+            case ComputedValueKind.Number:
+                value.TryGetNumber(out var number);
                 discount *= denominator;
                 sum += number / discount;
                 break;
 
-            case bool boolean:
+            case ComputedValueKind.Boolean:
+                value.TryGetBoolean(out var boolean);
                 discount *= denominator;
                 sum += (boolean ? 1 : 0) / discount;
                 break;
 
-            case null:
+            case ComputedValueKind.Blank:
                 break;
 
-            case string text
-                when double.TryParse(
-                    text,
-                    NumberStyles.Any,
-                    CultureInfo.InvariantCulture,
-                    out var parsed
-                ):
-                discount *= denominator;
-                sum += parsed / discount;
-                break;
+            case ComputedValueKind.Text:
+                value.TryGetText(out var text);
+                if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    discount *= denominator;
+                    sum += parsed / discount;
+                }
+                else
+                {
+                    error ??= Error.Value;
+                }
 
-            case string:
-                error ??= ErrorValue.NotValue;
                 break;
         }
     }

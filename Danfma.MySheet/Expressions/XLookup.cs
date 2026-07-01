@@ -10,9 +10,9 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
     // search_mode: 1 first-to-last, -1 last-to-first (binary modes not supported).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var lookup = Arguments[0].Compute(context);
-        var lookupArray = ArgumentFlattening.Expand(Arguments[1], context);
-        var returnArray = ArgumentFlattening.Expand(Arguments[2], context);
+        var lookup = Arguments[0].Evaluate(context);
+        var lookupArray = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
+        var returnArray = ArgumentFlattening.ExpandComputedValues(Arguments[2], context);
 
         var matchMode = 0.0;
         if (
@@ -37,17 +37,17 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         if (match >= 0)
         {
-            return ComputedValue.From(returnArray[match]);
+            return returnArray[match];
         }
 
         return Arguments.Length >= 4 && Arguments[3] is not BlankValue
-            ? ComputedValue.From(Arguments[3].Compute(context))
+            ? Arguments[3].Evaluate(context)
             : ComputedValue.Error(Error.NA);
     }
 
     private static int FindMatch(
-        object? lookup,
-        List<object?> array,
+        in ComputedValue lookup,
+        List<ComputedValue> array,
         int count,
         int matchMode,
         bool reverse
@@ -75,14 +75,14 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         };
     }
 
-    private static int Wildcard(object? lookup, List<object?> array, int count, bool reverse)
+    private static int Wildcard(in ComputedValue lookup, List<ComputedValue> array, int count, bool reverse)
     {
-        var pattern = lookup as string ?? string.Empty;
+        var pattern = lookup.TryGetText(out var p) ? p : string.Empty;
 
         for (var k = 0; k < count; k++)
         {
             var i = reverse ? count - 1 - k : k;
-            if (array[i] is string text && Criteria.WildcardMatch(pattern, text))
+            if (array[i].TryGetText(out var text) && Criteria.WildcardMatch(pattern, text))
             {
                 return i;
             }
@@ -91,10 +91,10 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         return -1;
     }
 
-    private static int Closest(object? lookup, List<object?> array, int count, bool below)
+    private static int Closest(in ComputedValue lookup, List<ComputedValue> array, int count, bool below)
     {
         // An error has no place in the ordering, so there is no closest match.
-        if (lookup is ErrorValue)
+        if (lookup.Kind == ComputedValueKind.Error)
         {
             return -1;
         }
@@ -103,12 +103,12 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         // smallest value >= lookup. Cross-type ordering (ValueCoercion.Compare) lets text keys sort
         // lexicographically, exactly like the <= operator — not only numeric keys.
         var best = -1;
-        object? bestValue = null;
+        ComputedValue bestValue = default;
 
         for (var i = 0; i < count; i++)
         {
             var value = array[i];
-            if (value is null or ErrorValue)
+            if (value.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
             {
                 continue;
             }
