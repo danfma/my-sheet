@@ -147,10 +147,10 @@ built-in (round-trip estrutural). Core: 274/274; solução 0 warnings.
 ---
 
 ## Phase 4: Export completo (`SaveAsExcel`)
-Status: Not started
+Status: Complete
 
-- [ ] `ExcelExportOptions { FormulaMode FormulaMode = ValuesOnly }` (enum `FormulaMode { Formulas, ValuesOnly }`).
-- [ ] Extension `public static void SaveAsExcel(this Workbook workbook, string path, ExcelExportOptions? options = null)`:
+- [x] `ExcelExportOptions { FormulaMode FormulaMode = ValuesOnly }` (enum `FormulaMode { Formulas, ValuesOnly }`).
+- [x] Extension `public static void SaveAsExcel(this Workbook workbook, string path, ExcelExportOptions? options = null)`:
       cria `SpreadsheetDocument`; `WorkbookPart` + uma `WorksheetPart` por planilha (ordem = `Sheet.Index`,
       nome = `Sheet.Name`); `SharedStringTablePart` para textos.
       - Por célula (`Sheet.Cells`): computa o valor (`workbook.GetCellValue(...)`, tudo em `RunWithLargeStack`).
@@ -158,7 +158,7 @@ Status: Not started
         - `Formulas`: se o nó é fórmula (não um literal puro), escreve `<f>ToFormula()</f>` + `<v>valor</v>`;
           se é literal, escreve o literal.
       - Células em ordem de coluna dentro da linha; linhas em ordem (exigência do OpenXML).
-- [ ] Testes: monta um `Workbook` (literais + fórmulas em 2 planilhas), `SaveAsExcel` num arquivo temp, relê
+- [x] Testes: monta um `Workbook` (literais + fórmulas em 2 planilhas), `SaveAsExcel` num arquivo temp, relê
       com ClosedXML/nosso reader e asseri: valores, tipos, `<f>` presente/ausente conforme o modo, nomes/ordem
       de planilha, shared strings. **Round-trip**: `Load(SaveAsExcel(wb))` ≡ `wb` (células e resultados).
 
@@ -168,7 +168,16 @@ Status: Not started
 - Build 0 Warning(s).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+TDD (RED 4 `NotImplementedException` → GREEN 10/10 na suíte Excel). `ExcelExport.SaveAsExcel(this Workbook,
+path|Stream, ExcelExportOptions?)` + `FormulaMode { ValuesOnly (default), Formulas }`. Avalia tudo num único
+`RunWithLargeStack` (memoizado) antes de escrever; sheets na ordem de `Index`; linhas/células ordenadas
+(exigência OpenXML); shared strings dedupadas (part só criada se usada). Literais: número/bool `t="b"`/texto
+shared-string/erro `t="e"`/blank omitido; `Reference` → `#VALUE!`. Modo `Formulas`: nó não-`ValueExpression`
+escreve `<f>` via `FormulaWriter.ToFormula(sheetName)` + `<v>` cacheado (texto de fórmula usa `t="str"`, não
+shared string — convenção xlsx). Verificado com o nosso reader (round-trip: fórmula volta como árvore e
+reavalia igual; ValuesOnly volta achatado) e com ClosedXML como oráculo (FormulaA1 == "A1+A2" e cross-sheet
+"Data!A3*2"; CachedValue == 5). Colisões de nome OpenXml×core (Sheet/Workbook/Row/Text) resolvidas com
+aliases Xlsx*.
 
 ---
 
