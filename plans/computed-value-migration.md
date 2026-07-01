@@ -276,5 +276,9 @@ Biblioteca — a mudança é **breaking** (semver **major** → `1.0.0`; ou `ver
 3. Nota de release / guia de migração: `Compute(...)` foi removido → use `Evaluate(...)` (retorna
    `ComputedValue`); extraia com `TryGetNumber`/`ToDouble`/`AsDouble`/`TryGetError`, ou `.AsObject()` para o
    `object?` de interop. `Workbook.GetCellValue` agora retorna `ComputedValue`.
-4. Resíduo opcional (não-breaking, futuro): migrar o delegate `CustomFunction` para retornar `ComputedValue`
-   (hoje retorna `object?`, embrulhado via `From`), eliminando o último `object?` da superfície pública.
+4. **Resíduo resolvido (Fase 9):** o delegate `CustomFunction` passou a retornar `ComputedValue` (era
+   `object?`); as conversões implícitas (`double`/`bool`/`string` → `ComputedValue`) fizeram os custom
+   functions existentes compilarem **sem mudança**. `ComputedValue.From(object?)` removido. Agora **zero
+   `object?` na superfície de entrada** — só `AsObject()` (saída) permanece como escape hatch de interop.
+   No guia de migração do host: custom function que retornava `null`/`ErrorValue` cru usa `ComputedValue.Blank`/
+   `ComputedValue.Error(...)`.
