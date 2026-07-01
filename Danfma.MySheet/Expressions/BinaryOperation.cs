@@ -26,18 +26,18 @@ public sealed partial record BinaryOperation(
     Expression Right
 ) : Expression
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var leftValue = Left.Compute(context);
-        if (leftValue is ErrorValue leftError)
+        var left = Left.Evaluate(context);
+        if (left.Kind == ComputedValueKind.Error)
         {
-            return leftError;
+            return left;
         }
 
-        var rightValue = Right.Compute(context);
-        if (rightValue is ErrorValue rightError)
+        var right = Right.Evaluate(context);
+        if (right.Kind == ComputedValueKind.Error)
         {
-            return rightError;
+            return right;
         }
 
         // Equality and ordering compare across types (Excel order: number < text < boolean); only the
@@ -45,50 +45,52 @@ public sealed partial record BinaryOperation(
         switch (Operator)
         {
             case BinaryOperator.Equal:
-                return ValueCoercion.AreEqual(leftValue, rightValue);
+                return ComputedValue.Boolean(ValueCoercion.AreEqual(left, right));
             case BinaryOperator.NotEqual:
-                return !ValueCoercion.AreEqual(leftValue, rightValue);
+                return ComputedValue.Boolean(!ValueCoercion.AreEqual(left, right));
             case BinaryOperator.LessThan:
-                return ValueCoercion.Compare(leftValue, rightValue) < 0;
+                return ComputedValue.Boolean(ValueCoercion.Compare(left, right) < 0);
             case BinaryOperator.GreaterThan:
-                return ValueCoercion.Compare(leftValue, rightValue) > 0;
+                return ComputedValue.Boolean(ValueCoercion.Compare(left, right) > 0);
             case BinaryOperator.LessThanOrEqual:
-                return ValueCoercion.Compare(leftValue, rightValue) <= 0;
+                return ComputedValue.Boolean(ValueCoercion.Compare(left, right) <= 0);
             case BinaryOperator.GreaterThanOrEqual:
-                return ValueCoercion.Compare(leftValue, rightValue) >= 0;
+                return ComputedValue.Boolean(ValueCoercion.Compare(left, right) >= 0);
 
             case BinaryOperator.Concat:
-                if (ValueCoercion.TryToText(leftValue, out var leftText) is { } leftTextError)
+                if (left.CoerceToText(out var leftText) is { } leftTextError)
                 {
-                    return leftTextError;
+                    return ComputedValue.Error(leftTextError);
                 }
 
-                if (ValueCoercion.TryToText(rightValue, out var rightText) is { } rightTextError)
+                if (right.CoerceToText(out var rightText) is { } rightTextError)
                 {
-                    return rightTextError;
+                    return ComputedValue.Error(rightTextError);
                 }
 
-                return leftText + rightText;
+                return ComputedValue.Text(leftText + rightText);
         }
 
-        if (ValueCoercion.TryToNumber(leftValue, out var left) is { } leftNumberError)
+        if (left.CoerceToNumber(out var l) is { } leftNumberError)
         {
-            return leftNumberError;
+            return ComputedValue.Error(leftNumberError);
         }
 
-        if (ValueCoercion.TryToNumber(rightValue, out var right) is { } rightNumberError)
+        if (right.CoerceToNumber(out var r) is { } rightNumberError)
         {
-            return rightNumberError;
+            return ComputedValue.Error(rightNumberError);
         }
 
         return Operator switch
         {
-            BinaryOperator.Add => left + right,
-            BinaryOperator.Subtract => left - right,
-            BinaryOperator.Multiply => left * right,
-            BinaryOperator.Divide => right == 0 ? ErrorValue.DivByZero : left / right,
-            BinaryOperator.Power => Math.Pow(left, right),
+            BinaryOperator.Add => ComputedValue.Number(l + r),
+            BinaryOperator.Subtract => ComputedValue.Number(l - r),
+            BinaryOperator.Multiply => ComputedValue.Number(l * r),
+            BinaryOperator.Divide => r == 0 ? ComputedValue.Error(Error.DivZero) : ComputedValue.Number(l / r),
+            BinaryOperator.Power => ComputedValue.Number(Math.Pow(l, r)),
             _ => throw new ArgumentOutOfRangeException(nameof(Operator), Operator, null),
         };
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }

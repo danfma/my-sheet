@@ -64,6 +64,30 @@ public class EvaluateBridgeTests
     }
 
     [Test]
+    public async Task Evaluate_Operators_Native()
+    {
+        var workbook = new Workbook();
+
+        // Aritmética.
+        await Assert.That(Add(Number(2), Number(3)).Evaluate(workbook).ToDouble()).IsEqualTo(5.0);
+        await Assert.That(Divide(Number(1), Number(0)).Evaluate(workbook).TryGetError(out var div)).IsTrue();
+        await Assert.That(div).IsEqualTo(Error.DivZero);
+
+        // Comparação cross-type (número < texto) e igualdade case-insensitive.
+        await Assert.That(GreaterThan(Number(3), Number(2)).Evaluate(workbook).TryGetBoolean(out var gt)).IsTrue();
+        await Assert.That(gt).IsTrue();
+
+        // Concatenação (&) e negação unária.
+        await Assert
+            .That(new BinaryOperation(BinaryOperator.Concat, String("a"), Number(1)).Evaluate(workbook).ToText())
+            .IsEqualTo("a1");
+        await Assert.That(Negate(Number(4)).Evaluate(workbook).ToDouble()).IsEqualTo(-4.0);
+
+        // Propagação de erro através do operador.
+        await Assert.That(Add(Divide(Number(1), Number(0)), Number(1)).Evaluate(workbook).TryGetError(out _)).IsTrue();
+    }
+
+    [Test]
     public async Task Evaluate_UnmigratedNode_BridgesFromCompute()
     {
         var workbook = new Workbook();

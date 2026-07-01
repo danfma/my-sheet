@@ -288,4 +288,107 @@ internal static class ValueCoercion
             bool b => b == false,
             _ => false,
         };
+
+    // --- Igualdade/ordenação nativas sobre ComputedValue (mesma semântica das versões object?; sem boxing).
+    // Os chamadores propagam erros antes; aqui só chegam Number/Boolean/Text/Blank. ---
+
+    public static bool AreEqual(in ComputedValue left, in ComputedValue right)
+    {
+        if (left.Kind == ComputedValueKind.Blank && right.Kind == ComputedValueKind.Blank)
+        {
+            return true;
+        }
+
+        if (left.Kind == ComputedValueKind.Blank)
+        {
+            return IsBlankEquivalent(right);
+        }
+
+        if (right.Kind == ComputedValueKind.Blank)
+        {
+            return IsBlankEquivalent(left);
+        }
+
+        if (left.Kind != right.Kind)
+        {
+            return false;
+        }
+
+        switch (left.Kind)
+        {
+            case ComputedValueKind.Number:
+                left.TryGetNumber(out var leftNumber);
+                right.TryGetNumber(out var rightNumber);
+                return leftNumber == rightNumber;
+
+            case ComputedValueKind.Boolean:
+                left.TryGetBoolean(out var leftBool);
+                right.TryGetBoolean(out var rightBool);
+                return leftBool == rightBool;
+
+            case ComputedValueKind.Text:
+                left.TryGetText(out var leftText);
+                right.TryGetText(out var rightText);
+                return string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase);
+
+            default:
+                return false;
+        }
+    }
+
+    public static int Compare(in ComputedValue left, in ComputedValue right)
+    {
+        var (leftRank, leftNumber, leftText) = Classify(left);
+        var (rightRank, rightNumber, rightText) = Classify(right);
+
+        if (leftRank != rightRank)
+        {
+            return leftRank.CompareTo(rightRank);
+        }
+
+        return leftRank == 1
+            ? string.Compare(leftText, rightText, StringComparison.OrdinalIgnoreCase)
+            : leftNumber.CompareTo(rightNumber);
+    }
+
+    private static (int Rank, double Number, string Text) Classify(in ComputedValue value)
+    {
+        if (value.TryGetNumber(out var number))
+        {
+            return (0, number, string.Empty);
+        }
+
+        if (value.TryGetText(out var text))
+        {
+            return (1, 0, text);
+        }
+
+        if (value.TryGetBoolean(out var boolean))
+        {
+            return (2, boolean ? 1 : 0, string.Empty);
+        }
+
+        // Blank conta como 0 (rank 0), como na versão object?; demais (Reference) conservador como texto.
+        return value.Kind == ComputedValueKind.Blank ? (0, 0, string.Empty) : (1, 0, string.Empty);
+    }
+
+    private static bool IsBlankEquivalent(in ComputedValue value)
+    {
+        if (value.TryGetNumber(out var number))
+        {
+            return number == 0;
+        }
+
+        if (value.TryGetText(out var text))
+        {
+            return text.Length == 0;
+        }
+
+        if (value.TryGetBoolean(out var boolean))
+        {
+            return !boolean;
+        }
+
+        return false;
+    }
 }

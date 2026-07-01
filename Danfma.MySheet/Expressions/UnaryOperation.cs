@@ -13,21 +13,21 @@ public enum UnaryOperator
 [MemoryPackable]
 public sealed partial record UnaryOperation(UnaryOperator Operator, Expression Operand) : Expression
 {
-    public override object? Compute(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var value = Operand.Compute(context);
-
-        if (ValueCoercion.TryToNumber(value, out var number) is { } error)
+        if (Operand.Evaluate(context).CoerceToNumber(out var number) is { } error)
         {
-            return error;
+            return ComputedValue.Error(error);
         }
 
         return Operator switch
         {
-            UnaryOperator.Negate => -number,
-            UnaryOperator.Plus => number,
-            UnaryOperator.Percent => number / 100,
+            UnaryOperator.Negate => ComputedValue.Number(-number),
+            UnaryOperator.Plus => ComputedValue.Number(number),
+            UnaryOperator.Percent => ComputedValue.Number(number / 100),
             _ => throw new ArgumentOutOfRangeException(nameof(Operator), Operator, null),
         };
     }
+
+    public override object? Compute(EvaluationContext context) => Evaluate(context).AsObject();
 }
