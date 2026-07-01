@@ -230,10 +230,26 @@ seguiu como interop `object?`. O usuário havia preferido que **o próprio `Comp
 README/consumidores) por ganho cosmético — o valor (GC + API tipada) já está entregue. **Recomendo manter o
 dual-API não-breaking**; se o usuário quiser o rename breaking, é uma fase própria (com bump de major).
 
-**Limitação conhecida:** os helpers de range (`NumericAggregation`/`ArgumentFlattening`/`Criteria`) e as
-leituras `ExpandValues`/`CellValueAt` ainda usam `object?` internamente (re-boxam transientemente no Gen0 ao
-ler do cache `ComputedValue`). O ganho **de vida longa/Gen1** está entregue; a eliminação do re-box transiente
-é uma otimização futura (migrar esses helpers para consumir `ComputedValue`).
+**Caminho de range fechado (Fase 7):** os helpers `NumericAggregation`/`ArgumentFlattening`/`Criteria` e as
+leituras `ExpandComputedValues`/`CellComputedValueAt` agora consomem `ComputedValue` **direto do cache** (sem
+`AsObject`), e o resultado-range do `OFFSET` (`Kind = Reference`) é enumerado via `EnumerateValues` — exatamente
+o mecanismo para o qual o `ComputedValue` foi desenhado (carregar referências). `SUM/AVERAGE/MIN/MAX/COUNT`,
+`CONCAT/TEXTJOIN`, `COUNTIF(S)/SUMIF(S)`, `MATCH/VLOOKUP/XLOOKUP/INDEX` e `NPV/IRR` ficaram **0 box** na leitura
+de range, batendo com o `CvEngine` do experimento. Nenhum consumidor `object?` interno resta (as versões
+`ExpandValues`/`CellValueAt`/`Flatten`/`Expand` `object?` sobrevivem só como interop público, delegando via
+`AsObject`). Resíduo mínimo: o binding de nomes do `LET` guarda `object?` (escalar, 1× por binding — não-range).
+
+## Phase 7: Caminho de range/agregação end-to-end ComputedValue
+Status: Complete
+
+- [x] `RangeReference`/`UnionReference`: `ExpandComputedValues`/`CellComputedValueAt` (leem `GetCellComputedValue`);
+      `ExpandValues`/`CellValueAt` `object?` viram views de interop (delegam via `AsObject`).
+- [x] `ComputedValue.EnumerateValues` lê `ComputedValue` direto (sem `From`).
+- [x] `NumericAggregation`/`ArgumentFlattening`/`Criteria` consomem `ComputedValue` (switch por `Kind`).
+- [x] Agregação (`Sum/Average/Min/Max/Count`), variádicos (`Concat/Concatenate/TextJoin/CountA/CountBlank`),
+      condicionais (`CountIf(s)/SumIf(s)`), lookups (`Match/Index/VLookup/XLookup`) e `NPV/IRR` migrados.
+- **Verificação:** 242/242 verde a cada lote (7a agregação, 7b variádicos/condicional, 7c lookups+NPV/IRR).
+  Grep confirma: zero chamadas internas às versões `object?` dos helpers de range.
 
 ## Deployment Plan
 Biblioteca — a mudança é **não-breaking/aditiva** (semver **minor** → `0.3.0`; `versionize` deriva dos commits
