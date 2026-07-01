@@ -9,22 +9,16 @@ using XlsxText = DocumentFormat.OpenXml.Spreadsheet.Text;
 namespace Danfma.MySheet.Excel;
 
 /// <summary>
-/// Merges computed values from a MySheet <see cref="Workbook"/> into an EXISTING .xlsx file (a template):
+/// Merges computed values from a MySheet <see cref="Workbook"/> into an EXISTING .xlsx file, in place:
 /// every cell we hold is written as its computed literal value — dropping any formula the target cell had —
 /// while everything else in the file (styles, other cells, other sheets, shared strings) is left intact.
 /// Sheets are matched by name (case-insensitive); sheets missing from the target are skipped, blank values
 /// are not written. Text is written as an inline string so the target's shared-string table is untouched.
+/// To produce a new report from a pristine template, copy the template first
+/// (<c>File.Copy(template, output)</c>) and merge into the copy.
 /// </summary>
 public static class ExcelMerge
 {
-    /// <summary>Non-destructive merge: copies the template to <paramref name="outputPath"/> and merges there.</summary>
-    public static void MergeIntoExcel(this Workbook workbook, string templatePath, string outputPath)
-    {
-        File.Copy(templatePath, outputPath, overwrite: true);
-
-        workbook.MergeIntoExcel(outputPath);
-    }
-
     /// <summary>Merges in place, editing <paramref name="path"/> directly.</summary>
     public static void MergeIntoExcel(this Workbook workbook, string path)
     {

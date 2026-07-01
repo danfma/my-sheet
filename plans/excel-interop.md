@@ -22,8 +22,9 @@ computados num `.xlsx` existente (template).
 - **Un-parser de fórmula no CORE** (`Danfma.MySheet`): simétrico ao parser, `Expression → texto de fórmula
   Excel` (sem o `=` inicial). Reutilizável, mantém a lib de interop fina. Necessário só a partir da Fase 3.
 - **Projeto/API**: `Danfma.MySheet.Excel`; reader como `ExcelFile.Load(path) : Workbook` (espelha
-  `Workbook.Load`); escrita como **extension methods** no `Workbook`: `SaveAsExcel(...)`, `MergeIntoExcel(...)`
-  (dois overloads: template→saída não-destrutivo, e in-place).
+  `Workbook.Load`); escrita como **extension methods** no `Workbook`: `SaveAsExcel(...)`, `MergeIntoExcel(path)`
+  (**só in-place** — decisão do usuário em 2026-07-01: merge muta o arquivo dado; criar arquivo é papel do
+  `SaveAsExcel`; o fluxo template→relatório é `File.Copy` + merge na cópia, documentado no README e num teste).
 - **Padrões assumidos**: tipos xlsx padrão (número/shared-string/bool `t="b"`/erro `t="e"` Display/blank omitido;
   `Reference` como resultado → `#VALUE!`); merge casa planilha por nome (ausente → pula; célula ausente → cria
   na ordem exigida; blank → não escreve); avaliação em `RunWithLargeStack`; DOM do OpenXML; dep só na lib nova.
@@ -184,8 +185,8 @@ aliases Xlsx*.
 ## Phase 5: Merge de valores num `.xlsx` existente (`MergeIntoExcel`)
 Status: Complete
 
-- [x] Overloads: `MergeIntoExcel(this Workbook, string templatePath, string outputPath, …)` (não-destrutivo:
-      copia o template → escreve no output) e `MergeIntoExcel(this Workbook, string path, …)` (in-place).
+- [x] `MergeIntoExcel(this Workbook, string path)` — **só in-place** (o overload template→saída foi removido
+      após revisão do usuário; a "cópia não-destrutiva" fica a cargo do chamador: `File.Copy` + merge).
 - [x] Para cada planilha nossa (casa por nome, case-insensitive; ausente no alvo → pula): para cada
       célula nossa, computa o valor e grava como **literal** na célula correspondente do alvo — **dropa** a
       fórmula que houvesse ali; cria a célula se não existir (mantendo a ordem coluna/linha do OpenXML); blank →
@@ -199,8 +200,9 @@ Status: Complete
   incl. os testes de merge (não-destrutivo e in-place; template preservado; fórmula-alvo dropada).
 
 ### Phase Summary
-TDD (RED 2 → GREEN 12/12 na suíte Excel). `ExcelMerge.MergeIntoExcel(this Workbook, template, output)`
-(copia e edita o output) e `(this Workbook, path)` (in-place). Avalia tudo num `RunWithLargeStack`; casa
+TDD (RED 2 → GREEN 12/12 na suíte Excel). `ExcelMerge.MergeIntoExcel(this Workbook, path)` (in-place; o
+overload template→saída foi removido após revisão do usuário — fluxo template = `File.Copy` + merge,
+documentado num teste-receita). Avalia tudo num `RunWithLargeStack`; casa
 sheet por nome case-insensitive (ausente → pula); blank não escreve; linha/célula criadas em ordem quando
 faltam (`InsertBefore` no primeiro maior); `WriteLiteral` limpa `<f>`/conteúdo mas NÃO toca `StyleIndex`
 (formatação do template preservada). Texto vai como **inline string** (`t="inlineStr"`) para não mexer na
@@ -235,8 +237,9 @@ MVP completo (Fases 1–5, todas TDD sempre-verde, na branch `feature/excel-writ
    52 funções mapeadas, round-trip provado por string exata + igualdade estrutural MemoryPack.
 4. **Export** `SaveAsExcel(path|Stream, options)` — `ValuesOnly` (snapshot achatado, default) ou `Formulas`
    (`<f>` + `<v>` cacheado); shared strings dedupadas; validado pelo nosso reader + oráculo ClosedXML.
-5. **Merge** `MergeIntoExcel(template, output | path)` — injeta valores computados como literais no template,
-   dropando fórmulas-alvo e preservando todo o resto (estilos intactos via StyleIndex não tocado).
+5. **Merge** `MergeIntoExcel(path)` (in-place) — injeta valores computados como literais no arquivo,
+   dropando fórmulas-alvo e preservando todo o resto (estilos intactos via StyleIndex não tocado). O fluxo
+   template→relatório é `File.Copy` + merge na cópia (receita no README e em teste).
 Total: suíte Excel 12/12, core 274/274 (34 novos do FormulaWriter), solução 0 warnings.
 
 ## Deployment Plan

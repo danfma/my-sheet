@@ -42,9 +42,11 @@ double total = workbook.GetCellValue("Data", "A4").ToDouble();
 workbook.SaveAsExcel("snapshot.xlsx");
 workbook.SaveAsExcel("live.xlsx", new ExcelExportOptions { FormulaMode = FormulaMode.Formulas });
 
-// Merge: inject computed values into an existing template (formatting preserved,
-// target-cell formulas replaced by the literal values).
-workbook.MergeIntoExcel("template.xlsx", "report.xlsx"); // or in place: MergeIntoExcel("report.xlsx")
+// Merge: inject computed values into an existing file, in place (formatting preserved,
+// target-cell formulas replaced by the literal values). For the template→report flow,
+// copy the pristine template first and merge into the copy:
+File.Copy("template.xlsx", "report.xlsx");
+workbook.MergeIntoExcel("report.xlsx");
 ```
 
 ## Excel function coverage
