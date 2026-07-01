@@ -1,5 +1,7 @@
 <Solution>
   <Project Path="benchmarks\Danfma.MySheet.Benchmark\Danfma.MySheet.Benchmark.csproj" />
   <Project Path="Danfma.MySheet\Danfma.MySheet.csproj" />
+  <Project Path="Danfma.MySheet.Excel\Danfma.MySheet.Excel.csproj" />
   <Project Path="tests\Danfma.MySheet.Tests\Danfma.MySheet.Tests.csproj" />
+  <Project Path="tests\Danfma.MySheet.Excel.Tests\Danfma.MySheet.Excel.Tests.csproj" />
 </Solution>
