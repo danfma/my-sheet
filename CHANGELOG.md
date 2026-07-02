@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="1.1.0"></a>
+## [1.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.1.0) (2026-07-02)
+
+### Features
+
+* **excel:** expande shared formulas no reader (escravas viram formulas reais) ([bbbe60e](https://www.github.com/danfma/my-sheet/commit/bbbe60e0adf17ec4c8f7449e90ceb51bcda38bb0))
+* **functions:** add scalar math and trigonometry wave ([1b7fc77](https://www.github.com/danfma/my-sheet/commit/1b7fc77bb86222ec744e9653468ee48153372e03))
+
 <a name="1.0.0"></a>
 ## [1.0.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.0.0) (2026-07-01)
 
