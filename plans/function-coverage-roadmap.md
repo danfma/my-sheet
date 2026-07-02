@@ -408,7 +408,37 @@ contagem 231 espelhada no README (`docs/pt-BR/` intocado — espelho é de outro
 
 ---
 
-## Phase 5 (Onda 5 → 2.2.0): Datas e horas — 23/25 (sem TODAY/NOW) 
+## Phase N: Named ranges (prioridade do usuário, 2026-07-02 → 2.2.0)
+Status: In progress
+<!-- Avaliação: médio-pequeno. Parser/un-parser já produzem/imprimem NameReference (mecanismo do LET);
+agregações consomem nome→range de graça via ComputedValue.Reference/EnumerateValues (mecanismo do OFFSET).
+Valor alto: xlsx real com definedNames hoje avalia #NAME? silencioso. -->
+
+- [ ] `Workbook.DefinedNames` (case-insensitive, nome→`Expression`) + `DefineName(name, Expression)` e
+      conveniência `DefineName(name, formulaText)` (refs DEVEM ser sheet-qualified — ArgumentException se
+      não). **Membro MemoryPack APPENDED AO FIM** — a fixture `workbook-pre-namespaces.msgpack.bin` TEM
+      que continuar verde (arquivos 1.x/2.0 abrem com DefinedNames vazio); se falhar, PARAR e reportar.
+- [ ] `NameReference.Evaluate`: escopo LET primeiro (shadowing), depois DefinedNames — avaliação com
+      guarda de ciclo nome→nome (thread-local, padrão do detector de células; ciclo → `#REF!`).
+- [ ] Helper interno de resolução (unwrap `NameReference`→`Reference` com a mesma guarda) para as funções
+      que exigem nó de referência SINTÁTICO: `VLOOKUP`/`HLOOKUP` (table), `INDEX`, `OFFSET`, `ROWS`,
+      `COLUMNS`, `AREAS`, `ISREF` — cada uma testada com named range.
+- [ ] Interop: `ExcelFile.Load` lê `definedNames` workbook-scope (pula `LocalSheetId` e builtin `_xlnm.*`
+      — limite documentado); `SaveAsExcel` escreve DefinedNames (refersTo totalmente qualificado —
+      `ToFormula` com contexto vazio qualifica tudo).
+- [ ] Testes: SUM/VLOOKUP por nome, shadowing do LET, ciclo, case-insensitive, round-trip MemoryPack novo
+      + fixture antiga, round-trip xlsx com oráculo ClosedXML.
+- [ ] Docs EN (workbook-and-expressions + excel-interop + README) — pt-BR no refresh do release.
+
+### Verification Plan
+- Suítes completas verdes (incl. fixture binária antiga); build 0 warnings; round-trip xlsx de nomes.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 5 (Onda 5 → 2.3.0): Datas e horas — 23/25 (sem TODAY/NOW) 
 Status: Not started
 
 Namespaces (pós-Fase R): records novos nascem em `Expressions.Dates` (pasta `Expressions/Dates/`;
@@ -436,7 +466,7 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 6 (Onda 6 → 2.3.0): Financeiras restantes viáveis (~40 funções)
+## Phase 6 (Onda 6 → 2.4.0): Financeiras restantes viáveis (~40 funções)
 Status: Not started
 
 Namespaces (pós-Fase R): records novos nascem em `Expressions.Financial`.
