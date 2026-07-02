@@ -54,7 +54,7 @@ How file content maps into the workbook:
 | Error cell | `ErrorValue` (evaluates to the corresponding `Error`). |
 | Date cell | `NumberValue` with the Excel **serial number** (ISO-8601 dates in strict-mode files are converted via `ToOADate`). |
 | Style-only / empty cell | Nothing stored — reads as blank. |
-| Shared-formula "slave" (a dragged formula cell carrying no formula text) | Falls back to its cached literal value. |
+| Shared-formula "slave" (a dragged formula cell carrying no formula text) | Expanded into a real formula: the master's text is shifted by the row/column delta (relative references move, `$`-anchored components stay, text inside string literals is untouched) and parsed like any other formula. |
 
 Sheets are created in the file's tab order, so `Sheet.Index` (and the `SHEET` function) match Excel.
 
@@ -144,8 +144,10 @@ Being honest about what the interop MVP does **not** do:
 - **Absolute markers are not preserved on write**: `$A$1` parses fine (it identifies the same cell) but
   un-parses as `A1` — a fidelity loss only in `FormulaMode.Formulas` exports, and only cosmetic unless
   you plan to copy/fill formulas in Excel afterwards.
-- **Shared formulas are not expanded**: the master cell of a dragged formula parses normally; slave
-  cells (no formula text in the file) fall back to their cached literal values.
+- **Shared formulas ARE expanded**: slave cells of a dragged formula (which carry no formula text in the
+  file) are rebuilt from the master's text, shifting relative references by the cell delta while keeping
+  `$`-anchored components fixed — so they stay real formulas that react to input changes. A slave whose
+  master is missing from the file falls back to its cached literal value.
 - **Function coverage is 52 built-ins** (plus your custom functions) — see the
   [function reference](function-reference.md). Formulas using other functions load as `FunctionCall`
   nodes and evaluate to `#NAME?` unless registered.
