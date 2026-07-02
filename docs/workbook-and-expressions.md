@@ -172,7 +172,52 @@ ExpressionParser.Parse("=SUM((A1:A3, C1:C3))", sheet); // reference union (insid
 - A bare range used where a scalar is expected (e.g. `=A1:B2` alone) evaluates to `#VALUE!`, as in
   Excel; ranges are consumed by functions (`SUM`, `COUNT`, lookups, …).
 - A bare name that is not a cell id (e.g. `=total`) is a `NameReference` — it resolves against `LET`
-  bindings at evaluation time and yields `#NAME?` if unbound.
+  bindings and workbook [named ranges](#named-ranges) at evaluation time, and yields `#NAME?` if unbound.
+
+## Named ranges
+
+A workbook can define **names** that stand for an expression — usually a sheet-qualified range or cell,
+but any expression (a constant, a formula, another name) is allowed. Names are workbook-level and
+**case-insensitive**, exactly like Excel.
+
+```csharp
+var workbook = new Workbook();
+var data = workbook.Sheets.Add("Data");
+data["A1"] = new NumberValue(10);
+data["A2"] = new NumberValue(20);
+data["A3"] = new NumberValue(30);
+
+// Convenience overload: parses the text. References MUST be sheet-qualified (names have no implicit
+// sheet); a leading '=' and '$' markers are optional.
+workbook.DefineName("Sales", "Data!A1:A3");
+
+// Expression overload: a name can point at any expression, e.g. a constant.
+workbook.DefineName("Rate", new NumberValue(0.1));
+
+var main = workbook.Sheets.Add("Main");
+ExpressionParser.Parse("=SUM(Sales)", main).Evaluate(workbook);   // 60
+ExpressionParser.Parse("=Rate*100", main).Evaluate(workbook);     // 10
+```
+
+**Definition.** `Workbook.DefinedNames` is the `name → Expression` map. Define through
+`DefineName(string, Expression)` or the `DefineName(string, string)` convenience overload, which parses
+the text and **requires every reference to be sheet-qualified** — an unqualified reference (e.g. `A1:A3`)
+throws `ArgumentException`, since a workbook-level name has no implicit sheet. An empty name, or one that
+collides with a cell-reference shape (`A1`) or a boolean literal, is also rejected.
+
+**Resolution order.** A `NameReference` resolves in this order:
+
+1. **`LET` scope first** (shadowing) — a `LET` binding with the same name wins, so
+   `LET(Sales, 5, Sales+1)` is `6`, not a sum over the range.
+2. **`Workbook.DefinedNames`** — the name's expression is evaluated. A range/union stays a *reference*
+   value, so range-aware functions expand it (`SUM(Sales)`); a single cell or constant evaluates to its
+   scalar. The functions that require a syntactic reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,
+   `OFFSET`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — accept a name that stands for a range (e.g.
+   `VLOOKUP(2, Sales, 2)`).
+3. Otherwise `#NAME?`.
+
+**Cycles.** A name that refers to itself, directly or through a chain (`A → B → A`), is detected by a
+thread-local guard and yields `#REF!` instead of overflowing the stack.
 
 ## From expression back to formula text
 

@@ -409,32 +409,64 @@ contagem 231 espelhada no README (`docs/pt-BR/` intocado — espelho é de outro
 ---
 
 ## Phase N: Named ranges (prioridade do usuário, 2026-07-02 → 2.2.0)
-Status: In progress
+Status: Complete
 <!-- Avaliação: médio-pequeno. Parser/un-parser já produzem/imprimem NameReference (mecanismo do LET);
 agregações consomem nome→range de graça via ComputedValue.Reference/EnumerateValues (mecanismo do OFFSET).
 Valor alto: xlsx real com definedNames hoje avalia #NAME? silencioso. -->
 
-- [ ] `Workbook.DefinedNames` (case-insensitive, nome→`Expression`) + `DefineName(name, Expression)` e
+- [x] `Workbook.DefinedNames` (case-insensitive, nome→`Expression`) + `DefineName(name, Expression)` e
       conveniência `DefineName(name, formulaText)` (refs DEVEM ser sheet-qualified — ArgumentException se
-      não). **Membro MemoryPack APPENDED AO FIM** — a fixture `workbook-pre-namespaces.msgpack.bin` TEM
-      que continuar verde (arquivos 1.x/2.0 abrem com DefinedNames vazio); se falhar, PARAR e reportar.
-- [ ] `NameReference.Evaluate`: escopo LET primeiro (shadowing), depois DefinedNames — avaliação com
-      guarda de ciclo nome→nome (thread-local, padrão do detector de células; ciclo → `#REF!`).
-- [ ] Helper interno de resolução (unwrap `NameReference`→`Reference` com a mesma guarda) para as funções
-      que exigem nó de referência SINTÁTICO: `VLOOKUP`/`HLOOKUP` (table), `INDEX`, `OFFSET`, `ROWS`,
-      `COLUMNS`, `AREAS`, `ISREF` — cada uma testada com named range.
-- [ ] Interop: `ExcelFile.Load` lê `definedNames` workbook-scope (pula `LocalSheetId` e builtin `_xlnm.*`
+      não). **Membro MemoryPack APPENDED AO FIM** — a fixture `workbook-pre-namespaces.msgpack.bin`
+      continuou verde (arquivos 1.x/2.0 abrem com DefinedNames vazio); comparer restaurado + null tratado
+      em `[MemoryPackOnDeserialized]`.
+- [x] `NameReference.Evaluate`: escopo LET primeiro (shadowing), depois DefinedNames — avaliação com
+      guarda de ciclo nome→nome (thread-local `NamedReferences._resolving`, padrão do detector de células;
+      ciclo → `#REF!`).
+- [x] Helper interno de resolução (`NamedReferences.TryResolveReference`, unwrap `NameReference`→`Reference`
+      com a mesma guarda) para as funções que exigem nó de referência SINTÁTICO: `VLOOKUP`/`HLOOKUP`
+      (table), `INDEX`, `OFFSET`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — cada uma testada com named range.
+- [x] Interop: `ExcelFile.Load` lê `definedNames` workbook-scope (pula `LocalSheetId` e builtin `_xlnm.*`
       — limite documentado); `SaveAsExcel` escreve DefinedNames (refersTo totalmente qualificado —
       `ToFormula` com contexto vazio qualifica tudo).
-- [ ] Testes: SUM/VLOOKUP por nome, shadowing do LET, ciclo, case-insensitive, round-trip MemoryPack novo
+- [x] Testes: SUM/VLOOKUP por nome, shadowing do LET, ciclo, case-insensitive, round-trip MemoryPack novo
       + fixture antiga, round-trip xlsx com oráculo ClosedXML.
-- [ ] Docs EN (workbook-and-expressions + excel-interop + README) — pt-BR no refresh do release.
+- [x] Docs EN (workbook-and-expressions + excel-interop + README) — pt-BR no refresh do release.
 
 ### Verification Plan
 - Suítes completas verdes (incl. fixture binária antiga); build 0 warnings; round-trip xlsx de nomes.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/named-ranges`, TDD RED→GREEN). **Nenhum nó de AST novo** — o
+parser/un-parser já produziam/imprimiam `NameReference` (mecanismo do LET), confirmado por teste de
+round-trip; **nenhuma tag MemoryPackUnion nova** (próximo livre segue 243). Núcleo: `Workbook.DefinedNames`
+(`Dictionary<string, Expression>`, case-insensitive) é o **último membro serializado** do Workbook
+(append-only de schema) — a fixture `workbook-pre-namespaces.msgpack.bin` abriu verde ANTES e DEPOIS da
+mudança (passou nos dois momentos exigidos pelo briefing); comparer restaurado e `null` da fixture antiga
+tratado em `RestoreComparers` (`[MemoryPackOnDeserialized]`). API `DefineName(name, Expression)` e a
+conveniência `DefineName(name, formulaText)` (prepende `=` opcional; rejeita referência não-qualificada
+via walk com sentinela de sheet `""`, reusando `FormulaWriter.Call` — internalizado — para varrer args de
+função; valida nome via `NamedReferences.ValidateName`, reusando `Parser.IsCellReference` internalizado).
+Helper novo `Expressions/NamedReferences.cs`: `EvaluateDefinition` (range/union → `ComputedValue.Reference`
+para consumidores range-aware; cell/constante/formula → valor escalar) e `TryResolveReference` (unwrap
+sintático recursivo name→…→Reference), ambos com a MESMA guarda ThreadStatic `_resolving`
+(HashSet<string> OrdinalIgnoreCase, padrão do `_evaluating`; ciclo → `#REF!`/não-resolvível, sem overflow).
+`NameReference.Evaluate` resolve LET→DefinedNames→`#NAME?`. Funções que exigem referência sintática passam
+a resolver nomes: VLOOKUP/HLOOKUP (table), INDEX, OFFSET (base), ROWS, COLUMNS, AREAS, ISREF — cada uma com
+teste de named range. Decisões de design além do briefing: (1) `TryResolveReference` checa o escopo LET
+ANTES dos DefinedNames também na via sintática, então um binding LET reference-kind (ex.: range capturado)
+resolve e um binding escalar sombreia para não-referência (VLOOKUP → `#REF!`) — shadowing consistente entre
+as duas vias; (2) `DefineName(name, Expression)` NÃO exige qualificação (é a via de baixo nível usada pelo
+interop e por constantes); só a conveniência string exige — assim `DefineName("Taxa", new NumberValue(.1))`
+funciona; (3) interop de Load pula nome cujo `refersTo` não parseia (catch `ParseException`/`ArgumentException`)
+em vez de falhar a carga inteira (limite documentado). Interop: `ExcelFile.Load` lê definedNames
+workbook-scope (pula `LocalSheetId` e `_xlnm.*`), `SaveAsExcel` escreve `<definedNames>` após `<sheets>`
+(ordem de schema) com refersTo por `ToFormula("")` (contexto vazio → tudo qualificado), em ambos os
+FormulaMode. Round-trip validado com ClosedXML como oráculo dos dois lados. Suíte core: 544 → **566 verdes**
+(22 novos: 21 em `NamedRangeTests` + 1 em `WorkbookSaveLoadTests`); suíte Excel: 16 → **20 verdes** (4 em
+`NamedRangeInteropTests`); build da solução 0 warnings. Docs EN: seção "Named ranges" em
+`docs/workbook-and-expressions.md`, linha na tabela de mapeamento + bullets de export + limite em
+`docs/excel-interop.md`, bullet no README (`docs/pt-BR/` intocado — refresh do release). Release 2.2.0
+pendente de merge + aval do usuário; sem push.
 
 ---
 

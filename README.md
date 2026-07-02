@@ -125,6 +125,9 @@ workbook.MergeIntoExcel("report.xlsx");
   and financial (`PMT/PV/FV/NPER/IPMT/PPMT/NPV/RATE/IRR`).
 - **References**: sheet-qualified (`Sheet2!A1`, `'My Sheet'!A1:B2`), absolute markers (`$A$1`),
   reference unions (`(A1:A3, C1:C3)`), and case-insensitive sheet names.
+- **Named ranges**: workbook-level defined names (`workbook.DefineName("Sales", "Data!A1:A3")`,
+  case-insensitive) usable anywhere a range is — `SUM(Sales)`, `VLOOKUP(x, Table, 2)` — with `LET`
+  shadowing, cycle detection (`#REF!` instead of overflow), and `.xlsx` round-trip.
 - **Custom functions**: register host functions by name (`workbook.RegisterFunction`) — arguments arrive
   unevaluated (lazy, short-circuit friendly), and calls parse and serialize with the workbook.
 - **Allocation-free evaluation**: `expression.Evaluate(workbook)` returns a `ComputedValue` — an opaque

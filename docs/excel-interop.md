@@ -55,6 +55,7 @@ How file content maps into the workbook:
 | Date cell | `NumberValue` with the Excel **serial number** (ISO-8601 dates in strict-mode files are converted via `ToOADate`). |
 | Style-only / empty cell | Nothing stored — reads as blank. |
 | Shared-formula "slave" (a dragged formula cell carrying no formula text) | Expanded into a real formula: the master's text is shifted by the row/column delta (relative references move, `$`-anchored components stay, text inside string literals is untouched) and parsed like any other formula. |
+| Workbook-scoped defined name (`<definedName>`) | An entry in [`Workbook.DefinedNames`](workbook-and-expressions.md#named-ranges): the `refersTo` text is parsed as a formula. **Sheet-scoped** names (those with a `localSheetId`) and Excel's **builtin `_xlnm.*`** names (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) are skipped. |
 
 Sheets are created in the file's tab order, so `Sheet.Index` (and the `SHEET` function) match Excel.
 
@@ -98,6 +99,9 @@ Details worth knowing:
   `#VALUE!`, matching how the engine treats it.
 - In `Formulas` mode, calls to [custom functions](custom-functions.md) are written with their registered
   name — Excel will show the cached value and flag the unknown function, which is expected.
+- [Named ranges](workbook-and-expressions.md#named-ranges) in `Workbook.DefinedNames` are written as
+  workbook-scoped `<definedName>` entries, in **both** formula modes. The `refersTo` text is fully
+  qualified (`FormulaWriter` with an empty context, so every reference keeps its `Sheet!` prefix).
 
 ## Merging into a template: `MergeIntoExcel`
 
@@ -151,6 +155,10 @@ Being honest about what the interop MVP does **not** do:
 - **Function coverage is not total** (see the current count and list of built-ins, plus your custom functions, in the
   [function reference](function-reference.md). Formulas using other functions load as `FunctionCall`
   nodes and evaluate to `#NAME?` unless registered.
+- **Only workbook-scoped defined names cross over**: sheet-scoped names (with a `localSheetId`) and the
+  builtin `_xlnm.*` names (print areas, filter databases, …) are skipped on load, and MySheet only ever
+  writes workbook-scoped names. A defined name whose `refersTo` cannot be parsed is skipped rather than
+  failing the load.
 
 ## See also
 
