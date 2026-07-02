@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **231 built-in functions**. The authoritative registered list is the `Functions` map
+MySheet implements **254 built-in functions**. The authoritative registered list is the `Functions` map
 in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
 it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -284,6 +284,42 @@ period (default) / 1 = beginning.
 | `PV` | `PV(rate, nper, pmt, [fv], [type])` | Present value of an investment. |
 | `RATE` | `RATE(nper, pmt, pv, [fv], [type], [guess])` | Interest rate per period (iterative). |
 
+## Date and time (23)
+
+Dates are **serial numbers** (`double`), exactly like Excel: the integer part counts days from the
+1899-12-30 epoch and the fraction is the time of day. Date functions take numeric serials (build them with
+`DATE`/`TIME`, or numeric text `CoerceToNumber` accepts); they do **not** implicitly parse date *strings*
+(use `DATEVALUE`/`TIMEVALUE` for that). A negative serial is out of range → `#NUM!`. `TODAY`/`NOW` are
+deferred (they are volatile — a future phase). Documented limitation: serials 1..59 (Jan–Feb 1900) render
+one day behind Excel and serial 60 (Excel's fictitious 1900-02-29) is not representable; real dates
+(serial ≥ 61, 1900-03-01) are exact.
+
+| Function | Arguments | Description |
+| --- | --- | --- |
+| `DATE` | `DATE(year, month, day)` | Serial from parts; Excel overflow (month 13 → next Jan, day 0 → prior month-end); year 0–1899 adds 1900. |
+| `DATEDIF` | `DATEDIF(start, end, unit)` | Difference in `"Y"`/`"M"`/`"D"`/`"MD"`/`"YM"`/`"YD"`; `start > end` → `#NUM!`. `"MD"` is officially unreliable. |
+| `DATEVALUE` | `DATEVALUE(date_text)` | Parses a date string (invariant `yyyy-MM-dd`, `M/d/yyyy`, `d-MMM-yyyy`, …) to a whole-day serial; unparseable → `#VALUE!`. |
+| `DAY` | `DAY(serial)` | Day of the month (1–31). |
+| `DAYS` | `DAYS(end, start)` | Whole days between two dates (may be negative). |
+| `DAYS360` | `DAYS360(start, end, [method])` | 30/360 day count; US (NASD) default, `TRUE` = European. |
+| `EDATE` | `EDATE(start, months)` | The same day-of-month `months` away, clamped to the month end. |
+| `EOMONTH` | `EOMONTH(start, months)` | Last day of the month `months` away from `start`. |
+| `HOUR` | `HOUR(serial)` | Hour (0–23) of the time fraction. |
+| `ISOWEEKNUM` | `ISOWEEKNUM(serial)` | ISO 8601 week number (weeks start Monday; week 1 holds the first Thursday). |
+| `MINUTE` | `MINUTE(serial)` | Minute (0–59) of the time fraction. |
+| `MONTH` | `MONTH(serial)` | Month (1–12). |
+| `NETWORKDAYS` | `NETWORKDAYS(start, end, [holidays])` | Working days in `[start, end]` (inclusive); Sat/Sun and `holidays` excluded. |
+| `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` with a custom weekend (number 1–7/11–17 or a 7-char `"0000011"` mask). |
+| `SECOND` | `SECOND(serial)` | Second (0–59), rounded to the nearest second. |
+| `TIME` | `TIME(hour, minute, second)` | Time-of-day fraction; components 0–32767 roll over, taken mod 24h; negative → `#NUM!`. |
+| `TIMEVALUE` | `TIMEVALUE(time_text)` | Parses a time string (`HH:mm[:ss]`, `h:mm[:ss] AM/PM`) to a `[0,1)` fraction; unparseable → `#VALUE!`. |
+| `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Day of week; `return_type` 1/2/3 and 11–17 (see the WEEKDAY table). |
+| `WEEKNUM` | `WEEKNUM(serial, [return_type])` | Week of year; System 1 for 1/2/11–17, ISO 8601 (System 2) for 21. |
+| `WORKDAY` | `WORKDAY(start, days, [holidays])` | Date `days` working days from `start` (start excluded); negative walks backward. |
+| `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` with a custom weekend; invalid/all-weekend → `#NUM!`. |
+| `YEAR` | `YEAR(serial)` | Calendar year (1900–9999). |
+| `YEARFRAC` | `YEARFRAC(start, end, [basis])` | Year fraction on basis 0 (US 30/360), 1 (actual/actual), 2 (actual/360), 3 (actual/365), 4 (European 30/360). |
+
 ## Compatibility — legacy aliases (11)
 
 The pre-2010 names of the modern statistical functions. Each alias is a **distinct AST node**, not
@@ -308,7 +344,7 @@ category, are documented in their Text/Math sections.)
 
 ## Excel function coverage
 
-MySheet implements 231 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 254 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -392,10 +428,16 @@ density, is already in).
 
 </details>
 
-<details>
-<summary><strong>Date and Time</strong> — 0/25</summary>
+<details open>
+<summary><strong>Date and Time</strong> — 23/25</summary>
 
-⬜ `DATE` `DATEDIF` `DATEVALUE` `DAY` `DAYS` `DAYS360` `EDATE` `EOMONTH` `HOUR` `ISOWEEKNUM` `MINUTE` `MONTH` `NETWORKDAYS` `NETWORKDAYS.INTL` `NOW` `SECOND` `TIME` `TIMEVALUE` `TODAY` `WEEKDAY` `WEEKNUM` `WORKDAY` `WORKDAY.INTL` `YEAR` `YEARFRAC`
+✅ `DATE` `DATEDIF` `DATEVALUE` `DAY` `DAYS` `DAYS360` `EDATE` `EOMONTH` `HOUR` `ISOWEEKNUM` `MINUTE` `MONTH` `NETWORKDAYS` `NETWORKDAYS.INTL` `SECOND` `TIME` `TIMEVALUE` `WEEKDAY` `WEEKNUM` `WORKDAY` `WORKDAY.INTL` `YEAR` `YEARFRAC`
+
+⬜ `NOW` `TODAY`
+
+`NOW` and `TODAY` are **deferred: volatile** — they read the wall clock, which needs the volatility
+infrastructure (a `TimeProvider` plus no-cache propagation) planned for a later phase, not the date math
+shipped here.
 
 </details>
 

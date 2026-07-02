@@ -471,30 +471,80 @@ pendente de merge + aval do usuário; sem push.
 ---
 
 ## Phase 5 (Onda 5 → 2.3.0): Datas e horas — 23/25 (sem TODAY/NOW) 
-Status: Not started
+Status: Complete
 
 Namespaces (pós-Fase R): records novos nascem em `Expressions.Dates` (pasta `Expressions/Dates/`;
 `Dates`, não `DateTime` — colisão com `System.DateTime`); o helper `DateSerial` é internal e fica no
 núcleo `Expressions`, como os demais helpers.
 
-- [ ] Infra `DateSerial` no core (internal): serial ↔ DateTime via OADate; clamp/`#NUM!` para serial
+- [x] Infra `DateSerial` no core (internal): serial ↔ DateTime via OADate; clamp/`#NUM!` para serial
       negativo; fração do dia = hora. Documentar limite 1900 (§A6).
-- [ ] Construção/extração: `DATE` (com overflow de mês/dia como Excel: `DATE(2020,13,1)`→jan/2021)
+- [x] Construção/extração: `DATE` (com overflow de mês/dia como Excel: `DATE(2020,13,1)`→jan/2021)
       `DATEVALUE` `TIMEVALUE` (parse invariant) `TIME` `YEAR` `MONTH` `DAY` `HOUR` `MINUTE` `SECOND`
-- [ ] Aritmética de calendário: `DAYS` `DAYS360` (métodos US/EU) `EDATE` `EOMONTH` `WEEKDAY` (return_type
+- [x] Aritmética de calendário: `DAYS` `DAYS360` (métodos US/EU) `EDATE` `EOMONTH` `WEEKDAY` (return_type
       1/2/3/11-17) `WEEKNUM` `ISOWEEKNUM` `DATEDIF` (6 modos, quirks documentados) `YEARFRAC` (5 bases —
       infra reutilizada pela onda 6)
-- [ ] Dias úteis (feriados via range): `NETWORKDAYS` `NETWORKDAYS.INTL` `WORKDAY` `WORKDAY.INTL`
+- [x] Dias úteis (feriados via range): `NETWORKDAYS` `NETWORKDAYS.INTL` `WORKDAY` `WORKDAY.INTL`
       (máscaras de fim de semana 1-17 e "0000011")
-- [ ] `TODAY`/`NOW` ficam para F1 (voláteis) — registrar ⬜ com nota no README.
-- [ ] FormulaWriter.Call + corpus + README ✅ (Date and Time 23/25)
+- [x] `TODAY`/`NOW` ficam para F1 (voláteis) — registrado ⬜ com nota no README e no reference.
+- [x] FormulaWriter.Call + corpus + README ✅ (Date and Time 23/25)
 
 ### Verification Plan
 - Suítes verdes; DATEDIF/YEARFRAC/DAYS360/WEEKNUM contra oráculo (planilha de golden values citada);
   round-trip xlsx: data serial exportada/lida sem perda.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/functions-wave-5`, TDD por família com golden values de oráculo).
+**23 funções novas** (contado por script no `Parser.Functions`: 231 → **254**): 10 construção/extração
+(DATE, TIME, DATEVALUE, TIMEVALUE, YEAR, MONTH, DAY, HOUR, MINUTE, SECOND) + 9 aritmética de calendário
+(DAYS, DAYS360, EDATE, EOMONTH, WEEKDAY, WEEKNUM, ISOWEEKNUM, DATEDIF, YEARFRAC) + 4 dias úteis
+(NETWORKDAYS, NETWORKDAYS.INTL, WORKDAY, WORKDAY.INTL). `TODAY`/`NOW` FORA (voláteis → F1; anotados ⬜
+"deferred: volatile" no reference e README). Namespace/pasta NOVOS `Expressions/Dates/` (4 arquivos por
+família: `DateConstruction.cs`, `DateComponents.cs`, `CalendarArithmetic.cs`, `WorkdayFunctions.cs` +
+`DateTextParser.cs` para o parse invariant do DATEVALUE/TIMEVALUE). Tags MemoryPackUnion 243–265
+(append-only; próximo livre = 266; fixture `workbook-pre-namespaces.msgpack.bin` intocada e verde).
+
+**Representação (§A6, decisão fechada):** datas são doubles seriais — zero mudança no `ComputedValue`.
+Dois helpers internal NOVOS no núcleo `Expressions`: **`DateSerial`** (serial ↔ DateTime via OADate, base
+1899-12-30; `FromComponents` com o overflow do Excel; `TimeOfDaySeconds` arredondando ao segundo mais
+próximo) e **`DayCount`** (as 5 bases do YEARFRAC: 0=US/NASD 30/360, 1=actual/actual com denominador =
+média do comprimento dos anos-calendário cruzados per MS-OI29500 nota d, 2=actual/360, 3=actual/365,
+4=EU 30/360). **`DayCount` é o helper que a ONDA 6 reutiliza** para as financeiras de título (ACCRINT,
+PRICE, YIELD, COUP*, …) — vive no núcleo `Danfma.MySheet/Expressions/DayCount.cs`, testável isoladamente,
+com `Nasd360Days`/`Euro360Days`/`ActualDays`/`YearFraction(start, end, basis)`. DAYS360 (a função)
+implementa a variante US do *DAYS360* (regra do fim-de-mês que rola o fim para o dia 1 do mês seguinte)
+inline — é distinta da 30/360 do YEARFRAC basis 0, por isso não compartilha com o DayCount; a europeia
+reusa `DayCount.Euro360Days`.
+
+**Limitação documentada (§A6):** seriais 1..59 renderizam 1 dia atrás do Excel (serial 1 = 1899-12-31
+aqui vs 1900-01-01 no Excel) e o serial 60 (29-02-1900 fictício do Excel) não é representável — mapeia
+para 28-02-1900, colidindo com o 59; a partir do serial 61 (01-03-1900) o mapeamento é exato. Registrado
+no doc, no XML do `DateSerial` e num teste-nota (`Serial60_Is1900LeapYearLimitation`).
+
+**Decisões além do briefing:** (1) **Coerção de texto-data**: as funções de data aceitam APENAS serial
+numérico (mais texto numérico que o `CoerceToNumber` já parseia); NÃO fazem DATEVALUE implícito — então
+`YEAR("2021-01-01")`→`#VALUE!` (divergência do Excel, registrada no reference). Só `DATEVALUE`/`TIMEVALUE`
+parseiam string, com formatos invariant fixos e SEM formatos year-less (evita depender do relógio, que é
+F1). (2) HOUR/MINUTE/SECOND arredondam ao segundo mais próximo (não truncam) — reproduz o Excel
+(`SECOND(TIME(10,30,45))`=45 apesar do ruído IEEE-754). (3) WEEKNUM tipo 21 e ISOWEEKNUM usam
+`System.Globalization.ISOWeek`. (4) Máscara de fim de semana: string 7-char "1111111" → NETWORKDAYS.INTL
+devolve 0, WORKDAY.INTL devolve `#NUM!` (sem dia útil para pousar); número de weekend inválido → `#NUM!`,
+string malformada → `#VALUE!` (conferido contra as páginas .INTL). (5) DATEDIF "MD" reproduz o
+comportamento buggy do Excel (a MS avisa que é não-confiável) sem "consertar".
+
+**Golden values de oráculo:** todas as páginas oficiais da Microsoft fetchadas por 3 sub-agentes em
+2026-07-02 e citadas por teste (DATE overflow, TIME/HOUR/MINUTE/SECOND, DATEVALUE serials 40777/40685/
+40597, TIMEVALUE, DAYS, DAYS360 US 1/360/30, EDATE/EOMONTH, WEEKDAY todos os return_types contra a
+quinta-feira 14/02/2008, WEEKNUM 10/11 + ISO 10 contra 09/03/2012, DATEDIF Y=2/D=440/YD=75, YEARFRAC
+bases 0/1/3 = 0.58055556/0.57650273/0.57808219, NETWORKDAYS 110/109/107, NETWORKDAYS.INTL 22/-21/22/20 e
+máscara string, WORKDAY 30/04/2009 e 05/05/2009, WORKDAY.INTL serial 41013). Onde a página é silente
+(DAYS360 europeu, EDATE clamp, DATEDIF M/YM/MD, YEARFRAC bases 2/4, ISO viradas de ano) os valores foram
+DERIVADOS da regra documentada e marcados nos comentários dos testes. Suíte core: 566 → **601 verdes**
+(35 novos: 14 em `DateConstructionTests`, 13 em `DateCalendarTests`, 8 em `DateWorkdayTests` + as 23
+fórmulas novas no corpus do FormulaWriter); suíte Excel intacta (20); build da solução 0 warnings. Docs:
+`function-reference.md` → 254 (seção "Date and time" nova com 23 assinaturas, Date and Time 23/25 com
+TODAY/NOW ⬜ "deferred: volatile") + contagem 254 espelhada no README (`docs/pt-BR/` intocado — refresh
+do release). Release 2.3.0 pendente de merge + aval do usuário; sem push.
 
 ---
 
