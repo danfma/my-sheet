@@ -110,7 +110,7 @@ nova); ele é o guarda que impede função parseável sem un-parse. Nomes com po
 Marque `- [x]`; ao fechar onda: Status `Complete` + Phase Summary + Verification + atualizar README
 (✅ nas funções + contagem) + release (aval do usuário para push/dispatch). TDD por função com golden
 values de oráculo citado no teste. Testes: core
-`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (408 após a onda 2);
+`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (440 após a onda 3);
 Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings sempre.
 
 ---
@@ -233,20 +233,47 @@ README e nos guias em inglês (`docs/pt-BR/` intocado — espelho é de outro ag
 ---
 
 ## Phase 3 (Onda 3 → 1.3.0): Lookup & Reference escalar (~9 funções)
-Status: Not started
+Status: Complete
 
-- [ ] `CHOOSE` `HLOOKUP` (espelho do VLookup) `LOOKUP` (formas vetor e array) `COLUMN` `COLUMNS` `XMATCH`
+- [x] `CHOOSE` `HLOOKUP` (espelho do VLookup) `LOOKUP` (formas vetor e array) `COLUMN` `COLUMNS` `XMATCH`
       (modos de match/search como XLOOKUP) `ADDRESS` `AREAS` `FORMULATEXT` (reusa `FormulaWriter` — só
       funciona porque a onda 0 do un-parser existe)
-- [ ] `INDIRECT` NÃO entra (volátil — F1).
-- [ ] FormulaWriter.Call + corpus + README ✅
+- [x] `INDIRECT` NÃO entra (volátil — F1).
+- [x] FormulaWriter.Call + corpus + README ✅
 
 ### Verification Plan
 - Suítes verdes; HLOOKUP/LOOKUP/XMATCH com os mesmos casos de borda dos testes do VLOOKUP/XLOOKUP
   (approximate text keys — regressão do bug 3460bb3).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/functions-wave-3`, TDD RED→GREEN pela família). **9 funções
+novas** (contado por script no `Parser.Functions`: 155 → 164; Lookup and Reference 7/40 → 16/40):
+CHOOSE, HLOOKUP, LOOKUP (vetor + array), COLUMN, COLUMNS, XMATCH, ADDRESS, AREAS e FORMULATEXT.
+Arquivo `Expressions/LookupFunctions.cs` + helper compartilhado `Expressions/LookupMatching.cs`
+(FindMatch/Wildcard/Closest EXTRAÍDOS do XLookup — refactor protegido pelos testes existentes do
+XLOOKUP; XLOOKUP, XMATCH e LOOKUP usam o mesmo engine de match); tags MemoryPackUnion 167–175
+(append-only; próximo livre = 176). Golden values: páginas oficiais da Microsoft fetchadas em
+2026-07-02 e citadas nos testes (CHOOSE/HLOOKUP/LOOKUP vetor/ADDRESS/XMATCH/COLUMN/COLUMNS/AREAS/
+FORMULATEXT); HLOOKUP("B",...,TRUE)→5 e XMATCH("Gra",...,1)→2 cobrem chave TEXTO com match
+aproximado (regressão 3460bb3). Decisões: (1) CHOOSE lazy como IF (só o argumento escolhido avalia —
+testado com função custom que lança) e um range escolhido vira `ComputedValue.Reference` para
+consumidores range-aware (`SUM(CHOOSE(…))`), mesma técnica do OFFSET; a forma `A2:CHOOSE(…)` da
+página não parseia (o `:` exige células) — fora de escopo; (2) HLOOKUP segue o contrato de erro da
+doc (row_index < 1 → `#VALUE!`, além da tabela → `#REF!`) — nota: o VLookup existente devolve
+`#REF!` nos dois casos, divergência pré-existente não tocada; (3) LOOKUP array form implementa a
+regra documentada (mais largo que alto → busca 1ª LINHA/retorna última LINHA; senão 1ª COLUNA/última
+COLUNA) — a página aposentou os exemplos da forma array, casos derivados mecanicamente da regra
+citada; (4) ADDRESS com a1=FALSE implementa APENAS a forma absoluta documentada `R2C3`; as formas
+R1C1 relativas (`R2C[3]`) → `#VALUE!` (limitação declarada no doc); quoting do sheet_text reusa
+`FormulaWriter.IsSimpleSheetName` (tornado internal); (5) AREAS é checagem sintática do nó
+(UnionReference conta áreas, recursivo; referência → 1; não-referência → `#VALUE!`); o operador de
+interseção por espaço (`AREAS(B2:D4 B2)`) não existe no parser — fora de escopo; (6) FORMULATEXT
+un-parseia com o contexto de sheet da célula REFERENCIADA (referências locais sem qualificação);
+binários XMATCH search_mode 2/-2 degradam para linear (mesmo comportamento do XLOOKUP). Suíte core:
+408 → **440 verdes** (32 novos casos em `LookupReferenceFunctionTests` + corpus do FormulaWriter
+cobrindo as 9); suíte Excel intacta (16); build 0 warnings. Docs: `function-reference.md` → 164
+(tabela Lookup reescrita com 16 assinaturas, coverage 16/40) + contagem 164 espelhada no README e
+nos guias em inglês (`docs/pt-BR/` intocado — espelho é de outro agente).
 
 ---
 

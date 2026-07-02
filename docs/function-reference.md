@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **155 built-in functions**. The authoritative registered list is the `Functions` map
+MySheet implements **164 built-in functions**. The authoritative registered list is the `Functions` map
 in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
 it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -158,17 +158,26 @@ defensive 1-second match timeout.
 | `VALUE` | `VALUE(text)` | Converts text to a number. |
 | `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Value as text — format 0 concise (default), 1 strict (text quoted); errors become their display text. |
 
-## Lookup and reference (7)
+## Lookup and reference (16)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
+| `ADDRESS` | `ADDRESS(row_num, column_num, [abs_num], [a1], [sheet_text])` | The cell address as TEXT (`abs_num` 1-4 → `$C$2`/`C$2`/`$C2`/`C2`); `a1=FALSE` renders only the absolute R1C1 form (`R2C3` — relative R1C1 → `#VALUE!`); `sheet_text` is prefixed, quoted when needed. |
+| `AREAS` | `AREAS(reference)` | Number of areas (contiguous ranges or single cells) in the reference — a syntactic check, like `ISREF`; non-reference → `#VALUE!`. |
+| `CHOOSE` | `CHOOSE(index_num, value1, [value2], …)` | The value at `index_num` (truncated); lazy — only the chosen argument is evaluated; a chosen range stays range-aware (`SUM(CHOOSE(…))`); out of range → `#VALUE!`. |
+| `COLUMN` | `COLUMN([reference])` | Column number of the reference (leftmost column for a range) — or of the current cell when called with no argument. |
+| `COLUMNS` | `COLUMNS(range)` | Number of columns in the range. |
+| `FORMULATEXT` | `FORMULATEXT(reference)` | The referenced cell's formula as TEXT, `=` included (un-parsed in the referenced cell's sheet context); a literal or empty cell → `#N/A`. |
+| `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Horizontal lookup in the first row of a table; exact or approximate; `row_index_num` < 1 → `#VALUE!`, beyond the table → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | The value at a 1-based position inside a range. |
+| `LOOKUP` | `LOOKUP(lookup_value, lookup_vector, [result_vector])` | Vector form (always approximate: largest value ≤ lookup); the 2-argument array form searches the first row and returns from the last row when the range is wider than tall, otherwise first/last column. |
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | 1-based position of a value in a range (`match_type`: 1 approximate ascending — default, 0 exact, -1 approximate descending). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | A reference displaced (and optionally resized) from a starting reference; may return a multi-cell reference for range-aware consumers. |
 | `ROW` | `ROW([reference])` | Row number of the reference — or of the current cell when called with no argument. |
 | `ROWS` | `ROWS(range)` | Number of rows in the range. |
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Vertical lookup in the first column of a table; exact or approximate. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Modern lookup with not-found fallback and match/search modes. |
+| `XMATCH` | `XMATCH(lookup_value, lookup_range, [match_mode], [search_mode])` | 1-based position with `XLOOKUP`'s modes (0 exact — default, -1 exact-or-smaller, 1 exact-or-larger, 2 wildcard; search 1/-1). |
 
 ## Information (18)
 
@@ -215,7 +224,7 @@ period (default) / 1 = beginning.
 
 ## Excel function coverage
 
-MySheet implements 155 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 164 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -244,11 +253,11 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Lookup and Reference</strong> — 7/40</summary>
+<summary><strong>Lookup and Reference</strong> — 16/40</summary>
 
-✅ `INDEX` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP`
+✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
 
-⬜ `ADDRESS` `AREAS` `CHOOSE` `CHOOSECOLS` `CHOOSEROWS` `COLUMN` `COLUMNS` `DROP` `EXPAND` `FILTER` `FORMULATEXT` `HLOOKUP` `HSTACK` `INDIRECT` `LOOKUP` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS` `XMATCH`
+⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `INDIRECT` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
 
 ✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 

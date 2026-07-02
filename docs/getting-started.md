@@ -119,4 +119,4 @@ See [Excel interop](excel-interop.md) for exporting workbooks and merging comput
 - [Workbook, sheets and expressions](workbook-and-expressions.md) — the object model in depth.
 - [ComputedValue and errors](computed-value.md) — everything about reading results.
 - [Custom functions](custom-functions.md) — add your own functions to the engine.
-- [Function reference](function-reference.md) — the 155 built-in functions.
+- [Function reference](function-reference.md) — the 164 built-in functions.
