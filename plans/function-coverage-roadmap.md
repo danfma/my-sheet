@@ -1,0 +1,301 @@
+# Roadmap de cobertura de funções — ondas escalares + datas (1.1.0 → 1.6.0)
+
+Elevar a cobertura de 52 → ~230 funções em 6 ondas SEM mudança estrutural no engine, liberando **um
+release minor por onda**. Decisões estruturais (voláteis, arrays, LAMBDA, distribuições) ficam ANALISADAS
+aqui com proposta + alternativas, mas são executadas em fases futuras próprias — correto antes de remendo.
+
+## Context / decisões (fechadas com o usuário em 2026-07-01)
+- **Escopo agora = ondas 1–6 (escalares + datas)**: nenhuma mudança no `ComputedValue`/cache/parser além de
+  novos nós. Arrays (onda F2) e LAMBDA (F3) ficam desenhados, não executados.
+- **Voláteis adiados**: TODAY/NOW/RAND/RANDBETWEEN/INDIRECT ficam FORA das ondas (a onda de datas entrega
+  23/25 funções). A infra de volatilidade (análise §A1) é a fase futura F1.
+- **Exclusões permanentes (~85 funções)**: Cubes (7), Web (3), `RTD/STOCKHISTORY/IMAGE/HYPERLINK`,
+  pivô (`GETPIVOTDATA/PIVOTBY/GROUPBY`), ambiente de UI (`CELL/INFO`), `CALL/REGISTER.ID/EUROCONVERT`,
+  byte-duplo/locale CJK (`DBCS/ASC/BAHTTEXT/PHONETIC/LENB/FINDB/LEFTB/MIDB/RIGHTB/SEARCHB/REPLACEB`),
+  serviços de tradução (`DETECTLANGUAGE/TRANSLATE`), e `ISOMITTED` (só faz sentido com LAMBDA → move para
+  F3). Documentar no README como **fora de escopo com justificativa** (engine de servidor, sem UI/serviços
+  externos/locale CJK); a cobertura passa a ser medida também contra o catálogo viável (~435).
+- **Release por onda**: cada onda fecha → merge na main → push (aval do usuário) → `gh workflow run
+  release.yml` (versionize deriva o minor dos commits `feat`). Lockstep dos 2 pacotes continua.
+- **Processo por função (TDD, lição do lessons.md)**: golden values de ORÁCULO, nunca de cabeça — Excel
+  real/LibreOffice para math/text/datas (documentar a origem no teste), `ExcelFinancialFunctions` (já no
+  csproj de testes) para as financeiras. RED → record + entrada no `Parser.Functions` + entrada no
+  `FormulaWriter.Call` + ✅ no README → GREEN.
+- **Convenções de implementação**: 1 função = 1 record `: Function` (padrão atual; uniformidade e
+  serialização estável), mas ARQUIVOS agrupados por família (ex.: `Expressions/Trigonometry.cs` com vários
+  records) para não criar 180 arquivos. `MemoryPackUnion` é append-only: próximo tag livre = 64, nunca
+  reordenar. Coerção via `CoerceToNumber/...` existentes; erros Excel corretos (`#NUM!` para domínio,
+  `#DIV/0!`, `#VALUE!`).
+
+## A. Análise estrutural (proposta bem embasada + alternativas)
+
+### A1. Funções voláteis (TODAY, NOW, RAND, RANDBETWEEN, INDIRECT) — ADIADO → fase F1
+**Problema:** o cache por célula congela valores até `InvalidateCache` — `TODAY()` de ontem persistiria; e
+não basta não-cachear a célula volátil: um DEPENDENTE cacheado (`B1=A1+1` com `A1=TODAY()`) congelaria do
+mesmo jeito. Volatilidade precisa propagar pelos avaliadores transitivos.
+**Proposta (quando F1 ativar):** flag thread-local "avaliação tocou volátil" no `Workbook` (mesmo padrão do
+detector de ciclos `_evaluating`): `GetCellValue` seta a flag ao avaliar nó volátil (propriedade virtual
+`IsVolatile` na `Expression`, default false) e, se a flag subiu durante a avaliação de uma célula, NÃO grava
+essa célula no cache e propaga a flag ao chamador — O(1), local, sem grafo de dependências. Tempo vem de um
+**`TimeProvider` injetável no `Workbook`** (default `TimeProvider.System`): TODAY/NOW testáveis e o host
+controla o relógio (consistência intra-batch: o host congela o TimeProvider durante um batch). RAND idem com
+seed injetável.
+**Alternativas rejeitadas:** (a) semântica snapshot documentada (voláteis cacheiam até invalidar) — zero
+custo, mas diverge do Excel e surpreende (data velha); (b) grafo de dependências com dirty-tracking —
+correto e mais poderoso, porém uma reescrita do modelo de recálculo; desproporcional aqui, reavaliar se um
+dia houver recálculo incremental.
+
+### A2. Funções que retornam arrays (FILTER, SORT, SORTBY, UNIQUE, SEQUENCE, TRANSPOSE, MMULT, MINVERSE,
+MDETERM, MUNIT, FREQUENCY, TEXTSPLIT, TOCOL/TOROW, WRAP*, TAKE/DROP, CHOOSEROWS/COLS, H/VSTACK, EXPAND,
+RANDARRAY, MODE.MULT, ARRAYTOTEXT, PERCENTOF, SEQUENCE) — FORA deste roadmap → fase F2
+**Problema:** o modelo é 1 célula = 1 valor; `ComputedValue` não tem forma de array materializado (só
+`Reference`, que aponta para células existentes).
+**Proposta (F2):** novo `ComputedValueKind.Array` carregando `ComputedValue[,]` no campo `_ref` (mesma
+técnica do `Reference`) + `EnumerateValues` cobrindo Array → agregações/lookups consomem de graça
+(`SUM(FILTER(...))`, o caso de servidor). Célula cujo RESULTADO é array exibe o canto superior-esquerdo
+(semântica pré-spill do Excel), sem spill físico.
+**Alternativas rejeitadas:** (a) spill físico em células vizinhas (semântica moderna do Excel) — exige
+células fantasma, invalidação de vizinhança e erro `#SPILL!`; só faz sentido DEPOIS do Kind.Array e de um
+grafo de dependências; (b) materializar arrays como ranges temporários na sheet — mutaria dados do usuário
+(gambiarra clássica, rejeitada).
+
+### A3. LAMBDA + BYROW/BYCOL/MAP/REDUCE/SCAN/MAKEARRAY/ISOMITTED — FORA → fase F3
+Exige **funções-como-valor** no `ComputedValue` (closure carregando `Expression` + escopo de nomes) — a
+maior mudança do catálogo. Depende de F2 (essas funções produzem/consomem arrays). Sem análise adicional
+até F2 concluir.
+
+### A4. Distribuições estatísticas (NORM.*, T.*, CHISQ.*, F.*, GAMMA*, BETA*, BINOM*, POISSON, WEIBULL,
+EXPON, LOGNORM, NEGBINOM, HYPGEOM, CONFIDENCE.*, CRITBINOM, FORECAST.ETS*, LINEST/LOGEST/TREND/GROWTH,
+Z.TEST/T.TEST/F.TEST/CHISQ.TEST) — FORA → fase F4
+**Problema:** exigem funções especiais (gamma incompleta regularizada, beta incompleta, erf, inversas por
+busca numérica) com precisão validada. FORECAST.ETS é um modelo de séries temporais inteiro. LINEST exige
+álgebra de mínimos quadrados + retorno em array (depende de F2).
+**Proposta (F4):** implementar special functions internas (Lanczos para gamma, frações continuadas para as
+incompletas, bisseção/Newton salvaguardado para inversas — mesmo padrão robusto que usamos no RATE/IRR),
+validadas contra oráculo (Excel/R/scipy tabelados). Sem dependência externa (não há pacote .NET mantido que
+cubra tudo; e "correto > remendo" vale para precisão também: testes de tolerância documentada).
+
+### A5. SUBTOTAL/AGGREGATE — parcial na onda 4, com limite de modelo declarado
+Os códigos 101-111 ("ignorar linhas ocultas") não têm semântica no MySheet: o modelo não tem linhas
+ocultas. NÃO é gambiarra implementar 1-11 e 101-111 com o mesmo comportamento (é o limite do modelo de
+dados, documentado); a parte real de SUBTOTAL — ignorar SUBTOTALs aninhados no range — será implementada
+de verdade (detectar nós SUBTOTAL nas células do range). AGGREGATE fica para F2 (vários códigos exigem
+array/ordenação com opções que dependem de LARGE/SMALL/PERCENTILE — reavaliar depois da onda 4).
+
+### A6. Datas como número serial (onda 5) — decisão de representação
+**Proposta:** datas SÃO doubles seriais (fiel ao Excel; zero mudança no ComputedValue). Helper interno
+`DateSerial` no core: serial ↔ `DateTime` via OADate (base 30/12/1899, que compensa o bug do Excel de
+tratar 1900 como bissexto). **Limite documentado:** seriais 1..59 (jan-fev/1900) divergem do Excel em 1
+dia e o serial 60 (29/02/1900, data inexistente) não é representável — irrelevante na prática, registrado
+no doc. `DATEDIF` implementa os 6 modos com os quirks documentados do Excel; `YEARFRAC` implementa as 5
+bases de day-count (0=US 30/360, 1=actual/actual, 2=actual/360, 3=actual/365, 4=EU 30/360) — essa infra é
+REUTILIZADA pelas financeiras de título da onda 6. NETWORKDAYS/WORKDAY aceitam range de feriados
+(ExpandComputedValues já resolve).
+**Alternativa rejeitada:** `ComputedValueKind.Date` dedicado — quebraria a equivalência data≡número do
+Excel (SUM sobre datas, comparações), duplicaria coerções, e o interop xlsx já trafega serial.
+
+### A7. Locale — contrato invariant
+`FIND/SEARCH/SUBSTITUTE/PROPER/EXACT` usam ordinal/invariant (SEARCH case-insensitive + wildcards `*?~`
+reutilizando `Criteria.WildcardMatch`). `DOLLAR/FIXED` formatam com invariant culture e símbolo `$` —
+documentado (a lib não é locale-aware por design; `TEXT` já segue isso).
+
+### A8. Escala do Parser/FormulaWriter/serialização
+~180 records novos: tags MemoryPackUnion 64..~245 (ushort, sem risco de esgotar; append-only). O switch
+`FormulaWriter.Call` e o mapa `Parser.Functions` crescem em paralelo — o teste exaustivo
+`AllBuiltInFunctions_RoundTripStructurally` DEVE ser atualizado a cada onda (uma fórmula mínima por função
+nova); ele é o guarda que impede função parseável sem un-parse. Nomes com ponto (`CEILING.MATH`,
+`STDEV.S`, `RANK.EQ`) já são suportados pelo tokenizer (aceita `.` em identificadores).
+
+## For Future Agents
+Marque `- [x]`; ao fechar onda: Status `Complete` + Phase Summary + Verification + atualizar README
+(✅ nas funções + contagem) + release (aval do usuário para push/dispatch). TDD por função com golden
+values de oráculo citado no teste. Testes: core
+`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (274 hoje);
+Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings sempre.
+
+---
+
+## Phase 0: Preparação
+Status: Not started
+
+- [ ] Merge `feature/shared-formulas` → `main` + push (aval do usuário) — o roadmap parte daí.
+- [ ] README: seção "Out of scope (by design)" com as ~85 exclusões permanentes e justificativa; a tabela
+      de cobertura passa a listar essas funções como ✖ (excluída) em vez de ⬜, e o cabeçalho ganha a
+      contagem dupla (X/520 do catálogo, Y/~435 do viável).
+- [ ] Branch `feature/functions-wave-1`.
+
+### Verification Plan
+- CI verde na main; README renderiza com a nova seção; contagens conferem com o Parser.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 1 (Onda 1 → 1.1.0): Math & Trigonometria escalar (~52 funções)
+Status: Not started
+
+Zero estrutura nova — tudo `CoerceToNumber` + `Math.*`. Agrupar em arquivos por família.
+
+- [ ] Potência/raiz/log: `SQRT` `POWER` `EXP` `LN` `LOG` (1-2 args) `LOG10` `SQRTPI`
+- [ ] Arredondamento: `ROUNDDOWN` `TRUNC` (1-2 args) `MROUND` `CEILING` `CEILING.MATH` `CEILING.PRECISE`
+      `ISO.CEILING` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `EVEN` `ODD` (semânticas de sinal do Excel:
+      CEILING com número negativo/significância negativa → casos de erro `#NUM!` conferidos no oráculo)
+- [ ] Aritmética: `MOD` (sinal do divisor, como Excel: `MOD(-3,2)=1`) `QUOTIENT` `SIGN` `PI` `PRODUCT`
+      `SUMSQ` `MULTINOMIAL` `SERIESSUM`
+- [ ] Combinatória: `FACT` `FACTDOUBLE` `COMBIN` `COMBINA` `GCD` `LCM`
+- [ ] Trig: `SIN` `COS` `TAN` `COT` `SEC` `CSC` `ASIN` `ACOS` `ATAN` `ATAN2` (ordem de args do Excel:
+      x,y!) `ACOT` + hiperbólicas `SINH` `COSH` `TANH` `COTH` `SECH` `CSCH` `ASINH` `ACOSH` `ATANH` `ACOTH`
+      + `DEGREES` `RADIANS`
+- [ ] Bases: `BASE` `DECIMAL` `ROMAN` `ARABIC`
+- [ ] FormulaWriter.Call + corpus exaustivo + README ✅ (Math sobe para ~59/82)
+
+### Verification Plan
+- Suítes verdes; golden values citando oráculo (Excel/LibreOffice) nos casos não-triviais (MOD negativo,
+  CEILING negativo, ATAN2, COMBINA, ROMAN); round-trip exaustivo do FormulaWriter cobre as novas.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 2 (Onda 2 → 1.2.0): Logical + Information + Text escalar (~36 funções)
+Status: Not started
+
+- [ ] Logical: `TRUE` `FALSE` (funções, além dos literais) `XOR` `IFS` `SWITCH` (2 formas: com default)
+- [ ] Information: `NA` `ISERROR` `ISERR` `ISNA` `ISTEXT` `ISNONTEXT` `ISLOGICAL` `ISEVEN` `ISODD` `ISREF`
+      `ISFORMULA` (via sheet do contexto) `N` `T` `TYPE` `ERROR.TYPE` `SHEETS`
+- [ ] Text: `RIGHT` `FIND` `SEARCH` (case-insensitive + wildcards via `Criteria.WildcardMatch`) `REPLACE`
+      `SUBSTITUTE` (com instance_num) `REPT` `PROPER` `EXACT` `CHAR` `CODE` `UNICHAR` `UNICODE` `CLEAN`
+      `FIXED` `DOLLAR` `NUMBERVALUE` `TEXTBEFORE` `TEXTAFTER` `VALUETOTEXT`
+- [ ] Regex (modernas, escalar): `REGEXTEST` `REGEXEXTRACT` `REGEXREPLACE` (System.Text.RegularExpressions,
+      timeout defensivo)
+- [ ] FormulaWriter.Call + corpus + README ✅
+
+### Verification Plan
+- Suítes verdes; SEARCH/FIND diferenciados por caso e wildcard; SUBSTITUTE com instance_num contra oráculo.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 3 (Onda 3 → 1.3.0): Lookup & Reference escalar (~9 funções)
+Status: Not started
+
+- [ ] `CHOOSE` `HLOOKUP` (espelho do VLookup) `LOOKUP` (formas vetor e array) `COLUMN` `COLUMNS` `XMATCH`
+      (modos de match/search como XLOOKUP) `ADDRESS` `AREAS` `FORMULATEXT` (reusa `FormulaWriter` — só
+      funciona porque a onda 0 do un-parser existe)
+- [ ] `INDIRECT` NÃO entra (volátil — F1).
+- [ ] FormulaWriter.Call + corpus + README ✅
+
+### Verification Plan
+- Suítes verdes; HLOOKUP/LOOKUP/XMATCH com os mesmos casos de borda dos testes do VLOOKUP/XLOOKUP
+  (approximate text keys — regressão do bug 3460bb3).
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 4 (Onda 4 → 1.4.0): Condicionais, SUMPRODUCT, estatística descritiva + aliases (~55 funções)
+Status: Not started
+
+- [ ] Condicionais (Criteria existente): `AVERAGEIF` `AVERAGEIFS` `MAXIFS` `MINIFS`
+- [ ] Variantes A: `AVERAGEA` `MAXA` `MINA`
+- [ ] Pairwise multi-range (helper novo `PairwiseRanges` em NumericAggregation): `SUMPRODUCT` `SUMX2MY2`
+      `SUMX2PY2` `SUMXMY2` (ranges de shapes diferentes → `#VALUE!`)
+- [ ] `SUBTOTAL` (códigos 1-11 = 101-111; ignora SUBTOTAL aninhado de verdade; sem hidden rows — limite de
+      modelo documentado, ver §A5)
+- [ ] Ordem/posição (helper de sorting sobre `List<double>`): `MEDIAN` `MODE.SNGL` `LARGE` `SMALL`
+      `RANK.EQ` `RANK.AVG` `PERCENTILE.INC` `PERCENTILE.EXC` `PERCENTRANK.INC` `PERCENTRANK.EXC`
+      `QUARTILE.INC` `QUARTILE.EXC` `TRIMMEAN`
+- [ ] Dispersão/momentos: `STDEV.S` `STDEV.P` `STDEVA` `STDEVPA` `VAR.S` `VAR.P` `VARA` `VARPA` `AVEDEV`
+      `DEVSQ` `GEOMEAN` `HARMEAN` `SKEW` `SKEW.P` `KURT` `STANDARDIZE`
+- [ ] Bivariadas (pairwise): `CORREL` `PEARSON` `COVARIANCE.P` `COVARIANCE.S` `RSQ` `SLOPE` `INTERCEPT`
+      `STEYX` `FORECAST.LINEAR`
+- [ ] Escalares simples: `FISHER` `FISHERINV` `GAUSS` `PHI` `PERMUT` `PERMUTATIONA` `PROB`
+- [ ] Aliases Compatibility dos implementados (mesma factory, nome legado): `MODE` `STDEV` `STDEVP` `VAR`
+      `VARP` `RANK` `PERCENTILE` `PERCENTRANK` `QUARTILE` `COVAR` `FORECAST` (⚠️ `CONFIDENCE`/`CRITBINOM`
+      e os *DIST/*INV ficam para F4 — dependem de distribuições)
+- [ ] FormulaWriter.Call + corpus + README ✅
+
+### Verification Plan
+- Suítes verdes; PERCENTILE.INC/EXC e QUARTIS contra oráculo (interpolações diferem entre ferramentas —
+  fixar Excel); CORREL/SLOPE contra oráculo com dataset fixo; SUMPRODUCT shape-mismatch → `#VALUE!`.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 5 (Onda 5 → 1.5.0): Datas e horas — 23/25 (sem TODAY/NOW) 
+Status: Not started
+
+- [ ] Infra `DateSerial` no core (internal): serial ↔ DateTime via OADate; clamp/`#NUM!` para serial
+      negativo; fração do dia = hora. Documentar limite 1900 (§A6).
+- [ ] Construção/extração: `DATE` (com overflow de mês/dia como Excel: `DATE(2020,13,1)`→jan/2021)
+      `DATEVALUE` `TIMEVALUE` (parse invariant) `TIME` `YEAR` `MONTH` `DAY` `HOUR` `MINUTE` `SECOND`
+- [ ] Aritmética de calendário: `DAYS` `DAYS360` (métodos US/EU) `EDATE` `EOMONTH` `WEEKDAY` (return_type
+      1/2/3/11-17) `WEEKNUM` `ISOWEEKNUM` `DATEDIF` (6 modos, quirks documentados) `YEARFRAC` (5 bases —
+      infra reutilizada pela onda 6)
+- [ ] Dias úteis (feriados via range): `NETWORKDAYS` `NETWORKDAYS.INTL` `WORKDAY` `WORKDAY.INTL`
+      (máscaras de fim de semana 1-17 e "0000011")
+- [ ] `TODAY`/`NOW` ficam para F1 (voláteis) — registrar ⬜ com nota no README.
+- [ ] FormulaWriter.Call + corpus + README ✅ (Date and Time 23/25)
+
+### Verification Plan
+- Suítes verdes; DATEDIF/YEARFRAC/DAYS360/WEEKNUM contra oráculo (planilha de golden values citada);
+  round-trip xlsx: data serial exportada/lida sem perda.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Phase 6 (Onda 6 → 1.6.0): Financeiras restantes viáveis (~40 funções)
+Status: Not started
+
+Oráculo: `ExcelFinancialFunctions` (já referenciado nos testes) cobre a maior parte — validar cada golden.
+
+- [ ] Depreciação: `SLN` `SYD` `DB` `DDB` `VDB` `AMORLINC` `AMORDEGRC` (usam YEARFRAC/datas da onda 5)
+- [ ] Taxas/valor: `EFFECT` `NOMINAL` `MIRR` `RRI` `PDURATION` `ISPMT` `CUMIPMT` `CUMPRINC` `FVSCHEDULE`
+      `DOLLARDE` `DOLLARFR`
+- [ ] Fluxos com datas: `XNPV` `XIRR` (solver bracketing+bisseção existente do IRR/RATE)
+- [ ] Títulos (day-count da onda 5): `ACCRINT` `ACCRINTM` `DISC` `DURATION` `MDURATION` `INTRATE` `PRICE`
+      `PRICEDISC` `PRICEMAT` `RECEIVED` `YIELD` `YIELDDISC` `YIELDMAT` `TBILLEQ` `TBILLPRICE` `TBILLYIELD`
+      `COUPDAYBS` `COUPDAYS` `COUPDAYSNC` `COUPNCD` `COUPNUM` `COUPPCD`
+- [ ] `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD`: avaliar custo ao chegar — se o oráculo não cobrir
+      com precisão verificável, ficam ⬜ com nota (não entregar número não-validado).
+- [ ] FormulaWriter.Call + corpus + README ✅ (Financial ~49-53/55)
+
+### Verification Plan
+- Suítes verdes; TODAS as financeiras com golden do `ExcelFinancialFunctions` (incluindo o caso stiff de
+  mortgage 30 anos — lição do RATE); XIRR com fluxo irregular de datas reais.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
+## Fases futuras (analisadas, NÃO autorizadas — abrir plano próprio ao ativar)
+- **F1 Voláteis**: infra §A1 (IsVolatile + no-cache propagado + TimeProvider) → `TODAY` `NOW` `RAND`
+  `RANDBETWEEN` `INDIRECT`.
+- **F2 Arrays**: §A2 (`ComputedValueKind.Array`) → `FILTER` `SORT` `SORTBY` `UNIQUE` `SEQUENCE`
+  `TRANSPOSE` `MMULT` `MINVERSE` `MDETERM` `MUNIT` `FREQUENCY` `TEXTSPLIT` `TEXTJOIN`-array `TOCOL`
+  `TOROW` `WRAPROWS` `WRAPCOLS` `TAKE` `DROP` `CHOOSEROWS` `CHOOSECOLS` `HSTACK` `VSTACK` `EXPAND`
+  `RANDARRAY` (também F1) `MODE.MULT` `ARRAYTOTEXT` `PERCENTOF` `AGGREGATE` `TRIMRANGE` + revisitar spill.
+- **F3 LAMBDA**: §A3 → `LAMBDA` `BYROW` `BYCOL` `MAP` `REDUCE` `SCAN` `MAKEARRAY` `ISOMITTED`.
+- **F4 Distribuições**: §A4 → NORM/T/CHISQ/F/GAMMA/BETA/BINOM/POISSON/WEIBULL/EXPON/LOGNORM/NEGBINOM/
+  HYPGEOM + testes de hipótese + `CONFIDENCE.*` `CRITBINOM` + aliases compat correspondentes +
+  LINEST/LOGEST/TREND/GROWTH (também F2) + FORECAST.ETS* (avaliar: pode ficar fora permanente).
+- **F5 Database** (`DSUM`...`DVARP`, 12): viáveis com Criteria + headers de range; prioridade baixa.
+- **F6 Engineering**: BIN/DEC/HEX/OCT/BIT* triviais sob demanda; `CONVERT` (tabela de unidades grande);
+  ERF/BESSEL/IM* (números complexos — nicho; avaliar exclusão permanente ao chegar).
+
+## Final Recap
+_(escrever quando as ondas 0–6 concluírem)_
+
+## Deployment Plan
+_(por onda: merge na main → push (aval) → `gh workflow run release.yml` → minor bump lockstep dos 2
+pacotes → `git pull`. Nada de publish manual.)_
