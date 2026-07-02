@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Danfma.MySheet.Expressions.Dates;
 using Danfma.MySheet.Expressions.Financial;
 using Danfma.MySheet.Expressions.Information;
 using Danfma.MySheet.Expressions.Logical;
@@ -260,6 +261,30 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(240, typeof(Compatibility.Quartile))]
 [MemoryPackUnion(241, typeof(Compatibility.Covar))]
 [MemoryPackUnion(242, typeof(Compatibility.Forecast))]
+// Wave 5 — Date and time. `Dates` (not `DateTime`) avoids colliding with System.DateTime.
+[MemoryPackUnion(243, typeof(Date))]
+[MemoryPackUnion(244, typeof(Time))]
+[MemoryPackUnion(245, typeof(DateValue))]
+[MemoryPackUnion(246, typeof(TimeValue))]
+[MemoryPackUnion(247, typeof(Year))]
+[MemoryPackUnion(248, typeof(Month))]
+[MemoryPackUnion(249, typeof(Day))]
+[MemoryPackUnion(250, typeof(Hour))]
+[MemoryPackUnion(251, typeof(Minute))]
+[MemoryPackUnion(252, typeof(Second))]
+[MemoryPackUnion(253, typeof(Days))]
+[MemoryPackUnion(254, typeof(Days360))]
+[MemoryPackUnion(255, typeof(EDate))]
+[MemoryPackUnion(256, typeof(EoMonth))]
+[MemoryPackUnion(257, typeof(Weekday))]
+[MemoryPackUnion(258, typeof(WeekNum))]
+[MemoryPackUnion(259, typeof(IsoWeekNum))]
+[MemoryPackUnion(260, typeof(DateDif))]
+[MemoryPackUnion(261, typeof(YearFrac))]
+[MemoryPackUnion(262, typeof(NetworkDays))]
+[MemoryPackUnion(263, typeof(NetworkDaysIntl))]
+[MemoryPackUnion(264, typeof(Workday))]
+[MemoryPackUnion(265, typeof(WorkdayIntl))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Dates;
 using Danfma.MySheet.Expressions.Financial;
 using Compat = Danfma.MySheet.Expressions.Compatibility;
 using Danfma.MySheet.Expressions.Information;
@@ -270,6 +271,30 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["QUARTILE"] = new(2, 2, arguments => new Compat.Quartile(arguments)),
         ["COVAR"] = new(2, 2, arguments => new Compat.Covar(arguments)),
         ["FORECAST"] = new(3, 3, arguments => new Compat.Forecast(arguments)),
+        // Wave 5 — Date and time (TODAY/NOW deferred to F1: volatile).
+        ["DATE"] = new(3, 3, arguments => new Date(arguments)),
+        ["TIME"] = new(3, 3, arguments => new Time(arguments)),
+        ["DATEVALUE"] = new(1, 1, arguments => new DateValue(arguments)),
+        ["TIMEVALUE"] = new(1, 1, arguments => new TimeValue(arguments)),
+        ["YEAR"] = new(1, 1, arguments => new Year(arguments)),
+        ["MONTH"] = new(1, 1, arguments => new Month(arguments)),
+        ["DAY"] = new(1, 1, arguments => new Day(arguments)),
+        ["HOUR"] = new(1, 1, arguments => new Hour(arguments)),
+        ["MINUTE"] = new(1, 1, arguments => new Minute(arguments)),
+        ["SECOND"] = new(1, 1, arguments => new Second(arguments)),
+        ["DAYS"] = new(2, 2, arguments => new Days(arguments)),
+        ["DAYS360"] = new(2, 3, arguments => new Days360(arguments)),
+        ["EDATE"] = new(2, 2, arguments => new EDate(arguments)),
+        ["EOMONTH"] = new(2, 2, arguments => new EoMonth(arguments)),
+        ["WEEKDAY"] = new(1, 2, arguments => new Weekday(arguments)),
+        ["WEEKNUM"] = new(1, 2, arguments => new WeekNum(arguments)),
+        ["ISOWEEKNUM"] = new(1, 1, arguments => new IsoWeekNum(arguments)),
+        ["DATEDIF"] = new(3, 3, arguments => new DateDif(arguments)),
+        ["YEARFRAC"] = new(2, 3, arguments => new YearFrac(arguments)),
+        ["NETWORKDAYS"] = new(2, 3, arguments => new NetworkDays(arguments)),
+        ["NETWORKDAYS.INTL"] = new(2, 4, arguments => new NetworkDaysIntl(arguments)),
+        ["WORKDAY"] = new(2, 3, arguments => new Workday(arguments)),
+        ["WORKDAY.INTL"] = new(2, 4, arguments => new WorkdayIntl(arguments)),
     };
 
     private int _index;

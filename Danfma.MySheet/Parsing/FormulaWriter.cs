@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Dates;
 using Danfma.MySheet.Expressions.Financial;
 using Compat = Danfma.MySheet.Expressions.Compatibility;
 using Danfma.MySheet.Expressions.Information;
@@ -472,6 +473,30 @@ public static class FormulaWriter
             Compat.Quartile f => ("QUARTILE", f.Arguments),
             Compat.Covar f => ("COVAR", f.Arguments),
             Compat.Forecast f => ("FORECAST", f.Arguments),
+            // Wave 5 — Date and time.
+            Date f => ("DATE", f.Arguments),
+            Time f => ("TIME", f.Arguments),
+            DateValue f => ("DATEVALUE", f.Arguments),
+            TimeValue f => ("TIMEVALUE", f.Arguments),
+            Year f => ("YEAR", f.Arguments),
+            Month f => ("MONTH", f.Arguments),
+            Day f => ("DAY", f.Arguments),
+            Hour f => ("HOUR", f.Arguments),
+            Minute f => ("MINUTE", f.Arguments),
+            Second f => ("SECOND", f.Arguments),
+            Days f => ("DAYS", f.Arguments),
+            Days360 f => ("DAYS360", f.Arguments),
+            EDate f => ("EDATE", f.Arguments),
+            EoMonth f => ("EOMONTH", f.Arguments),
+            Weekday f => ("WEEKDAY", f.Arguments),
+            WeekNum f => ("WEEKNUM", f.Arguments),
+            IsoWeekNum f => ("ISOWEEKNUM", f.Arguments),
+            DateDif f => ("DATEDIF", f.Arguments),
+            YearFrac f => ("YEARFRAC", f.Arguments),
+            NetworkDays f => ("NETWORKDAYS", f.Arguments),
+            NetworkDaysIntl f => ("NETWORKDAYS.INTL", f.Arguments),
+            Workday f => ("WORKDAY", f.Arguments),
+            WorkdayIntl f => ("WORKDAY.INTL", f.Arguments),
             _ => throw new NotSupportedException(
                 $"No Excel function name registered for node '{function.GetType().Name}'."
             ),

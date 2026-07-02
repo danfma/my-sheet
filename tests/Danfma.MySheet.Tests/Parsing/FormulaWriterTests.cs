@@ -144,6 +144,14 @@ public class FormulaWriterTests
             "MODE(A1:A3)", "STDEV(A1:A3)", "STDEVP(A1:A3)", "VAR(A1:A3)", "VARP(A1:A3)",
             "RANK(1,A1:A3)", "PERCENTILE(A1:A3,0.5)", "PERCENTRANK(A1:A3,1)",
             "QUARTILE(A1:A3,1)", "COVAR(A1:A3,B1:B3)", "FORECAST(30,A1:A3,B1:B3)",
+            // Onda 5 — Date and time.
+            "DATE(2026,7,2)", "TIME(10,30,0)", "DATEVALUE(\"2026-07-02\")", "TIMEVALUE(\"10:30\")",
+            "YEAR(A1)", "MONTH(A1)", "DAY(A1)", "HOUR(A1)", "MINUTE(A1)", "SECOND(A1)",
+            "DAYS(A1,A2)", "DAYS360(A1,A2,TRUE)", "EDATE(A1,3)", "EOMONTH(A1,3)",
+            "WEEKDAY(A1,2)", "WEEKNUM(A1,21)", "ISOWEEKNUM(A1)", "DATEDIF(A1,A2,\"Y\")",
+            "YEARFRAC(A1,A2,1)", "NETWORKDAYS(A1,A2,A3:A5)",
+            "NETWORKDAYS.INTL(A1,A2,\"0000011\",A3:A5)", "WORKDAY(A1,10,A3:A5)",
+            "WORKDAY.INTL(A1,10,11,A3:A5)",
         ];
 
         var failures = new List<string>();
