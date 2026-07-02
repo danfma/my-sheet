@@ -1,6 +1,13 @@
 using System.Globalization;
 using System.Text;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Financial;
+using Danfma.MySheet.Expressions.Information;
+using Danfma.MySheet.Expressions.Logical;
+using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Expressions.Mathematics;
+using Danfma.MySheet.Expressions.Statistical;
+using Danfma.MySheet.Expressions.Text;
 
 namespace Danfma.MySheet.Parsing;
 
@@ -268,7 +275,7 @@ public static class FormulaWriter
             Rows f => ("ROWS", f.Arguments),
             Row f => ("ROW", f.Arguments),
             Match f => ("MATCH", f.Arguments),
-            Expressions.Index f => ("INDEX", f.Arguments),
+            Expressions.Lookup.Index f => ("INDEX", f.Arguments),
             VLookup f => ("VLOOKUP", f.Arguments),
             XLookup f => ("XLOOKUP", f.Arguments),
             Offset f => ("OFFSET", f.Arguments),

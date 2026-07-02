@@ -1,5 +1,12 @@
 using System.Globalization;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Financial;
+using Danfma.MySheet.Expressions.Information;
+using Danfma.MySheet.Expressions.Logical;
+using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Expressions.Mathematics;
+using Danfma.MySheet.Expressions.Statistical;
+using Danfma.MySheet.Expressions.Text;
 
 namespace Danfma.MySheet.Parsing;
 
@@ -66,7 +73,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["ROWS"] = new(1, 1, arguments => new Rows(arguments)),
         ["ROW"] = new(0, 1, arguments => new Row(arguments)),
         ["MATCH"] = new(2, 3, arguments => new Match(arguments)),
-        ["INDEX"] = new(2, 3, arguments => new MySheet.Expressions.Index(arguments)),
+        ["INDEX"] = new(2, 3, arguments => new MySheet.Expressions.Lookup.Index(arguments)),
         ["VLOOKUP"] = new(3, 4, arguments => new VLookup(arguments)),
         ["XLOOKUP"] = new(3, 6, arguments => new XLookup(arguments)),
         ["OFFSET"] = new(3, 5, arguments => new Offset(arguments)),

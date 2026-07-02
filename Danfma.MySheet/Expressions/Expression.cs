@@ -1,4 +1,11 @@
 using System.Runtime.CompilerServices;
+using Danfma.MySheet.Expressions.Financial;
+using Danfma.MySheet.Expressions.Information;
+using Danfma.MySheet.Expressions.Logical;
+using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Expressions.Mathematics;
+using Danfma.MySheet.Expressions.Statistical;
+using Danfma.MySheet.Expressions.Text;
 using MemoryPack;
 
 namespace Danfma.MySheet.Expressions;
@@ -52,13 +59,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(43, typeof(Rows))]
 [MemoryPackUnion(44, typeof(Row))]
 [MemoryPackUnion(45, typeof(Match))]
-[MemoryPackUnion(46, typeof(Index))]
+[MemoryPackUnion(46, typeof(Lookup.Index))]
 [MemoryPackUnion(47, typeof(VLookup))]
 [MemoryPackUnion(48, typeof(XLookup))]
 [MemoryPackUnion(49, typeof(Offset))]
 [MemoryPackUnion(50, typeof(NameReference))]
 [MemoryPackUnion(51, typeof(Let))]
-[MemoryPackUnion(52, typeof(Text))]
+// `Text.Text`/`Lookup.Lookup`: inside this namespace the simple names `Text` and `Lookup` bind to the
+// child NAMESPACES (namespace members win over using-imports), so those two records need qualification.
+[MemoryPackUnion(52, typeof(Text.Text))]
 [MemoryPackUnion(53, typeof(SheetNumber))]
 [MemoryPackUnion(54, typeof(UnionReference))]
 [MemoryPackUnion(55, typeof(Pmt))]
@@ -175,7 +184,7 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(166, typeof(RegexReplace))]
 [MemoryPackUnion(167, typeof(Choose))]
 [MemoryPackUnion(168, typeof(HLookup))]
-[MemoryPackUnion(169, typeof(Lookup))]
+[MemoryPackUnion(169, typeof(Lookup.Lookup))]
 [MemoryPackUnion(170, typeof(Column))]
 [MemoryPackUnion(171, typeof(Columns))]
 [MemoryPackUnion(172, typeof(XMatch))]

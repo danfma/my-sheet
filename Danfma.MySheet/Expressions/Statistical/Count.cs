@@ -1,0 +1,23 @@
+using MemoryPack;
+
+namespace Danfma.MySheet.Expressions.Statistical;
+
+[MemoryPackable]
+public sealed partial record Count(Expression[] Arguments) : Function
+{
+    public override ComputedValue Evaluate(EvaluationContext context)
+    {
+        // COUNT only tallies numeric values and, unlike SUM, never propagates errors.
+        var fold = new CountFold();
+        NumericAggregation.Fold(Arguments, context, ref fold);
+
+        return ComputedValue.Number(fold.Count);
+    }
+
+    private struct CountFold : INumericFold
+    {
+        public int Count;
+
+        public void Accept(double value) => Count++;
+    }
+}
