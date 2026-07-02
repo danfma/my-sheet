@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **231 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
+O MySheet implementa **254 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
 em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
 dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -290,6 +290,42 @@ Semântica padrão de valor do dinheiro no tempo: `rate` por período, `nper` é
 | `PV` | `PV(rate, nper, pmt, [fv], [type])` | Valor presente de um investimento. |
 | `RATE` | `RATE(nper, pmt, pv, [fv], [type], [guess])` | Taxa de juros por período (iterativa). |
 
+## Data e hora (23)
+
+Datas são **números seriais** (`double`), exatamente como no Excel: a parte inteira conta os dias a
+partir do epoch 1899-12-30 e a fração é a hora do dia. As funções de data recebem seriais numéricos
+(construa-os com `DATE`/`TIME`, ou texto numérico que o `CoerceToNumber` já aceita); elas **não** fazem o
+parse implícito de *strings* de data (use `DATEVALUE`/`TIMEVALUE` para isso). Um serial negativo está
+fora do intervalo → `#NUM!`. `TODAY`/`NOW` estão **adiadas** (são voláteis — uma fase futura). Limitação
+documentada: os seriais 1..59 (jan–fev de 1900) renderizam um dia atrás do Excel e o serial 60 (o
+1900-02-29 fictício do Excel) não é representável; datas reais (serial ≥ 61, 1900-03-01) são exatas.
+
+| Função | Argumentos | Descrição |
+| --- | --- | --- |
+| `DATE` | `DATE(year, month, day)` | Serial a partir das partes; overflow do Excel (mês 13 → janeiro seguinte, dia 0 → fim do mês anterior); ano 0–1899 soma 1900. |
+| `DATEDIF` | `DATEDIF(start, end, unit)` | Diferença em `"Y"`/`"M"`/`"D"`/`"MD"`/`"YM"`/`"YD"`; `start > end` → `#NUM!`. `"MD"` é oficialmente não confiável. |
+| `DATEVALUE` | `DATEVALUE(date_text)` | Converte uma string de data (invariant `yyyy-MM-dd`, `M/d/yyyy`, `d-MMM-yyyy`, …) em um serial de dia inteiro; não interpretável → `#VALUE!`. |
+| `DAY` | `DAY(serial)` | Dia do mês (1–31). |
+| `DAYS` | `DAYS(end, start)` | Dias inteiros entre duas datas (pode ser negativo). |
+| `DAYS360` | `DAYS360(start, end, [method])` | Contagem de dias 30/360; padrão US (NASD), `TRUE` = europeu. |
+| `EDATE` | `EDATE(start, months)` | O mesmo dia do mês, `months` à frente/atrás, limitado ao fim do mês. |
+| `EOMONTH` | `EOMONTH(start, months)` | Último dia do mês `months` à frente/atrás de `start`. |
+| `HOUR` | `HOUR(serial)` | Hora (0–23) da fração de tempo. |
+| `ISOWEEKNUM` | `ISOWEEKNUM(serial)` | Número da semana ISO 8601 (semanas começam na segunda-feira; a semana 1 contém a primeira quinta-feira). |
+| `MINUTE` | `MINUTE(serial)` | Minuto (0–59) da fração de tempo. |
+| `MONTH` | `MONTH(serial)` | Mês (1–12). |
+| `NETWORKDAYS` | `NETWORKDAYS(start, end, [holidays])` | Dias úteis em `[start, end]` (inclusivo); sábado/domingo e `holidays` são excluídos. |
+| `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` com um fim de semana personalizável (número 1–7/11–17 ou uma máscara de 7 caracteres `"0000011"`). |
+| `SECOND` | `SECOND(serial)` | Segundo (0–59), arredondado ao segundo mais próximo. |
+| `TIME` | `TIME(hour, minute, second)` | Fração de hora do dia; componentes 0–32767 rolam, aplicados módulo 24h; negativo → `#NUM!`. |
+| `TIMEVALUE` | `TIMEVALUE(time_text)` | Converte uma string de hora (`HH:mm[:ss]`, `h:mm[:ss] AM/PM`) em uma fração `[0,1)`; não interpretável → `#VALUE!`. |
+| `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Dia da semana; `return_type` 1/2/3 e 11–17 (veja a tabela do WEEKDAY). |
+| `WEEKNUM` | `WEEKNUM(serial, [return_type])` | Semana do ano; Sistema 1 para 1/2/11–17, ISO 8601 (Sistema 2) para 21. |
+| `WORKDAY` | `WORKDAY(start, days, [holidays])` | Data `days` dias úteis a partir de `start` (start excluído); negativo anda para trás. |
+| `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` com um fim de semana personalizável; inválido/fim de semana total → `#NUM!`. |
+| `YEAR` | `YEAR(serial)` | Ano civil (1900–9999). |
+| `YEARFRAC` | `YEARFRAC(start, end, [basis])` | Fração do ano na base 0 (US 30/360), 1 (real/real), 2 (real/360), 3 (real/365), 4 (europeu 30/360). |
+
 ## Compatibilidade — aliases legados (11)
 
 Os nomes anteriores a 2010 das funções estatísticas modernas. Cada alias é um **nó de AST
@@ -315,7 +351,7 @@ Texto/Matemática.)
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 231 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 254 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -399,10 +435,16 @@ juntas em uma fase posterior. `GAUSS` aguarda com elas: é a CDF normal menos ½
 
 </details>
 
-<details>
-<summary><strong>Data e hora</strong> — 0/25</summary>
+<details open>
+<summary><strong>Data e hora</strong> — 23/25</summary>
 
-⬜ `DATE` `DATEDIF` `DATEVALUE` `DAY` `DAYS` `DAYS360` `EDATE` `EOMONTH` `HOUR` `ISOWEEKNUM` `MINUTE` `MONTH` `NETWORKDAYS` `NETWORKDAYS.INTL` `NOW` `SECOND` `TIME` `TIMEVALUE` `TODAY` `WEEKDAY` `WEEKNUM` `WORKDAY` `WORKDAY.INTL` `YEAR` `YEARFRAC`
+✅ `DATE` `DATEDIF` `DATEVALUE` `DAY` `DAYS` `DAYS360` `EDATE` `EOMONTH` `HOUR` `ISOWEEKNUM` `MINUTE` `MONTH` `NETWORKDAYS` `NETWORKDAYS.INTL` `SECOND` `TIME` `TIMEVALUE` `WEEKDAY` `WEEKNUM` `WORKDAY` `WORKDAY.INTL` `YEAR` `YEARFRAC`
+
+⬜ `NOW` `TODAY`
+
+`NOW` e `TODAY` estão **adiadas: voláteis** — elas leem o relógio do sistema, o que exige a
+infraestrutura de volatilidade (um `TimeProvider` mais a propagação de não cache) planejada para uma fase
+posterior, e não a matemática de datas entregue aqui.
 
 </details>
 
