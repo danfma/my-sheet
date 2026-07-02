@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="1.2.0"></a>
+## [1.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.2.0) (2026-07-02)
+
+### Features
+
+* **functions:** add information family (NA, IS*, N, T, TYPE, ERROR.TYPE, SHEETS) ([ae49674](https://www.github.com/danfma/my-sheet/commit/ae496747d6654bfef5c73068ca5a4c9be4a48690))
+* **functions:** add text formatting, TEXTBEFORE/TEXTAFTER and regex families ([93cd482](https://www.github.com/danfma/my-sheet/commit/93cd48291cdc7a3d5b231d9f46c8851fe29d6086))
+* **functions:** add text manipulation family (RIGHT, FIND, SEARCH, ...) ([5b76b04](https://www.github.com/danfma/my-sheet/commit/5b76b04a6665ab2b3254afc24439d8b787075b06))
+* **functions:** add TRUE, FALSE, XOR, IFS and SWITCH ([925cf43](https://www.github.com/danfma/my-sheet/commit/925cf437f63638bf6a1b89553795be0a6bf9e1fa))
+
 <a name="1.1.0"></a>
 ## [1.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.1.0) (2026-07-02)
 
