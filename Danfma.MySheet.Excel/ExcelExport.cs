@@ -113,7 +113,7 @@ public static class ExcelExport
             );
         }
 
-        workbookPart.Workbook.AppendChild(definedNames);
+        (workbookPart.Workbook ??= new XlsxWorkbook()).AppendChild(definedNames);
     }
 
     private static SheetData BuildSheetData(
