@@ -190,4 +190,4 @@ is what the Excel exporter uses in `FormulaMode.Formulas` ([Excel interop](excel
 
 - [ComputedValue and errors](computed-value.md) — reading evaluation results.
 - [Custom functions](custom-functions.md) — extending the function set.
-- [Function reference](function-reference.md) — the 52 built-in functions.
+- [Function reference](function-reference.md) — the 112 built-in functions.

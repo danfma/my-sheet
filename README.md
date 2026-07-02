@@ -28,7 +28,7 @@ For that scenario, MySheet gives you:
   (`ComputedValue` is a value-type union), cell results are memoized, and deep dependency chains run on a
   dedicated large-stack thread instead of overflowing.
 
-And to be equally honest about scope: MySheet implements **52 built-in functions** (plus your own custom
+And to be equally honest about scope: MySheet implements **112 built-in functions** (plus your own custom
 ones) out of Excel's ~520, and the Excel interop intentionally skips styles, number formats and other
 presentation features in its current MVP. If you need full-fidelity spreadsheet manipulation, the
 libraries above remain the right tools — they also combine well with MySheet (the test suite itself uses
@@ -38,7 +38,7 @@ ClosedXML as an independent oracle).
 
 | Package | What it does |
 | --- | --- |
-| [`Danfma.MySheet`](https://www.nuget.org/packages/Danfma.MySheet/) | The core engine: formula parser, 52 built-in functions, custom functions, allocation-free evaluation, per-cell memoization, MemoryPack serialization. |
+| [`Danfma.MySheet`](https://www.nuget.org/packages/Danfma.MySheet/) | The core engine: formula parser, 112 built-in functions, custom functions, allocation-free evaluation, per-cell memoization, MemoryPack serialization. |
 | [`Danfma.MySheet.Excel`](https://www.nuget.org/packages/Danfma.MySheet.Excel/) | Excel (`.xlsx`) interop via the OpenXML SDK: load workbooks (formulas become real expression trees), export to `.xlsx`, and merge computed values into existing templates. |
 
 The two packages are released in lockstep and always share the same version.
@@ -104,11 +104,12 @@ workbook.MergeIntoExcel("report.xlsx");
 
 - **Formula parser** (Pratt parser) for the Excel operator set: `+ - * / ^ %`, `&` (text), comparisons
   `= <> < > <= >=` (Excel cross-type ordering), and references `: ! ,` plus grouping `( )`.
-- **52 built-in functions**: logical (`IF/AND/OR/NOT/IFERROR/IFNA/LET`), aggregation
+- **112 built-in functions**: logical (`IF/AND/OR/NOT/IFERROR/IFNA/LET`), aggregation
   (`SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK`), conditional aggregation (`COUNTIF(S)/SUMIF(S)`), text
-  (`UPPER/LOWER/TRIM/LEN/LEFT/MID/VALUE/CONCAT/CONCATENATE/TEXTJOIN/TEXT`), math
-  (`INT/ROUND/ROUNDUP/ABS`), info (`ISNUMBER/ISBLANK/SHEET`), lookup
-  (`ROW/ROWS/MATCH/INDEX/VLOOKUP/XLOOKUP/OFFSET`), and financial
+  (`UPPER/LOWER/TRIM/LEN/LEFT/MID/VALUE/CONCAT/CONCATENATE/TEXTJOIN/TEXT`), math & trigonometry
+  (`SQRT/POWER/EXP/LN/LOG`, rounding `TRUNC/MROUND/CEILING/FLOOR` and variants, `MOD/QUOTIENT/PRODUCT`,
+  combinatorics `FACT/COMBIN/GCD/LCM`, the full trig/hyperbolic set, `ROMAN/ARABIC/BASE/DECIMAL`),
+  info (`ISNUMBER/ISBLANK/SHEET`), lookup (`ROW/ROWS/MATCH/INDEX/VLOOKUP/XLOOKUP/OFFSET`), and financial
   (`PMT/PV/FV/NPER/IPMT/PPMT/NPV/RATE/IRR`).
 - **References**: sheet-qualified (`Sheet2!A1`, `'My Sheet'!A1:B2`), absolute markers (`$A$1`),
   reference unions (`(A1:A3, C1:C3)`), and case-insensitive sheet names.
@@ -137,11 +138,11 @@ workbook.MergeIntoExcel("report.xlsx");
 | [Excel interop](docs/excel-interop.md) | `ExcelFile.Load`, `SaveAsExcel` and `FormulaMode`, `MergeIntoExcel`, the template→report recipe, and scope limits. |
 | [Serialization](docs/serialization.md) | MemoryPack `Save`/`Load`, what round-trips, and what must be re-registered. |
 | [Performance](docs/performance.md) | Memoization, cache invalidation, `RunWithLargeStack`, and the allocation-free design (with measured numbers). |
-| [Function reference](docs/function-reference.md) | All 52 built-in functions by category, plus the full Excel coverage table. |
+| [Function reference](docs/function-reference.md) | All 112 built-in functions by category, plus the full Excel coverage table. |
 
 ## Excel function coverage
 
-MySheet implements 52 of the ~520 functions in Microsoft's official Excel function catalog. The full
+MySheet implements 112 of the ~520 functions in Microsoft's official Excel function catalog. The full
 per-category coverage table (implemented vs. not yet) lives in the
 [function reference](docs/function-reference.md#excel-function-coverage); the authoritative registered
 list is the `Functions` map in [`Danfma.MySheet/Parsing/Parser.cs`](Danfma.MySheet/Parsing/Parser.cs).

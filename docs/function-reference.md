@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **52 built-in functions**. The authoritative registered list is the `Functions` map
+MySheet implements **112 built-in functions**. The authoritative registered list is the `Functions` map
 in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
 it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -23,17 +23,77 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `NOT` | `NOT(logical)` | Logical negation. |
 | `OR` | `OR(logical1, [logical2], …)` | `TRUE` if any argument is truthy. |
 
-## Math and trigonometry (7)
+## Math and trigonometry (67)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
 | `ABS` | `ABS(number)` | Absolute value. |
+| `ACOS` | `ACOS(number)` | Arccosine; outside `[-1, 1]` → `#NUM!`. |
+| `ACOSH` | `ACOSH(number)` | Inverse hyperbolic cosine; below 1 → `#NUM!`. |
+| `ACOT` | `ACOT(number)` | Arccotangent, in `(0, π)`. |
+| `ACOTH` | `ACOTH(number)` | Inverse hyperbolic cotangent; `\|number\| <= 1` → `#NUM!`. |
+| `ARABIC` | `ARABIC(text)` | Roman numeral → number (case-insensitive; `""` → 0; leading `-` negates). |
+| `ASIN` | `ASIN(number)` | Arcsine; outside `[-1, 1]` → `#NUM!`. |
+| `ASINH` | `ASINH(number)` | Inverse hyperbolic sine. |
+| `ATAN` | `ATAN(number)` | Arctangent. |
+| `ATAN2` | `ATAN2(x_num, y_num)` | Arctangent from coordinates — Excel's `(x, y)` order; `ATAN2(0,0)` → `#DIV/0!`. |
+| `ATANH` | `ATANH(number)` | Inverse hyperbolic tangent; `\|number\| >= 1` → `#NUM!`. |
+| `BASE` | `BASE(number, radix, [min_length])` | Number → text in base `radix` (2-36), zero-padded to `min_length`. |
+| `CEILING` | `CEILING(number, significance)` | Legacy ceiling with Excel's sign rules (`CEILING(-2.5,-2)` = -4; positive number with negative significance → `#NUM!`). |
+| `CEILING.MATH` | `CEILING.MATH(number, [significance], [mode])` | Rounds up to a multiple; `mode` only affects negative numbers (away from zero when non-zero). |
+| `CEILING.PRECISE` | `CEILING.PRECISE(number, [significance])` | Rounds toward +∞; significance sign ignored. |
+| `COMBIN` | `COMBIN(number, number_chosen)` | Combinations without repetition. |
+| `COMBINA` | `COMBINA(number, number_chosen)` | Combinations with repetition (`COMBIN(n+k-1, k)`). |
+| `COS` | `COS(number)` | Cosine (radians). |
+| `COSH` | `COSH(number)` | Hyperbolic cosine. |
+| `COT` | `COT(number)` | Cotangent; `COT(0)` → `#DIV/0!`. |
+| `COTH` | `COTH(number)` | Hyperbolic cotangent; `COTH(0)` → `#DIV/0!`. |
+| `CSC` | `CSC(number)` | Cosecant; `CSC(0)` → `#DIV/0!`. |
+| `CSCH` | `CSCH(number)` | Hyperbolic cosecant; `CSCH(0)` → `#DIV/0!`. |
+| `DECIMAL` | `DECIMAL(text, radix)` | Text in base `radix` (2-36) → number; case-insensitive. |
+| `DEGREES` | `DEGREES(angle)` | Radians → degrees. |
+| `EVEN` | `EVEN(number)` | Rounds away from zero to the nearest even integer. |
+| `EXP` | `EXP(number)` | e raised to `number`. |
+| `FACT` | `FACT(number)` | Factorial (truncates; negative → `#NUM!`). |
+| `FACTDOUBLE` | `FACTDOUBLE(number)` | Double factorial n!! (truncates; negative → `#NUM!`). |
+| `FLOOR` | `FLOOR(number, significance)` | Legacy floor with Excel's sign rules (`FLOOR(-2.5,-2)` = -2; significance 0 → `#DIV/0!`). |
+| `FLOOR.MATH` | `FLOOR.MATH(number, [significance], [mode])` | Rounds down to a multiple; `mode` only affects negative numbers (toward zero when non-zero). |
+| `FLOOR.PRECISE` | `FLOOR.PRECISE(number, [significance])` | Rounds toward -∞; significance sign ignored. |
+| `GCD` | `GCD(number1, …)` | Greatest common divisor; range-aware (truncates; negative → `#NUM!`). |
 | `INT` | `INT(number)` | Rounds down to the nearest integer. |
+| `ISO.CEILING` | `ISO.CEILING(number, [significance])` | Alias behaviour of `CEILING.PRECISE`. |
+| `LCM` | `LCM(number1, …)` | Least common multiple; range-aware (truncates; negative → `#NUM!`). |
+| `LN` | `LN(number)` | Natural logarithm; non-positive → `#NUM!`. |
+| `LOG` | `LOG(number, [base])` | Logarithm (default base 10); base 1 → `#DIV/0!`, base ≤ 0 → `#NUM!`. |
+| `LOG10` | `LOG10(number)` | Base-10 logarithm. |
+| `MOD` | `MOD(number, divisor)` | Remainder with the sign of the divisor (`MOD(-3,2)` = 1); divisor 0 → `#DIV/0!`. |
+| `MROUND` | `MROUND(number, multiple)` | Rounds to the nearest multiple; opposite signs → `#NUM!`. |
+| `MULTINOMIAL` | `MULTINOMIAL(number1, …)` | Multinomial coefficient; range-aware. |
+| `ODD` | `ODD(number)` | Rounds away from zero to the nearest odd integer. |
+| `PI` | `PI()` | The constant π. |
+| `POWER` | `POWER(number, power)` | Exponentiation; `0^0` → `#NUM!`, `0^negative` → `#DIV/0!`. |
+| `PRODUCT` | `PRODUCT(number1, …)` | Product of the numeric values; range-aware. |
+| `QUOTIENT` | `QUOTIENT(numerator, denominator)` | Integer portion of a division (truncated). |
+| `RADIANS` | `RADIANS(angle)` | Degrees → radians. |
+| `ROMAN` | `ROMAN(number, [form])` | Number (0-3999) → classic Roman numeral; `ROMAN(0)` = `""`. Concise forms 1-4/`FALSE` are not supported (→ `#VALUE!`). |
 | `ROUND` | `ROUND(number, num_digits)` | Rounds to the given number of digits. |
+| `ROUNDDOWN` | `ROUNDDOWN(number, num_digits)` | Rounds toward zero. |
 | `ROUNDUP` | `ROUNDUP(number, num_digits)` | Rounds away from zero. |
+| `SEC` | `SEC(number)` | Secant. |
+| `SECH` | `SECH(number)` | Hyperbolic secant. |
+| `SERIESSUM` | `SERIESSUM(x, n, m, coefficients)` | Power series sum; coefficients via range/values. |
+| `SIGN` | `SIGN(number)` | -1, 0 or 1. |
+| `SIN` | `SIN(number)` | Sine (radians). |
+| `SINH` | `SINH(number)` | Hyperbolic sine. |
+| `SQRT` | `SQRT(number)` | Square root; negative → `#NUM!`. |
+| `SQRTPI` | `SQRTPI(number)` | Square root of `number × π`. |
 | `SUM` | `SUM([number1], …)` | Sum of all numeric values; range-aware. |
 | `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Sums the cells matching a criteria (e.g. `">10"`). |
 | `SUMIFS` | `SUMIFS(sum_range, criteria_range1, criteria1, …)` | Sum under multiple criteria-range pairs. |
+| `SUMSQ` | `SUMSQ(number1, …)` | Sum of squares; range-aware. |
+| `TAN` | `TAN(number)` | Tangent (radians). |
+| `TANH` | `TANH(number)` | Hyperbolic tangent. |
+| `TRUNC` | `TRUNC(number, [num_digits])` | Truncates toward zero (default 0 digits). |
 
 ## Statistical (8)
 
@@ -103,7 +163,7 @@ period (default) / 1 = beginning.
 
 ## Excel function coverage
 
-MySheet implements 52 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 112 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -143,11 +203,11 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Math and Trigonometry</strong> — 7/82</summary>
+<summary><strong>Math and Trigonometry</strong> — 67/82</summary>
 
-✅ `ABS` `INT` `ROUND` `ROUNDUP` `SUM` `SUMIF` `SUMIFS`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUM` `SUMIF` `SUMIFS` `SUMSQ` `TAN` `TANH` `TRUNC`
 
-⬜ `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MDETERM` `MINVERSE` `MMULT` `MOD` `MROUND` `MULTINOMIAL` `MUNIT` `ODD` `PERCENTOF` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDARRAY` `RANDBETWEEN` `ROMAN` `ROUNDDOWN` `SEC` `SECH` `SERIESSUM` `SEQUENCE` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
+⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RAND` `RANDARRAY` `RANDBETWEEN` `SEQUENCE` `SUBTOTAL` `SUMPRODUCT` `SUMX2MY2` `SUMX2PY2` `SUMXMY2`
 
 </details>
 

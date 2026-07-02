@@ -148,7 +148,7 @@ Being honest about what the interop MVP does **not** do:
   file) are rebuilt from the master's text, shifting relative references by the cell delta while keeping
   `$`-anchored components fixed — so they stay real formulas that react to input changes. A slave whose
   master is missing from the file falls back to its cached literal value.
-- **Function coverage is 52 built-ins** (plus your custom functions) — see the
+- **Function coverage is 112 built-ins** (plus your custom functions) — see the
   [function reference](function-reference.md). Formulas using other functions load as `FunctionCall`
   nodes and evaluate to `#NAME?` unless registered.
 

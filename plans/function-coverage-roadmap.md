@@ -141,29 +141,48 @@ nova de commits (inglês, curto+descrição, semantic) registrada e em vigor a p
 ---
 
 ## Phase 1 (Onda 1 → 1.1.0): Math & Trigonometria escalar (~52 funções)
-Status: Not started
+Status: Complete
 
 Zero estrutura nova — tudo `CoerceToNumber` + `Math.*`. Agrupar em arquivos por família.
 
-- [ ] Potência/raiz/log: `SQRT` `POWER` `EXP` `LN` `LOG` (1-2 args) `LOG10` `SQRTPI`
-- [ ] Arredondamento: `ROUNDDOWN` `TRUNC` (1-2 args) `MROUND` `CEILING` `CEILING.MATH` `CEILING.PRECISE`
+- [x] Potência/raiz/log: `SQRT` `POWER` `EXP` `LN` `LOG` (1-2 args) `LOG10` `SQRTPI`
+- [x] Arredondamento: `ROUNDDOWN` `TRUNC` (1-2 args) `MROUND` `CEILING` `CEILING.MATH` `CEILING.PRECISE`
       `ISO.CEILING` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `EVEN` `ODD` (semânticas de sinal do Excel:
       CEILING com número negativo/significância negativa → casos de erro `#NUM!` conferidos no oráculo)
-- [ ] Aritmética: `MOD` (sinal do divisor, como Excel: `MOD(-3,2)=1`) `QUOTIENT` `SIGN` `PI` `PRODUCT`
+- [x] Aritmética: `MOD` (sinal do divisor, como Excel: `MOD(-3,2)=1`) `QUOTIENT` `SIGN` `PI` `PRODUCT`
       `SUMSQ` `MULTINOMIAL` `SERIESSUM`
-- [ ] Combinatória: `FACT` `FACTDOUBLE` `COMBIN` `COMBINA` `GCD` `LCM`
-- [ ] Trig: `SIN` `COS` `TAN` `COT` `SEC` `CSC` `ASIN` `ACOS` `ATAN` `ATAN2` (ordem de args do Excel:
+- [x] Combinatória: `FACT` `FACTDOUBLE` `COMBIN` `COMBINA` `GCD` `LCM`
+- [x] Trig: `SIN` `COS` `TAN` `COT` `SEC` `CSC` `ASIN` `ACOS` `ATAN` `ATAN2` (ordem de args do Excel:
       x,y!) `ACOT` + hiperbólicas `SINH` `COSH` `TANH` `COTH` `SECH` `CSCH` `ASINH` `ACOSH` `ATANH` `ACOTH`
       + `DEGREES` `RADIANS`
-- [ ] Bases: `BASE` `DECIMAL` `ROMAN` `ARABIC`
-- [ ] FormulaWriter.Call + corpus exaustivo + README ✅ (Math sobe para ~59/82)
+- [x] Bases: `BASE` `DECIMAL` `ROMAN` `ARABIC`
+- [x] FormulaWriter.Call + corpus exaustivo + README ✅ (Math foi para 67/82 — contado por script,
+      a estimativa "~59" do plano estava baixa)
 
 ### Verification Plan
 - Suítes verdes; golden values citando oráculo (Excel/LibreOffice) nos casos não-triviais (MOD negativo,
   CEILING negativo, ATAN2, COMBINA, ROMAN); round-trip exaustivo do FormulaWriter cobre as novas.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-01 (branch `feature/functions-wave-1`, TDD RED→GREEN). **60 funções novas** (a
+estimativa "~52" do título estava baixa; a lista explícita dos bullets sempre teve 60): 7 potência/log +
+12 arredondamento + 8 aritmética + 6 combinatória + 23 trig + 4 bases. Total registrado no Parser: 112
+(era 52); Math and Trigonometry 67/82. Arquivos por família em `Expressions/` (`PowerAndLog.cs`,
+`Rounding.cs`, `Arithmetic.cs`, `Combinatorics.cs`, `Trigonometry.cs`, `NumberBases.cs`) + helper
+`ExcelMath.cs`; tags MemoryPackUnion 64–123 (append-only; próximo livre = 124). Golden values: páginas
+oficiais da Microsoft fetchadas em 2026-07-01 e citadas nos testes (MOD/CEILING/FLOOR/CEILING.MATH/
+FLOOR.MATH/MROUND/EVEN/ODD/ATAN2/COMBIN(A)/GCD/LCM/FACT(DOUBLE)/MULTINOMIAL/SERIESSUM/BASE/DECIMAL/
+ROMAN/ARABIC/COT/ACOT/ACOTH/LOG/POWER/SQRTPI/TRUNC/QUOTIENT/SIGN); `Math.*` do .NET como oráculo do trig
+puro. Decisões: (1) `ExcelMath.Snap` (G14) reproduz o arredondamento cosmético do Excel nos quocientes —
+sem isso MROUND(1.3,0.2)=1.2 em IEEE-754, contra 1.4 documentado; (2) **ROMAN só na forma clássica**
+(0/TRUE/omitida) — formas concisas 1-4/FALSE devolvem `#VALUE!` porque o algoritmo não é verificável
+contra oráculo além do único exemplo documentado (limitação registrada no doc e testada); (3) COMBINA não
+impõe n≥k (a doc da MS declara a restrição, mas a fórmula COMBIN(n+k-1,k) é válida para k>n e o Excel
+real aceita — casos documentados cobertos por teste); (4) limite documentado de 2^27 aplicado a
+COT/SEC/CSC; overflow numérico (EXP/SINH/FACT) → `#NUM!`. Novos folds: `NumericListFold` (GCD/LCM/
+MULTINOMIAL) reusando `NumericAggregation` (texto/lógicos referenciados ignorados, como SUM). Suíte core:
+274 → **350 verdes** (76 novos: 74 casos em 6 arquivos de teste por família + 2 round-trips canônicos);
+suíte Excel intacta (16); build 0 warnings. Corpus exaustivo do FormulaWriter cobre as 60.
 
 ---
 
