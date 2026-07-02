@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **52 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
+O MySheet implementa **112 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
 em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
 dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -27,17 +27,77 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `NOT` | `NOT(logical)` | Negação lógica. |
 | `OR` | `OR(logical1, [logical2], …)` | `TRUE` se algum argumento for considerado verdadeiro. |
 
-## Matemática e trigonometria (7)
+## Matemática e trigonometria (67)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
 | `ABS` | `ABS(number)` | Valor absoluto. |
+| `ACOS` | `ACOS(number)` | Arco cosseno; fora de `[-1, 1]` → `#NUM!`. |
+| `ACOSH` | `ACOSH(number)` | Cosseno hiperbólico inverso; abaixo de 1 → `#NUM!`. |
+| `ACOT` | `ACOT(number)` | Arco cotangente, em `(0, π)`. |
+| `ACOTH` | `ACOTH(number)` | Cotangente hiperbólica inversa; `\|number\| <= 1` → `#NUM!`. |
+| `ARABIC` | `ARABIC(text)` | Numeral romano → número (não diferencia maiúsculas de minúsculas; `""` → 0; `-` inicial nega o valor). |
+| `ASIN` | `ASIN(number)` | Arco seno; fora de `[-1, 1]` → `#NUM!`. |
+| `ASINH` | `ASINH(number)` | Seno hiperbólico inverso. |
+| `ATAN` | `ATAN(number)` | Arco tangente. |
+| `ATAN2` | `ATAN2(x_num, y_num)` | Arco tangente a partir de coordenadas — na ordem `(x, y)` do Excel; `ATAN2(0,0)` → `#DIV/0!`. |
+| `ATANH` | `ATANH(number)` | Tangente hiperbólica inversa; `\|number\| >= 1` → `#NUM!`. |
+| `BASE` | `BASE(number, radix, [min_length])` | Número → texto na base `radix` (2-36), preenchido com zeros até `min_length`. |
+| `CEILING` | `CEILING(number, significance)` | Teto legado com as regras de sinal do Excel (`CEILING(-2.5,-2)` = -4; número positivo com significância negativa → `#NUM!`). |
+| `CEILING.MATH` | `CEILING.MATH(number, [significance], [mode])` | Arredonda para cima até um múltiplo; `mode` só afeta números negativos (para longe de zero quando diferente de zero). |
+| `CEILING.PRECISE` | `CEILING.PRECISE(number, [significance])` | Arredonda em direção a +∞; o sinal da significância é ignorado. |
+| `COMBIN` | `COMBIN(number, number_chosen)` | Combinações sem repetição. |
+| `COMBINA` | `COMBINA(number, number_chosen)` | Combinações com repetição (`COMBIN(n+k-1, k)`). |
+| `COS` | `COS(number)` | Cosseno (radianos). |
+| `COSH` | `COSH(number)` | Cosseno hiperbólico. |
+| `COT` | `COT(number)` | Cotangente; `COT(0)` → `#DIV/0!`. |
+| `COTH` | `COTH(number)` | Cotangente hiperbólica; `COTH(0)` → `#DIV/0!`. |
+| `CSC` | `CSC(number)` | Cossecante; `CSC(0)` → `#DIV/0!`. |
+| `CSCH` | `CSCH(number)` | Cossecante hiperbólica; `CSCH(0)` → `#DIV/0!`. |
+| `DECIMAL` | `DECIMAL(text, radix)` | Texto na base `radix` (2-36) → número; não diferencia maiúsculas de minúsculas. |
+| `DEGREES` | `DEGREES(angle)` | Radianos → graus. |
+| `EVEN` | `EVEN(number)` | Arredonda para longe de zero até o inteiro par mais próximo. |
+| `EXP` | `EXP(number)` | e elevado a `number`. |
+| `FACT` | `FACT(number)` | Fatorial (trunca; negativo → `#NUM!`). |
+| `FACTDOUBLE` | `FACTDOUBLE(number)` | Fatorial duplo n!! (trunca; negativo → `#NUM!`). |
+| `FLOOR` | `FLOOR(number, significance)` | Piso legado com as regras de sinal do Excel (`FLOOR(-2.5,-2)` = -2; significância 0 → `#DIV/0!`). |
+| `FLOOR.MATH` | `FLOOR.MATH(number, [significance], [mode])` | Arredonda para baixo até um múltiplo; `mode` só afeta números negativos (em direção a zero quando diferente de zero). |
+| `FLOOR.PRECISE` | `FLOOR.PRECISE(number, [significance])` | Arredonda em direção a -∞; o sinal da significância é ignorado. |
+| `GCD` | `GCD(number1, …)` | Máximo divisor comum; aceita intervalos (trunca; negativo → `#NUM!`). |
 | `INT` | `INT(number)` | Arredonda para baixo até o inteiro mais próximo. |
+| `ISO.CEILING` | `ISO.CEILING(number, [significance])` | Comportamento de alias de `CEILING.PRECISE`. |
+| `LCM` | `LCM(number1, …)` | Mínimo múltiplo comum; aceita intervalos (trunca; negativo → `#NUM!`). |
+| `LN` | `LN(number)` | Logaritmo natural; não positivo → `#NUM!`. |
+| `LOG` | `LOG(number, [base])` | Logaritmo (base padrão: 10); base 1 → `#DIV/0!`, base ≤ 0 → `#NUM!`. |
+| `LOG10` | `LOG10(number)` | Logaritmo na base 10. |
+| `MOD` | `MOD(number, divisor)` | Resto com o sinal do divisor (`MOD(-3,2)` = 1); divisor 0 → `#DIV/0!`. |
+| `MROUND` | `MROUND(number, multiple)` | Arredonda para o múltiplo mais próximo; sinais opostos → `#NUM!`. |
+| `MULTINOMIAL` | `MULTINOMIAL(number1, …)` | Coeficiente multinomial; aceita intervalos. |
+| `ODD` | `ODD(number)` | Arredonda para longe de zero até o inteiro ímpar mais próximo. |
+| `PI` | `PI()` | A constante π. |
+| `POWER` | `POWER(number, power)` | Exponenciação; `0^0` → `#NUM!`, `0^negativo` → `#DIV/0!`. |
+| `PRODUCT` | `PRODUCT(number1, …)` | Produto dos valores numéricos; aceita intervalos. |
+| `QUOTIENT` | `QUOTIENT(numerator, denominator)` | Parte inteira de uma divisão (truncada). |
+| `RADIANS` | `RADIANS(angle)` | Graus → radianos. |
+| `ROMAN` | `ROMAN(number, [form])` | Número (0-3999) → numeral romano clássico; `ROMAN(0)` = `""`. As formas concisas 1-4/`FALSE` não são suportadas (→ `#VALUE!`). |
 | `ROUND` | `ROUND(number, num_digits)` | Arredonda para a quantidade dada de dígitos. |
+| `ROUNDDOWN` | `ROUNDDOWN(number, num_digits)` | Arredonda em direção a zero. |
 | `ROUNDUP` | `ROUNDUP(number, num_digits)` | Arredonda para longe de zero. |
+| `SEC` | `SEC(number)` | Secante. |
+| `SECH` | `SECH(number)` | Secante hiperbólica. |
+| `SERIESSUM` | `SERIESSUM(x, n, m, coefficients)` | Soma de série de potências; coeficientes via intervalo/valores. |
+| `SIGN` | `SIGN(number)` | -1, 0 ou 1. |
+| `SIN` | `SIN(number)` | Seno (radianos). |
+| `SINH` | `SINH(number)` | Seno hiperbólico. |
+| `SQRT` | `SQRT(number)` | Raiz quadrada; negativo → `#NUM!`. |
+| `SQRTPI` | `SQRTPI(number)` | Raiz quadrada de `number × π`. |
 | `SUM` | `SUM([number1], …)` | Soma de todos os valores numéricos; aceita intervalos. |
 | `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Soma as células que atendem a um critério (ex.: `">10"`). |
 | `SUMIFS` | `SUMIFS(sum_range, criteria_range1, criteria1, …)` | Soma sob múltiplos pares de intervalo e critério. |
+| `SUMSQ` | `SUMSQ(number1, …)` | Soma dos quadrados; aceita intervalos. |
+| `TAN` | `TAN(number)` | Tangente (radianos). |
+| `TANH` | `TANH(number)` | Tangente hiperbólica. |
+| `TRUNC` | `TRUNC(number, [num_digits])` | Trunca em direção a zero (padrão: 0 dígitos). |
 
 ## Estatísticas (8)
 
@@ -107,7 +167,7 @@ Semântica padrão de valor do dinheiro no tempo: `rate` por período, `nper` é
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 52 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 112 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -147,11 +207,11 @@ categoria não somam um total único — veja o `Parser.cs` para a lista registr
 </details>
 
 <details open>
-<summary><strong>Matemática e trigonometria</strong> — 7/82</summary>
+<summary><strong>Matemática e trigonometria</strong> — 67/82</summary>
 
-✅ `ABS` `INT` `ROUND` `ROUNDUP` `SUM` `SUMIF` `SUMIFS`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUM` `SUMIF` `SUMIFS` `SUMSQ` `TAN` `TANH` `TRUNC`
 
-⬜ `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MDETERM` `MINVERSE` `MMULT` `MOD` `MROUND` `MULTINOMIAL` `MUNIT` `ODD` `PERCENTOF` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDARRAY` `RANDBETWEEN` `ROMAN` `ROUNDDOWN` `SEC` `SECH` `SERIESSUM` `SEQUENCE` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
+⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RAND` `RANDARRAY` `RANDBETWEEN` `SEQUENCE` `SUBTOTAL` `SUMPRODUCT` `SUMX2MY2` `SUMX2PY2` `SUMXMY2`
 
 </details>
 

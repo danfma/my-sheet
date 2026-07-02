@@ -198,4 +198,4 @@ O argumento `contextSheetName` controla a qualificação: referências dessa pla
 
 - [ComputedValue e erros](computed-value.md) — leitura dos resultados da avaliação.
 - [Funções personalizadas](custom-functions.md) — estendendo o conjunto de funções.
-- [Referência de funções](function-reference.md) — as 52 funções nativas.
+- [Referência de funções](function-reference.md) — as 112 funções nativas.

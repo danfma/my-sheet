@@ -123,4 +123,4 @@ templates.
 - [Workbook, planilhas e expressões](workbook-and-expressions.md) — o modelo de objetos em profundidade.
 - [ComputedValue e erros](computed-value.md) — tudo sobre a leitura de resultados.
 - [Funções personalizadas](custom-functions.md) — adicione suas próprias funções à engine.
-- [Referência de funções](function-reference.md) — as 52 funções nativas.
+- [Referência de funções](function-reference.md) — as 112 funções nativas.

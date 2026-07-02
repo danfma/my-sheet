@@ -158,7 +158,7 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   referências relativas pelo delta de células e mantendo fixos os componentes ancorados com `$` — assim
   elas continuam sendo fórmulas reais, que reagem a mudanças de entrada. Uma célula escrava cuja mestre
   está ausente do arquivo recorre ao seu valor literal em cache.
-- **A cobertura de funções é de 52 nativas** (mais as suas funções personalizadas) — veja a
+- **A cobertura de funções é de 112 nativas** (mais as suas funções personalizadas) — veja a
   [referência de funções](function-reference.md). Fórmulas que usam outras funções carregam como nós
   `FunctionCall` e são avaliadas como `#NAME?`, a menos que registradas.
 
