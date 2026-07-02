@@ -110,8 +110,8 @@ nova); ele é o guarda que impede função parseável sem un-parse. Nomes com po
 Marque `- [x]`; ao fechar onda: Status `Complete` + Phase Summary + Verification + atualizar README
 (✅ nas funções + contagem) + release (aval do usuário para push/dispatch). TDD por função com golden
 values de oráculo citado no teste. Testes: core
-`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (442 após a
-Fase R); Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings
+`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (544 após a
+Onda 4); Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings
 sempre. Pós-Fase R: nós de função novos nascem no namespace da categoria
 (`Danfma.MySheet.Expressions.{Categoria}`, pasta espelhada); as tags do union continuam append-only.
 
@@ -340,37 +340,71 @@ aberto); ondas 4–6 renumeradas para 2.1.0/2.2.0/2.3.0.
 ---
 
 ## Phase 4 (Onda 4 → 2.1.0): Condicionais, SUMPRODUCT, estatística descritiva + aliases (~55 funções)
-Status: Not started
+Status: Complete
 
 Namespaces (pós-Fase R): records novos nascem em `Expressions.Statistical` (condicionais AVERAGEIF*/
 MAXIFS/MINIFS, variantes A, ordem/posição, dispersão, bivariadas, escalares e aliases) e
 `Expressions.Mathematics` (SUMPRODUCT/SUMX*, SUBTOTAL — categorias Math do Excel).
 
-- [ ] Condicionais (Criteria existente): `AVERAGEIF` `AVERAGEIFS` `MAXIFS` `MINIFS`
-- [ ] Variantes A: `AVERAGEA` `MAXA` `MINA`
-- [ ] Pairwise multi-range (helper novo `PairwiseRanges` em NumericAggregation): `SUMPRODUCT` `SUMX2MY2`
-      `SUMX2PY2` `SUMXMY2` (ranges de shapes diferentes → `#VALUE!`)
-- [ ] `SUBTOTAL` (códigos 1-11 = 101-111; ignora SUBTOTAL aninhado de verdade; sem hidden rows — limite de
+- [x] Condicionais (Criteria existente): `AVERAGEIF` `AVERAGEIFS` `MAXIFS` `MINIFS`
+- [x] Variantes A: `AVERAGEA` `MAXA` `MINA`
+- [x] Pairwise multi-range (helper novo `PairwiseRanges` em NumericAggregation): `SUMPRODUCT` `SUMX2MY2`
+      `SUMX2PY2` `SUMXMY2` (ranges de shapes diferentes → `#VALUE!` no SUMPRODUCT; `#N/A` nos SUMX*,
+      como documentado nas páginas oficiais)
+- [x] `SUBTOTAL` (códigos 1-11 = 101-111; ignora SUBTOTAL aninhado de verdade; sem hidden rows — limite de
       modelo documentado, ver §A5)
-- [ ] Ordem/posição (helper de sorting sobre `List<double>`): `MEDIAN` `MODE.SNGL` `LARGE` `SMALL`
+- [x] Ordem/posição (helper de sorting sobre `List<double>`): `MEDIAN` `MODE.SNGL` `LARGE` `SMALL`
       `RANK.EQ` `RANK.AVG` `PERCENTILE.INC` `PERCENTILE.EXC` `PERCENTRANK.INC` `PERCENTRANK.EXC`
       `QUARTILE.INC` `QUARTILE.EXC` `TRIMMEAN`
-- [ ] Dispersão/momentos: `STDEV.S` `STDEV.P` `STDEVA` `STDEVPA` `VAR.S` `VAR.P` `VARA` `VARPA` `AVEDEV`
+- [x] Dispersão/momentos: `STDEV.S` `STDEV.P` `STDEVA` `STDEVPA` `VAR.S` `VAR.P` `VARA` `VARPA` `AVEDEV`
       `DEVSQ` `GEOMEAN` `HARMEAN` `SKEW` `SKEW.P` `KURT` `STANDARDIZE`
-- [ ] Bivariadas (pairwise): `CORREL` `PEARSON` `COVARIANCE.P` `COVARIANCE.S` `RSQ` `SLOPE` `INTERCEPT`
+- [x] Bivariadas (pairwise): `CORREL` `PEARSON` `COVARIANCE.P` `COVARIANCE.S` `RSQ` `SLOPE` `INTERCEPT`
       `STEYX` `FORECAST.LINEAR`
-- [ ] Escalares simples: `FISHER` `FISHERINV` `GAUSS` `PHI` `PERMUT` `PERMUTATIONA` `PROB`
-- [ ] Aliases Compatibility dos implementados (mesma factory, nome legado): `MODE` `STDEV` `STDEVP` `VAR`
-      `VARP` `RANK` `PERCENTILE` `PERCENTRANK` `QUARTILE` `COVAR` `FORECAST` (⚠️ `CONFIDENCE`/`CRITBINOM`
-      e os *DIST/*INV ficam para F4 — dependem de distribuições)
-- [ ] FormulaWriter.Call + corpus + README ✅
+- [x] Escalares simples: `FISHER` `FISHERINV` `PHI` `PERMUT` `PERMUTATIONA` `PROB`
+      (⚠️ **`GAUSS` movido para F4**, erro do plano corrigido em 2026-07-02: `GAUSS(z) = Φ(z) − 0,5`
+      exige a CDF normal — erf —, que pertence à fase de distribuições; `PHI` é só a densidade e ficou)
+- [x] Aliases Compatibility dos implementados (**records DISTINTOS**, não a mesma factory — o un-parse
+      preserva o nome legado que o usuário escreveu; lógica compartilhada via `Compute` internal):
+      `MODE` `STDEV` `STDEVP` `VAR` `VARP` `RANK` `PERCENTILE` `PERCENTRANK` `QUARTILE` `COVAR`
+      `FORECAST` (⚠️ `CONFIDENCE`/`CRITBINOM` e os *DIST/*INV ficam para F4 — dependem de distribuições)
+- [x] FormulaWriter.Call + corpus + README ✅
 
 ### Verification Plan
 - Suítes verdes; PERCENTILE.INC/EXC e QUARTIS contra oráculo (interpolações diferem entre ferramentas —
   fixar Excel); CORREL/SLOPE contra oráculo com dataset fixo; SUMPRODUCT shape-mismatch → `#VALUE!`.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/functions-wave-4`, TDD RED→GREEN por família: os testes das
+6 famílias entraram primeiro — 78 casos falhando com as funções fora do Parser — e o registro
+Parser+FormulaWriter virou tudo verde de primeira). **67 funções novas** (contado por script no
+`Parser.Functions`: 164 → **231**): 4 condicionais + 3 variantes A + 5 Math (SUMPRODUCT/SUMX*/
+SUBTOTAL) + 13 ordem/posição + 16 dispersão/momentos + 9 bivariadas + 6 escalares + 11 aliases
+Compatibility. `GAUSS` FICOU FORA (movido para F4 — exige erf/CDF normal; anotado no checkbox).
+Arquivos por família: `Expressions/Statistical/{ConditionalAggregates,AVariants,OrderStatistics,
+Dispersion,Bivariate,StatisticalScalars}.cs`, `Expressions/Mathematics/{SumProducts,Subtotal}.cs` e
+o namespace NOVO `Expressions/Compatibility/CompatibilityAliases.cs` (records distintos que delegam
+aos `Compute` internal das formas modernas — STDEV(...) nunca vira STDEV.S(...) no un-parse/
+FORMULATEXT, testado). Helpers internal novos no núcleo: `PairwiseRanges` (pares posicionais com
+política ignorar-par vs zero — bivariadas/SUMX* vs SUMPRODUCT), `StatisticsMath` (coleta em ordem
+de varredura p/ MODE, interpolações PERCENTILE.INC em k(n−1) e .EXC em k(n+1), variâncias
+amostral/populacional reusadas por STDEV*/VAR*/SUBTOTAL) e `NumericAggregation.FoldA` (regra A:
+texto referenciado → 0, lógico → 1/0). SUBTOTAL implementa o nested-subtotal REAL (varre célula a
+célula e pula as cujo Expression raiz é nó Subtotal, inclusive via referência de OFFSET/CHOOSE);
+101-111 = 1-11 sem hidden rows (limite de modelo documentado no reference). Tags MemoryPackUnion
+176–242 (append-only; próximo livre = 243; fixture de compat binária intocada e verde). Golden
+values: 40+ páginas oficiais da Microsoft fetchadas em 2026-07-02 por 4 sub-agentes de pesquisa e
+citadas por função nos testes (PERCENTILE/QUARTILE/PERCENTRANK com truncagem, RANK com empates,
+SKEW/SKEW.P/KURT, CORREL/COVARIANCE/RSQ/SLOPE/INTERCEPT/STEYX/FORECAST.LINEAR com os datasets das
+páginas, TRIMMEAN, SUBTOTAL 303/75.75, SUMX* −55/521/79, AVERAGEIF(S)/MAXIFS/MINIFS). Documentado
+nos testes: 2 exemplos oficiais internamente inconsistentes foram evitados (AVERAGEIFS ex.1 imprime
+75 vs 80.5 na própria descrição; AVERAGEA fórmula 2 contradiz a regra de célula vazia) e o exemplo
+do SUMPRODUCT (dataset só em imagem) foi coberto pela EQUIVALÊNCIA documentada com a forma longa.
+Correção de doc pré-existente: `FLOOR` estava ⬜ na categoria Compatibility do function-reference
+apesar de implementado desde a onda 1 → ✅ (Compatibility 1 → 13/41). Suíte core: 442 → **544
+verdes** (102 novos em 6 arquivos de teste + corpus do FormulaWriter cobrindo as 67); suíte Excel
+intacta (16); build 0 warnings. Docs: `function-reference.md` → 231 (Statistical 60/111 com tabela
+de 59 assinaturas, Math 72/82, seção nova "Compatibility — legacy aliases", nota GAUSS→F4) +
+contagem 231 espelhada no README (`docs/pt-BR/` intocado — espelho é de outro agente).
 
 ---
 

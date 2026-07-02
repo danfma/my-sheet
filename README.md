@@ -28,7 +28,7 @@ For that scenario, MySheet gives you:
   (`ComputedValue` is a value-type union), cell results are memoized, and deep dependency chains run on a
   dedicated large-stack thread instead of overflowing.
 
-And to be equally honest about scope: MySheet implements **164 built-in functions** (plus your own custom
+And to be equally honest about scope: MySheet implements **231 built-in functions** (plus your own custom
 ones) out of Excel's ~520, and the Excel interop intentionally skips styles, number formats and other
 presentation features in its current MVP. If you need full-fidelity spreadsheet manipulation, the
 libraries above remain the right tools — they also combine well with MySheet (the test suite itself uses
@@ -38,7 +38,7 @@ ClosedXML as an independent oracle).
 
 | Package | What it does |
 | --- | --- |
-| [`Danfma.MySheet`](https://www.nuget.org/packages/Danfma.MySheet/) | The core engine: formula parser, 164 built-in functions, custom functions, allocation-free evaluation, per-cell memoization, MemoryPack serialization. |
+| [`Danfma.MySheet`](https://www.nuget.org/packages/Danfma.MySheet/) | The core engine: formula parser, 231 built-in functions, custom functions, allocation-free evaluation, per-cell memoization, MemoryPack serialization. |
 | [`Danfma.MySheet.Excel`](https://www.nuget.org/packages/Danfma.MySheet.Excel/) | Excel (`.xlsx`) interop via the OpenXML SDK: load workbooks (formulas become real expression trees), export to `.xlsx`, and merge computed values into existing templates. |
 
 The two packages are released in lockstep and always share the same version.
@@ -104,9 +104,17 @@ workbook.MergeIntoExcel("report.xlsx");
 
 - **Formula parser** (Pratt parser) for the Excel operator set: `+ - * / ^ %`, `&` (text), comparisons
   `= <> < > <= >=` (Excel cross-type ordering), and references `: ! ,` plus grouping `( )`.
-- **164 built-in functions**: logical (`IF/IFS/SWITCH/AND/OR/XOR/NOT/IFERROR/IFNA/LET/TRUE/FALSE`),
-  aggregation (`SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK`), conditional aggregation
-  (`COUNTIF(S)/SUMIF(S)`), text (`UPPER/LOWER/TRIM/LEN/LEFT/MID/RIGHT`, search & replace
+- **231 built-in functions**: logical (`IF/IFS/SWITCH/AND/OR/XOR/NOT/IFERROR/IFNA/LET/TRUE/FALSE`),
+  aggregation (`SUM/AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK` and the `AVERAGEA/MAXA/MINA`
+  variants), conditional aggregation (`COUNTIF(S)/SUMIF(S)/AVERAGEIF(S)/MAXIFS/MINIFS`),
+  descriptive statistics (`MEDIAN/MODE.SNGL/LARGE/SMALL/RANK.EQ/RANK.AVG`, percentiles and
+  quartiles `.INC`/`.EXC`, `TRIMMEAN`, dispersion `STDEV.S/.P`, `VAR.S/.P` and their `*A`
+  variants, `AVEDEV/DEVSQ/GEOMEAN/HARMEAN/SKEW(.P)/KURT/STANDARDIZE`, bivariate
+  `CORREL/PEARSON/COVARIANCE.P/.S/RSQ/SLOPE/INTERCEPT/STEYX/FORECAST.LINEAR`,
+  `FISHER(INV)/PHI/PERMUT(A)/PROB`, plus the legacy Compatibility aliases
+  `MODE/STDEV(P)/VAR(P)/RANK/PERCENTILE/PERCENTRANK/QUARTILE/COVAR/FORECAST`),
+  `SUMPRODUCT`/`SUMX2MY2`/`SUMX2PY2`/`SUMXMY2` and `SUBTOTAL` (nested subtotals skipped for
+  real), text (`UPPER/LOWER/TRIM/LEN/LEFT/MID/RIGHT`, search & replace
   `FIND/SEARCH/REPLACE/SUBSTITUTE/TEXTBEFORE/TEXTAFTER` plus `REGEXTEST/REGEXEXTRACT/REGEXREPLACE`,
   codes `CHAR/CODE/UNICHAR/UNICODE/CLEAN`, formatting `TEXT/FIXED/DOLLAR/VALUE/NUMBERVALUE/VALUETOTEXT`,
   `CONCAT/CONCATENATE/TEXTJOIN/REPT/PROPER/EXACT/T`), math & trigonometry (`SQRT/POWER/EXP/LN/LOG`,
@@ -142,12 +150,12 @@ workbook.MergeIntoExcel("report.xlsx");
 | [Excel interop](docs/excel-interop.md) | `ExcelFile.Load`, `SaveAsExcel` and `FormulaMode`, `MergeIntoExcel`, the template→report recipe, and scope limits. |
 | [Serialization](docs/serialization.md) | MemoryPack `Save`/`Load`, what round-trips, and what must be re-registered. |
 | [Performance](docs/performance.md) | Memoization, cache invalidation, `RunWithLargeStack`, and the allocation-free design (with measured numbers). |
-| [Function reference](docs/function-reference.md) | All 164 built-in functions by category, plus the full Excel coverage table. |
+| [Function reference](docs/function-reference.md) | All 231 built-in functions by category, plus the full Excel coverage table. |
 | [Migrating to 2.0](docs/migrating-to-2.0.md) | The 2.0 namespace reorganization: type → namespace map, before/after `using` examples, serialization compatibility. |
 
 ## Excel function coverage
 
-MySheet implements 164 of the ~520 functions in Microsoft's official Excel function catalog. The full
+MySheet implements 231 of the ~520 functions in Microsoft's official Excel function catalog. The full
 per-category coverage table (implemented vs. not yet) lives in the
 [function reference](docs/function-reference.md#excel-function-coverage); the authoritative registered
 list is the `Functions` map in [`Danfma.MySheet/Parsing/Parser.cs`](Danfma.MySheet/Parsing/Parser.cs).
