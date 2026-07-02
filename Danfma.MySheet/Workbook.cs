@@ -34,6 +34,99 @@ public sealed partial class Workbook
     [ThreadStatic]
     private static HashSet<(string Sheet, string Id)>? _evaluating;
 
+    // === Volatile-function epoch model (F1) ===============================================================
+    // A volatile cell (NOW/TODAY/RAND/RANDBETWEEN, directly or transitively) is cached WITHIN an epoch and
+    // its key is recorded in _volatileTainted. Recalculate() drops just those cells and re-samples the clock
+    // (epoch++); InvalidateCache() drops everything. This keeps NOW()/RAND() coherent within a pass (sampled
+    // once) while staying cheap to refresh, all without a dependency graph.
+
+    // "The cell currently being evaluated on this thread touched a volatile." Same thread-local save/reset/
+    // propagate pattern as _evaluating: GetCellValue zeroes it before a cell, reads it after (to mark the
+    // cell), and ORs it back into the caller's value so volatility propagates up the evaluation stack.
+    [ThreadStatic]
+    private static bool _volatileTouched;
+
+    // Keys of cells that touched a volatile this epoch — a set (the byte value is unused). Concurrent because
+    // evaluation can run on many threads. Lazily created race-free via the VolatileTainted accessor.
+    [MemoryPackIgnore]
+    private ConcurrentDictionary<(string Sheet, string Id), byte>? _volatileTainted;
+
+    // The clock sampled once per epoch (lazily, on the first volatile read), as an Excel serial (local time).
+    // null means "not yet sampled this epoch". Guarded by VolatileLock so it is sampled exactly once.
+    [MemoryPackIgnore]
+    private double? _epochNow;
+
+    // Guards the once-per-epoch clock sampling (and, in phase 2, the not-thread-safe RNG). Lazily created
+    // (Interlocked) so it survives MemoryPack deserialization, which bypasses field initializers.
+    [MemoryPackIgnore]
+    private object? _volatileLock;
+
+    private object VolatileLock
+    {
+        get
+        {
+            var existing = _volatileLock;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new object();
+            return Interlocked.CompareExchange(ref _volatileLock, created, null) ?? created;
+        }
+    }
+
+    private ConcurrentDictionary<(string Sheet, string Id), byte> VolatileTainted
+    {
+        get
+        {
+            var existing = _volatileTainted;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new ConcurrentDictionary<(string Sheet, string Id), byte>();
+            return Interlocked.CompareExchange(ref _volatileTainted, created, null) ?? created;
+        }
+    }
+
+    // Backing field for the injectable clock; ignored by MemoryPack (runtime config, not persisted state).
+    [MemoryPackIgnore]
+    private TimeProvider? _timeProvider;
+
+    /// <summary>
+    /// The clock <c>NOW()</c>/<c>TODAY()</c> read (defaults to <see cref="TimeProvider.System"/>). Injectable
+    /// so hosts can freeze time for a batch and tests can pin both the instant and the local zone. Excel uses
+    /// LOCAL time, so the functions read <see cref="TimeProvider.GetLocalNow"/>. Not serialized.
+    /// </summary>
+    [MemoryPackIgnore]
+    public TimeProvider TimeProvider
+    {
+        get => _timeProvider ?? TimeProvider.System;
+        set => _timeProvider = value;
+    }
+
+    /// <summary>
+    /// Marks the current thread's cell evaluation as having touched a volatile source. Volatile nodes call
+    /// this from <c>Evaluate</c>; <see cref="GetCellValue"/> reads the flag to cache-and-mark the cell and to
+    /// propagate volatility to dependents. Internal — part of the evaluation contract, not host API.
+    /// </summary>
+    internal void MarkVolatileTouched() => _volatileTouched = true;
+
+    /// <summary>
+    /// The current epoch's clock, sampled once (lazily) as an Excel serial from local time, so every
+    /// <c>NOW()</c>/<c>TODAY()</c> in a pass agrees. Thread-safe: the first caller of the epoch samples and
+    /// publishes under <see cref="VolatileLock"/>, the rest read the published value.
+    /// </summary>
+    internal double EpochNow()
+    {
+        lock (VolatileLock)
+        {
+            return _epochNow ??= DateSerial.FromDateTime(TimeProvider.GetLocalNow().DateTime);
+        }
+    }
+
     // Sheet names are case-insensitive, like Excel.
     public ConcurrentDictionary<string, Sheet> Sheets { get; private set; } =
         new(StringComparer.OrdinalIgnoreCase);
@@ -87,11 +180,27 @@ public sealed partial class Workbook
             return ComputedValue.Error(Error.Ref);
         }
 
+        // Volatility taint (mirror of the _evaluating pattern): zero the thread-local flag for THIS cell,
+        // evaluate, then see whether the cell — directly or transitively — touched a volatile. If so, cache
+        // it (per-epoch cache) but record its key so Recalculate() can drop exactly those cells. Restore the
+        // caller's flag OR'd with ours so volatility propagates up the evaluation stack (contagion) without a
+        // reverse dependency graph.
+        var outerTouched = _volatileTouched;
+        _volatileTouched = false;
+
         try
         {
             // Compute outside the dictionary (the formula recurses back in), then store.
             var value = Sheets[sheetName][id].Evaluate(new EvaluationContext(this, sheetName, id));
+
+            var cellTouched = _volatileTouched;
+            if (cellTouched)
+            {
+                VolatileTainted[key] = 0;
+            }
+
             cache[key] = value;
+            _volatileTouched = outerTouched || cellTouched;
 
             return value;
         }
@@ -101,7 +210,50 @@ public sealed partial class Workbook
         }
     }
 
-    public void InvalidateCache() => _cache?.Clear();
+    /// <summary>
+    /// Clears the whole memoized cache (call after editing cells) and resets the volatile epoch, so the next
+    /// read re-samples the clock. Use this when inputs changed; use <see cref="Recalculate"/> for a cheap
+    /// volatile-only refresh that keeps the stable cells cached.
+    /// </summary>
+    public void InvalidateCache()
+    {
+        _cache?.Clear();
+        _volatileTainted?.Clear();
+
+        lock (VolatileLock)
+        {
+            _epochNow = null;
+        }
+    }
+
+    /// <summary>
+    /// Advances the volatile epoch: drops from the cache only the cells that touched a volatile
+    /// (<c>NOW</c>/<c>TODAY</c>/<c>RAND</c>/<c>RANDBETWEEN</c>, directly or transitively) and re-samples the
+    /// clock, so the next read of those cells produces fresh values while every stable (non-volatile) cell
+    /// stays cached. Does NOT recompute eagerly — values are refreshed lazily on the next read. Unlike
+    /// <see cref="InvalidateCache"/>, this is the right call when only "the current time / a new random draw"
+    /// should change, not the cells' inputs.
+    /// </summary>
+    public void Recalculate()
+    {
+        if (_volatileTainted is { } tainted)
+        {
+            if (_cache is { } cache)
+            {
+                foreach (var key in tainted.Keys)
+                {
+                    cache.TryRemove(key, out _);
+                }
+            }
+
+            tainted.Clear();
+        }
+
+        lock (VolatileLock)
+        {
+            _epochNow = null;
+        }
+    }
 
     /// <summary>
     /// Runs an evaluation on a thread with a large stack so very deep dependency chains (e.g. a long

@@ -50,27 +50,27 @@ RAND/RANDBETWEEN → `Expressions.Mathematics`.
 ---
 
 ## Phase 1: Infra de época + TODAY/NOW (caminho do relógio)
-Status: Not started
+Status: Complete
 
-- [ ] `Expression`: `public virtual bool IsVolatile => false` (introspecção; default false).
-- [ ] `Workbook`: `public TimeProvider TimeProvider { get; set; } = TimeProvider.System;` e o estado de
+- [x] `Expression`: `public virtual bool IsVolatile => false` (introspecção; default false).
+- [x] `Workbook`: `public TimeProvider TimeProvider { get; set; } = TimeProvider.System;` e o estado de
       época: `_epochNow` (nullable), `[ThreadStatic] static bool _volatileTouched;`, e um conjunto
       concorrente `_volatileTainted` (`ConcurrentDictionary<(string,string), byte>` como set — escrito
       durante avaliação concorrente).
-- [ ] Método interno `MarkVolatileTouched()` (seta a flag thread-local) e `EpochNow()` (amostra `_epochNow`
+- [x] Método interno `MarkVolatileTouched()` (seta a flag thread-local) e `EpochNow()` (amostra `_epochNow`
       lazy via `TimeProvider.GetLocalNow()`, com publicação thread-safe — `Interlocked`/lock; retorna serial
       OADate). Os nós voláteis chamam ambos no `Evaluate`.
-- [ ] `GetCellValue`: em volta do `Evaluate` da célula, salvar/zerar/propagar `_volatileTouched` (padrão do
+- [x] `GetCellValue`: em volta do `Evaluate` da célula, salvar/zerar/propagar `_volatileTouched` (padrão do
       `_evaluating`): se a avaliação da célula tocou volátil → adicionar a chave a `_volatileTainted` (mas
       AINDA cachear normalmente — cache por época); propagar a flag ao chamador (contágio transitivo).
-- [ ] `Recalculate()` (público): remover do `_cache` só as chaves em `_volatileTainted`, limpar
+- [x] `Recalculate()` (público): remover do `_cache` só as chaves em `_volatileTainted`, limpar
       `_volatileTainted`, resetar `_epochNow = null`. NÃO recomputa. `InvalidateCache()`: além de limpar tudo,
       limpar `_volatileTainted` e resetar `_epochNow`.
-- [ ] `Today` (`Expressions/Dates/`): 0 args, `IsVolatile => true`, `Evaluate` = parte-data do serial de
+- [x] `Today` (`Expressions/Dates/`): 0 args, `IsVolatile => true`, `Evaluate` = parte-data do serial de
       `EpochNow()` (via `Math.Floor`), chamando `MarkVolatileTouched`. `Now`: 0 args, serial completo.
-- [ ] `Parser.Functions` (`TODAY` 0/0, `NOW` 0/0) + `FormulaWriter.Call` + corpus exaustivo. Tags MemoryPack
+- [x] `Parser.Functions` (`TODAY` 0/0, `NOW` 0/0) + `FormulaWriter.Call` + corpus exaustivo. Tags MemoryPack
       append (verificar maior atual = 311 → 312/313).
-- [ ] Teste-double `FixedTimeProvider : TimeProvider` (override `GetUtcNow` + `LocalTimeZone`), sem pacote novo.
+- [x] Teste-double `FixedTimeProvider : TimeProvider` (override `GetUtcNow` + `LocalTimeZone`), sem pacote novo.
 
 ### Verification Plan
 - `dotnet build Danfma.MySheet.slnx -c Release --no-incremental` → 0 warnings.
@@ -84,7 +84,44 @@ Status: Not started
 - Suíte Excel (20) intacta.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/volatile-functions`, TDD RED→GREEN: os 10 testes de
+`VolatileClockTests` entraram primeiro — RED por símbolos ausentes: `Workbook.TimeProvider`,
+`Workbook.Recalculate`, `Now`/`Today`, `Expression.IsVolatile` — e viraram verdes ao registrar a infra +
+os nós). **2 funções novas** (NOW, TODAY; Parser 300 → 302). Tags MemoryPackUnion **312 (Now)/313 (Today)**
+(append-only; próximo livre = 314; comentário do cabeçalho atualizado). Núcleo `Danfma.MySheet.Expressions`:
+`Expression.IsVolatile` (virtual, default false, `[MemoryPackIgnore]` — comportamento, não estado; overridden
+`true` em Now/Today). `Workbook`: campo `[ThreadStatic] static bool _volatileTouched` (a flag de contágio, no
+mesmo padrão save/reset/propagate do `_evaluating`), set concorrente `_volatileTainted`
+(`ConcurrentDictionary<(string,string),byte>`), `_epochNow` (`double?`), e um `TimeProvider` injetável
+(`[MemoryPackIgnore]`). `GetCellValue` agora, em volta do `Evaluate` da célula: salva o flag do chamador,
+zera, avalia, e se a célula tocou volátil (direta ou transitivamente) grava a chave em `_volatileTainted`
+(mas AINDA cacheia — cache por época) e restaura o flag como `outer || cellTouched` (o `outer` é o que carrega
+o contágio entre irmãos). `Recalculate()` remove do `_cache` só as chaves marcadas + limpa o set + reseta
+`_epochNow`; `InvalidateCache()` limpa tudo + o set + reseta `_epochNow`. Nós NOW/TODAY em
+`Expressions/Dates/VolatileClock.cs`: leem `TimeProvider.GetLocalNow().DateTime` (hora LOCAL, como o Excel),
+via `Math.Floor` no TODAY; ambos chamam `MarkVolatileTouched()`. Amostragem LAZY do relógio (default do
+plano): `EpochNow()` amostra `_epochNow` na PRIMEIRA leitura de volátil da época.
+
+**Thread-safety (decisão além do plano):** o plano dizia "Interlocked/lock para amostrar `_epochNow` uma
+única vez". Resolvi com um único `lock (VolatileLock)` cobrindo a amostragem de `_epochNow` (`_epochNow ??= …`
+dentro do lock — leitura/escrita atômica da amostra) e o reset em `Recalculate`/`InvalidateCache`. Evitei o
+fast-path lock-free (que teria uma torn read do `double?`), preferindo o lock sempre — não é caminho quente
+(1× por célula volátil por época) e é provadamente correto. O `_volatileTainted` e o `VolatileLock` são
+criados via `Interlocked.CompareExchange` (lazy race-free), porque **MemoryPack ignora os field initializers
+na desserialização** (mesmo motivo do null-handling do `DefinedNames`) — sem isso o lock viria null após um
+`Load`. Idem `TimeProvider`: getter lazy `_timeProvider ?? TimeProvider.System` (robusto ao `Load`, sem hook).
+Escrita no set via indexer do `ConcurrentDictionary` (thread-safe).
+
+**Compat binária:** `TimeProvider` e (fase 2) `RandomSeed` são `[MemoryPackIgnore]` — o schema
+serializado do `Workbook` NÃO mudou (`DefinedNames` continua o último membro serializado). A fixture
+`workbook-pre-namespaces.msgpack.bin` abre e reavalia idêntica (guarda verde). Um round-trip novo
+(`VolatileFormula_RoundTripsThroughMemoryPack`) prova que os tags 312/313 sobrevivem ao Save/Load.
+
+Suíte core: 676 → **686 verdes** (10 novos em `VolatileClockTests`: NOW hora-local, TODAY=floor, coerência
+intra-época sem/​com `Recalculate`, contágio `B1=A1+1`, duas células NOW concordam, célula não-volátil com
+contador de efeito colateral estável através do `Recalculate`, `InvalidateCache` re-amostra, introspecção
+`IsVolatile`, round-trip MemoryPack); corpus do FormulaWriter +2 (`NOW()`/`TODAY()`); suíte Excel intacta
+(20); build da solução `--no-incremental` **0 warnings**.
 
 ---
 

@@ -341,6 +341,9 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["NETWORKDAYS.INTL"] = new(2, 4, arguments => new NetworkDaysIntl(arguments)),
         ["WORKDAY"] = new(2, 3, arguments => new Workday(arguments)),
         ["WORKDAY.INTL"] = new(2, 4, arguments => new WorkdayIntl(arguments)),
+        // F1 — volatile clock functions (both take no arguments).
+        ["NOW"] = new(0, 0, arguments => new Now(arguments)),
+        ["TODAY"] = new(0, 0, arguments => new Today(arguments)),
     };
 
     private int _index;

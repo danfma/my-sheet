@@ -543,6 +543,9 @@ public static class FormulaWriter
             NetworkDaysIntl f => ("NETWORKDAYS.INTL", f.Arguments),
             Workday f => ("WORKDAY", f.Arguments),
             WorkdayIntl f => ("WORKDAY.INTL", f.Arguments),
+            // F1 — volatile clock functions.
+            Now f => ("NOW", f.Arguments),
+            Today f => ("TODAY", f.Arguments),
             _ => throw new NotSupportedException(
                 $"No Excel function name registered for node '{function.GetType().Name}'."
             ),

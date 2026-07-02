@@ -12,7 +12,7 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions;
 
 // MemoryPackUnion tags are APPEND-ONLY: never renumber, reorder or reuse an existing tag,
-// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 243+.
+// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 314+.
 [MemoryPackable]
 [MemoryPackUnion(0, typeof(StringValue))]
 [MemoryPackUnion(1, typeof(NumberValue))]
@@ -331,11 +331,24 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(309, typeof(OddFYield))]
 [MemoryPackUnion(310, typeof(OddLPrice))]
 [MemoryPackUnion(311, typeof(OddLYield))]
+// F1 — volatile functions. NOW/TODAY read the clock; RAND/RANDBETWEEN the RNG (phase 2).
+[MemoryPackUnion(312, typeof(Now))]
+[MemoryPackUnion(313, typeof(Today))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a
     // loosely-typed value call `.AsObject()` on the result.
     public abstract ComputedValue Evaluate(EvaluationContext context);
+
+    /// <summary>
+    /// Whether this node is intrinsically volatile — a clock or random source (<c>NOW</c>, <c>TODAY</c>,
+    /// <c>RAND</c>, <c>RANDBETWEEN</c>) whose value can change between epochs. Pure introspection: the actual
+    /// cache/refresh contagion is driven at evaluation time by <see cref="Workbook.MarkVolatileTouched"/>,
+    /// which volatile nodes call from <see cref="Evaluate"/> (so dependents become volatile transitively).
+    /// Not serialized (behavior, not state).
+    /// </summary>
+    [MemoryPackIgnore]
+    public virtual bool IsVolatile => false;
 
     public ComputedValue Evaluate(Workbook workbook) => Evaluate(new EvaluationContext(workbook));
 

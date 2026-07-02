@@ -175,6 +175,8 @@ public class FormulaWriterTests
             "ODDFYIELD(A1,A2,A3,A4,0.0575,84.5,100,2,0)",
             "ODDLPRICE(A1,A2,A3,0.0375,0.0405,100,2,0)",
             "ODDLYIELD(A1,A2,A3,0.0375,99.875,100,2,0)",
+            // F1 — volatile clock functions.
+            "NOW()", "TODAY()",
         ];
 
         var failures = new List<string>();
