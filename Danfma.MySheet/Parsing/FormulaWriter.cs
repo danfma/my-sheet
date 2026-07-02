@@ -234,8 +234,9 @@ public static class FormulaWriter
         };
 
     // Central node-type → Excel-function-name map, the mirror of the Parser's Functions table. A custom
-    // FunctionCall keeps the name it was parsed/registered with.
-    private static (string Name, Expression[] Arguments) Call(Function function) =>
+    // FunctionCall keeps the name it was parsed/registered with. Internal so the defined-name validator can
+    // reuse it as the single source of a function node's argument list when walking for unqualified refs.
+    internal static (string Name, Expression[] Arguments) Call(Function function) =>
         function switch
         {
             FunctionCall f => (f.Name, f.Arguments),

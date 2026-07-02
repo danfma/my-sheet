@@ -8,7 +8,11 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
     // VLOOKUP(lookup, table, column_index, [range_lookup]) — searches the table's first column.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (Arguments[1] is not RangeReference table)
+        // The table may be written directly or through a defined name that stands for a range.
+        if (
+            !NamedReferences.TryResolveReference(Arguments[1], context, out var reference)
+            || reference is not RangeReference table
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }

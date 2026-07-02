@@ -7,7 +7,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (Arguments[0] is not RangeReference range)
+        // The array may be a literal range or a defined name that stands for one.
+        if (
+            !NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
+            || reference is not RangeReference range
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }

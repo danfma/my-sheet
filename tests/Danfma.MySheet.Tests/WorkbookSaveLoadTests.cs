@@ -50,4 +50,37 @@ public class WorkbookSaveLoadTests
             File.Delete(path);
         }
     }
+
+    [Test]
+    public async Task SaveAndLoad_PreservesDefinedNames()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(10);
+        sheet["A2"] = new NumberValue(20);
+        sheet["A3"] = new NumberValue(30);
+        workbook.DefineName("Vendas", "Sheet1!A1:A3");
+        workbook.DefineName("Taxa", new NumberValue(0.1));
+
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+        try
+        {
+            workbook.Save(path);
+            var loaded = Workbook.Load(path);
+
+            // The names survive, keep their case-insensitive lookup, and re-evaluate to the same results.
+            await Assert.That(loaded.DefinedNames.Count).IsEqualTo(2);
+            await Assert
+                .That(ExpressionParser.Parse("=SUM(vendas)", sheet).Evaluate(loaded).AsObject() as double?)
+                .IsEqualTo(60.0);
+            await Assert
+                .That(ExpressionParser.Parse("=Taxa*100", sheet).Evaluate(loaded).AsObject() as double?)
+                .IsEqualTo(10.0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

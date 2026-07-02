@@ -574,7 +574,9 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         return false;
     }
 
-    private static bool IsCellReference(string text)
+    // Internal: the defined-name validator reuses this as the single source of truth for "looks like a
+    // cell reference" (an A1-shaped name is reserved and cannot be a defined name).
+    internal static bool IsCellReference(string text)
     {
         text = StripDollars(text);
 

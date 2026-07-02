@@ -95,10 +95,11 @@ public sealed partial record IsOdd(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record IsRef(Expression[] Arguments) : Function
 {
-    // A syntactic check: the argument IS a reference node (cell, range or union), regardless of
-    // the referenced value — ISREF(G8) is TRUE even when G8 is empty or holds an error.
+    // A syntactic check: the argument IS a reference node (cell, range or union) — or a defined name that
+    // stands for one — regardless of the referenced value. ISREF(G8) is TRUE even when G8 is empty or holds
+    // an error; a name for a constant is FALSE (it is not a reference).
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Boolean(Arguments[0] is Reference);
+        ComputedValue.Boolean(NamedReferences.TryResolveReference(Arguments[0], context, out _));
 }
 
 [MemoryPackable]

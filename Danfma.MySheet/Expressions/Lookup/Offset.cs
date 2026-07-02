@@ -8,7 +8,11 @@ public sealed partial record Offset(Expression[] Arguments) : Function
     // OFFSET(reference, rows, cols, [height], [width]) — scalar (single-cell) result only for now.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (!TryBase(Arguments[0], out var sheetName, out var baseColumn, out var baseRow))
+        // The base may be written directly or through a defined name that stands for a cell/range.
+        if (
+            !NamedReferences.TryResolveReference(Arguments[0], context, out var baseReference)
+            || !TryBase(baseReference, out var sheetName, out var baseColumn, out var baseRow)
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }

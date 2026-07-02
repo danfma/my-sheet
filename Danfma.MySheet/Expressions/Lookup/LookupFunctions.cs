@@ -44,7 +44,11 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
     // searches the table's first ROW and returns from row_index in the matching column.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (Arguments[1] is not RangeReference table)
+        // The table may be written directly or through a defined name that stands for a range.
+        if (
+            !NamedReferences.TryResolveReference(Arguments[1], context, out var reference)
+            || reference is not RangeReference table
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }
@@ -200,8 +204,14 @@ public sealed partial record Column(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record Columns(Expression[] Arguments) : Function
 {
+    // A defined name that stands for a range counts its columns; anything else is 1.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Number(Arguments[0] is RangeReference range ? range.ColumnCount : 1.0);
+        ComputedValue.Number(
+            NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
+            && reference is RangeReference range
+                ? range.ColumnCount
+                : 1.0
+        );
 }
 
 [MemoryPackable]
@@ -350,15 +360,17 @@ public sealed partial record Address(Expression[] Arguments) : Function
 public sealed partial record Areas(Expression[] Arguments) : Function
 {
     // AREAS(reference) — the number of areas (contiguous ranges or single cells) in the reference.
-    // A syntactic check on the argument node, like ISREF: a union counts its areas (recursively,
-    // for nested unions), any other reference is one area, a non-reference -> #VALUE!.
+    // A syntactic check on the argument node (a defined name resolves to the reference it stands for),
+    // like ISREF: a union counts its areas (recursively, for nested unions), any other reference is one
+    // area, a non-reference -> #VALUE!.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        Arguments[0] switch
-        {
-            UnionReference union => ComputedValue.Number(CountAreas(union)),
-            Reference => ComputedValue.Number(1),
-            _ => ComputedValue.Error(Error.Value),
-        };
+        NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
+            ? reference switch
+            {
+                UnionReference union => ComputedValue.Number(CountAreas(union)),
+                _ => ComputedValue.Number(1),
+            }
+            : ComputedValue.Error(Error.Value);
 
     private static int CountAreas(UnionReference union)
     {
