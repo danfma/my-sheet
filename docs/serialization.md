@@ -54,6 +54,10 @@ Expression nodes are serialized as a MemoryPack union, and the union tags are **
 project policy**: existing tags are never renumbered, reordered or reused, and new node types get new
 tags. Workbooks saved by an older version therefore remain loadable by newer versions of the library.
 
+Because only the tags (never type names) go on the wire, the [2.0 namespace
+reorganization](migrating-to-2.0.md) did not change the format at all: files saved by 1.x load in 2.0
+unchanged, guarded by a frozen pre-2.0 binary fixture in the test suite.
+
 ## When to use which format
 
 | Need | Use |

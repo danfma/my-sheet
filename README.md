@@ -143,6 +143,7 @@ workbook.MergeIntoExcel("report.xlsx");
 | [Serialization](docs/serialization.md) | MemoryPack `Save`/`Load`, what round-trips, and what must be re-registered. |
 | [Performance](docs/performance.md) | Memoization, cache invalidation, `RunWithLargeStack`, and the allocation-free design (with measured numbers). |
 | [Function reference](docs/function-reference.md) | All 164 built-in functions by category, plus the full Excel coverage table. |
+| [Migrating to 2.0](docs/migrating-to-2.0.md) | The 2.0 namespace reorganization: type → namespace map, before/after `using` examples, serialization compatibility. |
 
 ## Excel function coverage
 

@@ -6,7 +6,7 @@ codes), one `object?` field (text, references), and a one-byte tag. Producing a 
 or error **allocates nothing**; text and references only carry a reference that already existed.
 
 ```csharp
-using Danfma.MySheet.Expressions;
+using Danfma.MySheet; // Workbook, ComputedValue, ComputedValueKind, Error
 
 ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 ```

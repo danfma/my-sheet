@@ -19,6 +19,8 @@ or writing back the results.
 6. [Serialization](serialization.md) — MemoryPack `Save`/`Load` and what round-trips.
 7. [Performance](performance.md) — memoization, `RunWithLargeStack`, and the allocation-free design.
 8. [Function reference](function-reference.md) — all 164 built-in functions, plus the Excel coverage table.
+9. [Migrating to 2.0](migrating-to-2.0.md) — the 2.0 namespace reorganization: type → namespace map,
+   before/after `using` examples, and the serialization-compatibility guarantee.
 
 ## Packages
 

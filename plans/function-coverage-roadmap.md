@@ -110,8 +110,10 @@ nova); ele é o guarda que impede função parseável sem un-parse. Nomes com po
 Marque `- [x]`; ao fechar onda: Status `Complete` + Phase Summary + Verification + atualizar README
 (✅ nas funções + contagem) + release (aval do usuário para push/dispatch). TDD por função com golden
 values de oráculo citado no teste. Testes: core
-`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (440 após a onda 3);
-Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings sempre.
+`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (442 após a
+Fase R); Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings
+sempre. Pós-Fase R: nós de função novos nascem no namespace da categoria
+(`Danfma.MySheet.Expressions.{Categoria}`, pasta espelhada); as tags do union continuam append-only.
 
 ---
 
@@ -278,7 +280,7 @@ nos guias em inglês (`docs/pt-BR/` intocado — espelho é de outro agente).
 ---
 
 ## Phase R: Reorganização dos nós da AST em namespaces semânticos (breaking → 2.0.0)
-Status: In progress
+Status: Complete
 <!-- Pedido do usuário em 2026-07-02: "separar os nós da nossa AST em namespaces semânticos, por
 categoria — o namespace está ficando muito inflado". EXECUTAR logo após a Onda 3 integrar e ANTES da
 Onda 4 (menor churn acumulado; adoção do 1.x ainda mínima). As ondas 4-6 viram 2.1.0/2.2.0/2.3.0. -->
@@ -298,15 +300,16 @@ Proposta de forma (fazer certo UMA vez — decisões a validar com o usuário no
   function-reference (Excel): SUM/SUMIF(S)/PRODUCT → Mathematics; AVERAGE/COUNT*/MAX/MIN → Statistical.
   Pastas espelham namespaces. `FunctionCall` fica no núcleo (é o nó de extensibilidade, não categoria).
 
-- [ ] Mover os records de função para os namespaces por categoria (pastas correspondentes); atualizar
+- [x] Mover os records de função para os namespaces por categoria (pastas correspondentes); atualizar
       usings de `Parser`, `FormulaWriter`, testes (preferir `GlobalUsings` nos csproj de teste).
 - [x] Decisão do usuário: mover `ComputedValue`/`Error` para a raiz `Danfma.MySheet` — SIM (2026-07-02).
-- [ ] **Teste de compat binária MemoryPack**: ANTES do refactor, serializar um workbook representativo
+- [x] **Teste de compat binária MemoryPack**: ANTES do refactor, serializar um workbook representativo
       (fórmulas de todas as categorias) e commitar o blob como fixture; DEPOIS, teste que o deserializa e
       reavalia — prova que o union por tags sobrevive à mudança de namespace. (Tags não mudam: append-only
       continua valendo.)
-- [ ] Docs: guia de migração 1.x → 2.0 (tabela de namespaces), atualização dos guias EN + refresh pt-BR.
-- [ ] Atualizar os briefings das ondas seguintes: nós novos nascem no namespace da categoria.
+- [x] Docs: guia de migração 1.x → 2.0 (tabela de namespaces), atualização dos guias EN (o refresh
+      pt-BR fica com o agente do espelho, como nas ondas — `docs/pt-BR/` não foi tocado).
+- [x] Atualizar os briefings das ondas seguintes: nós novos nascem no namespace da categoria.
 - [ ] Commit `refactor!:` (BREAKING CHANGE) → release **2.0.0**.
 
 ### Verification Plan
@@ -314,12 +317,34 @@ Proposta de forma (fazer certo UMA vez — decisões a validar com o usuário no
 - Build 0 warnings; `versionize --dry-run` propõe major.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Executada em 2026-07-02 (branch `refactor/ast-namespaces`, worktree isolada; 3 commits: fixture →
+`refactor!:` → docs). **Moves**: `ComputedValue`/`ComputedValueKind`/`Error` para a raiz
+`Danfma.MySheet`; **164 records de função** para 7 namespaces por categoria do function-reference —
+Logical 12, Mathematics 67, Statistical 8, Text 34, Information 18, Lookup 16, Financial 9 — com
+pastas espelhando namespaces; núcleo `Danfma.MySheet.Expressions` mantém os nós estruturais e TODOS os
+helpers internal. Julgamento de categoria: **T saiu de `InformationFunctions.cs` para
+`Expressions/Text/T.cs`** — o function-reference (espelho do Excel) lista T em Text, e a seção do doc
+é o árbitro. **Nenhuma tag `MemoryPackUnion` mudou**: a fixture `workbook-pre-namespaces.msgpack.bin`
+(gerada no layout 1.x, commit próprio ANTES do refactor) deserializa e reavalia 14 células idênticas
+nos dois layouts — suíte core **442/442 antes e depois** (a onda 3 fechou em 440, mas o fix do VLOOKUP
+`0fb6af5` somou 1 → 441; +1 do guard de compat = 442), Excel **16/16**, build 0 warnings. Colisões
+resolvidas: `Text`/`Lookup` são namespace E record homônimo → qualificação `Text.Text`/`Lookup.Lookup`
+dentro de `Expressions` (nas attrs do union), e `Lookup.Index` vs `System.Index` qualificado no
+Parser/FormulaWriter; `GlobalUsings.cs` por projeto de teste (no de Excel, só `Mathematics` — importar
+tudo colidiria com `Row`/`Column`/`Text` do OpenXML). Docs EN: `docs/migrating-to-2.0.md` (tabela
+tipo→namespace, before/after de usings, garantia de compat binária) + links no README/docs/README +
+snippets ajustados (computed-value, workbook-and-expressions, serialization); `docs/pt-BR/` intocado —
+refresh delegado ao agente do espelho. Release 2.0.0 pendente de merge + aval do usuário (checkbox
+aberto); ondas 4–6 renumeradas para 2.1.0/2.2.0/2.3.0.
 
 ---
 
-## Phase 4 (Onda 4 → 1.4.0): Condicionais, SUMPRODUCT, estatística descritiva + aliases (~55 funções)
+## Phase 4 (Onda 4 → 2.1.0): Condicionais, SUMPRODUCT, estatística descritiva + aliases (~55 funções)
 Status: Not started
+
+Namespaces (pós-Fase R): records novos nascem em `Expressions.Statistical` (condicionais AVERAGEIF*/
+MAXIFS/MINIFS, variantes A, ordem/posição, dispersão, bivariadas, escalares e aliases) e
+`Expressions.Mathematics` (SUMPRODUCT/SUMX*, SUBTOTAL — categorias Math do Excel).
 
 - [ ] Condicionais (Criteria existente): `AVERAGEIF` `AVERAGEIFS` `MAXIFS` `MINIFS`
 - [ ] Variantes A: `AVERAGEA` `MAXA` `MINA`
@@ -349,8 +374,12 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 5 (Onda 5 → 1.5.0): Datas e horas — 23/25 (sem TODAY/NOW) 
+## Phase 5 (Onda 5 → 2.2.0): Datas e horas — 23/25 (sem TODAY/NOW) 
 Status: Not started
+
+Namespaces (pós-Fase R): records novos nascem em `Expressions.Dates` (pasta `Expressions/Dates/`;
+`Dates`, não `DateTime` — colisão com `System.DateTime`); o helper `DateSerial` é internal e fica no
+núcleo `Expressions`, como os demais helpers.
 
 - [ ] Infra `DateSerial` no core (internal): serial ↔ DateTime via OADate; clamp/`#NUM!` para serial
       negativo; fração do dia = hora. Documentar limite 1900 (§A6).
@@ -373,8 +402,10 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 6 (Onda 6 → 1.6.0): Financeiras restantes viáveis (~40 funções)
+## Phase 6 (Onda 6 → 2.3.0): Financeiras restantes viáveis (~40 funções)
 Status: Not started
+
+Namespaces (pós-Fase R): records novos nascem em `Expressions.Financial`.
 
 Oráculo: `ExcelFinancialFunctions` (já referenciado nos testes) cobre a maior parte — validar cada golden.
 
