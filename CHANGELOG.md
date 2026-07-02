@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.3.0"></a>
+## [2.3.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.3.0) (2026-07-02)
+
+### Features
+
+* **functions:** add date and time wave ([f92fd8b](https://www.github.com/danfma/my-sheet/commit/f92fd8b4fe524c5c3910010a2db10b0e1ac316cf))
+
 <a name="2.2.0"></a>
 ## [2.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.2.0) (2026-07-02)
 
