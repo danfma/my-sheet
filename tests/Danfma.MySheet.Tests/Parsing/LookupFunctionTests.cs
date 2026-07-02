@@ -38,6 +38,17 @@ public class LookupFunctionTests
     }
 
     [Test]
+    public async Task VLookup_ColumnIndexBelowOne_IsValueError()
+    {
+        // support.microsoft.com VLOOKUP: col_index_num < 1 -> #VALUE!; greater than the number of
+        // columns in table_array -> #REF!. Mirrors the HLOOKUP row_index_num rule (wave 3 finding).
+        await Assert.That(Calc("=VLOOKUP(1,A1:B2,0)", ("A1", 1), ("B1", 2)) as ErrorValue)
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=VLOOKUP(1,A1:B2,3)", ("A1", 1), ("B1", 2)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
     public async Task Rows_CountsRowsInRange()
     {
         await Assert.That(Calc("=ROWS(A1:A3)") as double?).IsEqualTo(3.0);

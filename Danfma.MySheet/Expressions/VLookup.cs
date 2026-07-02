@@ -20,7 +20,14 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(columnError);
         }
 
-        if (columnIndex < 1 || columnIndex > table.ColumnCount)
+        // Per the docs: col_index_num < 1 -> #VALUE!, greater than the table's columns -> #REF!
+        // (mirrors HLOOKUP's row_index_num rule).
+        if (columnIndex < 1)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        if (columnIndex > table.ColumnCount)
         {
             return ComputedValue.Error(Error.Ref);
         }
