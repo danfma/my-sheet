@@ -76,3 +76,23 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   NÃO-documentada (o first_coupon precisa alinhar com a agenda vinda do maturity) que a própria lib comenta
   como "not in the docs, but nevertheless is needed". Um teste meu quebrou por usar first_interest < settlement
   "multi-período" — inválido. Ler as `calc*` (preconditions) do oráculo evita golden values impossíveis.
+
+## MySheet — voláteis / MemoryPack e thread-safety (2026-07-02, F1)
+
+- **MemoryPack IGNORA os field/property initializers na desserialização.** Um membro com initializer (`= new()`,
+  `= TimeProvider.System`) vem NULL depois de um `Load` — a evidência já estava no codebase (o `RestoreComparers`
+  trata `DefinedNames` null "older files carry no DefinedNames"). Consequência para estado NÃO-serializado
+  (`[MemoryPackIgnore]`) que precisa existir em runtime (locks, providers, sets concorrentes): NÃO confie no
+  initializer. Padrões robustos: (a) getter lazy com default (`_timeProvider ?? TimeProvider.System`);
+  (b) criação lazy race-free via `Interlocked.CompareExchange` (locks/dicionários concorrentes). Assim funciona
+  tanto no `new Workbook()` quanto no `Load`, sem depender do hook `[MemoryPackOnDeserialized]`.
+- **Compat binária de config runtime = `[MemoryPackIgnore]`, não membro no fim do schema.** `TimeProvider`/
+  `RandomSeed` são config, não estado: `[MemoryPackIgnore]` mantém o schema serializado inalterado (a fixture
+  antiga abre) — diferente do `DefinedNames`, que É estado e foi appendado como último membro. `IsVolatile` é
+  comportamento: property virtual get-only com `[MemoryPackIgnore]` (o analyzer do MemoryPack aceita, mesmo
+  padrão do `Sheet.Count`). Regra: pergunte "isto é ESTADO do documento ou CONFIG/COMPORTAMENTO?" antes de
+  decidir append-ao-schema vs ignore.
+- **Amostra-uma-vez sob concorrência = lock simples, não fast-path lock-free de `double?`.** Para amostrar
+  `_epochNow` (um `double?`) 1× por época com avaliação concorrente, um `lock` sempre (`_epochNow ??= …` dentro)
+  é correto e barato (não é caminho quente: 1× por célula volátil por época). O fast-path `if (_epochNow is {})`
+  sem lock teria torn read do `double?` (struct não-atômica). Não otimize prematuramente o que não é hot.

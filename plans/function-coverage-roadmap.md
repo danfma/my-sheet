@@ -608,10 +608,12 @@ merge + aval do usuário; sem push.
 ---
 
 ## Fases futuras (analisadas, NÃO autorizadas — abrir plano próprio ao ativar)
-- **F1 Voláteis**: **DECISÕES TRAVADAS 2026-07-02, EM EXECUÇÃO** — ver §F1-DESIGN e a Phase F1 abaixo.
-  Cache por época + `Recalculate()`; escopo `TODAY/NOW/RAND/RANDBETWEEN` (OFFSET não-volátil, INDIRECT
-  adiado). `touch` por célula BARRADO até termos grafo reverso de dependências (volatilidade contagiosa
-  desincronizaria dependentes sem ele).
+- **F1 Voláteis**: **CONCLUÍDA 2026-07-02** — ver [`plans/volatile-functions.md`](volatile-functions.md)
+  (3 fases Complete). Cache por época + `Recalculate()`; escopo `TODAY/NOW/RAND/RANDBETWEEN` (OFFSET
+  não-volátil, INDIRECT adiado). `touch` por célula BARRADO até termos grafo reverso de dependências
+  (volatilidade contagiosa desincronizaria dependentes sem ele). Parser 300 → **304**; Date and Time 25/25
+  (categoria completa), Math and Trigonometry 74/82; tags MemoryPackUnion 312–315; release aditivo 2.5.0
+  (gate do usuário). §F1-DESIGN abaixo é o registro do desenho original.
 - **F2 Arrays**: §A2 (`ComputedValueKind.Array`) → `FILTER` `SORT` `SORTBY` `UNIQUE` `SEQUENCE`
   `TRANSPOSE` `MMULT` `MINVERSE` `MDETERM` `MUNIT` `FREQUENCY` `TEXTSPLIT` `TEXTJOIN`-array `TOCOL`
   `TOROW` `WRAPROWS` `WRAPCOLS` `TAKE` `DROP` `CHOOSEROWS` `CHOOSECOLS` `HSTACK` `VSTACK` `EXPAND`

@@ -30,7 +30,10 @@ Key `Workbook` members:
 | --- | --- |
 | `Sheets` / `this[string]` | Access sheets by name (case-insensitive). |
 | `GetCellValue(sheetName, id)` | Memoized evaluation of one cell → `ComputedValue`. |
-| `InvalidateCache()` | Explicitly flushes the memoization cache (required after edits). |
+| `InvalidateCache()` | Explicitly flushes the whole memoization cache (required after edits); also resets the volatile epoch. |
+| `Recalculate()` | Refreshes only volatile cells (see [Volatile functions](#volatile-functions)); keeps every stable cell cached. |
+| `TimeProvider` | Injectable clock for `NOW`/`TODAY` (defaults to `TimeProvider.System`, read in local time). |
+| `RandomSeed` | Optional `int?` seed for `RAND`/`RANDBETWEEN` (fixed value → reproducible runs). |
 | `RegisterFunction(name, fn)` / `TryGetFunction(name, out fn)` | Custom-function registry ([guide](custom-functions.md)). |
 | `Save(path)` / `SaveAsync(path)` / `Load(path)` / `LoadAsync(path)` | MemoryPack serialization ([guide](serialization.md)). |
 | `RunWithLargeStack(work)` (static) | Runs an evaluation batch on a large-stack thread ([guide](performance.md)). |
@@ -218,6 +221,73 @@ collides with a cell-reference shape (`A1`) or a boolean literal, is also reject
 
 **Cycles.** A name that refers to itself, directly or through a chain (`A → B → A`), is detected by a
 thread-local guard and yields `#REF!` instead of overflowing the stack.
+
+## Volatile functions
+
+Four functions are **volatile** — their result depends on the clock or a random draw, not only on the cells
+they read: `NOW()`, `TODAY()`, `RAND()` and `RANDBETWEEN(bottom, top)`. MySheet gives them Excel's two
+defining behaviours — *recalculate on demand* and *contagious volatility* — without a dependency graph,
+through an **epoch cache model**.
+
+### The epoch model
+
+Within one epoch a volatile is computed **once** and cached, so every `NOW()`/`TODAY()` in a pass agrees on
+the same instant and a `RAND()` cell read twice returns the same value. A cell that touches a volatile —
+directly (`=NOW()`) or transitively (`=A1+1` where `A1=NOW()`) — is cached **and marked**; the mark rides
+the same thread-local propagation the cycle detector uses, so volatility spreads to dependents for free.
+
+- **`Recalculate()`** advances the epoch: it drops **only** the marked (volatile-touched) cells and
+  re-samples the clock/RNG, leaving every stable cell cached. Values refresh **lazily** — the next read
+  recomputes them. This is the cheap "give me the current time / a new random draw" call.
+- **`InvalidateCache()`** still clears **everything** (use it after editing cell inputs) and also resets the
+  epoch.
+
+```csharp
+using Danfma.MySheet;
+using Danfma.MySheet.Parsing;
+
+var workbook = new Workbook();
+var sheet = workbook.Sheets.Add("Sheet1");
+sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet);
+sheet["B1"] = ExpressionParser.Parse("=A1+1", sheet);   // transitively volatile
+
+ComputedValue first = workbook.GetCellValue("Sheet1", "A1");
+ComputedValue again = workbook.GetCellValue("Sheet1", "A1");   // same epoch → identical
+
+workbook.Recalculate();                                        // advance the epoch
+ComputedValue later = workbook.GetCellValue("Sheet1", "A1");   // re-sampled → newer
+ComputedValue b = workbook.GetCellValue("Sheet1", "B1");       // B1 refreshed too (contagion)
+```
+
+The clock is sampled **lazily** — on the first volatile read of an epoch, not inside `Recalculate()` — so
+`NOW()` reflects the instant the value was actually produced, and nothing is sampled if no volatile is read.
+
+### Injecting the clock and the RNG
+
+`NOW`/`TODAY` read `Workbook.TimeProvider` (default `TimeProvider.System`) in **local time**, like Excel.
+Assign any `TimeProvider` to freeze time for a batch, or to make tests deterministic regardless of the
+machine's clock and zone. `RAND`/`RANDBETWEEN` draw from a persistent RNG; set `Workbook.RandomSeed` (an
+`int?`) **before the first volatile read** to make the whole run reproducible, or leave it `null` (default)
+for a clock-seeded RNG.
+
+```csharp
+workbook.TimeProvider = TimeProvider.System;   // the default; swap for a fake to control the clock
+workbook.RandomSeed = 12345;                    // reproducible RAND/RANDBETWEEN
+```
+
+The RNG advances across epochs and is never re-seeded, so successive `Recalculate()` passes produce
+different draws while a single cell stays stable within its epoch. Neither `TimeProvider` nor `RandomSeed`
+is serialized (they are runtime configuration): a loaded workbook starts from `TimeProvider.System` and an
+unseeded RNG.
+
+### Limits (by design)
+
+- **No per-cell refresh.** You can refresh *all* volatiles (`Recalculate()`), not a single one. Refreshing
+  just `A1=NOW()` while leaving a cached `B1=A1+1` stale would need a reverse dependency graph, which the
+  engine deliberately does not keep — so the coarse but correct refresh is the one offered.
+- **`OFFSET` is not volatile.** Excel marks `OFFSET` volatile as a safety net for automatic recalculation;
+  here invalidation is explicit, so marking it would needlessly taint half a sheet — a conscious divergence.
+- **`INDIRECT` is not implemented** (resolving a reference from text is a separate feature).
 
 ## From expression back to formula text
 

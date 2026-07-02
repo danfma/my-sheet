@@ -177,29 +177,71 @@ FormulaWriter +2 (`RAND()`/`RANDBETWEEN(1,6)`); suíte Excel intacta (20); build
 ---
 
 ## Phase 3: Documentação + finalização
-Status: Not started
+Status: Complete
 
 **Usar a skill `code-documentation-doc-generate`** para a atualização da documentação (extrair fatos do
 código → gerar/atualizar → validar exemplos por compilação), como no trabalho inicial de docs.
 
-- [ ] `docs/function-reference.md`: `TODAY`/`NOW` de ⬜ (deferred) para ✅ (Date and time 23/25 → 25/25);
+- [x] `docs/function-reference.md`: `TODAY`/`NOW` de ⬜ (deferred) para ✅ (Date and time 23/25 → 25/25);
       `RAND`/`RANDBETWEEN` ✅ (Math); contagens do topo 300 → 304; blocos de cobertura.
-- [ ] `docs/workbook-and-expressions.md`: seção "Volatile functions" — o modelo de época, `Recalculate()` vs
+- [x] `docs/workbook-and-expressions.md`: seção "Volatile functions" — o modelo de época, `Recalculate()` vs
       `InvalidateCache()`, `TimeProvider`/`RandomSeed` injetáveis, coerência intra-época, e o limite do
       `touch` por célula (precisa de grafo de dependências). Nota sobre `OFFSET` não-volátil (divergência).
-- [ ] `README.md`: bullet de features (voláteis + `Recalculate`/`TimeProvider`).
-- [ ] NÃO tocar `docs/pt-BR/` (refresh no deploy).
-- [ ] `plans/function-coverage-roadmap.md`: F1 → Complete (nas "Fases futuras"); apontar para este plano.
+- [x] `README.md`: bullet de features (voláteis + `Recalculate`/`TimeProvider`).
+- [x] NÃO tocar `docs/pt-BR/` (refresh no deploy).
+- [x] `plans/function-coverage-roadmap.md`: F1 → Complete (nas "Fases futuras"); apontar para este plano.
 
 ### Verification Plan
 - Build `--no-incremental` 0 warnings; ambas as suítes verdes; contagens do reference conferem com o Parser
   (`grep -cE '^\s+\["' Parser.cs` = 304).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 via a skill `code-documentation-doc-generate` (extrair do código → atualizar →
+validar exemplos por compilação). `docs/function-reference.md`: contagem do topo e da seção de cobertura
+300 → **304**; "Math and trigonometry" 72 → 74 (linhas novas `RAND`/`RANDBETWEEN`, marcadas volatile + link);
+"Date and time" 23 → 25 com `NOW`/`TODAY` na tabela e o parágrafo de intro reescrito (de "deferred" para
+"volatile"); blocos de cobertura Math 72/82 → **74/82** (RAND/RANDBETWEEN saíram de ⬜) e Date **25/25**
+(categoria completa; NOW/TODAY em ✅). `docs/workbook-and-expressions.md`: seção nova **"Volatile functions"**
+(modelo de época, `Recalculate()` vs `InvalidateCache()`, amostragem lazy, `TimeProvider`/`RandomSeed`
+injetáveis + não-serializados, coerência intra-época, e os limites por design: sem `touch` por célula sem
+grafo reverso, `OFFSET` não-volátil, `INDIRECT` fora) + 3 linhas novas na tabela de membros do `Workbook`
+(`Recalculate`/`TimeProvider`/`RandomSeed`). `README.md`: contagem 300 → 304 (5 ocorrências), bullet novo
+de features "Volatile functions", RAND/RANDBETWEEN no bullet de math, TODAY/NOW no bullet de datas (de
+"deferred" para "the volatile"). `docs/pt-BR/` **intocado** (refresh é no deploy). **Exemplos validados por
+compilação**: os snippets da seção nova foram extraídos para um projeto scratch com `TreatWarningsAsErrors`
+e referência ao `Danfma.MySheet` — compilaram 0 warnings/0 erros. Contagens conferidas por script:
+`grep -cE '^\s+\["' Parser.cs` = **304**, batendo com o reference e o README; maior tag do union = 315.
+`plans/function-coverage-roadmap.md`: F1 marcada **CONCLUÍDA** nas "Fases futuras", apontando para este plano.
 
 ## Final Recap
-_(escrever quando as fases 1–3 concluírem)_
+F1 (funções voláteis) concluída em 2026-07-02 na branch `feature/volatile-functions` (3 fases Complete, TDD
+RED→GREEN rigoroso). **4 funções novas** — `NOW`, `TODAY` (relógio) e `RAND`, `RANDBETWEEN` (RNG) — levando o
+Parser de 300 → **304**; Date and Time **25/25** (categoria completa), Math and Trigonometry **74/82**. Tags
+MemoryPackUnion **312–315** (append-only; próximo livre = 316).
+
+O núcleo é o **modelo de época**: célula que toca volátil (direta ou transitivamente, via o flag thread-local
+`_volatileTouched` propagado em volta do `Evaluate` no `GetCellValue` — espelho do detector de ciclos
+`_evaluating`) é cacheada por época E marcada em `_volatileTainted`. `Recalculate()` remove do `_cache` só as
+marcadas + reseta relógio/RNG (refresh lazy, sem recomputar); `InvalidateCache()` limpa tudo + reseta a época;
+nenhum dos dois reseta o RNG (a sequência continua entre épocas). Relógio via `TimeProvider` injetável (hora
+local, como o Excel), amostrado 1× por época (lazy, na 1ª leitura); RNG semeável via `RandomSeed`. `IsVolatile`
+virtual (introspecção) na `Expression`.
+
+**Thread-safety (além do plano):** `_epochNow` amostrado sob um `VolatileLock` único (compartilhado com o RNG),
+criado lazy via `Interlocked.CompareExchange` para sobreviver à desserialização MemoryPack (que ignora field
+initializers — mesmo motivo do null-handling do `DefinedNames`); `_volatileTainted` idem; `TimeProvider` com
+getter lazy defaultando para `System`. Escritas no set via indexer do `ConcurrentDictionary`. Sem corrida.
+
+**Compat binária preservada:** `TimeProvider`/`RandomSeed` são `[MemoryPackIgnore]` (config runtime), o schema
+serializado do `Workbook` NÃO mudou (`DefinedNames` segue o último membro), e `IsVolatile` é comportamento
+(`[MemoryPackIgnore]`, sem setter) — a fixture `workbook-pre-namespaces.msgpack.bin` abre e reavalia idêntica
+(guarda verde). 2 round-trips novos provam os tags 312–315.
+
+Suítes finais (rebuild `--no-incremental`, **0 warnings**): core 676 → **698 verdes** (+22: 10 clock + 12 RNG),
+Excel **20 verdes**. Release aditivo **2.5.0** pendente do gate do usuário (sem push). Decisões page-silent
+documentadas: `RANDBETWEEN` `bottom>top`→`#NUM!` e truncagem toward-zero de args não-inteiros (a página da MS
+é silente; marcado como decisão de design, não golden do Excel). Divergências conscientes documentadas:
+`OFFSET` não-volátil, `INDIRECT` fora, sem `touch` por célula (falta grafo reverso de dependências).
 
 ## Deployment Plan
 _(quando concluir, com aval do usuário — mesmo ritual das ondas: verificação independente minha com rebuild
