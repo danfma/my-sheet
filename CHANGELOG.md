@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.5.0"></a>
+## [2.5.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.5.0) (2026-07-02)
+
+### Features
+
+* **volatile:** add NOW/TODAY with an epoch cache model ([6a50953](https://www.github.com/danfma/my-sheet/commit/6a509532adea681ccc94a91e4e515e6e48b814e5))
+* **volatile:** add RAND/RANDBETWEEN on a seedable RNG ([4c43881](https://www.github.com/danfma/my-sheet/commit/4c43881d663810855ffb32cb88de26f4ea012105))
+
 <a name="2.4.0"></a>
 ## [2.4.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.4.0) (2026-07-02)
 
