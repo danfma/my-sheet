@@ -47,3 +47,8 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   a lista explícita somava 35 — o usuário aprovou a LISTA, mas o número errado contaminou a meta de
   cobertura (~435 vs ~485 viáveis). Números derivados de listas devem ser contados por script/soma real,
   nunca estimados de memória (mesma família da lição dos golden values).
+
+- **Verificar builds de agentes com `--no-incremental`.** O relatório da Onda 5 alegou 0 warnings, mas o
+  build incremental escondia 14 avisos de analyzer nos testes (recompilar não reemite warnings de projetos
+  up-to-date). A verificação independente agora força rebuild. Corolário: nunca encadear `git commit` atrás
+  de build sem condicionar ao sucesso — um sed meu quebrou o build e o commit passou junto.
