@@ -250,6 +250,42 @@ _(escrever quando a fase concluir)_
 
 ---
 
+## Phase R: Reorganização dos nós da AST em namespaces semânticos (breaking → 2.0.0)
+Status: Not started
+<!-- Pedido do usuário em 2026-07-02: "separar os nós da nossa AST em namespaces semânticos, por
+categoria — o namespace está ficando muito inflado". EXECUTAR logo após a Onda 3 integrar e ANTES da
+Onda 4 (menor churn acumulado; adoção do 1.x ainda mínima). As ondas 4-6 viram 2.1.0/2.2.0/2.3.0. -->
+
+Proposta de forma (fazer certo UMA vez — decisões a validar com o usuário no gate de execução):
+- `Danfma.MySheet` (raiz): + `ComputedValue`, `ComputedValueKind`, `Error` — são os tipos de RESULTADO da
+  API pública (par de `Workbook`/`Sheet`), não "expressões". (Ponto em aberto para o usuário.)
+- `Danfma.MySheet.Expressions` (núcleo enxuto): `Expression`, `ValueExpression`, `Function`, `Reference`,
+  `FunctionCall`, `EvaluationContext`, nós-valor (`NumberValue`/`StringValue`/`BooleanValue`/`BlankValue`/
+  `ErrorValue`), referências (`CellReference`/`RangeReference`/`UnionReference`/`NameReference`),
+  operações (`BinaryOperation`/`UnaryOperation`) e helpers internal.
+- `Danfma.MySheet.Expressions.Functions.{Logical|Aggregation|Math|Text|Information|Lookup|Financial|Dates}`:
+  os records de função por categoria do Excel (pastas espelhando namespaces).
+
+- [ ] Mover os records de função para os namespaces por categoria (pastas correspondentes); atualizar
+      usings de `Parser`, `FormulaWriter`, testes (preferir `GlobalUsings` nos csproj de teste).
+- [ ] Decisão do usuário: mover `ComputedValue`/`Error` para a raiz `Danfma.MySheet`? (recomendado).
+- [ ] **Teste de compat binária MemoryPack**: ANTES do refactor, serializar um workbook representativo
+      (fórmulas de todas as categorias) e commitar o blob como fixture; DEPOIS, teste que o deserializa e
+      reavalia — prova que o union por tags sobrevive à mudança de namespace. (Tags não mudam: append-only
+      continua valendo.)
+- [ ] Docs: guia de migração 1.x → 2.0 (tabela de namespaces), atualização dos guias EN + refresh pt-BR.
+- [ ] Atualizar os briefings das ondas seguintes: nós novos nascem no namespace da categoria.
+- [ ] Commit `refactor!:` (BREAKING CHANGE) → release **2.0.0**.
+
+### Verification Plan
+- Suítes completas verdes (core + Excel) + teste de compat binária com a fixture pré-refactor.
+- Build 0 warnings; `versionize --dry-run` propõe major.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
+
+---
+
 ## Phase 4 (Onda 4 → 1.4.0): Condicionais, SUMPRODUCT, estatística descritiva + aliases (~55 funções)
 Status: Not started
 
