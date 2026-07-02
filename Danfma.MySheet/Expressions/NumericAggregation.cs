@@ -87,6 +87,66 @@ internal static class NumericAggregation
         return error;
     }
 
+    /// <summary>
+    /// The A-variant gathering (AVERAGEA/MAXA/MINA/STDEVA/…): like <see cref="Fold{TFold}"/> except
+    /// that referenced text counts as 0 and referenced logicals as 1/0 (blanks are still ignored),
+    /// mirroring Excel's documented *A rule.
+    /// </summary>
+    public static Error? FoldA<TFold>(
+        Expression[] arguments,
+        EvaluationContext context,
+        ref TFold fold
+    )
+        where TFold : struct, INumericFold
+    {
+        Error? error = null;
+
+        foreach (var argument in arguments)
+        {
+            switch (argument)
+            {
+                case RangeReference range:
+                    foreach (var value in range.ExpandComputedValues(context))
+                    {
+                        AddReferencedA(value, ref fold, ref error);
+                    }
+
+                    break;
+
+                case CellReference cell:
+                    AddReferencedA(cell.Evaluate(context), ref fold, ref error);
+                    break;
+
+                case UnionReference union:
+                    foreach (var value in union.ExpandComputedValues(context))
+                    {
+                        AddReferencedA(value, ref fold, ref error);
+                    }
+
+                    break;
+
+                default:
+                    var argumentValue = argument.Evaluate(context);
+
+                    if (argumentValue.Kind == ComputedValueKind.Reference)
+                    {
+                        foreach (var cellValue in argumentValue.EnumerateValues(context))
+                        {
+                            AddReferencedA(cellValue, ref fold, ref error);
+                        }
+                    }
+                    else
+                    {
+                        AddDirect(argumentValue, ref fold, ref error);
+                    }
+
+                    break;
+            }
+        }
+
+        return error;
+    }
+
     private static void AddReferenced<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
         where TFold : struct, INumericFold
     {
@@ -100,6 +160,30 @@ internal static class NumericAggregation
         }
 
         // Referenced text, logicals and blanks are ignored, matching Excel.
+    }
+
+    private static void AddReferencedA<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
+        where TFold : struct, INumericFold
+    {
+        if (value.TryGetError(out var referencedError))
+        {
+            error ??= referencedError;
+        }
+        else if (value.TryGetNumber(out var number))
+        {
+            fold.Accept(number);
+        }
+        else if (value.TryGetBoolean(out var boolean))
+        {
+            fold.Accept(boolean ? 1 : 0);
+        }
+        else if (value.Kind == ComputedValueKind.Text)
+        {
+            // The *A rule: text in a referenced cell counts as 0 (even numeric-looking text).
+            fold.Accept(0);
+        }
+
+        // Referenced blanks are still ignored.
     }
 
     private static void AddDirect<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
