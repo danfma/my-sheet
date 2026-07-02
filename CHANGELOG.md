@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="1.3.0"></a>
+## [1.3.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.3.0) (2026-07-02)
+
+### Features
+
+* **functions:** add scalar lookup and reference wave ([e0bd9b1](https://www.github.com/danfma/my-sheet/commit/e0bd9b1417350b54e25f32896e174b3a9cd867c0))
+
+### Bug Fixes
+
+* **lookup:** VLOOKUP returns #VALUE! for col_index_num below 1 ([0fb6af5](https://www.github.com/danfma/my-sheet/commit/0fb6af5388f66925a81148ad7c05b31a034fe3e8))
+
 <a name="1.2.0"></a>
 ## [1.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.2.0) (2026-07-02)
 
