@@ -130,6 +130,11 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(121, typeof(DecimalNumber))]
 [MemoryPackUnion(122, typeof(Roman))]
 [MemoryPackUnion(123, typeof(Arabic))]
+[MemoryPackUnion(124, typeof(TrueFunction))]
+[MemoryPackUnion(125, typeof(FalseFunction))]
+[MemoryPackUnion(126, typeof(Xor))]
+[MemoryPackUnion(127, typeof(Ifs))]
+[MemoryPackUnion(128, typeof(Switch))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

@@ -342,6 +342,11 @@ public static class FormulaWriter
             DecimalNumber f => ("DECIMAL", f.Arguments),
             Roman f => ("ROMAN", f.Arguments),
             Arabic f => ("ARABIC", f.Arguments),
+            TrueFunction f => ("TRUE", f.Arguments),
+            FalseFunction f => ("FALSE", f.Arguments),
+            Xor f => ("XOR", f.Arguments),
+            Ifs f => ("IFS", f.Arguments),
+            Switch f => ("SWITCH", f.Arguments),
             _ => throw new NotSupportedException(
                 $"No Excel function name registered for node '{function.GetType().Name}'."
             ),

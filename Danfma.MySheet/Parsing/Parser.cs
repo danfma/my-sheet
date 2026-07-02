@@ -142,6 +142,11 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["DECIMAL"] = new(2, 2, arguments => new DecimalNumber(arguments)),
         ["ROMAN"] = new(1, 2, arguments => new Roman(arguments)),
         ["ARABIC"] = new(1, 1, arguments => new Arabic(arguments)),
+        ["TRUE"] = new(0, 0, arguments => new TrueFunction(arguments)),
+        ["FALSE"] = new(0, 0, arguments => new FalseFunction(arguments)),
+        ["XOR"] = new(1, int.MaxValue, arguments => new Xor(arguments)),
+        ["IFS"] = new(2, int.MaxValue, arguments => new Ifs(arguments)),
+        ["SWITCH"] = new(3, int.MaxValue, arguments => new Switch(arguments)),
     };
 
     private int _index;
