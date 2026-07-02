@@ -43,6 +43,8 @@ public class FormulaWriterTests
     [Arguments("SHEET()")]
     [Arguments("MYFN(1,A1)")] // função custom (FunctionCall)
     [Arguments("ROUND(1.234,2)")]
+    [Arguments("CEILING.MATH(-5.5,2,-1)")] // nome de função com ponto
+    [Arguments("PI()")]
     [Arguments("Sheet2!A1+1")]
     [Arguments("Sheet2!A1:B2")]
     [Arguments("'My Sheet'!A1")]
@@ -88,6 +90,19 @@ public class FormulaWriterTests
             "PMT(0.05,10,1000)", "PV(0.05,10,100)", "FV(0.05,10,100)", "NPER(0.05,100,1000)",
             "IPMT(0.05,1,10,1000)", "PPMT(0.05,1,10,1000)", "NPV(0.1,A1:A3)",
             "RATE(10,100,1000)", "IRR(A1:A3)",
+            // Onda 1 — Math & Trigonometria escalar.
+            "SQRT(4)", "POWER(2,3)", "EXP(1)", "LN(1)", "LOG(8,2)", "LOG10(100)", "SQRTPI(1)",
+            "ROUNDDOWN(1.9,0)", "TRUNC(1.9)", "MROUND(10,3)",
+            "CEILING(2.5,1)", "CEILING.MATH(6.7)", "CEILING.PRECISE(6.7)", "ISO.CEILING(6.7)",
+            "FLOOR(3.7,2)", "FLOOR.MATH(6.7)", "FLOOR.PRECISE(6.7)", "EVEN(1)", "ODD(2)",
+            "MOD(3,2)", "QUOTIENT(5,2)", "SIGN(-5)", "PI()",
+            "PRODUCT(A1:A2)", "SUMSQ(1,2)", "MULTINOMIAL(2,3)", "SERIESSUM(1,0,1,A1:A2)",
+            "FACT(5)", "FACTDOUBLE(6)", "COMBIN(8,2)", "COMBINA(4,3)", "GCD(24,36)", "LCM(24,36)",
+            "SIN(1)", "COS(1)", "TAN(1)", "COT(1)", "SEC(1)", "CSC(1)",
+            "ASIN(1)", "ACOS(1)", "ATAN(1)", "ATAN2(1,1)", "ACOT(1)",
+            "SINH(1)", "COSH(1)", "TANH(1)", "COTH(1)", "SECH(1)", "CSCH(1)",
+            "ASINH(1)", "ACOSH(2)", "ATANH(0.5)", "ACOTH(6)", "DEGREES(PI())", "RADIANS(180)",
+            "BASE(7,2)", "DECIMAL(\"FF\",16)", "ROMAN(499)", "ARABIC(\"LVII\")",
         ];
 
         var failures = new List<string>();

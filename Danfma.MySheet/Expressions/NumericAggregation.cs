@@ -12,6 +12,17 @@ internal interface INumericFold
 }
 
 /// <summary>
+/// Fold that materializes the gathered values, for aggregations that need more than a single pass
+/// (GCD, LCM, MULTINOMIAL).
+/// </summary>
+internal struct NumericListFold : INumericFold
+{
+    public List<double> Values;
+
+    public void Accept(double value) => Values.Add(value);
+}
+
+/// <summary>
 /// Shared single-pass numeric gathering for aggregate functions (SUM, AVERAGE, MIN, MAX, COUNT), reading
 /// each cell as a <see cref="ComputedValue"/> straight from the cache (no boxing). Mirrors Excel's rule:
 /// numeric text and logicals passed <em>directly</em> as arguments are counted, but text/logicals/blanks
