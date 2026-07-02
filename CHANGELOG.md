@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.2.0"></a>
+## [2.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.2.0) (2026-07-02)
+
+### Features
+
+* **names:** add workbook-level defined names ([f3b0ca8](https://www.github.com/danfma/my-sheet/commit/f3b0ca8823999747b9d2b36191fb7928284211c9))
+* **names:** read and write defined names in xlsx interop ([5e3c7da](https://www.github.com/danfma/my-sheet/commit/5e3c7dacec64cf20f46bcb1d306210f63cdb6142))
+
+### Bug Fixes
+
+* **excel:** guard nullable workbook part when writing defined names ([bf5838f](https://www.github.com/danfma/my-sheet/commit/bf5838fbcd39a60c799393e0749bc5e00ffa0d06))
+
 <a name="2.1.0"></a>
 ## [2.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.1.0) (2026-07-02)
 
