@@ -89,7 +89,31 @@ public static class ExcelExport
             );
         }
 
+        // Defined names go after <sheets> in the workbook element (schema order).
+        WriteDefinedNames(workbookPart, workbook);
+
         sharedStrings.WriteTo(workbookPart);
+    }
+
+    private static void WriteDefinedNames(WorkbookPart workbookPart, Workbook workbook)
+    {
+        if (workbook.DefinedNames.Count == 0)
+        {
+            return;
+        }
+
+        var definedNames = new DefinedNames();
+
+        foreach (var (name, expression) in workbook.DefinedNames)
+        {
+            // An empty un-parse context matches no sheet, so every reference is emitted fully qualified
+            // (e.g. Data!A1:A3) — required because a workbook-level name has no implicit sheet.
+            definedNames.AppendChild(
+                new DefinedName(expression.ToFormula(string.Empty)) { Name = name }
+            );
+        }
+
+        workbookPart.Workbook.AppendChild(definedNames);
     }
 
     private static SheetData BuildSheetData(

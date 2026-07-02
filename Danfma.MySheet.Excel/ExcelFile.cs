@@ -57,7 +57,53 @@ public static class ExcelFile
             }
         }
 
+        // Defined names are read after the sheets so their (qualified) references resolve to real sheets.
+        LoadDefinedNames(workbookPart, workbook);
+
         return workbook;
+    }
+
+    // A sheet named "" so ExpressionParser can parse a defined name's refersTo; workbook-scoped names are
+    // fully qualified, so this context is never actually consulted (parsing only reads the sheet's name).
+    private static readonly Sheet DefinedNameContext = new() { Name = string.Empty };
+
+    private static void LoadDefinedNames(WorkbookPart workbookPart, Workbook workbook)
+    {
+        foreach (var definedName in workbookPart.Workbook?.DefinedNames?.Elements<DefinedName>() ?? [])
+        {
+            if (definedName.Name?.Value is not { } name)
+            {
+                continue;
+            }
+
+            // Only workbook-scoped user names: skip the sheet-scoped ones (they carry a localSheetId) and
+            // Excel's builtin "_xlnm.*" names (Print_Area, Print_Titles, _FilterDatabase, …).
+            if (
+                definedName.LocalSheetId is not null
+                || name.StartsWith("_xlnm.", StringComparison.OrdinalIgnoreCase)
+            )
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(definedName.Text))
+            {
+                continue;
+            }
+
+            try
+            {
+                // The refersTo (e.g. "Data!$A$1:$A$10") is parsed as a formula; a constant name (e.g. "0.1")
+                // parses to a literal.
+                var expression = ExpressionParser.Parse("=" + definedName.Text, DefinedNameContext);
+                workbook.DefineName(name, expression);
+            }
+            catch (Exception exception) when (exception is ParseException or ArgumentException)
+            {
+                // A name we cannot parse, or whose name fails validation, is skipped rather than failing
+                // the whole load (a documented interop limitation).
+            }
+        }
     }
 
     private static void LoadCell(
