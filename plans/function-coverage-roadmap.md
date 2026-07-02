@@ -609,7 +609,8 @@ merge + aval do usuário; sem push.
 
 ## Fases futuras (analisadas, NÃO autorizadas — abrir plano próprio ao ativar)
 - **F1 Voláteis**: infra §A1 (IsVolatile + no-cache propagado + TimeProvider) → `TODAY` `NOW` `RAND`
-  `RANDBETWEEN` `INDIRECT`.
+  `RANDBETWEEN` `INDIRECT`. **Design detalhado + defaults recomendados abaixo (§F1-DESIGN), aguardando aval
+  do usuário nas 3 decisões antes de despachar implementação.**
 - **F2 Arrays**: §A2 (`ComputedValueKind.Array`) → `FILTER` `SORT` `SORTBY` `UNIQUE` `SEQUENCE`
   `TRANSPOSE` `MMULT` `MINVERSE` `MDETERM` `MUNIT` `FREQUENCY` `TEXTSPLIT` `TEXTJOIN`-array `TOCOL`
   `TOROW` `WRAPROWS` `WRAPCOLS` `TAKE` `DROP` `CHOOSEROWS` `CHOOSECOLS` `HSTACK` `VSTACK` `EXPAND`
@@ -660,3 +661,43 @@ ExcelFinancialFunctions diverge do PRICE canônico e do 30/360 do YEARFRAC em ca
 ## Deployment Plan
 _(por onda: merge na main → push (aval) → `gh workflow run release.yml` → minor bump lockstep dos 2
 pacotes → `git pull`. Nada de publish manual.)_
+
+---
+
+## §F1-DESIGN: Voláteis — desenho detalhado (proposto 2026-07-02, aguardando aval das 3 decisões)
+
+Contexto: cache por célula é tudo-ou-nada (`InvalidateCache()`), sem grafo de dependências. Voláteis do
+Excel têm duas propriedades: (1) recalculam sempre; (2) volatilidade é CONTAGIOSA (dependente de volátil
+vira volátil); (3) relógio amostrado uma vez por recálculo (todos os `NOW()` de uma passada concordam).
+
+**Mecanismo (comum a todas as decisões):**
+- `virtual bool IsVolatile => false` na `Expression`; override `true` nos nós verdadeiramente
+  tempo/aleatório. Transitividade sai de graça: flag thread-local "avaliação tocou volátil" no `Workbook`
+  (mesmo padrão do detector de ciclos `_evaluating`), setada ao avaliar nó volátil e propagada ao chamador
+  porque `GetCellValue` recorre.
+- `TimeProvider` injetável no `Workbook` (default `TimeProvider.System`) + RNG semeável — testabilidade e
+  controle do host. Amostrados UMA vez por época e mantidos (coerência do `NOW()`/`RAND()` intra-passada).
+
+**Verificação da qualidade da base (feita 2026-07-02, antes de F1):** teste de mutação manual — quebrei
+`MOD` (→ `%` do C#) e `SLN` (dropando salvage); ambos pegos na hora; o teste do SLN compara contra o
+oráculo `ExcelFinancialFunctions` ao vivo. 1180 asserts / 702 casos, 0 tautologias, 108 citações à MS.
+Confiança alta na maioria oráculo-ancorada; média nas ~37 linhas "derived from documented rules"
+(page-silent). Opção barata de fechar a lacuna antes de F1: spike Stryker.NET para mutation score real.
+
+**Decisão 1 — política de cache (recomendado: cache por época + set marcado):** célula volátil é cacheada
+DENTRO da época e o set de chaves marcadas é limpo ao avançar a época (melhor desempenho; NOW/RAND uma vez
+por passada). Alternativa: nunca cachear voláteis (mais simples, recomputa a subárvore a cada leitura).
+
+**Decisão 2 — API de época (recomendado: InvalidateCache + novo `Recalculate()`):** InvalidateCache()
+segue limpando tudo (novos inputs); `Recalculate()` novo limpa só as marcadas + re-amostra relógio/RNG
+(refresh barato sem recomputar as estáveis). Alternativa: só reusar InvalidateCache().
+
+**Decisão 3 — escopo (recomendado: TODAY/NOW/RAND/RANDBETWEEN):** as 4 puramente tempo/aleatório.
+`INDIRECT` FORA (o difícil é resolver referência a partir de texto — feature própria, toca parser/resolvedor).
+**`OFFSET` NÃO vira volátil** (divergência consciente do Excel: lá é volátil por segurança de auto-recálculo;
+aqui a invalidação é explícita, então marcá-lo contaminaria meia planilha por nada — documentar).
+
+**Verification Plan (quando executar):** TODAY/NOW com TimeProvider fake (data fixa → valor previsível;
+avança o provider + Recalculate → novo valor; sem Recalculate → mantém); dependente de volátil também
+refresca (contágio); RAND semeável determinístico; célula não-volátil permanece cacheada através de
+Recalculate; fixture binária intocada (IsVolatile é comportamento, não serializado). Docs + refresh pt-BR.
