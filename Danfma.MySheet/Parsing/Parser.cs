@@ -163,6 +163,19 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["TYPE"] = new(1, 1, arguments => new TypeFunction(arguments)),
         ["ERROR.TYPE"] = new(1, 1, arguments => new ErrorType(arguments)),
         ["SHEETS"] = new(0, 0, arguments => new SheetsCount(arguments)),
+        ["RIGHT"] = new(1, 2, arguments => new Right(arguments)),
+        ["FIND"] = new(2, 3, arguments => new Find(arguments)),
+        ["SEARCH"] = new(2, 3, arguments => new Search(arguments)),
+        ["REPLACE"] = new(4, 4, arguments => new Replace(arguments)),
+        ["SUBSTITUTE"] = new(3, 4, arguments => new Substitute(arguments)),
+        ["REPT"] = new(2, 2, arguments => new Rept(arguments)),
+        ["PROPER"] = new(1, 1, arguments => new Proper(arguments)),
+        ["EXACT"] = new(2, 2, arguments => new Exact(arguments)),
+        ["CHAR"] = new(1, 1, arguments => new CharFunction(arguments)),
+        ["CODE"] = new(1, 1, arguments => new Code(arguments)),
+        ["UNICHAR"] = new(1, 1, arguments => new UniChar(arguments)),
+        ["UNICODE"] = new(1, 1, arguments => new Unicode(arguments)),
+        ["CLEAN"] = new(1, 1, arguments => new Clean(arguments)),
     };
 
     private int _index;
