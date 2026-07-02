@@ -135,6 +135,22 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(126, typeof(Xor))]
 [MemoryPackUnion(127, typeof(Ifs))]
 [MemoryPackUnion(128, typeof(Switch))]
+[MemoryPackUnion(129, typeof(Na))]
+[MemoryPackUnion(130, typeof(IsError))]
+[MemoryPackUnion(131, typeof(IsErr))]
+[MemoryPackUnion(132, typeof(IsNa))]
+[MemoryPackUnion(133, typeof(IsText))]
+[MemoryPackUnion(134, typeof(IsNonText))]
+[MemoryPackUnion(135, typeof(IsLogical))]
+[MemoryPackUnion(136, typeof(IsEven))]
+[MemoryPackUnion(137, typeof(IsOdd))]
+[MemoryPackUnion(138, typeof(IsRef))]
+[MemoryPackUnion(139, typeof(IsFormula))]
+[MemoryPackUnion(140, typeof(N))]
+[MemoryPackUnion(141, typeof(T))]
+[MemoryPackUnion(142, typeof(TypeFunction))]
+[MemoryPackUnion(143, typeof(ErrorType))]
+[MemoryPackUnion(144, typeof(SheetsCount))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

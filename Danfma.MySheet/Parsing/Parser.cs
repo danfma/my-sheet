@@ -147,6 +147,22 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["XOR"] = new(1, int.MaxValue, arguments => new Xor(arguments)),
         ["IFS"] = new(2, int.MaxValue, arguments => new Ifs(arguments)),
         ["SWITCH"] = new(3, int.MaxValue, arguments => new Switch(arguments)),
+        ["NA"] = new(0, 0, arguments => new Na(arguments)),
+        ["ISERROR"] = new(1, 1, arguments => new IsError(arguments)),
+        ["ISERR"] = new(1, 1, arguments => new IsErr(arguments)),
+        ["ISNA"] = new(1, 1, arguments => new IsNa(arguments)),
+        ["ISTEXT"] = new(1, 1, arguments => new IsText(arguments)),
+        ["ISNONTEXT"] = new(1, 1, arguments => new IsNonText(arguments)),
+        ["ISLOGICAL"] = new(1, 1, arguments => new IsLogical(arguments)),
+        ["ISEVEN"] = new(1, 1, arguments => new IsEven(arguments)),
+        ["ISODD"] = new(1, 1, arguments => new IsOdd(arguments)),
+        ["ISREF"] = new(1, 1, arguments => new IsRef(arguments)),
+        ["ISFORMULA"] = new(1, 1, arguments => new IsFormula(arguments)),
+        ["N"] = new(1, 1, arguments => new N(arguments)),
+        ["T"] = new(1, 1, arguments => new T(arguments)),
+        ["TYPE"] = new(1, 1, arguments => new TypeFunction(arguments)),
+        ["ERROR.TYPE"] = new(1, 1, arguments => new ErrorType(arguments)),
+        ["SHEETS"] = new(0, 0, arguments => new SheetsCount(arguments)),
     };
 
     private int _index;
