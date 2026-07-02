@@ -18,7 +18,7 @@ com alocação mínima) e expor ou gravar de volta os resultados.
 5. [Interop com Excel](excel-interop.md) — carregue arquivos `.xlsx`, exporte e mescle em templates.
 6. [Serialização](serialization.md) — `Save`/`Load` com MemoryPack e o que é preservado no round-trip.
 7. [Desempenho](performance.md) — memoização, `RunWithLargeStack` e o design sem alocações.
-8. [Referência de funções](function-reference.md) — as 164 funções nativas, mais a tabela de cobertura do
+8. [Referência de funções](function-reference.md) — todas as funções nativas, mais a tabela de cobertura do
    Excel.
 9. [Migrando para a 2.0](migrating-to-2.0.md) — a reorganização de namespaces da 2.0: mapa tipo → namespace,
    exemplos de `using` antes/depois e a garantia de compatibilidade de serialização.
