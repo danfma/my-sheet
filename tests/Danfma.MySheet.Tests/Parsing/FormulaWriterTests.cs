@@ -117,6 +117,10 @@ public class FormulaWriterTests
             "VALUETOTEXT(1,1)",
             "REGEXTEST(\"a\",\"a\",1)", "REGEXEXTRACT(\"ab\",\"a\",0)",
             "REGEXREPLACE(\"ab\",\"a\",\"x\",1,1)",
+            // Onda 3 — Lookup & Reference escalar.
+            "CHOOSE(1,\"a\",\"b\")", "HLOOKUP(1,A1:C2,2)", "LOOKUP(1,A1:A3,B1:B3)",
+            "COLUMN(B1)", "COLUMNS(A1:B2)", "XMATCH(1,A1:A3,0,-1)",
+            "ADDRESS(2,3,1,TRUE,\"S\")", "AREAS((A1:A2,B1))", "FORMULATEXT(A1)",
         ];
 
         var failures = new List<string>();

@@ -185,6 +185,15 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["REGEXTEST"] = new(2, 3, arguments => new RegexTest(arguments)),
         ["REGEXEXTRACT"] = new(2, 4, arguments => new RegexExtract(arguments)),
         ["REGEXREPLACE"] = new(3, 5, arguments => new RegexReplace(arguments)),
+        ["CHOOSE"] = new(2, int.MaxValue, arguments => new Choose(arguments)),
+        ["HLOOKUP"] = new(3, 4, arguments => new HLookup(arguments)),
+        ["LOOKUP"] = new(2, 3, arguments => new Lookup(arguments)),
+        ["COLUMN"] = new(0, 1, arguments => new Column(arguments)),
+        ["COLUMNS"] = new(1, 1, arguments => new Columns(arguments)),
+        ["XMATCH"] = new(2, 4, arguments => new XMatch(arguments)),
+        ["ADDRESS"] = new(2, 5, arguments => new Address(arguments)),
+        ["AREAS"] = new(1, 1, arguments => new Areas(arguments)),
+        ["FORMULATEXT"] = new(1, 1, arguments => new FormulaText(arguments)),
     };
 
     private int _index;

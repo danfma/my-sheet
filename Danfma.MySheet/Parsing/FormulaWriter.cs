@@ -166,7 +166,8 @@ public static class FormulaWriter
 
     // A name that tokenizes as a single identifier needs no quotes; anything else (spaces, symbols,
     // leading digit) is single-quoted with '' escaping, exactly what the Tokenizer reads back.
-    private static bool IsSimpleSheetName(string name)
+    // Internal because ADDRESS shares this quoting rule for its sheet_text prefix.
+    internal static bool IsSimpleSheetName(string name)
     {
         if (name.Length == 0 || char.IsDigit(name[0]))
         {
@@ -385,6 +386,15 @@ public static class FormulaWriter
             RegexTest f => ("REGEXTEST", f.Arguments),
             RegexExtract f => ("REGEXEXTRACT", f.Arguments),
             RegexReplace f => ("REGEXREPLACE", f.Arguments),
+            Choose f => ("CHOOSE", f.Arguments),
+            HLookup f => ("HLOOKUP", f.Arguments),
+            Lookup f => ("LOOKUP", f.Arguments),
+            Column f => ("COLUMN", f.Arguments),
+            Columns f => ("COLUMNS", f.Arguments),
+            XMatch f => ("XMATCH", f.Arguments),
+            Address f => ("ADDRESS", f.Arguments),
+            Areas f => ("AREAS", f.Arguments),
+            FormulaText f => ("FORMULATEXT", f.Arguments),
             _ => throw new NotSupportedException(
                 $"No Excel function name registered for node '{function.GetType().Name}'."
             ),

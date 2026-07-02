@@ -69,6 +69,9 @@ public sealed partial record RangeReference(string StartId, string EndId, string
 
     public int TopRow => Math.Min(CellAddress.Parse(StartId).Row, CellAddress.Parse(EndId).Row);
 
+    public int LeftColumn =>
+        Math.Min(CellAddress.Parse(StartId).Column, CellAddress.Parse(EndId).Column);
+
     /// <summary>The memoized <see cref="ComputedValue"/> at a 1-based (row, column) position (normalized corners).</summary>
     internal ComputedValue CellComputedValueAt(EvaluationContext context, int row, int column)
     {

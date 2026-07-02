@@ -4,7 +4,7 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions;
 
 // MemoryPackUnion tags are APPEND-ONLY: never renumber, reorder or reuse an existing tag,
-// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 124+.
+// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 176+.
 [MemoryPackable]
 [MemoryPackUnion(0, typeof(StringValue))]
 [MemoryPackUnion(1, typeof(NumberValue))]
@@ -173,6 +173,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(164, typeof(RegexTest))]
 [MemoryPackUnion(165, typeof(RegexExtract))]
 [MemoryPackUnion(166, typeof(RegexReplace))]
+[MemoryPackUnion(167, typeof(Choose))]
+[MemoryPackUnion(168, typeof(HLookup))]
+[MemoryPackUnion(169, typeof(Lookup))]
+[MemoryPackUnion(170, typeof(Column))]
+[MemoryPackUnion(171, typeof(Columns))]
+[MemoryPackUnion(172, typeof(XMatch))]
+[MemoryPackUnion(173, typeof(Address))]
+[MemoryPackUnion(174, typeof(Areas))]
+[MemoryPackUnion(175, typeof(FormulaText))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a
