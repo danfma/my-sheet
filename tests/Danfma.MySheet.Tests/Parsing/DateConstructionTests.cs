@@ -34,10 +34,10 @@ public class DateConstructionTests
     {
         // DATE page: DATE(2008,14,2) → 2/2/2009; DATE(2008,-3,2) → 9/2/2007;
         // DATE(2008,1,35) → 2/4/2008; DATE(2008,1,-15) → 12/16/2007.
-        await Assert.That(Calc("=DATE(2008,14,2)=DATE(2009,2,2)")).IsEqualTo(true);
-        await Assert.That(Calc("=DATE(2008,-3,2)=DATE(2007,9,2)")).IsEqualTo(true);
-        await Assert.That(Calc("=DATE(2008,1,35)=DATE(2008,2,4)")).IsEqualTo(true);
-        await Assert.That(Calc("=DATE(2008,1,-15)=DATE(2007,12,16)")).IsEqualTo(true);
+        await Assert.That(Calc("=DATE(2008,14,2)=DATE(2009,2,2)") as bool?).IsTrue();
+        await Assert.That(Calc("=DATE(2008,-3,2)=DATE(2007,9,2)") as bool?).IsTrue();
+        await Assert.That(Calc("=DATE(2008,1,35)=DATE(2008,2,4)") as bool?).IsTrue();
+        await Assert.That(Calc("=DATE(2008,1,-15)=DATE(2007,12,16)") as bool?).IsTrue();
     }
 
     [Test]

@@ -83,8 +83,8 @@ public class DateWorkdayTests
         [
             ("W4", "=DATE(2008,11,26)"), ("W5", "=DATE(2008,12,4)"), ("W6", "=DATE(2009,1,21)"),
         ];
-        await Assert.That(Calc("=WORKDAY(DATE(2008,10,1),151)=DATE(2009,4,30)")).IsEqualTo(true);
-        await Assert.That(Calc("=WORKDAY(DATE(2008,10,1),151,W4:W6)=DATE(2009,5,5)", holidays)).IsEqualTo(true);
+        await Assert.That(Calc("=WORKDAY(DATE(2008,10,1),151)=DATE(2009,4,30)") as bool?).IsTrue();
+        await Assert.That(Calc("=WORKDAY(DATE(2008,10,1),151,W4:W6)=DATE(2009,5,5)", holidays) as bool?).IsTrue();
     }
 
     [Test]
@@ -93,7 +93,7 @@ public class DateWorkdayTests
         // WORKDAY.INTL page: (2012,1,1),90,11 (Sunday-only weekend) → serial 41013 (= 4/14/2012);
         //   (2012,1,1),30,17 (Saturday-only) → 2/5/2012; (2012,1,1),30,0 → #NUM! (invalid weekend number).
         await Assert.That(Num(Calc("=WORKDAY.INTL(DATE(2012,1,1),90,11)"))).IsEqualTo(41013d);
-        await Assert.That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,17)=DATE(2012,2,5)")).IsEqualTo(true);
+        await Assert.That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,17)=DATE(2012,2,5)") as bool?).IsTrue();
         await Assert.That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,0)")).IsEqualTo(ErrorValue.Number);
     }
 
@@ -109,6 +109,6 @@ public class DateWorkdayTests
     {
         // Negative days go to a past date (WORKDAY page: "a negative value yields a past date").
         // From Wednesday 1/11/2012 back 3 working days → Friday 1/6/2012 (DERIVED, default Sat/Sun weekend).
-        await Assert.That(Calc("=WORKDAY(DATE(2012,1,11),-3)=DATE(2012,1,6)")).IsEqualTo(true);
+        await Assert.That(Calc("=WORKDAY(DATE(2012,1,11),-3)=DATE(2012,1,6)") as bool?).IsTrue();
     }
 }

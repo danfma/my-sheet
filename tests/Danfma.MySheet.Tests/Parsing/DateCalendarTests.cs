@@ -57,19 +57,19 @@ public class DateCalendarTests
     public async Task EDate_ShiftsMonthsAndClampsMonthEnd()
     {
         // EDATE page (start 15-Jan-11): +1 → 15-Feb-11; -1 → 15-Dec-10; +2 → 15-Mar-11.
-        await Assert.That(Calc("=EDATE(DATE(2011,1,15),1)=DATE(2011,2,15)")).IsEqualTo(true);
-        await Assert.That(Calc("=EDATE(DATE(2011,1,15),-1)=DATE(2010,12,15)")).IsEqualTo(true);
-        await Assert.That(Calc("=EDATE(DATE(2011,1,15),2)=DATE(2011,3,15)")).IsEqualTo(true);
+        await Assert.That(Calc("=EDATE(DATE(2011,1,15),1)=DATE(2011,2,15)") as bool?).IsTrue();
+        await Assert.That(Calc("=EDATE(DATE(2011,1,15),-1)=DATE(2010,12,15)") as bool?).IsTrue();
+        await Assert.That(Calc("=EDATE(DATE(2011,1,15),2)=DATE(2011,3,15)") as bool?).IsTrue();
         // DERIVED clamp (the page shows no clamp example): 31-Jan + 1 month → 28-Feb (2011 non-leap).
-        await Assert.That(Calc("=EDATE(DATE(2011,1,31),1)=DATE(2011,2,28)")).IsEqualTo(true);
+        await Assert.That(Calc("=EDATE(DATE(2011,1,31),1)=DATE(2011,2,28)") as bool?).IsTrue();
     }
 
     [Test]
     public async Task EoMonth_ReturnsMonthEnd()
     {
         // EOMONTH page (start 1-Jan-11): +1 → 2/28/2011; -3 → 10/31/2010.
-        await Assert.That(Calc("=EOMONTH(DATE(2011,1,1),1)=DATE(2011,2,28)")).IsEqualTo(true);
-        await Assert.That(Calc("=EOMONTH(DATE(2011,1,1),-3)=DATE(2010,10,31)")).IsEqualTo(true);
+        await Assert.That(Calc("=EOMONTH(DATE(2011,1,1),1)=DATE(2011,2,28)") as bool?).IsTrue();
+        await Assert.That(Calc("=EOMONTH(DATE(2011,1,1),-3)=DATE(2010,10,31)") as bool?).IsTrue();
     }
 
     // --- WEEKDAY: every return_type against Thursday 2/14/2008 (the WEEKDAY page's example date). ---
