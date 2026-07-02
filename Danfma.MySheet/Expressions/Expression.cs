@@ -164,6 +164,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(155, typeof(UniChar))]
 [MemoryPackUnion(156, typeof(Unicode))]
 [MemoryPackUnion(157, typeof(Clean))]
+[MemoryPackUnion(158, typeof(Fixed))]
+[MemoryPackUnion(159, typeof(Dollar))]
+[MemoryPackUnion(160, typeof(NumberValueFunction))]
+[MemoryPackUnion(161, typeof(TextBefore))]
+[MemoryPackUnion(162, typeof(TextAfter))]
+[MemoryPackUnion(163, typeof(ValueToText))]
+[MemoryPackUnion(164, typeof(RegexTest))]
+[MemoryPackUnion(165, typeof(RegexExtract))]
+[MemoryPackUnion(166, typeof(RegexReplace))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

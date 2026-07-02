@@ -376,6 +376,15 @@ public static class FormulaWriter
             UniChar f => ("UNICHAR", f.Arguments),
             Unicode f => ("UNICODE", f.Arguments),
             Clean f => ("CLEAN", f.Arguments),
+            Fixed f => ("FIXED", f.Arguments),
+            Dollar f => ("DOLLAR", f.Arguments),
+            NumberValueFunction f => ("NUMBERVALUE", f.Arguments),
+            TextBefore f => ("TEXTBEFORE", f.Arguments),
+            TextAfter f => ("TEXTAFTER", f.Arguments),
+            ValueToText f => ("VALUETOTEXT", f.Arguments),
+            RegexTest f => ("REGEXTEST", f.Arguments),
+            RegexExtract f => ("REGEXEXTRACT", f.Arguments),
+            RegexReplace f => ("REGEXREPLACE", f.Arguments),
             _ => throw new NotSupportedException(
                 $"No Excel function name registered for node '{function.GetType().Name}'."
             ),

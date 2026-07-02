@@ -103,6 +103,20 @@ public class FormulaWriterTests
             "SINH(1)", "COSH(1)", "TANH(1)", "COTH(1)", "SECH(1)", "CSCH(1)",
             "ASINH(1)", "ACOSH(2)", "ATANH(0.5)", "ACOTH(6)", "DEGREES(PI())", "RADIANS(180)",
             "BASE(7,2)", "DECIMAL(\"FF\",16)", "ROMAN(499)", "ARABIC(\"LVII\")",
+            // Onda 2 — Logical + Information + Text escalar + Regex.
+            "TRUE()", "FALSE()", "XOR(TRUE)", "IFS(TRUE,1)", "SWITCH(1,1,\"a\")",
+            "NA()", "ISERROR(A1)", "ISERR(A1)", "ISNA(A1)", "ISTEXT(A1)", "ISNONTEXT(A1)",
+            "ISLOGICAL(A1)", "ISEVEN(2)", "ISODD(3)", "ISREF(A1)", "ISFORMULA(A1)",
+            "N(1)", "T(\"a\")", "TYPE(1)", "ERROR.TYPE(A1)", "SHEETS()",
+            "RIGHT(\"ab\",1)", "FIND(\"a\",\"ab\")", "SEARCH(\"a\",\"ab\",1)",
+            "REPLACE(\"abc\",1,1,\"x\")", "SUBSTITUTE(\"aa\",\"a\",\"b\",1)", "REPT(\"a\",2)",
+            "PROPER(\"ab\")", "EXACT(\"a\",\"b\")", "CHAR(65)", "CODE(\"A\")",
+            "UNICHAR(66)", "UNICODE(\"B\")", "CLEAN(\"a\")",
+            "FIXED(1234.5,1,TRUE)", "DOLLAR(99.888,2)", "NUMBERVALUE(\"3.5%\",\".\",\",\")",
+            "TEXTBEFORE(\"a-b\",\"-\",1)", "TEXTAFTER(\"a-b\",\"-\",-1,1,1,\"none\")",
+            "VALUETOTEXT(1,1)",
+            "REGEXTEST(\"a\",\"a\",1)", "REGEXEXTRACT(\"ab\",\"a\",0)",
+            "REGEXREPLACE(\"ab\",\"a\",\"x\",1,1)",
         ];
 
         var failures = new List<string>();

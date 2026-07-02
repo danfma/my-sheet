@@ -176,6 +176,15 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["UNICHAR"] = new(1, 1, arguments => new UniChar(arguments)),
         ["UNICODE"] = new(1, 1, arguments => new Unicode(arguments)),
         ["CLEAN"] = new(1, 1, arguments => new Clean(arguments)),
+        ["FIXED"] = new(1, 3, arguments => new Fixed(arguments)),
+        ["DOLLAR"] = new(1, 2, arguments => new Dollar(arguments)),
+        ["NUMBERVALUE"] = new(1, 3, arguments => new NumberValueFunction(arguments)),
+        ["TEXTBEFORE"] = new(2, 6, arguments => new TextBefore(arguments)),
+        ["TEXTAFTER"] = new(2, 6, arguments => new TextAfter(arguments)),
+        ["VALUETOTEXT"] = new(1, 2, arguments => new ValueToText(arguments)),
+        ["REGEXTEST"] = new(2, 3, arguments => new RegexTest(arguments)),
+        ["REGEXEXTRACT"] = new(2, 4, arguments => new RegexExtract(arguments)),
+        ["REGEXREPLACE"] = new(3, 5, arguments => new RegexReplace(arguments)),
     };
 
     private int _index;
