@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **155 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
+O MySheet implementa **164 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
 em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
 dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -163,17 +163,26 @@ defensivo de correspondência de 1 segundo.
 | `VALUE` | `VALUE(text)` | Converte texto em número. |
 | `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Valor como texto — formato 0 conciso (padrão), 1 estrito (texto entre aspas); erros viram seu texto de exibição. |
 
-## Pesquisa e referência (7)
+## Pesquisa e referência (16)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
+| `ADDRESS` | `ADDRESS(row_num, column_num, [abs_num], [a1], [sheet_text])` | O endereço da célula como TEXTO (`abs_num` 1-4 → `$C$2`/`C$2`/`$C2`/`C2`); `a1=FALSE` renderiza apenas a forma R1C1 absoluta (`R2C3` — R1C1 relativo → `#VALUE!`); `sheet_text` entra como prefixo, entre aspas quando necessário. |
+| `AREAS` | `AREAS(reference)` | Número de áreas (intervalos contíguos ou células individuais) na referência — uma verificação sintática, como `ISREF`; não referência → `#VALUE!`. |
+| `CHOOSE` | `CHOOSE(index_num, value1, [value2], …)` | O valor na posição `index_num` (truncado); avaliação preguiçosa — apenas o argumento escolhido é avaliado; um intervalo escolhido permanece *range-aware* (`SUM(CHOOSE(…))`); fora do intervalo → `#VALUE!`. |
+| `COLUMN` | `COLUMN([reference])` | Número da coluna da referência (a coluna mais à esquerda para um intervalo) — ou da célula atual, quando chamada sem argumento. |
+| `COLUMNS` | `COLUMNS(range)` | Número de colunas do intervalo. |
+| `FORMULATEXT` | `FORMULATEXT(reference)` | A fórmula da célula referenciada como TEXTO, com o `=` incluído (reescrita — *unparse* — no contexto de planilha da célula referenciada); uma célula literal ou vazia → `#N/A`. |
+| `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Pesquisa horizontal na primeira linha de uma tabela; exata ou aproximada; `row_index_num` < 1 → `#VALUE!`, além da tabela → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | O valor em uma posição (base 1) dentro de um intervalo. |
+| `LOOKUP` | `LOOKUP(lookup_value, lookup_vector, [result_vector])` | Forma vetorial (sempre aproximada: o maior valor ≤ pesquisado); a forma matricial de 2 argumentos busca na primeira linha e retorna da última linha quando o intervalo é mais largo que alto; caso contrário, primeira/última coluna. |
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | Posição (base 1) de um valor em um intervalo (`match_type`: 1 aproximado crescente — padrão, 0 exato, -1 aproximado decrescente). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | Uma referência deslocada (e opcionalmente redimensionada) a partir de uma referência inicial; pode retornar uma referência multicélula para consumidores que aceitam intervalos. |
 | `ROW` | `ROW([reference])` | Número da linha da referência — ou da célula atual, quando chamada sem argumento. |
 | `ROWS` | `ROWS(range)` | Número de linhas do intervalo. |
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Pesquisa vertical na primeira coluna de uma tabela; exata ou aproximada. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Pesquisa moderna, com contingência para "não encontrado" e modos de correspondência/busca. |
+| `XMATCH` | `XMATCH(lookup_value, lookup_range, [match_mode], [search_mode])` | Posição (base 1) com os modos do `XLOOKUP` (0 exato — padrão, -1 exato-ou-menor, 1 exato-ou-maior, 2 curinga; busca 1/-1). |
 
 ## Informações (18)
 
@@ -220,7 +229,7 @@ Semântica padrão de valor do dinheiro no tempo: `rate` por período, `nper` é
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 155 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 164 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -249,11 +258,11 @@ categoria não somam um total único — veja o `Parser.cs` para a lista registr
 </details>
 
 <details open>
-<summary><strong>Pesquisa e referência</strong> — 7/40</summary>
+<summary><strong>Pesquisa e referência</strong> — 16/40</summary>
 
-✅ `INDEX` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP`
+✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
 
-⬜ `ADDRESS` `AREAS` `CHOOSE` `CHOOSECOLS` `CHOOSEROWS` `COLUMN` `COLUMNS` `DROP` `EXPAND` `FILTER` `FORMULATEXT` `HLOOKUP` `HSTACK` `INDIRECT` `LOOKUP` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS` `XMATCH`
+⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `INDIRECT` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
 
 ✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 

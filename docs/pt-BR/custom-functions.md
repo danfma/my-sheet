@@ -50,7 +50,7 @@ Nomes de função:
 - O Excel armazena funções mais novas com um prefixo `_xlfn.`; o parser o remove na normalização, então
   uma função personalizada chamada `MYFN` também corresponde a `=_xlfn.MYFN()` em um arquivo `.xlsx`
   carregado.
-- **Funções nativas não podem ser sobrescritas.** Os 155 nomes na tabela de funções do parser sempre
+- **Funções nativas não podem ser sobrescritas.** Os 164 nomes na tabela de funções do parser sempre
   passam pelo parse como seus nós nativos; o registro de funções personalizadas só é consultado para os
   demais nomes.
 - Chamar um nome que nunca foi registrado não é uma exceção — a chamada é avaliada como `#NAME?`, como
