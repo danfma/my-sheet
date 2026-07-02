@@ -105,7 +105,10 @@ period (default) / 1 = beginning.
 
 MySheet implements 52 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
-grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet). A few names are cross-listed by
+grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
+**35 functions are permanently out of scope** — they depend on external services, UI environment, or
+features the engine deliberately does not model (see [Out of scope](#out-of-scope-by-design) below) —
+leaving a viable catalog of ~485 that the roadmap tracks against. A few names are cross-listed by
 Microsoft in more than one category (e.g. `CONCATENATE` in both Text and Compatibility, `LET` in both
 Logical and Math), so per-category counts don't sum to a single unique total — see `Parser.cs` for the
 authoritative registered list.
@@ -133,7 +136,9 @@ authoritative registered list.
 
 ✅ `INDEX` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP`
 
-⬜ `ADDRESS` `AREAS` `CHOOSE` `CHOOSECOLS` `CHOOSEROWS` `COLUMN` `COLUMNS` `DROP` `EXPAND` `FILTER` `FORMULATEXT` `GETPIVOTDATA` `GROUPBY` `HLOOKUP` `HSTACK` `HYPERLINK` `IMAGE` `INDIRECT` `LOOKUP` `PIVOTBY` `RTD` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS` `XMATCH`
+⬜ `ADDRESS` `AREAS` `CHOOSE` `CHOOSECOLS` `CHOOSEROWS` `COLUMN` `COLUMNS` `DROP` `EXPAND` `FILTER` `FORMULATEXT` `HLOOKUP` `HSTACK` `INDIRECT` `LOOKUP` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS` `XMATCH`
+
+✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 
 </details>
 
@@ -160,7 +165,9 @@ authoritative registered list.
 
 ✅ `CONCAT` `CONCATENATE` `LEFT` `LEN` `LOWER` `MID` `TEXT` `TEXTJOIN` `TRIM` `UPPER` `VALUE`
 
-⬜ `ASC` `ARRAYTOTEXT` `BAHTTEXT` `CHAR` `CLEAN` `CODE` `DBCS` `DETECTLANGUAGE` `DOLLAR` `EXACT` `FIND` `FINDB` `FIXED` `LEFTB` `LENB` `MIDB` `NUMBERVALUE` `PHONETIC` `PROPER` `REGEXEXTRACT` `REGEXREPLACE` `REGEXTEST` `REPLACE` `REPLACEB` `REPT` `RIGHT` `RIGHTB` `SEARCH` `SEARCHB` `SUBSTITUTE` `T` `TEXTAFTER` `TEXTBEFORE` `TEXTSPLIT` `TRANSLATE` `UNICHAR` `UNICODE` `VALUETOTEXT`
+⬜ `ARRAYTOTEXT` `CHAR` `CLEAN` `CODE` `DOLLAR` `EXACT` `FIND` `FIXED` `NUMBERVALUE` `PROPER` `REGEXEXTRACT` `REGEXREPLACE` `REGEXTEST` `REPLACE` `REPT` `RIGHT` `SEARCH` `SUBSTITUTE` `T` `TEXTAFTER` `TEXTBEFORE` `TEXTSPLIT` `UNICHAR` `UNICODE` `VALUETOTEXT`
+
+✖ `ASC` `BAHTTEXT` `DBCS` `DETECTLANGUAGE` `FINDB` `LEFTB` `LENB` `MIDB` `PHONETIC` `REPLACEB` `RIGHTB` `SEARCHB` `TRANSLATE`
 
 </details>
 
@@ -169,7 +176,9 @@ authoritative registered list.
 
 ✅ `ISBLANK` `ISNUMBER` `SHEET`
 
-⬜ `CELL` `ERROR.TYPE` `INFO` `ISERR` `ISERROR` `ISEVEN` `ISFORMULA` `ISLOGICAL` `ISNA` `ISNONTEXT` `ISODD` `ISOMITTED` `ISREF` `ISTEXT` `N` `NA` `SHEETS` `STOCKHISTORY` `TYPE`
+⬜ `ERROR.TYPE` `ISERR` `ISERROR` `ISEVEN` `ISFORMULA` `ISLOGICAL` `ISNA` `ISNONTEXT` `ISODD` `ISOMITTED` `ISREF` `ISTEXT` `N` `NA` `SHEETS` `TYPE`
+
+✖ `CELL` `INFO` `STOCKHISTORY`
 
 </details>
 
@@ -206,21 +215,21 @@ authoritative registered list.
 <details>
 <summary><strong>Cubes</strong> — 0/7</summary>
 
-⬜ `CUBEKPIMEMBER` `CUBEMEMBER` `CUBEMEMBERPROPERTY` `CUBERANKEDMEMBER` `CUBESET` `CUBESETCOUNT` `CUBEVALUE`
+✖ `CUBEKPIMEMBER` `CUBEMEMBER` `CUBEMEMBERPROPERTY` `CUBERANKEDMEMBER` `CUBESET` `CUBESETCOUNT` `CUBEVALUE`
 
 </details>
 
 <details>
 <summary><strong>Web</strong> — 0/3</summary>
 
-⬜ `ENCODEURL` `FILTERXML` `WEBSERVICE`
+✖ `ENCODEURL` `FILTERXML` `WEBSERVICE`
 
 </details>
 
 <details>
 <summary><strong>User Defined</strong> — 0/3</summary>
 
-⬜ `CALL` `EUROCONVERT` `REGISTER.ID`
+✖ `CALL` `EUROCONVERT` `REGISTER.ID`
 
 </details>
 
@@ -228,3 +237,22 @@ authoritative registered list.
 
 - [Custom functions](custom-functions.md) — filling gaps in the coverage yourself.
 - [Workbook, sheets and expressions](workbook-and-expressions.md) — operators and reference syntax.
+
+## Out of scope (by design)
+
+MySheet is a server-side calculation engine, so 35 catalog functions are **permanently excluded** rather
+than "not yet implemented":
+
+- **External services**: the Cube/OLAP family (`CUBE*`), the Web family (`WEBSERVICE`, `FILTERXML`,
+  `ENCODEURL`), `RTD`, `STOCKHISTORY`, `IMAGE`, and the translation services (`DETECTLANGUAGE`,
+  `TRANSLATE`) — a deterministic engine does not call out to the network.
+- **Spreadsheet-application environment**: `CELL`, `INFO` and `HYPERLINK` describe the Excel UI/host, which
+  does not exist here.
+- **Pivot-table model**: `GETPIVOTDATA`, `PIVOTBY`, `GROUPBY` — MySheet has no pivot model.
+- **Legacy registration/XLM**: `CALL`, `REGISTER.ID`, `EUROCONVERT`.
+- **Double-byte / CJK-locale text semantics**: `ASC`, `DBCS`, `BAHTTEXT`, `PHONETIC` and the `*B` byte
+  variants (`LENB`, `FINDB`, `LEFTB`, `MIDB`, `RIGHTB`, `SEARCHB`, `REPLACEB`) — the engine is
+  locale-invariant by design.
+
+If your workbook depends on one of these, [custom functions](custom-functions.md) let the host supply the
+behavior (including network calls) under the same name.

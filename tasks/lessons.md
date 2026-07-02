@@ -37,3 +37,13 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   → dispara **Gen1**; cache `Dictionary<string, ComputedValue>` → 0 B, zero coletas. O throughput no caminho
   cache-heavy sobe só 4–12% (lookups de Dictionary dominam), mas o ganho de GC é o argumento forte, não a
   velocidade bruta. Não vender um refactor de perf só pelo throughput sem medir o eixo de alocação/GC.
+
+## MySheet — convenções e processo (2026-07-01)
+
+- **Commits: inglês, sujeito curto + corpo descritivo, semantic/conventional commits.** Correção do usuário
+  em 2026-07-01 — os commits em português eram a convenção antiga do repo; o padrão agora é
+  `tipo(escopo): resumo em inglês` + parágrafo curto de contexto. Nunca incluir atribuição de IA.
+- **Contagens em planos: recontar antes de publicar.** Escrevi "~85 exclusões" no roadmap de funções quando
+  a lista explícita somava 35 — o usuário aprovou a LISTA, mas o número errado contaminou a meta de
+  cobertura (~435 vs ~485 viáveis). Números derivados de listas devem ser contados por script/soma real,
+  nunca estimados de memória (mesma família da lição dos golden values).
