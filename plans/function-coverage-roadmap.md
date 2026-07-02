@@ -278,24 +278,29 @@ nos guias em inglês (`docs/pt-BR/` intocado — espelho é de outro agente).
 ---
 
 ## Phase R: Reorganização dos nós da AST em namespaces semânticos (breaking → 2.0.0)
-Status: Not started
+Status: In progress
 <!-- Pedido do usuário em 2026-07-02: "separar os nós da nossa AST em namespaces semânticos, por
 categoria — o namespace está ficando muito inflado". EXECUTAR logo após a Onda 3 integrar e ANTES da
 Onda 4 (menor churn acumulado; adoção do 1.x ainda mínima). As ondas 4-6 viram 2.1.0/2.2.0/2.3.0. -->
 
 Proposta de forma (fazer certo UMA vez — decisões a validar com o usuário no gate de execução):
 - `Danfma.MySheet` (raiz): + `ComputedValue`, `ComputedValueKind`, `Error` — são os tipos de RESULTADO da
-  API pública (par de `Workbook`/`Sheet`), não "expressões". (Ponto em aberto para o usuário.)
+  API pública (par de `Workbook`/`Sheet`), não "expressões". **APROVADO pelo usuário em 2026-07-02.**
 - `Danfma.MySheet.Expressions` (núcleo enxuto): `Expression`, `ValueExpression`, `Function`, `Reference`,
   `FunctionCall`, `EvaluationContext`, nós-valor (`NumberValue`/`StringValue`/`BooleanValue`/`BlankValue`/
   `ErrorValue`), referências (`CellReference`/`RangeReference`/`UnionReference`/`NameReference`),
   operações (`BinaryOperation`/`UnaryOperation`) e helpers internal.
-- `Danfma.MySheet.Expressions.Functions.{Logical|Aggregation|Math|Text|Information|Lookup|Financial|Dates}`:
-  os records de função por categoria do Excel (pastas espelhando namespaces).
+- `Danfma.MySheet.Expressions.{Logical|Mathematics|Statistical|Text|Information|Lookup|Financial|Dates}`:
+  os records de função DIRETO sob Expressions (decisão do usuário em 2026-07-02: o segmento `.Functions.`
+  é redundante — as categorias só conterão funções). `Mathematics` (não `Math`) porque um segmento `Math`
+  faria o identificador `Math` resolver para o namespace dentro daqueles arquivos, quebrando `Math.*`
+  (mesma razão de `Dates`, não `DateTime`). Categorias espelham as seções publicadas do
+  function-reference (Excel): SUM/SUMIF(S)/PRODUCT → Mathematics; AVERAGE/COUNT*/MAX/MIN → Statistical.
+  Pastas espelham namespaces. `FunctionCall` fica no núcleo (é o nó de extensibilidade, não categoria).
 
 - [ ] Mover os records de função para os namespaces por categoria (pastas correspondentes); atualizar
       usings de `Parser`, `FormulaWriter`, testes (preferir `GlobalUsings` nos csproj de teste).
-- [ ] Decisão do usuário: mover `ComputedValue`/`Error` para a raiz `Danfma.MySheet`? (recomendado).
+- [x] Decisão do usuário: mover `ComputedValue`/`Error` para a raiz `Danfma.MySheet` — SIM (2026-07-02).
 - [ ] **Teste de compat binária MemoryPack**: ANTES do refactor, serializar um workbook representativo
       (fórmulas de todas as categorias) e commitar o blob como fixture; DEPOIS, teste que o deserializa e
       reavalia — prova que o union por tags sobrevive à mudança de namespace. (Tags não mudam: append-only
