@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.0.0"></a>
+## [2.0.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.0.0) (2026-07-02)
+
+### Breaking Changes
+
+* reorganize AST nodes into semantic namespaces ([50e0486](https://www.github.com/danfma/my-sheet/commit/50e0486c1bcc883fa922be52046abc6bcc9e3d31))
+
 <a name="1.3.0"></a>
 ## [1.3.0](https://www.github.com/danfma/my-sheet/releases/tag/v1.3.0) (2026-07-02)
 
