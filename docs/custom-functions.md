@@ -45,7 +45,7 @@ Function names:
 - Names are **case-insensitive** (`=double(21)` works) and may contain underscores (`=RISK_SCORE(...)`).
 - Excel stores newer functions with an `_xlfn.` prefix; the parser normalizes it away, so a custom
   function named `MYFN` also matches `=_xlfn.MYFN()` in a loaded `.xlsx` file.
-- **Built-ins cannot be overridden.** The 112 names in the parser's function table always parse to their
+- **Built-ins cannot be overridden.** The 155 names in the parser's function table always parse to their
   built-in nodes; the custom registry is only consulted for other names.
 - Calling a name that was never registered is not an exception — it evaluates to `#NAME?`, like Excel.
 

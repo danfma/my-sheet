@@ -110,7 +110,7 @@ nova); ele é o guarda que impede função parseável sem un-parse. Nomes com po
 Marque `- [x]`; ao fechar onda: Status `Complete` + Phase Summary + Verification + atualizar README
 (✅ nas funções + contagem) + release (aval do usuário para push/dispatch). TDD por função com golden
 values de oráculo citado no teste. Testes: core
-`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (274 hoje);
+`dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` (408 após a onda 2);
 Excel `.../Danfma.MySheet.Excel.Tests... -c Release` (16 hoje). Build da solução: 0 warnings sempre.
 
 ---
@@ -187,23 +187,48 @@ suíte Excel intacta (16); build 0 warnings. Corpus exaustivo do FormulaWriter c
 ---
 
 ## Phase 2 (Onda 2 → 1.2.0): Logical + Information + Text escalar (~36 funções)
-Status: Not started
+Status: Complete
 
-- [ ] Logical: `TRUE` `FALSE` (funções, além dos literais) `XOR` `IFS` `SWITCH` (2 formas: com default)
-- [ ] Information: `NA` `ISERROR` `ISERR` `ISNA` `ISTEXT` `ISNONTEXT` `ISLOGICAL` `ISEVEN` `ISODD` `ISREF`
+- [x] Logical: `TRUE` `FALSE` (funções, além dos literais) `XOR` `IFS` `SWITCH` (2 formas: com default)
+- [x] Information: `NA` `ISERROR` `ISERR` `ISNA` `ISTEXT` `ISNONTEXT` `ISLOGICAL` `ISEVEN` `ISODD` `ISREF`
       `ISFORMULA` (via sheet do contexto) `N` `T` `TYPE` `ERROR.TYPE` `SHEETS`
-- [ ] Text: `RIGHT` `FIND` `SEARCH` (case-insensitive + wildcards via `Criteria.WildcardMatch`) `REPLACE`
+- [x] Text: `RIGHT` `FIND` `SEARCH` (case-insensitive + wildcards `? * ~` — busca posicional própria, não
+      o full-match do `Criteria.WildcardMatch`) `REPLACE`
       `SUBSTITUTE` (com instance_num) `REPT` `PROPER` `EXACT` `CHAR` `CODE` `UNICHAR` `UNICODE` `CLEAN`
       `FIXED` `DOLLAR` `NUMBERVALUE` `TEXTBEFORE` `TEXTAFTER` `VALUETOTEXT`
-- [ ] Regex (modernas, escalar): `REGEXTEST` `REGEXEXTRACT` `REGEXREPLACE` (System.Text.RegularExpressions,
+- [x] Regex (modernas, escalar): `REGEXTEST` `REGEXEXTRACT` `REGEXREPLACE` (System.Text.RegularExpressions,
       timeout defensivo)
-- [ ] FormulaWriter.Call + corpus + README ✅
+- [x] FormulaWriter.Call + corpus + README ✅
 
 ### Verification Plan
 - Suítes verdes; SEARCH/FIND diferenciados por caso e wildcard; SUBSTITUTE com instance_num contra oráculo.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-01 (branch `feature/functions-wave-2`, TDD RED→GREEN por família). **43 funções
+novas** (contado por script no `Parser.Functions`; o "~36" do título subestimava — a lista explícita
+sempre teve 43): 5 lógicas + 16 de informação + 13 de manipulação de texto + 6 de formatação/extração +
+3 regex. Total registrado no Parser: 155 (era 112); Logical 12/19, Information 18/22, Text 34/49.
+Arquivos por família em `Expressions/` (`LogicalFunctions.cs`, `InformationFunctions.cs`,
+`TextManipulation.cs`, `TextFormatting.cs`, `RegexFunctions.cs`); tags MemoryPackUnion 124–166
+(append-only; próximo livre = 167). Golden values: páginas oficiais da Microsoft fetchadas em 2026-07-01
+e citadas nos testes (a página do FIND está aposentada no site — usado o archive da mesma URL; os GUIDs
+corretos das páginas REGEX* diferem dos "canônicos" e estão citados nos testes). Decisões: (1) SEARCH
+implementa busca POSICIONAL de wildcard via regex não-ancorada (leftmost match = posição 1-based), não
+reuso do `Criteria.WildcardMatch` (que é full-match) — com escape `~` e timeout defensivo de 1s;
+(2) IFS/SWITCH lazy como o If (só o ramo que casa avalia; SWITCH compara via `ValueCoercion.AreEqual`);
+(3) XOR segue a doc: paridade de TRUEs, texto/blank em ranges ignorados, nenhum valor lógico →
+`#VALUE!`; (4) CHAR/CODE usam code point Unicode (Latin-1 em 1-255) em vez da página ANSI do Windows —
+contrato locale-invariant §A7, documentado no reference; (5) FIXED/DOLLAR invariant (`.`/`,`/`$`,
+negativos do DOLLAR em parênteses, arredondamento away-from-zero em posição de dígito possivelmente
+negativa); (6) TEXTBEFORE/TEXTAFTER com engine único (instance_num negativo conta do fim, match_mode,
+match_end como delimitador virtual na borda, if_not_found lazy; split documentado `#VALUE!`/`#N/A`);
+(7) REGEXEXTRACT só no modo escalar 0 — modos 1/2 retornam array → `#VALUE!` até a F2; ocorrência
+inexistente no REGEXREPLACE devolve o texto inalterado (caso não documentado na página, decisão
+registrada); (8) T propaga erros (norma do engine; a tabela da página só cobre não-erros). Suíte core:
+350 → **408 verdes** (58 novos: 5 arquivos de teste por família + corpus do FormulaWriter cobrindo as
+43); suíte Excel intacta (16); build 0 warnings. Docs: `function-reference.md` → 155 (tabelas
+Logical/Information/Text reescritas, notas de limitação regex/CHAR/SHEETS) + contagem 155 espelhada no
+README e nos guias em inglês (`docs/pt-BR/` intocado — espelho é de outro agente).
 
 ---
 

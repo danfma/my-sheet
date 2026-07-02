@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **112 built-in functions**. The authoritative registered list is the `Functions` map
+MySheet implements **155 built-in functions**. The authoritative registered list is the `Functions` map
 in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
 it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -11,17 +11,22 @@ Beyond these, you can add your own functions with
 Conventions below: `[argument]` is optional; `…` means the function is variadic. "Range-aware" means
 range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are expanded cell by cell.
 
-## Logical (7)
+## Logical (12)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
 | `AND` | `AND(logical1, [logical2], …)` | `TRUE` if every argument is truthy. |
+| `FALSE` | `FALSE()` | The logical value `FALSE` (function form of the literal). |
 | `IF` | `IF(condition, value_if_true, [value_if_false])` | Conditional; only the taken branch is evaluated. |
 | `IFERROR` | `IFERROR(value, value_if_error)` | `value`, or the fallback when `value` is any error. |
 | `IFNA` | `IFNA(value, value_if_na)` | `value`, or the fallback only when `value` is `#N/A`. |
+| `IFS` | `IFS(test1, value1, [test2, value2], …)` | First value whose test is `TRUE` (lazy, like `IF`); no `TRUE` test → `#N/A`. |
 | `LET` | `LET(name1, value1, [name2, value2, …], calculation)` | Binds names usable in `calculation` (e.g. `=LET(x, A1*2, x+x)`). Names are local to the formula. |
 | `NOT` | `NOT(logical)` | Logical negation. |
 | `OR` | `OR(logical1, [logical2], …)` | `TRUE` if any argument is truthy. |
+| `SWITCH` | `SWITCH(expression, value1, result1, …, [default])` | First result whose value equals `expression` (lazy; `=` equality semantics); no match → default or `#N/A`. |
+| `TRUE` | `TRUE()` | The logical value `TRUE` (function form of the literal). |
+| `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` when the number of `TRUE` inputs is odd; text/blank cells in ranges are ignored. |
 
 ## Math and trigonometry (67)
 
@@ -108,21 +113,50 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `MAX` | `MAX([number1], …)` | Largest numeric value; range-aware. |
 | `MIN` | `MIN([number1], …)` | Smallest numeric value; range-aware. |
 
-## Text (11)
+## Text (34)
+
+Text functions follow the engine's locale-invariant contract: ordinal comparisons, invariant casing,
+`.`/`,`/`$` in `FIXED`/`DOLLAR`. `CHAR`/`CODE` map Unicode code points (Latin-1 for 1-255), not the
+Windows ANSI code page. The `REGEX*` functions run on .NET regular expressions (Excel specifies
+PCRE2; the usual subset — classes, quantifiers, anchors, groups, `$n` — behaves identically) with a
+defensive 1-second match timeout.
 
 | Function | Arguments | Description |
 | --- | --- | --- |
+| `CHAR` | `CHAR(number)` | Character for a code 1-255 (out of range → `#VALUE!`). |
+| `CLEAN` | `CLEAN(text)` | Removes control characters 0-31 (127 etc. stay, like Excel). |
+| `CODE` | `CODE(text)` | Code of the first character (empty text → `#VALUE!`). |
 | `CONCAT` | `CONCAT(text1, …)` | Concatenates values; range-aware. |
 | `CONCATENATE` | `CONCATENATE(text1, …)` | Legacy alias of concatenation (scalar arguments). |
+| `DOLLAR` | `DOLLAR(number, [decimals])` | Number as currency TEXT — `$1,234.57`, negatives `($1,200)`; decimals default 2, negative rounds left of the point. |
+| `EXACT` | `EXACT(text1, text2)` | Case-sensitive comparison. |
+| `FIND` | `FIND(find_text, within_text, [start_num])` | Case-sensitive position (1-based); no wildcards; not found → `#VALUE!`. |
+| `FIXED` | `FIXED(number, [decimals], [no_commas])` | Number rounded and rendered as TEXT — `1,234.6`; decimals default 2 (max 127), negative rounds left of the point. |
 | `LEFT` | `LEFT(text, [num_chars])` | Leading characters (default 1). |
 | `LEN` | `LEN(text)` | Text length. |
 | `LOWER` | `LOWER(text)` | Lower-cases the text. |
 | `MID` | `MID(text, start_num, num_chars)` | Substring by 1-based position and length. |
+| `NUMBERVALUE` | `NUMBERVALUE(text, [decimal_separator], [group_separator])` | Locale-explicit text → number (defaults `.` and `,`); spaces ignored; trailing `%` divide by 100 each. |
+| `PROPER` | `PROPER(text)` | Capitalizes every letter that follows a non-letter; lower-cases the rest. |
+| `REGEXEXTRACT` | `REGEXEXTRACT(text, pattern, [return_mode], [case_sensitivity])` | First match of the pattern (mode 0); array modes 1/2 → `#VALUE!` until the arrays phase; no match → `#N/A`. |
+| `REGEXREPLACE` | `REGEXREPLACE(text, pattern, replacement, [occurrence], [case_sensitivity])` | Replaces matches (`$n` group references); occurrence 0 = all, positive = nth, negative = nth from the end. |
+| `REGEXTEST` | `REGEXTEST(text, pattern, [case_sensitivity])` | `TRUE` when the pattern matches anywhere in the text. |
+| `REPLACE` | `REPLACE(old_text, start_num, num_chars, new_text)` | Replaces by 1-based position and length. |
+| `REPT` | `REPT(text, number_times)` | Repeats text (count truncated; negative or a result over 32,767 chars → `#VALUE!`). |
+| `RIGHT` | `RIGHT(text, [num_chars])` | Trailing characters (default 1). |
+| `SEARCH` | `SEARCH(find_text, within_text, [start_num])` | Case-insensitive position with `?` `*` wildcards (`~` escapes); not found → `#VALUE!`. |
+| `SUBSTITUTE` | `SUBSTITUTE(text, old_text, new_text, [instance_num])` | Case-sensitive replacement — every occurrence, or only the 1-based `instance_num`. |
+| `T` | `T(value)` | The value if it is text, otherwise `""`. |
 | `TEXT` | `TEXT(value, format_text)` | Formats a value (number and date formats, e.g. `"0.00"`, `"dd/mm/yyyy"`). |
+| `TEXTAFTER` | `TEXTAFTER(text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found])` | Text after the nth delimiter (negative counts from the end); miss → `if_not_found` or `#N/A`. |
+| `TEXTBEFORE` | `TEXTBEFORE(text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found])` | Text before the nth delimiter (negative counts from the end); miss → `if_not_found` or `#N/A`. |
 | `TEXTJOIN` | `TEXTJOIN(delimiter, ignore_empty, text1, …)` | Joins values with a delimiter; range-aware. |
 | `TRIM` | `TRIM(text)` | Removes excess whitespace. |
+| `UNICHAR` | `UNICHAR(number)` | Character for a full Unicode code point (0/out of range → `#VALUE!`; surrogate code points → `#N/A`). |
+| `UNICODE` | `UNICODE(text)` | Code point of the first character (surrogate pairs read as one). |
 | `UPPER` | `UPPER(text)` | Upper-cases the text. |
 | `VALUE` | `VALUE(text)` | Converts text to a number. |
+| `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Value as text — format 0 concise (default), 1 strict (text quoted); errors become their display text. |
 
 ## Lookup and reference (7)
 
@@ -136,13 +170,31 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Vertical lookup in the first column of a table; exact or approximate. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Modern lookup with not-found fallback and match/search modes. |
 
-## Information (3)
+## Information (18)
+
+The `IS*` functions inspect the evaluated value without coercion (`ISNUMBER("19")` is `FALSE`) and
+never propagate errors — they report on them.
 
 | Function | Arguments | Description |
 | --- | --- | --- |
+| `ERROR.TYPE` | `ERROR.TYPE(error_val)` | `#NULL!`=1, `#DIV/0!`=2, `#VALUE!`=3, `#REF!`=4, `#NAME?`=5, `#NUM!`=6, `#N/A`=7; non-error → `#N/A`. |
 | `ISBLANK` | `ISBLANK(value)` | `TRUE` for a blank value. |
+| `ISERR` | `ISERR(value)` | `TRUE` for any error except `#N/A`. |
+| `ISERROR` | `ISERROR(value)` | `TRUE` for any error value. |
+| `ISEVEN` | `ISEVEN(number)` | `TRUE` for an even number (truncated first); nonnumeric → `#VALUE!`. |
+| `ISFORMULA` | `ISFORMULA(reference)` | `TRUE` when the referenced cell contains a formula (not a plain literal); non-reference → `#VALUE!`. |
+| `ISLOGICAL` | `ISLOGICAL(value)` | `TRUE` for a logical value. |
+| `ISNA` | `ISNA(value)` | `TRUE` only for `#N/A`. |
+| `ISNONTEXT` | `ISNONTEXT(value)` | `TRUE` for anything that is not text (blanks included). |
 | `ISNUMBER` | `ISNUMBER(value)` | `TRUE` for a numeric value. |
+| `ISODD` | `ISODD(number)` | `TRUE` for an odd number (truncated first); nonnumeric → `#VALUE!`. |
+| `ISREF` | `ISREF(value)` | `TRUE` when the argument is a reference (cell/range/union) — a syntactic check, regardless of the value. |
+| `ISTEXT` | `ISTEXT(value)` | `TRUE` for text. |
+| `N` | `N(value)` | Number → itself; `TRUE`→1/`FALSE`→0; error → the error; anything else → 0. |
+| `NA` | `NA()` | The `#N/A` error value. |
 | `SHEET` | `SHEET([value])` | 1-based sheet position (tab order) of a reference or sheet name — or of the current sheet with no argument. |
+| `SHEETS` | `SHEETS()` | Number of sheets in the workbook (the 3-D reference form does not apply: every reference spans one sheet). |
+| `TYPE` | `TYPE(value)` | 1 number (blanks included), 2 text, 4 logical, 16 error (inspected, not propagated), 64 multi-cell reference. |
 
 ## Financial (9)
 
@@ -163,7 +215,7 @@ period (default) / 1 = beginning.
 
 ## Excel function coverage
 
-MySheet implements 112 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 155 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -183,11 +235,11 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Logical</strong> — 7/19</summary>
+<summary><strong>Logical</strong> — 12/19</summary>
 
-✅ `AND` `IF` `IFERROR` `IFNA` `LET` `NOT` `OR`
+✅ `AND` `FALSE` `IF` `IFERROR` `IFNA` `IFS` `LET` `NOT` `OR` `SWITCH` `TRUE` `XOR`
 
-⬜ `BYCOL` `BYROW` `FALSE` `IFS` `LAMBDA` `MAKEARRAY` `MAP` `REDUCE` `SCAN` `SWITCH` `TRUE` `XOR`
+⬜ `BYCOL` `BYROW` `LAMBDA` `MAKEARRAY` `MAP` `REDUCE` `SCAN`
 
 </details>
 
@@ -221,22 +273,22 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Text</strong> — 11/49</summary>
+<summary><strong>Text</strong> — 34/49</summary>
 
-✅ `CONCAT` `CONCATENATE` `LEFT` `LEN` `LOWER` `MID` `TEXT` `TEXTJOIN` `TRIM` `UPPER` `VALUE`
+✅ `CHAR` `CLEAN` `CODE` `CONCAT` `CONCATENATE` `DOLLAR` `EXACT` `FIND` `FIXED` `LEFT` `LEN` `LOWER` `MID` `NUMBERVALUE` `PROPER` `REGEXEXTRACT` `REGEXREPLACE` `REGEXTEST` `REPLACE` `REPT` `RIGHT` `SEARCH` `SUBSTITUTE` `T` `TEXT` `TEXTAFTER` `TEXTBEFORE` `TEXTJOIN` `TRIM` `UNICHAR` `UNICODE` `UPPER` `VALUE` `VALUETOTEXT`
 
-⬜ `ARRAYTOTEXT` `CHAR` `CLEAN` `CODE` `DOLLAR` `EXACT` `FIND` `FIXED` `NUMBERVALUE` `PROPER` `REGEXEXTRACT` `REGEXREPLACE` `REGEXTEST` `REPLACE` `REPT` `RIGHT` `SEARCH` `SUBSTITUTE` `T` `TEXTAFTER` `TEXTBEFORE` `TEXTSPLIT` `UNICHAR` `UNICODE` `VALUETOTEXT`
+⬜ `ARRAYTOTEXT` `TEXTSPLIT`
 
 ✖ `ASC` `BAHTTEXT` `DBCS` `DETECTLANGUAGE` `FINDB` `LEFTB` `LENB` `MIDB` `PHONETIC` `REPLACEB` `RIGHTB` `SEARCHB` `TRANSLATE`
 
 </details>
 
 <details open>
-<summary><strong>Information</strong> — 3/22</summary>
+<summary><strong>Information</strong> — 18/22</summary>
 
-✅ `ISBLANK` `ISNUMBER` `SHEET`
+✅ `ERROR.TYPE` `ISBLANK` `ISERR` `ISERROR` `ISEVEN` `ISFORMULA` `ISLOGICAL` `ISNA` `ISNONTEXT` `ISNUMBER` `ISODD` `ISREF` `ISTEXT` `N` `NA` `SHEET` `SHEETS` `TYPE`
 
-⬜ `ERROR.TYPE` `ISERR` `ISERROR` `ISEVEN` `ISFORMULA` `ISLOGICAL` `ISNA` `ISNONTEXT` `ISODD` `ISOMITTED` `ISREF` `ISTEXT` `N` `NA` `SHEETS` `TYPE`
+⬜ `ISOMITTED`
 
 ✖ `CELL` `INFO` `STOCKHISTORY`
 
