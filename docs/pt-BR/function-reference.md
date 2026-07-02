@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **254 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
+O MySheet implementa **300 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
 em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
 dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -273,10 +273,18 @@ erros — elas os relatam.
 | `SHEETS` | `SHEETS()` | Número de planilhas no workbook (a forma com referência 3-D não se aplica: toda referência abrange uma única planilha). |
 | `TYPE` | `TYPE(value)` | 1 número (incluindo em branco), 2 texto, 4 lógico, 16 erro (inspecionado, não propagado), 64 referência multicélula. |
 
-## Financeiras (9)
+## Financeiras (55)
 
 Semântica padrão de valor do dinheiro no tempo: `rate` por período, `nper` é o total de períodos, `type`
-0 = fim do período (padrão) / 1 = início.
+0 = fim do período (padrão) / 1 = início. As funções de títulos, cupom e fluxo de caixa datado recebem
+**seriais de data** (construa-os com `DATE`, exatamente como nas funções de data) e uma `basis` de
+contagem de dias: 0 = US (NASD) 30/360 (padrão), 1 = real/real, 2 = real/360, 3 = real/365, 4 = europeu
+30/360. A `frequency` do cupom é 1 (anual), 2 (semestral) ou 4 (trimestral). As datas de cupom são
+construídas andando **para trás a partir do vencimento**. Resultados iterativos (`RATE`, `IRR`, `XIRR`,
+`YIELD`, `ODDFYIELD`) usam o mesmo solver robusto de bracketing + bisseção que `RATE`/`IRR` (validado
+contra um caso rígido de 30 anos). Os valores de referência de toda a família são conferidos contra o
+oráculo `ExcelFinancialFunctions`. Violações de domínio mapeiam para `#NUM!` (liquidação ≥ vencimento,
+frequency ∉ {1,2,4}, basis ∉ 0..4, etc.).
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -289,6 +297,52 @@ Semântica padrão de valor do dinheiro no tempo: `rate` por período, `nper` é
 | `PPMT` | `PPMT(rate, per, nper, pv, [fv], [type])` | Parcela de principal de um dado período de pagamento. |
 | `PV` | `PV(rate, nper, pmt, [fv], [type])` | Valor presente de um investimento. |
 | `RATE` | `RATE(nper, pmt, pv, [fv], [type], [guess])` | Taxa de juros por período (iterativa). |
+| `SLN` | `SLN(cost, salvage, life)` | Depreciação linear por período. |
+| `SYD` | `SYD(cost, salvage, life, per)` | Depreciação pela soma dos dígitos dos anos. |
+| `DB` | `DB(cost, salvage, life, period, [month])` | Depreciação por saldo decrescente fixo. |
+| `DDB` | `DDB(cost, salvage, life, period, [factor])` | Depreciação por saldo decrescente em dobro. |
+| `VDB` | `VDB(cost, salvage, life, start, end, [factor], [no_switch])` | Depreciação por saldo decrescente variável. |
+| `AMORLINC` | `AMORLINC(cost, purchased, first_period, salvage, period, rate, [basis])` | Depreciação linear francesa (proporcional). |
+| `AMORDEGRC` | `AMORDEGRC(cost, purchased, first_period, salvage, period, rate, [basis])` | Depreciação decrescente francesa com coeficiente baseado na vida útil. |
+| `EFFECT` | `EFFECT(nominal_rate, npery)` | Taxa de juros anual efetiva. |
+| `NOMINAL` | `NOMINAL(effect_rate, npery)` | Taxa de juros anual nominal. |
+| `MIRR` | `MIRR(values, finance_rate, reinvest_rate)` | Taxa interna de retorno modificada. |
+| `RRI` | `RRI(nper, pv, fv)` | Taxa de juros equivalente para o crescimento de um investimento. |
+| `PDURATION` | `PDURATION(rate, pv, fv)` | Períodos para um investimento atingir um valor. |
+| `ISPMT` | `ISPMT(rate, per, nper, pv)` | Juros pagos durante um período de empréstimo linear. |
+| `CUMIPMT` | `CUMIPMT(rate, nper, pv, start, end, type)` | Juros acumulados em um intervalo de períodos. |
+| `CUMPRINC` | `CUMPRINC(rate, nper, pv, start, end, type)` | Principal acumulado em um intervalo de períodos. |
+| `FVSCHEDULE` | `FVSCHEDULE(principal, schedule)` | Valor futuro após uma série de taxas compostas. |
+| `DOLLARDE` | `DOLLARDE(fractional_dollar, fraction)` | Preço em notação fracionária → decimal. |
+| `DOLLARFR` | `DOLLARFR(decimal_dollar, fraction)` | Preço decimal → notação fracionária. |
+| `XNPV` | `XNPV(rate, values, dates)` | Valor presente líquido de fluxos de caixa datados (real/365). |
+| `XIRR` | `XIRR(values, dates, [guess])` | Taxa interna de retorno de fluxos de caixa datados. |
+| `ACCRINT` | `ACCRINT(issue, first_interest, settlement, rate, par, frequency, [basis], [calc_method])` | Juros acumulados de um título com juros periódicos. |
+| `ACCRINTM` | `ACCRINTM(issue, settlement, rate, par, [basis])` | Juros acumulados de um título que paga no vencimento. |
+| `DISC` | `DISC(settlement, maturity, pr, redemption, [basis])` | Taxa de desconto de um título. |
+| `INTRATE` | `INTRATE(settlement, maturity, investment, redemption, [basis])` | Taxa de juros de um título totalmente investido. |
+| `RECEIVED` | `RECEIVED(settlement, maturity, investment, discount, [basis])` | Valor recebido no vencimento. |
+| `PRICEDISC` | `PRICEDISC(settlement, maturity, discount, redemption, [basis])` | Preço por $100 de um título descontado. |
+| `PRICEMAT` | `PRICEMAT(settlement, maturity, issue, rate, yld, [basis])` | Preço por $100 de um título com juros pagos no vencimento. |
+| `YIELDDISC` | `YIELDDISC(settlement, maturity, pr, redemption, [basis])` | Rendimento anual de um título descontado. |
+| `YIELDMAT` | `YIELDMAT(settlement, maturity, issue, rate, pr, [basis])` | Rendimento anual de um título com juros pagos no vencimento. |
+| `TBILLEQ` | `TBILLEQ(settlement, maturity, discount)` | Rendimento equivalente a título de uma letra do Tesouro (T-bill). |
+| `TBILLPRICE` | `TBILLPRICE(settlement, maturity, discount)` | Preço por $100 de uma letra do Tesouro (T-bill). |
+| `TBILLYIELD` | `TBILLYIELD(settlement, maturity, pr)` | Rendimento de uma letra do Tesouro (T-bill). |
+| `COUPPCD` | `COUPPCD(settlement, maturity, frequency, [basis])` | Data do cupom anterior à liquidação. |
+| `COUPNCD` | `COUPNCD(settlement, maturity, frequency, [basis])` | Data do próximo cupom após a liquidação. |
+| `COUPNUM` | `COUPNUM(settlement, maturity, frequency, [basis])` | Número de cupons entre a liquidação e o vencimento. |
+| `COUPDAYS` | `COUPDAYS(settlement, maturity, frequency, [basis])` | Dias no período do cupom que contém a liquidação. |
+| `COUPDAYBS` | `COUPDAYBS(settlement, maturity, frequency, [basis])` | Dias do início do período até a liquidação. |
+| `COUPDAYSNC` | `COUPDAYSNC(settlement, maturity, frequency, [basis])` | Dias da liquidação até o próximo cupom. |
+| `PRICE` | `PRICE(settlement, maturity, rate, yld, redemption, frequency, [basis])` | Preço por $100 de um título com cupons periódicos. |
+| `YIELD` | `YIELD(settlement, maturity, rate, pr, redemption, frequency, [basis])` | Rendimento até o vencimento (iterativo). |
+| `DURATION` | `DURATION(settlement, maturity, coupon, yld, frequency, [basis])` | Duração de Macaulay em anos. |
+| `MDURATION` | `MDURATION(settlement, maturity, coupon, yld, frequency, [basis])` | Duração de Macaulay modificada. |
+| `ODDFPRICE` | `ODDFPRICE(settlement, maturity, issue, first_coupon, rate, yld, redemption, frequency, [basis])` | Preço de um título com primeiro período irregular. |
+| `ODDFYIELD` | `ODDFYIELD(settlement, maturity, issue, first_coupon, rate, pr, redemption, frequency, [basis])` | Rendimento de um título com primeiro período irregular. |
+| `ODDLPRICE` | `ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, [basis])` | Preço de um título com último período irregular. |
+| `ODDLYIELD` | `ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, [basis])` | Rendimento de um título com último período irregular. |
 
 ## Data e hora (23)
 
@@ -351,7 +405,7 @@ Texto/Matemática.)
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 254 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 300 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -362,11 +416,9 @@ o qual o roadmap é acompanhado. Alguns nomes são listados pela Microsoft em ma
 categoria não somam um total único — veja o `Parser.cs` para a lista registrada oficial.
 
 <details open>
-<summary><strong>Financeiras</strong> — 9/55</summary>
+<summary><strong>Financeiras</strong> — 55/55</summary>
 
-✅ `FV` `IPMT` `IRR` `NPER` `NPV` `PMT` `PPMT` `PV` `RATE`
-
-⬜ `ACCRINT` `ACCRINTM` `AMORDEGRC` `AMORLINC` `COUPDAYBS` `COUPDAYS` `COUPDAYSNC` `COUPNCD` `COUPNUM` `COUPPCD` `CUMIPMT` `CUMPRINC` `DB` `DDB` `DISC` `DOLLARDE` `DOLLARFR` `DURATION` `EFFECT` `FVSCHEDULE` `INTRATE` `ISPMT` `MDURATION` `MIRR` `NOMINAL` `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD` `PDURATION` `PRICE` `PRICEDISC` `PRICEMAT` `RECEIVED` `RRI` `SLN` `SYD` `TBILLEQ` `TBILLPRICE` `TBILLYIELD` `VDB` `XIRR` `XNPV` `YIELD` `YIELDDISC` `YIELDMAT`
+✅ `ACCRINT` `ACCRINTM` `AMORDEGRC` `AMORLINC` `COUPDAYBS` `COUPDAYS` `COUPDAYSNC` `COUPNCD` `COUPNUM` `COUPPCD` `CUMIPMT` `CUMPRINC` `DB` `DDB` `DISC` `DOLLARDE` `DOLLARFR` `DURATION` `EFFECT` `FV` `FVSCHEDULE` `INTRATE` `IPMT` `IRR` `ISPMT` `MDURATION` `MIRR` `NOMINAL` `NPER` `NPV` `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD` `PDURATION` `PMT` `PPMT` `PRICE` `PRICEDISC` `PRICEMAT` `PV` `RATE` `RECEIVED` `RRI` `SLN` `SYD` `TBILLEQ` `TBILLPRICE` `TBILLYIELD` `VDB` `XIRR` `XNPV` `YIELD` `YIELDDISC` `YIELDMAT`
 
 </details>
 
