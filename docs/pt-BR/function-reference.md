@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **164 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
+O MySheet implementa **231 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
 em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
 dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -32,7 +32,7 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `TRUE` | `TRUE()` | O valor lógico `TRUE` (forma de função do literal). |
 | `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` quando a quantidade de entradas `TRUE` é ímpar; células de texto/em branco em intervalos são ignoradas. |
 
-## Matemática e trigonometria (67)
+## Matemática e trigonometria (72)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -96,26 +96,89 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `SINH` | `SINH(number)` | Seno hiperbólico. |
 | `SQRT` | `SQRT(number)` | Raiz quadrada; negativo → `#NUM!`. |
 | `SQRTPI` | `SQRTPI(number)` | Raiz quadrada de `number × π`. |
+| `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], …)` | Agregação selecionada por `function_num` (1-11: AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV.S/STDEV.P/SUM/VAR.S/VAR.P); células referenciadas cuja própria fórmula é um `SUBTOTAL` são ignoradas (evita contagem em duplicidade). 101-111 se comportam como 1-11 — o MySheet não tem modelo de linhas ocultas (limite documentado). Código inválido → `#VALUE!`. |
 | `SUM` | `SUM([number1], …)` | Soma de todos os valores numéricos; aceita intervalos. |
 | `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Soma as células que atendem a um critério (ex.: `">10"`). |
 | `SUMIFS` | `SUMIFS(sum_range, criteria_range1, criteria1, …)` | Soma sob múltiplos pares de intervalo e critério. |
+| `SUMPRODUCT` | `SUMPRODUCT(array1, [array2], …)` | Soma dos produtos posição a posição; entradas não numéricas contam como 0; formatos diferentes → `#VALUE!`. |
 | `SUMSQ` | `SUMSQ(number1, …)` | Soma dos quadrados; aceita intervalos. |
+| `SUMX2MY2` | `SUMX2MY2(array_x, array_y)` | Σ(x² − y²); pares com um lado não numérico são descartados; comprimentos diferentes → `#N/A`. |
+| `SUMX2PY2` | `SUMX2PY2(array_x, array_y)` | Σ(x² + y²); mesmas regras de pareamento de `SUMX2MY2`. |
+| `SUMXMY2` | `SUMXMY2(array_x, array_y)` | Σ(x − y)²; mesmas regras de pareamento de `SUMX2MY2`. |
 | `TAN` | `TAN(number)` | Tangente (radianos). |
 | `TANH` | `TANH(number)` | Tangente hiperbólica. |
 | `TRUNC` | `TRUNC(number, [num_digits])` | Trunca em direção a zero (padrão: 0 dígitos). |
 
-## Estatísticas (8)
+## Estatísticas (59)
+
+Convenções desta família: os agregados simples ignoram texto/lógicos/células em branco referenciados
+(como `SUM`); as variantes `*A` contam texto referenciado como 0 e lógicos como 1/0. As funções de duas
+séries (`CORREL`, `SLOPE`, …) descartam um par inteiro quando QUALQUER um dos lados é não numérico,
+retornam `#N/A` em caso de comprimentos diferentes e `#DIV/0!` quando a variância é zero. `GAUSS` fica
+para a fase das distribuições estatísticas (precisa da CDF normal/erf); `PHI` — a densidade simples —
+já está incluída.
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
+| `AVEDEV` | `AVEDEV(number1, …)` | Média dos desvios absolutos em relação à média; nenhum valor → `#NUM!`. |
 | `AVERAGE` | `AVERAGE([number1], …)` | Média aritmética dos valores numéricos; aceita intervalos. |
+| `AVERAGEA` | `AVERAGEA(value1, …)` | `AVERAGE` com a regra `*A` (texto → 0, lógicos → 1/0). |
+| `AVERAGEIF` | `AVERAGEIF(range, criteria, [average_range])` | Média das células que atendem a um critério; nenhuma correspondência numérica → `#DIV/0!`. |
+| `AVERAGEIFS` | `AVERAGEIFS(average_range, criteria_range1, criteria1, …)` | Média sob múltiplos pares de intervalo e critério; nenhuma correspondência → `#DIV/0!`; incompatibilidade de formato → `#VALUE!`. |
+| `CORREL` | `CORREL(array1, array2)` | Coeficiente de correlação produto-momento de Pearson. |
 | `COUNT` | `COUNT([value1], …)` | Conta valores numéricos; aceita intervalos. |
 | `COUNTA` | `COUNTA(value1, …)` | Conta valores não em branco; aceita intervalos. |
 | `COUNTBLANK` | `COUNTBLANK(range, …)` | Conta células em branco. |
 | `COUNTIF` | `COUNTIF(range, criteria)` | Conta as células que atendem a um critério. |
 | `COUNTIFS` | `COUNTIFS(criteria_range1, criteria1, …)` | Contagem sob múltiplos pares de intervalo e critério. |
+| `COVARIANCE.P` | `COVARIANCE.P(array1, array2)` | Covariância populacional Σ(x−x̄)(y−ȳ)/n. |
+| `COVARIANCE.S` | `COVARIANCE.S(array1, array2)` | Covariância amostral (n−1); menos de 2 pares → `#DIV/0!`. |
+| `DEVSQ` | `DEVSQ(number1, …)` | Soma dos quadrados dos desvios em relação à média; nenhum valor → `#NUM!`. |
+| `FISHER` | `FISHER(x)` | Transformação de Fisher; `x` ≤ −1 ou ≥ 1 → `#NUM!`. |
+| `FISHERINV` | `FISHERINV(y)` | Transformação inversa de Fisher. |
+| `FORECAST.LINEAR` | `FORECAST.LINEAR(x, known_ys, known_xs)` | y previsto em `x` sobre a reta de mínimos quadrados — atenção à ordem dos argumentos (o novo x vem primeiro). |
+| `GEOMEAN` | `GEOMEAN(number1, …)` | Média geométrica; qualquer valor ≤ 0 → `#NUM!`. |
+| `HARMEAN` | `HARMEAN(number1, …)` | Média harmônica; qualquer valor ≤ 0 → `#NUM!`. |
+| `INTERCEPT` | `INTERCEPT(known_ys, known_xs)` | Intercepto y da reta de mínimos quadrados. |
+| `KURT` | `KURT(number1, …)` | Curtose em excesso (fórmula amostral do Excel); menos de 4 pontos ou s = 0 → `#DIV/0!`. |
+| `LARGE` | `LARGE(array, k)` | k-ésimo maior valor; array vazio, k ≤ 0 ou k > n → `#NUM!`. |
 | `MAX` | `MAX([number1], …)` | Maior valor numérico; aceita intervalos. |
+| `MAXA` | `MAXA(value1, …)` | `MAX` com a regra `*A`. |
+| `MAXIFS` | `MAXIFS(max_range, criteria_range1, criteria1, …)` | Maior valor correspondente; nenhuma correspondência → 0; incompatibilidade de formato → `#VALUE!`. |
+| `MEDIAN` | `MEDIAN(number1, …)` | Valor central (média dos dois valores centrais quando a quantidade é par); nenhum valor → `#NUM!`. |
 | `MIN` | `MIN([number1], …)` | Menor valor numérico; aceita intervalos. |
+| `MINA` | `MINA(value1, …)` | `MIN` com a regra `*A`. |
+| `MINIFS` | `MINIFS(min_range, criteria_range1, criteria1, …)` | Menor valor correspondente; nenhuma correspondência → 0; incompatibilidade de formato → `#VALUE!`. |
+| `MODE.SNGL` | `MODE.SNGL(number1, …)` | Valor mais frequente; em caso de empate, prevalece o primeiro valor encontrado; sem duplicatas → `#N/A`. |
+| `PEARSON` | `PEARSON(array1, array2)` | O mesmo coeficiente de `CORREL`. |
+| `PERCENTILE.EXC` | `PERCENTILE.EXC(array, k)` | Percentil exclusivo: interpolação na posição `k·(n+1)`; `k` fora de `(0, 1)` ou uma posição inalcançável → `#NUM!`. |
+| `PERCENTILE.INC` | `PERCENTILE.INC(array, k)` | Percentil inclusivo: interpolação na posição `k·(n−1)`; `k` fora de `[0, 1]` → `#NUM!`. |
+| `PERCENTRANK.EXC` | `PERCENTRANK.EXC(array, x, [significance])` | Posição exclusiva de `x` como fração (`(abaixo+1)/(n+1)`, interpolada); TRUNCADA para `significance` dígitos (padrão 3); `x` fora do intervalo → `#N/A`. |
+| `PERCENTRANK.INC` | `PERCENTRANK.INC(array, x, [significance])` | Posição inclusiva de `x` (`abaixo/(n−1)`, interpolada); mesma truncagem e erros de `.EXC`. |
+| `PERMUT` | `PERMUT(number, number_chosen)` | Permutações sem repetição n!/(n−k)! (argumentos truncados); n ≤ 0, k < 0 ou n < k → `#NUM!`. |
+| `PERMUTATIONA` | `PERMUTATIONA(number, number_chosen)` | Permutações com repetição n^k (argumentos truncados); negativo → `#NUM!`. |
+| `PHI` | `PHI(x)` | Densidade da distribuição normal padrão. |
+| `PROB` | `PROB(x_range, prob_range, lower_limit, [upper_limit])` | Soma das probabilidades de x em `[lower, upper]` (upper omitido → x = lower); probabilidades fora de `(0, 1]` ou que não somam 1 → `#NUM!`; comprimentos diferentes → `#N/A`. |
+| `QUARTILE.EXC` | `QUARTILE.EXC(array, quart)` | Quartil exclusivo via `PERCENTILE.EXC(quart/4)`; quart (truncado) ≤ 0 ou ≥ 4 → `#NUM!`. |
+| `QUARTILE.INC` | `QUARTILE.INC(array, quart)` | Quartil inclusivo via `PERCENTILE.INC(quart/4)`; quart (truncado) fora de 0-4 → `#NUM!`. |
+| `RANK.AVG` | `RANK.AVG(number, ref, [order])` | Posição (rank) com empates calculados pela média; order 0/omitido → decrescente, senão crescente; valor ausente → `#N/A`. |
+| `RANK.EQ` | `RANK.EQ(number, ref, [order])` | Posição (rank) com empates compartilhando a posição mais alta do grupo; mesma ordem/erros de `.AVG`. |
+| `RSQ` | `RSQ(known_ys, known_xs)` | Quadrado do coeficiente de Pearson. |
+| `SKEW` | `SKEW(number1, …)` | Assimetria amostral (fator n/((n−1)(n−2))); menos de 3 pontos ou s = 0 → `#DIV/0!`. |
+| `SKEW.P` | `SKEW.P(number1, …)` | Assimetria populacional; menos de 3 pontos ou σ = 0 → `#DIV/0!`. |
+| `SLOPE` | `SLOPE(known_ys, known_xs)` | Inclinação (slope) de mínimos quadrados; var(x) = 0 → `#DIV/0!`. |
+| `SMALL` | `SMALL(array, k)` | k-ésimo menor valor; array vazio, k ≤ 0 ou k > n → `#NUM!`. |
+| `STANDARDIZE` | `STANDARDIZE(x, mean, standard_dev)` | O z-score (x − mean)/sd; sd ≤ 0 → `#NUM!`. |
+| `STDEV.P` | `STDEV.P(number1, …)` | Desvio padrão populacional ("n"); nenhum valor → `#DIV/0!`. |
+| `STDEV.S` | `STDEV.S(number1, …)` | Desvio padrão amostral ("n−1"); menos de 2 valores → `#DIV/0!`. |
+| `STDEVA` | `STDEVA(value1, …)` | `STDEV.S` com a regra `*A`. |
+| `STDEVPA` | `STDEVPA(value1, …)` | `STDEV.P` com a regra `*A`. |
+| `STEYX` | `STEYX(known_ys, known_xs)` | Erro padrão do y previsto; menos de 3 pares → `#DIV/0!`. |
+| `TRIMMEAN` | `TRIMMEAN(array, percent)` | Média após cortar `INT(n·percent/2)` valores de CADA extremidade dos dados ordenados; `percent` fora de `[0, 1)` → `#NUM!`. |
+| `VAR.P` | `VAR.P(number1, …)` | Variância populacional; nenhum valor → `#DIV/0!`. |
+| `VAR.S` | `VAR.S(number1, …)` | Variância amostral; menos de 2 valores → `#DIV/0!`. |
+| `VARA` | `VARA(value1, …)` | `VAR.S` com a regra `*A`. |
+| `VARPA` | `VARPA(value1, …)` | `VAR.P` com a regra `*A`. |
 
 ## Texto (34)
 
@@ -227,9 +290,32 @@ Semântica padrão de valor do dinheiro no tempo: `rate` por período, `nper` é
 | `PV` | `PV(rate, nper, pmt, [fv], [type])` | Valor presente de um investimento. |
 | `RATE` | `RATE(nper, pmt, pv, [fv], [type], [guess])` | Taxa de juros por período (iterativa). |
 
+## Compatibilidade — aliases legados (11)
+
+Os nomes anteriores a 2010 das funções estatísticas modernas. Cada alias é um **nó de AST
+distinto**, não apenas uma grafia alternativa do registro moderno: ele é avaliado exatamente como o
+seu equivalente moderno, mas `FORMULATEXT`, a serialização e a exportação para xlsx preservam a
+grafia que você escreveu — `STDEV(…)` nunca vira `STDEV.S(…)`. (`CONCATENATE` e o `FLOOR` legado,
+também presentes na categoria Compatibilidade da Microsoft, estão documentados em suas seções de
+Texto/Matemática.)
+
+| Função | Argumentos | Equivalente moderno |
+| --- | --- | --- |
+| `COVAR` | `COVAR(array1, array2)` | `COVARIANCE.P` |
+| `FORECAST` | `FORECAST(x, known_ys, known_xs)` | `FORECAST.LINEAR` |
+| `MODE` | `MODE(number1, …)` | `MODE.SNGL` |
+| `PERCENTILE` | `PERCENTILE(array, k)` | `PERCENTILE.INC` |
+| `PERCENTRANK` | `PERCENTRANK(array, x, [significance])` | `PERCENTRANK.INC` |
+| `QUARTILE` | `QUARTILE(array, quart)` | `QUARTILE.INC` |
+| `RANK` | `RANK(number, ref, [order])` | `RANK.EQ` |
+| `STDEV` | `STDEV(number1, …)` | `STDEV.S` |
+| `STDEVP` | `STDEVP(number1, …)` | `STDEV.P` |
+| `VAR` | `VAR(number1, …)` | `VAR.S` |
+| `VARP` | `VARP(number1, …)` | `VAR.P` |
+
 ## Cobertura de funções do Excel
 
-O MySheet implementa 164 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 231 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -269,20 +355,25 @@ categoria não somam um total único — veja o `Parser.cs` para a lista registr
 </details>
 
 <details open>
-<summary><strong>Matemática e trigonometria</strong> — 67/82</summary>
+<summary><strong>Matemática e trigonometria</strong> — 72/82</summary>
 
-✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUM` `SUMIF` `SUMIFS` `SUMSQ` `TAN` `TANH` `TRUNC`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
 
-⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RAND` `RANDARRAY` `RANDBETWEEN` `SEQUENCE` `SUBTOTAL` `SUMPRODUCT` `SUMX2MY2` `SUMX2PY2` `SUMXMY2`
+⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RAND` `RANDARRAY` `RANDBETWEEN` `SEQUENCE`
 
 </details>
 
 <details open>
-<summary><strong>Estatísticas</strong> — 8/111</summary>
+<summary><strong>Estatísticas</strong> — 60/111</summary>
 
-✅ `AVERAGE` `COUNT` `COUNTA` `COUNTBLANK` `COUNTIF` `COUNTIFS` `MAX` `MIN`
+✅ `AVEDEV` `AVERAGE` `AVERAGEA` `AVERAGEIF` `AVERAGEIFS` `CORREL` `COUNT` `COUNTA` `COUNTBLANK` `COUNTIF` `COUNTIFS` `COVARIANCE.P` `COVARIANCE.S` `DEVSQ` `FISHER` `FISHERINV` `FORECAST` `FORECAST.LINEAR` `GEOMEAN` `HARMEAN` `INTERCEPT` `KURT` `LARGE` `MAX` `MAXA` `MAXIFS` `MEDIAN` `MIN` `MINA` `MINIFS` `MODE.SNGL` `PEARSON` `PERCENTILE.EXC` `PERCENTILE.INC` `PERCENTRANK.EXC` `PERCENTRANK.INC` `PERMUT` `PERMUTATIONA` `PHI` `PROB` `QUARTILE.EXC` `QUARTILE.INC` `RANK.AVG` `RANK.EQ` `RSQ` `SKEW` `SKEW.P` `SLOPE` `SMALL` `STANDARDIZE` `STDEV.P` `STDEV.S` `STDEVA` `STDEVPA` `STEYX` `TRIMMEAN` `VAR.P` `VAR.S` `VARA` `VARPA`
 
-⬜ `AVEDEV` `AVERAGEA` `AVERAGEIF` `AVERAGEIFS` `BETA.DIST` `BETA.INV` `BINOM.DIST` `BINOM.DIST.RANGE` `BINOM.INV` `CHISQ.DIST` `CHISQ.DIST.RT` `CHISQ.INV` `CHISQ.INV.RT` `CHISQ.TEST` `CONFIDENCE.NORM` `CONFIDENCE.T` `CORREL` `COVARIANCE.P` `COVARIANCE.S` `DEVSQ` `EXPON.DIST` `F.DIST` `F.DIST.RT` `F.INV` `F.INV.RT` `F.TEST` `FISHER` `FISHERINV` `FORECAST` `FORECAST.ETS` `FORECAST.ETS.CONFINT` `FORECAST.ETS.SEASONALITY` `FORECAST.ETS.STAT` `FORECAST.LINEAR` `FREQUENCY` `GAMMA` `GAMMA.DIST` `GAMMA.INV` `GAMMALN` `GAMMALN.PRECISE` `GAUSS` `GEOMEAN` `GROWTH` `HARMEAN` `HYPGEOM.DIST` `INTERCEPT` `KURT` `LARGE` `LINEST` `LOGEST` `LOGNORM.DIST` `LOGNORM.INV` `MAXA` `MAXIFS` `MEDIAN` `MINA` `MINIFS` `MODE.MULT` `MODE.SNGL` `NEGBINOM.DIST` `NORM.DIST` `NORM.INV` `NORM.S.DIST` `NORM.S.INV` `PEARSON` `PERCENTILE.EXC` `PERCENTILE.INC` `PERCENTRANK.EXC` `PERCENTRANK.INC` `PERMUT` `PERMUTATIONA` `PHI` `POISSON.DIST` `PROB` `QUARTILE.EXC` `QUARTILE.INC` `RANK.AVG` `RANK.EQ` `RSQ` `SKEW` `SKEW.P` `SLOPE` `SMALL` `STANDARDIZE` `STDEV.P` `STDEV.S` `STDEVA` `STDEVPA` `STEYX` `T.DIST` `T.DIST.2T` `T.DIST.RT` `T.INV` `T.INV.2T` `T.TEST` `TREND` `TRIMMEAN` `VAR.P` `VAR.S` `VARA` `VARPA` `WEIBULL.DIST` `Z.TEST`
+⬜ `BETA.DIST` `BETA.INV` `BINOM.DIST` `BINOM.DIST.RANGE` `BINOM.INV` `CHISQ.DIST` `CHISQ.DIST.RT` `CHISQ.INV` `CHISQ.INV.RT` `CHISQ.TEST` `CONFIDENCE.NORM` `CONFIDENCE.T` `EXPON.DIST` `F.DIST` `F.DIST.RT` `F.INV` `F.INV.RT` `F.TEST` `FORECAST.ETS` `FORECAST.ETS.CONFINT` `FORECAST.ETS.SEASONALITY` `FORECAST.ETS.STAT` `FREQUENCY` `GAMMA` `GAMMA.DIST` `GAMMA.INV` `GAMMALN` `GAMMALN.PRECISE` `GAUSS` `GROWTH` `HYPGEOM.DIST` `LINEST` `LOGEST` `LOGNORM.DIST` `LOGNORM.INV` `MODE.MULT` `NEGBINOM.DIST` `NORM.DIST` `NORM.INV` `NORM.S.DIST` `NORM.S.INV` `POISSON.DIST` `T.DIST` `T.DIST.2T` `T.DIST.RT` `T.INV` `T.INV.2T` `T.TEST` `TREND` `WEIBULL.DIST` `Z.TEST`
+
+Os nomes ⬜ restantes são quase todos distribuições estatísticas — elas dependem de funções
+especiais validadas (gama/beta incompleta regularizada, erf, inversas numéricas) e serão entregues
+juntas em uma fase posterior. `GAUSS` aguarda com elas: é a CDF normal menos ½, que precisa de erf
+(`PHI`, a densidade simples, já está incluída).
 
 </details>
 
@@ -316,11 +407,14 @@ categoria não somam um total único — veja o `Parser.cs` para a lista registr
 </details>
 
 <details>
-<summary><strong>Compatibilidade (aliases legados)</strong> — 1/41</summary>
+<summary><strong>Compatibilidade (aliases legados)</strong> — 13/41</summary>
 
-✅ `CONCATENATE`
+✅ `CONCATENATE` `COVAR` `FLOOR` `FORECAST` `MODE` `PERCENTILE` `PERCENTRANK` `QUARTILE` `RANK` `STDEV` `STDEVP` `VAR` `VARP`
 
-⬜ `BETADIST` `BETAINV` `BINOMDIST` `CHIDIST` `CHIINV` `CHITEST` `CONFIDENCE` `COVAR` `CRITBINOM` `EXPONDIST` `FDIST` `FINV` `FLOOR` `FORECAST` `FTEST` `GAMMADIST` `GAMMAINV` `HYPGEOMDIST` `LOGINV` `LOGNORMDIST` `MODE` `NEGBINOMDIST` `NORMDIST` `NORMINV` `NORMSDIST` `NORMSINV` `PERCENTILE` `PERCENTRANK` `POISSON` `QUARTILE` `RANK` `STDEV` `STDEVP` `TDIST` `TINV` `TTEST` `VAR` `VARP` `WEIBULL` `ZTEST`
+⬜ `BETADIST` `BETAINV` `BINOMDIST` `CHIDIST` `CHIINV` `CHITEST` `CONFIDENCE` `CRITBINOM` `EXPONDIST` `FDIST` `FINV` `FTEST` `GAMMADIST` `GAMMAINV` `HYPGEOMDIST` `LOGINV` `LOGNORMDIST` `NEGBINOMDIST` `NORMDIST` `NORMINV` `NORMSDIST` `NORMSINV` `POISSON` `TDIST` `TINV` `TTEST` `WEIBULL` `ZTEST`
+
+Os aliases ⬜ restantes são os nomes legados das distribuições estatísticas e as acompanham
+(incluindo `CONFIDENCE`/`CRITBINOM`).
 
 </details>
 
