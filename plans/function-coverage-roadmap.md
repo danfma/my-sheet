@@ -549,29 +549,61 @@ do release). Release 2.3.0 pendente de merge + aval do usuário; sem push.
 ---
 
 ## Phase 6 (Onda 6 → 2.4.0): Financeiras restantes viáveis (~40 funções)
-Status: Not started
+Status: Complete
 
 Namespaces (pós-Fase R): records novos nascem em `Expressions.Financial`.
 
 Oráculo: `ExcelFinancialFunctions` (já referenciado nos testes) cobre a maior parte — validar cada golden.
 
-- [ ] Depreciação: `SLN` `SYD` `DB` `DDB` `VDB` `AMORLINC` `AMORDEGRC` (usam YEARFRAC/datas da onda 5)
-- [ ] Taxas/valor: `EFFECT` `NOMINAL` `MIRR` `RRI` `PDURATION` `ISPMT` `CUMIPMT` `CUMPRINC` `FVSCHEDULE`
+- [x] Depreciação: `SLN` `SYD` `DB` `DDB` `VDB` `AMORLINC` `AMORDEGRC` (usam YEARFRAC/datas da onda 5)
+- [x] Taxas/valor: `EFFECT` `NOMINAL` `MIRR` `RRI` `PDURATION` `ISPMT` `CUMIPMT` `CUMPRINC` `FVSCHEDULE`
       `DOLLARDE` `DOLLARFR`
-- [ ] Fluxos com datas: `XNPV` `XIRR` (solver bracketing+bisseção existente do IRR/RATE)
-- [ ] Títulos (day-count da onda 5): `ACCRINT` `ACCRINTM` `DISC` `DURATION` `MDURATION` `INTRATE` `PRICE`
+- [x] Fluxos com datas: `XNPV` `XIRR` (solver bracketing+bisseção existente do IRR/RATE)
+- [x] Títulos (day-count da onda 5): `ACCRINT` `ACCRINTM` `DISC` `DURATION` `MDURATION` `INTRATE` `PRICE`
       `PRICEDISC` `PRICEMAT` `RECEIVED` `YIELD` `YIELDDISC` `YIELDMAT` `TBILLEQ` `TBILLPRICE` `TBILLYIELD`
       `COUPDAYBS` `COUPDAYS` `COUPDAYSNC` `COUPNCD` `COUPNUM` `COUPPCD`
-- [ ] `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD`: avaliar custo ao chegar — se o oráculo não cobrir
-      com precisão verificável, ficam ⬜ com nota (não entregar número não-validado).
-- [ ] FormulaWriter.Call + corpus + README ✅ (Financial ~49-53/55)
+- [x] `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD`: **ENTRARAM** — o oráculo cobre com precisão
+      verificável (fuzz vs oracle: ODDFPRICE/ODDLPRICE/ODDLYIELD exatos, ODDFYIELD ~7e-10 pelo solver).
+- [x] FormulaWriter.Call + corpus + README ✅ (Financial **55/55** — categoria COMPLETA)
 
 ### Verification Plan
 - Suítes verdes; TODAS as financeiras com golden do `ExcelFinancialFunctions` (incluindo o caso stiff de
   mortgage 30 anos — lição do RATE); XIRR com fluxo irregular de datas reais.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/functions-wave-6`, TDD contra o oráculo `ExcelFinancialFunctions`
+3.2.0). **46 funções novas** (contado por script no `Parser.Functions`: 254 → **300**): 7 depreciação +
+11 taxas/valor + 2 fluxos com datas + 12 títulos simples/desconto/T-bill + 6 agenda de cupom + 4
+título periódico + **4 ODD** (todas entraram). **Financial 9 → 55/55 — categoria completa.**
+
+**Descoberta central (registrada em tasks/lessons.md):** o oráculo NÃO implementa a fórmula-textbook de
+PRICE (`E = COUPDAYS`); ele usa `dsc = e − a` com `a = DaysBetween(pcd, settlement)` e `e = CoupDays`, e
+day-counts de título com uma variante `ModifyStartDate`/`ModifyBothDates` do 30/360-US e um "days in year"
+actual/actual próprios que DIVERGEM do `DayCount` do YEARFRAC (onda 5) em casos de fim-de-mês/fevereiro.
+Por isso o wave-6 NÃO reusa `DayCount.Nasd360Days` para os títulos: um helper novo **`BondMath`**
+(`Expressions/Financial/BondMath.cs`) porta fielmente as convenções do Excel (reusando `DayCount.ActualDays`
+/`Euro360Days` onde são idênticos), validado **valor-a-valor por fuzz** contra o oráculo (dezenas de
+milhares de casos por função, 5 bases × 3 frequências) ANTES de portar para o codebase — todas exatas
+(closed-form maxErr=0; solver-based ~1e-9). As agendas de cupom ANDAM PARA TRÁS a partir do maturity
+iterativamente (clamp de fevereiro é "sticky"; fim-de-mês forçado só quando o maturity é fim-de-mês).
+
+Arquivos por família em `Expressions/Financial/`: `Depreciation.cs`, `RatesAndValue.cs`,
+`DatedCashFlows.cs`, `CouponSchedule.cs`, `Bonds.cs`, `BondsSimple.cs`, `OddBonds.cs`, mais o helper
+`BondMath.cs` e o coercer compartilhado `FinancialArguments.cs` (datas como serial truncado; frequência
+1/2/4 e basis 0-4 → `#NUM!`; settlement ≥ maturity → `#NUM!`). Tags MemoryPackUnion **266–311**
+(append-only; próximo livre = 312; fixture binária intocada e verde). Solver de YIELD/XIRR/ODDFYIELD =
+`TimeValueOfMoney.Solve` (bracketing+bisseção da onda financeira original), com um caso stiff de 35 anos
+irregular no XIRR. XNPV/XIRR: primeira data é a âncora, datas fora de ordem permitidas, data antes da
+âncora → `#NUM!`, sem mudança de sinal no XIRR → `#NUM!`. Um bug pego pelos testes (não pelo fuzz): o
+`DatedFlows.Read` lia `arg[0]/arg[1]` mas no XNPV os values/dates ficam em `arg[1]/arg[2]` — corrigido com
+índice paramétrico. Preconditions do ACCRINT seguem o oráculo (`first_interest >= settlement`); ODDFPRICE/
+ODDFYIELD exigem o first_coupon alinhado com a agenda vinda do maturity (precondição não-documentada mas
+necessária) → `#NUM!` senão. Suíte core: 601 → **676 verdes** (75 novos: 12 depreciação + 20 taxas/valor
++ 7 fluxos datados + 30 títulos/cupom/T-bill + 6 ODD); suíte Excel intacta (20); build da solução (slnx)
+0 warnings (rebuild `--no-incremental`). Docs: `function-reference.md` → 300 (seção Financial reescrita
+com 55 assinaturas, Financial 55/55, bases/frequência documentadas) + contagem 300 espelhada no README
+(bullet financeiro expandido; `docs/pt-BR/` intocado — refresh do release). Release 2.4.0 pendente de
+merge + aval do usuário; sem push.
 
 ---
 
@@ -591,7 +623,39 @@ _(escrever quando a fase concluir)_
   ERF/BESSEL/IM* (números complexos — nicho; avaliar exclusão permanente ao chegar).
 
 ## Final Recap
-_(escrever quando as ondas 0–6 concluírem)_
+Roadmap concluído em 2026-07-02. A cobertura saiu de **52 → 300 funções registradas** no `Parser.Functions`
+(medido por script a cada onda; nunca estimado), atravessando 6 ondas de features + 2 fases estruturais
+(Fase R namespaces, Fase N named ranges), cada onda fechando um release minor lockstep dos 2 pacotes.
+
+Progressão por onda (contagem cumulativa no Parser):
+- **Onda 0** (prep): baseline 52, docs completos + tabela de cobertura com as 35 exclusões permanentes.
+- **Onda 1 → 1.1.0**: +60 Math & Trigonometria escalar → 112.
+- **Onda 2 → 1.2.0**: +43 Logical + Information + Text + Regex → 155.
+- **Onda 3 → 1.3.0**: +9 Lookup & Reference escalar → 164.
+- **Fase R → 2.0.0** (breaking): nós da AST reorganizados em namespaces semânticos por categoria;
+  `ComputedValue`/`Error` para a raiz; fixture binária MemoryPack prova compat do union por tags.
+- **Onda 4 → 2.1.0**: +67 condicionais, SUMPRODUCT, estatística descritiva + aliases Compatibility → 231.
+- **Fase N → 2.2.0**: named ranges (workbook-scope, interop xlsx) — sem nós novos.
+- **Onda 5 → 2.3.0**: +23 Datas e horas (23/25; `TODAY`/`NOW` adiados como voláteis) → 254; entrega os
+  helpers `DateSerial` e `DayCount` reusados pela onda 6.
+- **Onda 6 → 2.4.0**: +46 financeiras restantes → **300**; Financial 55/55 (categoria completa).
+
+Suítes finais: core **676 verdes**, Excel **20 verdes**, build 0 warnings, fixture binária pré-namespaces
+intocada e verde do começo ao fim (append-only respeitado; tags 0–311 alocadas, próximo livre = 312).
+
+Cobertura viável: 300 de ~485 funções viáveis (~62%); ~520 no catálogo bruto da Microsoft menos as 35
+exclusões permanentes documentadas (Cubes, Web, RTD/STOCKHISTORY/IMAGE, pivô, UI, locale CJK, tradução).
+O restante do catálogo viável está desenhado (NÃO autorizado) nas fases futuras F1–F6: voláteis
+(`TODAY/NOW/RAND*/INDIRECT`), arrays (`ComputedValueKind.Array` → FILTER/SORT/UNIQUE/…), LAMBDA,
+distribuições estatísticas (NORM/T/CHISQ/… + testes de hipótese), Database (`DSUM`…), Engineering
+(BIN/DEC/HEX, CONVERT, complexos). Cada uma abre plano próprio ao ativar.
+
+Lições estruturais registradas em `tasks/lessons.md` que sobreviveram ao roadmap: (1) golden values SEMPRE
+de oráculo citado, nunca de cabeça; (2) solver robusto (bracketing+bisseção) validado contra caso stiff,
+não Newton ingênuo; (3) contagens recontadas por script antes de publicar; (4) build de verificação com
+`--no-incremental` (incremental mascara warnings de analyzer); (5) **onda 6**: quando o oráculo é a fonte
+de verdade, portar a lógica DELE (fuzz valor-a-valor) em vez de assumir a fórmula-textbook — o
+ExcelFinancialFunctions diverge do PRICE canônico e do 30/360 do YEARFRAC em casos de fim-de-mês.
 
 ## Deployment Plan
 _(por onda: merge na main → push (aval) → `gh workflow run release.yml` → minor bump lockstep dos 2

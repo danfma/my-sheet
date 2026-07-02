@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **254 built-in functions**. The authoritative registered list is the `Functions` map
+MySheet implements **300 built-in functions**. The authoritative registered list is the `Functions` map
 in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
 it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -267,10 +267,17 @@ never propagate errors — they report on them.
 | `SHEETS` | `SHEETS()` | Number of sheets in the workbook (the 3-D reference form does not apply: every reference spans one sheet). |
 | `TYPE` | `TYPE(value)` | 1 number (blanks included), 2 text, 4 logical, 16 error (inspected, not propagated), 64 multi-cell reference. |
 
-## Financial (9)
+## Financial (55)
 
 Standard time-value-of-money semantics: `rate` per period, `nper` total periods, `type` 0 = end of
-period (default) / 1 = beginning.
+period (default) / 1 = beginning. The bond, coupon and dated-cash-flow functions take **date serials**
+(build them with `DATE`, exactly like the date functions) and a day-count `basis`: 0 = US (NASD) 30/360
+(default), 1 = actual/actual, 2 = actual/360, 3 = actual/365, 4 = European 30/360. Coupon `frequency` is
+1 (annual), 2 (semi-annual) or 4 (quarterly). Coupon dates are built by stepping **backward from
+maturity**. Iterative results (`RATE`, `IRR`, `XIRR`, `YIELD`, `ODDFYIELD`) use the same robust
+bracketing + bisection solver as `RATE`/`IRR` (validated against a stiff 30-year case). Golden values for
+the whole family are cross-checked against the `ExcelFinancialFunctions` oracle. Domain violations map to
+`#NUM!` (settlement ≥ maturity, frequency ∉ {1,2,4}, basis ∉ 0..4, etc.).
 
 | Function | Arguments | Description |
 | --- | --- | --- |
@@ -283,6 +290,52 @@ period (default) / 1 = beginning.
 | `PPMT` | `PPMT(rate, per, nper, pv, [fv], [type])` | Principal portion of a given payment period. |
 | `PV` | `PV(rate, nper, pmt, [fv], [type])` | Present value of an investment. |
 | `RATE` | `RATE(nper, pmt, pv, [fv], [type], [guess])` | Interest rate per period (iterative). |
+| `SLN` | `SLN(cost, salvage, life)` | Straight-line depreciation per period. |
+| `SYD` | `SYD(cost, salvage, life, per)` | Sum-of-years'-digits depreciation. |
+| `DB` | `DB(cost, salvage, life, period, [month])` | Fixed-declining-balance depreciation. |
+| `DDB` | `DDB(cost, salvage, life, period, [factor])` | Double-declining-balance depreciation. |
+| `VDB` | `VDB(cost, salvage, life, start, end, [factor], [no_switch])` | Variable declining-balance depreciation. |
+| `AMORLINC` | `AMORLINC(cost, purchased, first_period, salvage, period, rate, [basis])` | French linear depreciation (prorated). |
+| `AMORDEGRC` | `AMORDEGRC(cost, purchased, first_period, salvage, period, rate, [basis])` | French declining depreciation with a life-based coefficient. |
+| `EFFECT` | `EFFECT(nominal_rate, npery)` | Effective annual interest rate. |
+| `NOMINAL` | `NOMINAL(effect_rate, npery)` | Nominal annual interest rate. |
+| `MIRR` | `MIRR(values, finance_rate, reinvest_rate)` | Modified internal rate of return. |
+| `RRI` | `RRI(nper, pv, fv)` | Equivalent interest rate for an investment's growth. |
+| `PDURATION` | `PDURATION(rate, pv, fv)` | Periods for an investment to reach a value. |
+| `ISPMT` | `ISPMT(rate, per, nper, pv)` | Interest paid during a straight-loan period. |
+| `CUMIPMT` | `CUMIPMT(rate, nper, pv, start, end, type)` | Cumulative interest over a period range. |
+| `CUMPRINC` | `CUMPRINC(rate, nper, pv, start, end, type)` | Cumulative principal over a period range. |
+| `FVSCHEDULE` | `FVSCHEDULE(principal, schedule)` | Future value after a series of compound rates. |
+| `DOLLARDE` | `DOLLARDE(fractional_dollar, fraction)` | Fractional-notation price → decimal. |
+| `DOLLARFR` | `DOLLARFR(decimal_dollar, fraction)` | Decimal price → fractional notation. |
+| `XNPV` | `XNPV(rate, values, dates)` | Net present value of dated cash flows (actual/365). |
+| `XIRR` | `XIRR(values, dates, [guess])` | Internal rate of return of dated cash flows. |
+| `ACCRINT` | `ACCRINT(issue, first_interest, settlement, rate, par, frequency, [basis], [calc_method])` | Accrued interest for a periodic-interest security. |
+| `ACCRINTM` | `ACCRINTM(issue, settlement, rate, par, [basis])` | Accrued interest for a maturity-paying security. |
+| `DISC` | `DISC(settlement, maturity, pr, redemption, [basis])` | Discount rate of a security. |
+| `INTRATE` | `INTRATE(settlement, maturity, investment, redemption, [basis])` | Interest rate of a fully-invested security. |
+| `RECEIVED` | `RECEIVED(settlement, maturity, investment, discount, [basis])` | Amount received at maturity. |
+| `PRICEDISC` | `PRICEDISC(settlement, maturity, discount, redemption, [basis])` | Price per $100 of a discounted security. |
+| `PRICEMAT` | `PRICEMAT(settlement, maturity, issue, rate, yld, [basis])` | Price per $100 of an interest-at-maturity security. |
+| `YIELDDISC` | `YIELDDISC(settlement, maturity, pr, redemption, [basis])` | Annual yield of a discounted security. |
+| `YIELDMAT` | `YIELDMAT(settlement, maturity, issue, rate, pr, [basis])` | Annual yield of an interest-at-maturity security. |
+| `TBILLEQ` | `TBILLEQ(settlement, maturity, discount)` | Bond-equivalent yield of a Treasury bill. |
+| `TBILLPRICE` | `TBILLPRICE(settlement, maturity, discount)` | Price per $100 of a Treasury bill. |
+| `TBILLYIELD` | `TBILLYIELD(settlement, maturity, pr)` | Yield of a Treasury bill. |
+| `COUPPCD` | `COUPPCD(settlement, maturity, frequency, [basis])` | Previous coupon date before settlement. |
+| `COUPNCD` | `COUPNCD(settlement, maturity, frequency, [basis])` | Next coupon date after settlement. |
+| `COUPNUM` | `COUPNUM(settlement, maturity, frequency, [basis])` | Number of coupons between settlement and maturity. |
+| `COUPDAYS` | `COUPDAYS(settlement, maturity, frequency, [basis])` | Days in the coupon period containing settlement. |
+| `COUPDAYBS` | `COUPDAYBS(settlement, maturity, frequency, [basis])` | Days from the period start to settlement. |
+| `COUPDAYSNC` | `COUPDAYSNC(settlement, maturity, frequency, [basis])` | Days from settlement to the next coupon. |
+| `PRICE` | `PRICE(settlement, maturity, rate, yld, redemption, frequency, [basis])` | Price per $100 of a periodic-coupon bond. |
+| `YIELD` | `YIELD(settlement, maturity, rate, pr, redemption, frequency, [basis])` | Yield to maturity (iterative). |
+| `DURATION` | `DURATION(settlement, maturity, coupon, yld, frequency, [basis])` | Macaulay duration in years. |
+| `MDURATION` | `MDURATION(settlement, maturity, coupon, yld, frequency, [basis])` | Modified Macaulay duration. |
+| `ODDFPRICE` | `ODDFPRICE(settlement, maturity, issue, first_coupon, rate, yld, redemption, frequency, [basis])` | Price of a bond with an odd first period. |
+| `ODDFYIELD` | `ODDFYIELD(settlement, maturity, issue, first_coupon, rate, pr, redemption, frequency, [basis])` | Yield of a bond with an odd first period. |
+| `ODDLPRICE` | `ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, [basis])` | Price of a bond with an odd last period. |
+| `ODDLYIELD` | `ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, [basis])` | Yield of a bond with an odd last period. |
 
 ## Date and time (23)
 
@@ -344,7 +397,7 @@ category, are documented in their Text/Math sections.)
 
 ## Excel function coverage
 
-MySheet implements 254 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 300 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -355,11 +408,9 @@ Logical and Math), so per-category counts don't sum to a single unique total —
 authoritative registered list.
 
 <details open>
-<summary><strong>Financial</strong> — 9/55</summary>
+<summary><strong>Financial</strong> — 55/55</summary>
 
-✅ `FV` `IPMT` `IRR` `NPER` `NPV` `PMT` `PPMT` `PV` `RATE`
-
-⬜ `ACCRINT` `ACCRINTM` `AMORDEGRC` `AMORLINC` `COUPDAYBS` `COUPDAYS` `COUPDAYSNC` `COUPNCD` `COUPNUM` `COUPPCD` `CUMIPMT` `CUMPRINC` `DB` `DDB` `DISC` `DOLLARDE` `DOLLARFR` `DURATION` `EFFECT` `FVSCHEDULE` `INTRATE` `ISPMT` `MDURATION` `MIRR` `NOMINAL` `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD` `PDURATION` `PRICE` `PRICEDISC` `PRICEMAT` `RECEIVED` `RRI` `SLN` `SYD` `TBILLEQ` `TBILLPRICE` `TBILLYIELD` `VDB` `XIRR` `XNPV` `YIELD` `YIELDDISC` `YIELDMAT`
+✅ `ACCRINT` `ACCRINTM` `AMORDEGRC` `AMORLINC` `COUPDAYBS` `COUPDAYS` `COUPDAYSNC` `COUPNCD` `COUPNUM` `COUPPCD` `CUMIPMT` `CUMPRINC` `DB` `DDB` `DISC` `DOLLARDE` `DOLLARFR` `DURATION` `EFFECT` `FV` `FVSCHEDULE` `INTRATE` `IPMT` `IRR` `ISPMT` `MDURATION` `MIRR` `NOMINAL` `NPER` `NPV` `ODDFPRICE` `ODDFYIELD` `ODDLPRICE` `ODDLYIELD` `PDURATION` `PMT` `PPMT` `PRICE` `PRICEDISC` `PRICEMAT` `PV` `RATE` `RECEIVED` `RRI` `SLN` `SYD` `TBILLEQ` `TBILLPRICE` `TBILLYIELD` `VDB` `XIRR` `XNPV` `YIELD` `YIELDDISC` `YIELDMAT`
 
 </details>
 

@@ -52,3 +52,27 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   build incremental escondia 14 avisos de analyzer nos testes (recompilar não reemite warnings de projetos
   up-to-date). A verificação independente agora força rebuild. Corolário: nunca encadear `git commit` atrás
   de build sem condicionar ao sucesso — um sed meu quebrou o build e o commit passou junto.
+
+## MySheet — financeiras de título / oráculo como fonte de verdade (2026-07-02, Onda 6)
+
+- **Quando o oráculo É a fonte de verdade, porte a lógica DELE — não assuma a fórmula do livro-texto.**
+  A fórmula canônica de PRICE (`(1+y/f)^(k-1+DSC/E)` com `E = COUPDAYS`) NÃO reproduz o
+  `ExcelFinancialFunctions` (o oráculo). O oráculo computa `dsc = e - a` com `a = DaysBetween(pcd, settlement)`
+  e `e = CoupDays`, e — pior — os day-counts de título usam uma variante `ModifyStartDate`/`ModifyBothDates`
+  do 30/360-US e um "days in year" actual/actual próprios que DIVERGEM do `DayCount` do YEARFRAC (onda 5)
+  em casos de fim-de-mês/fevereiro (ex.: início Feb-end + fim dia-31 → 1 dia de diferença). Eu perdi tempo
+  testando variantes de fórmula às cegas; a virada foi BUSCAR O CÓDIGO-FONTE do oráculo (F# no GitHub) e
+  portá-lo verbatim. Regra: se a tolerância exigida é 1e-9 contra uma lib específica, leia a lib.
+- **Fuzz valor-a-valor contra o oráculo ANTES de portar ao codebase.** Montei um probe console que
+  implementava os candidatos em C# e comparava contra o oráculo em dezenas de milhares de casos (5 bases ×
+  3 frequências × datas aleatórias) por função. Pegou: (a) loop de agenda de cupom invertido (off-by-one no
+  passo); (b) que a agenda ANDA iterativamente para trás (clamp de fevereiro é "sticky", ≠ computar do
+  maturity direto); (c) off-by-one no `findDepr` do AMORDEGRC (entra com countedPeriod=1 e incrementa antes
+  de computar). Portei só depois de maxErr=0 (closed-form) / ~1e-9 (solver). Resultado: 46 funções entraram
+  verdes de primeira no codebase — o único bug restante (índice do XNPV values/dates) foi de PLUMBING do
+  record, não da matemática, e foi o teste (não o fuzz) que pegou.
+- **Preconditions do Excel ≠ do "seria razoável".** `ACCRINT` do oráculo EXIGE `first_interest >= settlement`
+  (o ramo multi-período do código-fonte é inalcançável pela API pública); `ODDFPRICE` tem uma precondição
+  NÃO-documentada (o first_coupon precisa alinhar com a agenda vinda do maturity) que a própria lib comenta
+  como "not in the docs, but nevertheless is needed". Um teste meu quebrou por usar first_interest < settlement
+  "multi-período" — inválido. Ler as `calc*` (preconditions) do oráculo evita golden values impossíveis.
