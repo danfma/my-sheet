@@ -608,9 +608,10 @@ merge + aval do usuário; sem push.
 ---
 
 ## Fases futuras (analisadas, NÃO autorizadas — abrir plano próprio ao ativar)
-- **F1 Voláteis**: infra §A1 (IsVolatile + no-cache propagado + TimeProvider) → `TODAY` `NOW` `RAND`
-  `RANDBETWEEN` `INDIRECT`. **Design detalhado + defaults recomendados abaixo (§F1-DESIGN), aguardando aval
-  do usuário nas 3 decisões antes de despachar implementação.**
+- **F1 Voláteis**: **DECISÕES TRAVADAS 2026-07-02, EM EXECUÇÃO** — ver §F1-DESIGN e a Phase F1 abaixo.
+  Cache por época + `Recalculate()`; escopo `TODAY/NOW/RAND/RANDBETWEEN` (OFFSET não-volátil, INDIRECT
+  adiado). `touch` por célula BARRADO até termos grafo reverso de dependências (volatilidade contagiosa
+  desincronizaria dependentes sem ele).
 - **F2 Arrays**: §A2 (`ComputedValueKind.Array`) → `FILTER` `SORT` `SORTBY` `UNIQUE` `SEQUENCE`
   `TRANSPOSE` `MMULT` `MINVERSE` `MDETERM` `MUNIT` `FREQUENCY` `TEXTSPLIT` `TEXTJOIN`-array `TOCOL`
   `TOROW` `WRAPROWS` `WRAPCOLS` `TAKE` `DROP` `CHOOSEROWS` `CHOOSECOLS` `HSTACK` `VSTACK` `EXPAND`
