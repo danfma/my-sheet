@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.1.0"></a>
+## [2.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.1.0) (2026-07-02)
+
+### Features
+
+* **functions:** add conditional and descriptive statistics wave ([6088ff1](https://www.github.com/danfma/my-sheet/commit/6088ff174ebb1e92f2311bed5675bca646ca1f17))
+
 <a name="2.0.0"></a>
 ## [2.0.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.0.0) (2026-07-02)
 
