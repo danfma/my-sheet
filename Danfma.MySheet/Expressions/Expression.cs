@@ -12,7 +12,7 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions;
 
 // MemoryPackUnion tags are APPEND-ONLY: never renumber, reorder or reuse an existing tag,
-// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 314+.
+// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 316+.
 [MemoryPackable]
 [MemoryPackUnion(0, typeof(StringValue))]
 [MemoryPackUnion(1, typeof(NumberValue))]
@@ -331,9 +331,11 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(309, typeof(OddFYield))]
 [MemoryPackUnion(310, typeof(OddLPrice))]
 [MemoryPackUnion(311, typeof(OddLYield))]
-// F1 — volatile functions. NOW/TODAY read the clock; RAND/RANDBETWEEN the RNG (phase 2).
+// F1 — volatile functions. NOW/TODAY read the clock; RAND/RANDBETWEEN the RNG.
 [MemoryPackUnion(312, typeof(Now))]
 [MemoryPackUnion(313, typeof(Today))]
+[MemoryPackUnion(314, typeof(Rand))]
+[MemoryPackUnion(315, typeof(RandBetween))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

@@ -56,8 +56,13 @@ public sealed partial class Workbook
     [MemoryPackIgnore]
     private double? _epochNow;
 
-    // Guards the once-per-epoch clock sampling (and, in phase 2, the not-thread-safe RNG). Lazily created
-    // (Interlocked) so it survives MemoryPack deserialization, which bypasses field initializers.
+    // Persistent RNG for RAND/RANDBETWEEN, advanced across epochs (never re-seeded per epoch, so epochs differ
+    // naturally; a fixed RandomSeed makes the whole run reproducible). Created lazily under VolatileLock.
+    [MemoryPackIgnore]
+    private Random? _random;
+
+    // Guards the once-per-epoch clock sampling and the not-thread-safe RNG. Lazily created (Interlocked)
+    // so it survives MemoryPack deserialization, which bypasses field initializers.
     [MemoryPackIgnore]
     private object? _volatileLock;
 
@@ -108,6 +113,14 @@ public sealed partial class Workbook
     }
 
     /// <summary>
+    /// Seed for the <c>RAND</c>/<c>RANDBETWEEN</c> RNG. <c>null</c> (default) seeds it from the clock; a fixed
+    /// value makes the whole run's random sequence reproducible. Set it before the first volatile read (the
+    /// RNG is created lazily and never re-seeded afterwards). Not serialized (runtime config).
+    /// </summary>
+    [MemoryPackIgnore]
+    public int? RandomSeed { get; set; }
+
+    /// <summary>
     /// Marks the current thread's cell evaluation as having touched a volatile source. Volatile nodes call
     /// this from <c>Evaluate</c>; <see cref="GetCellValue"/> reads the flag to cache-and-mark the cell and to
     /// propagate volatility to dependents. Internal — part of the evaluation contract, not host API.
@@ -124,6 +137,23 @@ public sealed partial class Workbook
         lock (VolatileLock)
         {
             return _epochNow ??= DateSerial.FromDateTime(TimeProvider.GetLocalNow().DateTime);
+        }
+    }
+
+    /// <summary>
+    /// Draws the next value in <c>[0, 1)</c> from the persistent RNG (created lazily from
+    /// <see cref="RandomSeed"/>) and marks the evaluation volatile. Thread-safe (<see cref="Random"/> is not).
+    /// The RNG is NOT re-seeded per epoch — the sequence continues so successive epochs differ, while the
+    /// per-epoch cache keeps a single cell stable within a pass.
+    /// </summary>
+    internal double NextRandom()
+    {
+        MarkVolatileTouched();
+
+        lock (VolatileLock)
+        {
+            _random ??= RandomSeed is { } seed ? new Random(seed) : new Random();
+            return _random.NextDouble();
         }
     }
 

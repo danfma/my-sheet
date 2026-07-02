@@ -344,6 +344,9 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         // F1 — volatile clock functions (both take no arguments).
         ["NOW"] = new(0, 0, arguments => new Now(arguments)),
         ["TODAY"] = new(0, 0, arguments => new Today(arguments)),
+        // F1 — volatile RNG functions.
+        ["RAND"] = new(0, 0, arguments => new Rand(arguments)),
+        ["RANDBETWEEN"] = new(2, 2, arguments => new RandBetween(arguments)),
     };
 
     private int _index;

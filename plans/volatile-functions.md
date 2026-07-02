@@ -126,16 +126,16 @@ contador de efeito colateral estável através do `Recalculate`, `InvalidateCach
 ---
 
 ## Phase 2: RAND/RANDBETWEEN (caminho do RNG)
-Status: Not started
+Status: Complete
 
-- [ ] `Workbook`: `public int? RandomSeed { get; set; }` + `Random` persistente (`_random`, criado lazy de
+- [x] `Workbook`: `public int? RandomSeed { get; set; }` + `Random` persistente (`_random`, criado lazy de
       `RandomSeed ?? time-based`, NÃO re-semeado por época), acessado via método interno `NextRandom()` que
       também chama `MarkVolatileTouched`. `InvalidateCache()`/`Recalculate()` NÃO resetam o `_random` (a
       sequência continua → épocas diferentes; o cache por época garante estabilidade intra-época).
-- [ ] `Rand` (`Expressions/Mathematics/`): 0 args, `IsVolatile => true`, `[0,1)` de `NextRandom()`.
-- [ ] `RandBetween`: 2 args (bottom, top), inteiros; `bottom > top` → `#NUM!`; inclusivo nas duas pontas;
+- [x] `Rand` (`Expressions/Mathematics/`): 0 args, `IsVolatile => true`, `[0,1)` de `NextRandom()`.
+- [x] `RandBetween`: 2 args (bottom, top), inteiros; `bottom > top` → `#NUM!`; inclusivo nas duas pontas;
       trunca args não-inteiros (confirmar regra na doc MS). `IsVolatile => true`.
-- [ ] `Parser.Functions` (`RAND` 0/0, `RANDBETWEEN` 2/2) + `FormulaWriter.Call` + corpus. Tags append (314/315).
+- [x] `Parser.Functions` (`RAND` 0/0, `RANDBETWEEN` 2/2) + `FormulaWriter.Call` + corpus. Tags append (314/315).
 
 ### Verification Plan
 - Build `--no-incremental` 0 warnings; suíte verde, incl.: (a) `RandomSeed` fixo → sequência determinística
@@ -144,7 +144,35 @@ Status: Not started
   (d) `RANDBETWEEN(1,6)` sempre em [1,6]; `RANDBETWEEN(6,1)` → `#NUM!`; (e) fixture binária verde.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Concluída em 2026-07-02 (branch `feature/volatile-functions`, TDD RED→GREEN: os 12 testes de
+`VolatileRandomTests` entraram primeiro — RED por `Workbook.RandomSeed`/`Rand`/`RandBetween` ausentes — e
+viraram verdes ao adicionar a infra de RNG + os nós). **2 funções novas** (RAND, RANDBETWEEN; Parser 302 →
+**304**). Tags MemoryPackUnion **314 (Rand)/315 (RandBetween)** (append-only; próximo livre = 316). `Workbook`:
+`RandomSeed` (`int?`, `[MemoryPackIgnore]`, default null), `Random _random` persistente criado lazy sob o
+`VolatileLock` (`RandomSeed ?? new Random()`), e `NextRandom()` — que chama `MarkVolatileTouched()` e saca
+`_random.NextDouble()` dentro do lock (Random não é thread-safe). `Recalculate()`/`InvalidateCache()` NÃO
+tocam `_random`: a sequência continua entre épocas (épocas diferentes naturalmente), e o cache por época
+garante estabilidade intra-passada. Nós em `Expressions/Mathematics/RandomFunctions.cs`: `Rand` (0 args,
+`[0,1)` de `NextRandom`), `RandBetween` (2 args; `bottom>top`→`#NUM!`; escala `NextRandom()*(top−bottom+1)`
+com `Math.Floor`, inclusivo nas duas pontas + clamp defensivo). Ambos `IsVolatile => true`.
+
+**Golden values (oráculo = páginas oficiais da MS, fetchadas 2026-07-02):** RAND devolve real em `[0,1)`
+("greater than or equal to 0 and less than 1", sem args, volátil); RANDBETWEEN devolve inteiro aleatório,
+inclusivo nas duas pontas (implícito pelo exemplo `RANDBETWEEN(1,100)`). A página é SILENTE sobre `bottom>top`
+e sobre args não-inteiros — então `bottom>top → #NUM!` (decisão travada com o usuário) e a truncagem toward-zero
+de args não-inteiros são decisões de design PAGE-SILENT, marcadas como tal nos comentários dos testes (não são
+golden verificados contra o Excel). RNG determinístico via `RandomSeed` provado reprodutível
+(mesma sequência entre execuções; seeds diferentes divergem).
+
+**Compat binária:** `RandomSeed` é `[MemoryPackIgnore]` — schema serializado inalterado; a fixture
+`workbook-pre-namespaces.msgpack.bin` continua verde. Novo round-trip `RandFormulas_RoundTripThroughMemoryPack`
+prova os tags 314/315.
+
+Suíte core: 686 → **698 verdes** (12 novos em `VolatileRandomTests`: RAND em `[0,1)`, estabilidade
+intra-época + refresh no `Recalculate`, duas células RAND distintas na mesma época, reprodutibilidade por seed,
+RANDBETWEEN dentro do range, hits nas duas pontas, range degenerado, `bottom>top`→`#NUM!`, truncagem de
+não-inteiros, reprodutibilidade do RANDBETWEEN, introspecção `IsVolatile`, round-trip MemoryPack); corpus do
+FormulaWriter +2 (`RAND()`/`RANDBETWEEN(1,6)`); suíte Excel intacta (20); build `--no-incremental` **0 warnings**.
 
 ---
 

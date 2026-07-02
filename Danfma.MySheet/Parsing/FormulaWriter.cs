@@ -546,6 +546,9 @@ public static class FormulaWriter
             // F1 — volatile clock functions.
             Now f => ("NOW", f.Arguments),
             Today f => ("TODAY", f.Arguments),
+            // F1 — volatile RNG functions.
+            Rand f => ("RAND", f.Arguments),
+            RandBetween f => ("RANDBETWEEN", f.Arguments),
             _ => throw new NotSupportedException(
                 $"No Excel function name registered for node '{function.GetType().Name}'."
             ),
