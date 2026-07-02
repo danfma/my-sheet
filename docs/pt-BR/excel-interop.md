@@ -57,6 +57,7 @@ Como o conteúdo do arquivo é mapeado para dentro do workbook:
 | Célula de data | `NumberValue` com o **número serial** do Excel (datas ISO-8601 em arquivos no modo strict são convertidas via `ToOADate`). |
 | Célula vazia / só com estilo | Nada é armazenado — é lida como em branco. |
 | "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Expandida em uma fórmula real: o texto da célula mestre é deslocado pelo delta de linha/coluna (referências relativas se movem, componentes ancorados com `$` ficam, texto dentro de literais de string não é tocado) e passa pelo parse como qualquer outra fórmula. |
+| Nome definido com escopo de workbook (`<definedName>`) | Uma entrada em [`Workbook.DefinedNames`](workbook-and-expressions.md#intervalos-nomeados): o texto `refersTo` passa pelo parse como uma fórmula. Nomes **com escopo de planilha** (aqueles com `localSheetId`) e os nomes **nativos `_xlnm.*`** do Excel (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) são ignorados. |
 
 As planilhas são criadas na ordem das abas do arquivo, então `Sheet.Index` (e a função `SHEET`)
 correspondem ao Excel.
@@ -102,6 +103,10 @@ Detalhes que vale a pena conhecer:
   escalar) é escrita como `#VALUE!`, espelhando como a engine a trata.
 - No modo `Formulas`, chamadas a [funções personalizadas](custom-functions.md) são escritas com o nome
   registrado — o Excel mostrará o valor em cache e sinalizará a função desconhecida, o que é esperado.
+- Os [intervalos nomeados](workbook-and-expressions.md#intervalos-nomeados) em `Workbook.DefinedNames`
+  são escritos como entradas `<definedName>` com escopo de workbook, em **ambos** os modos de fórmula. O
+  texto `refersTo` é totalmente qualificado (`FormulaWriter` com um contexto vazio, então toda referência
+  mantém seu prefixo `Sheet!`).
 
 ## Mesclando em um template: `MergeIntoExcel`
 
@@ -161,6 +166,10 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
 - **A cobertura de funções não é total** (veja a contagem e a lista atuais de nativas, além das suas funções personalizadas, na
   [referência de funções](function-reference.md). Fórmulas que usam outras funções carregam como nós
   `FunctionCall` e são avaliadas como `#NAME?`, a menos que registradas.
+- **Só nomes definidos com escopo de workbook atravessam**: nomes com escopo de planilha (com
+  `localSheetId`) e os nomes nativos `_xlnm.*` (áreas de impressão, bancos de filtro, …) são ignorados no
+  carregamento, e o MySheet só escreve nomes com escopo de workbook. Um nome definido cujo `refersTo` não
+  pode ser interpretado é ignorado em vez de falhar o carregamento.
 
 ## Veja também
 

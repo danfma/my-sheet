@@ -180,7 +180,54 @@ ExpressionParser.Parse("=SUM((A1:A3, C1:C3))", sheet); // união de referências
 - Um intervalo puro usado onde se espera um escalar (por exemplo, `=A1:B2` sozinho) é avaliado como
   `#VALUE!`, como no Excel; intervalos são consumidos por funções (`SUM`, `COUNT`, lookups, …).
 - Um nome puro que não é um id de célula (por exemplo, `=total`) é um `NameReference` — ele resolve
-  contra as vinculações de `LET` em tempo de avaliação e produz `#NAME?` se não estiver vinculado.
+  contra as vinculações de `LET` e os [intervalos nomeados](#intervalos-nomeados) (*named ranges*) do
+  workbook em tempo de avaliação, e produz `#NAME?` se não estiver vinculado.
+
+## Intervalos nomeados
+
+Um workbook pode definir **nomes** que representam uma expressão — geralmente um intervalo ou célula
+qualificados por planilha, mas qualquer expressão (uma constante, uma fórmula, outro nome) é permitida.
+Os nomes são de nível de workbook e **case-insensitive**, exatamente como no Excel.
+
+```csharp
+var workbook = new Workbook();
+var data = workbook.Sheets.Add("Data");
+data["A1"] = new NumberValue(10);
+data["A2"] = new NumberValue(20);
+data["A3"] = new NumberValue(30);
+
+// Sobrecarga de conveniência: faz o parse do texto. As referências DEVEM ser qualificadas por planilha
+// (nomes não têm planilha implícita); um '=' inicial e marcadores '$' são opcionais.
+workbook.DefineName("Sales", "Data!A1:A3");
+
+// Sobrecarga de expressão: um nome pode apontar para qualquer expressão, por exemplo uma constante.
+workbook.DefineName("Rate", new NumberValue(0.1));
+
+var main = workbook.Sheets.Add("Main");
+ExpressionParser.Parse("=SUM(Sales)", main).Evaluate(workbook);   // 60
+ExpressionParser.Parse("=Rate*100", main).Evaluate(workbook);     // 10
+```
+
+**Definição.** `Workbook.DefinedNames` é o mapa `nome → Expression`. Defina por meio de
+`DefineName(string, Expression)` ou da sobrecarga de conveniência `DefineName(string, string)`, que faz o
+parse do texto e **exige que toda referência seja qualificada por planilha** — uma referência não
+qualificada (por exemplo, `A1:A3`) lança `ArgumentException`, já que um nome de nível de workbook não tem
+planilha implícita. Um nome vazio, ou um que colida com o formato de uma referência de célula (`A1`) ou
+com um literal booleano, também é rejeitado.
+
+**Ordem de resolução.** Um `NameReference` resolve nesta ordem:
+
+1. **Primeiro o escopo de `LET`** (*shadowing*) — uma vinculação de `LET` com o mesmo nome vence, então
+   `LET(Sales, 5, Sales+1)` é `6`, não uma soma sobre o intervalo.
+2. **`Workbook.DefinedNames`** — a expressão do nome é avaliada. Um intervalo/união permanece um valor de
+   *referência*, então funções que aceitam intervalos o expandem (`SUM(Sales)`); uma única célula ou
+   constante é avaliada para seu escalar. As funções que exigem uma referência sintática —
+   `VLOOKUP`/`HLOOKUP` (tabela), `INDEX`, `OFFSET`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — aceitam um nome
+   que representa um intervalo (por exemplo, `VLOOKUP(2, Sales, 2)`).
+3. Caso contrário, `#NAME?`.
+
+**Ciclos.** Um nome que se refere a si mesmo, diretamente ou por meio de uma cadeia (`A → B → A`), é
+detectado por um rastreamento thread-local e produz `#REF!` em vez de estourar a pilha.
 
 ## Da expressão de volta ao texto de fórmula
 
