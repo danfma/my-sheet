@@ -8,7 +8,7 @@ erro), um campo `object?` (texto, referências) e uma tag de um byte. Produzir u
 branco ou erro **não aloca nada**; texto e referências apenas carregam uma referência que já existia.
 
 ```csharp
-using Danfma.MySheet.Expressions;
+using Danfma.MySheet; // Workbook, ComputedValue, ComputedValueKind, Error
 
 ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 ```

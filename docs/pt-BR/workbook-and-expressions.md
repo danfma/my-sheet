@@ -65,8 +65,11 @@ foreach (var (id, expression) in sheet) { /* itera as células armazenadas */ }
 
 ## Expressões
 
-Toda célula guarda uma `Expression` — um record imutável de `Danfma.MySheet.Expressions`. Literais,
-referências, operadores e funções são todos nós de expressão, formando uma árvore.
+Toda célula guarda uma `Expression` — um record imutável. Literais, referências e operadores vivem em
+`Danfma.MySheet.Expressions`; os nós das funções nativas vivem em namespaces filhos por categoria
+(`Danfma.MySheet.Expressions.Mathematics`, `.Logical`, `.Statistical`, `.Text`, `.Information`,
+`.Lookup`, `.Financial` — veja [Migrando para a 2.0](migrating-to-2.0.md)). Juntos, eles formam uma
+árvore.
 
 ### Parsing
 
@@ -113,7 +116,9 @@ sheet["A5"] = Sum(Range("A1", "A2", sheet));
 A classe base `Expression` fornece métodos de fábrica (`Number`, `String`, `Cell`, `Range`, `Sum`,
 `Average`, `Min`, `Max`, `Count`, `Add`, `Subtract`, `Divide`, `Power`, `GreaterThan`, `Negate`,
 `Plus`), e cada tipo de nó é um record público que você pode instanciar diretamente com `new`
-(`new NumberValue(1)`, `new BinaryOperation(BinaryOperator.Multiply, left, right)`, …).
+(`new NumberValue(1)`, `new BinaryOperation(BinaryOperator.Multiply, left, right)`, …). Para
+instanciar um record de função diretamente com `new`, importe o namespace da sua categoria (por
+exemplo, `using Danfma.MySheet.Expressions.Mathematics;` para `new Sum(…)`).
 
 ### Avaliando
 

@@ -58,6 +58,10 @@ por política do projeto**: tags existentes nunca são renumeradas, reordenadas 
 tipos de nó recebem tags novas. Workbooks salvos por uma versão mais antiga permanecem, portanto,
 carregáveis por versões mais novas da biblioteca.
 
+Como apenas as tags (nunca os nomes de tipo) vão para o fio, a [reorganização de namespaces da
+2.0](migrating-to-2.0.md) não mudou o formato em absolutamente nada: arquivos salvos pela 1.x carregam
+na 2.0 sem alteração, garantido por uma fixture binária pré-2.0 congelada na suíte de testes.
+
 ## Quando usar cada formato
 
 | Necessidade | Use |
