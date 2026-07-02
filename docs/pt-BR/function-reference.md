@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **300 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
+O MySheet implementa **304 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
 em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
 dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -32,7 +32,7 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `TRUE` | `TRUE()` | O valor lógico `TRUE` (forma de função do literal). |
 | `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` quando a quantidade de entradas `TRUE` é ímpar; células de texto/em branco em intervalos são ignoradas. |
 
-## Matemática e trigonometria (72)
+## Matemática e trigonometria (74)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -84,6 +84,8 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `PRODUCT` | `PRODUCT(number1, …)` | Produto dos valores numéricos; aceita intervalos. |
 | `QUOTIENT` | `QUOTIENT(numerator, denominator)` | Parte inteira de uma divisão (truncada). |
 | `RADIANS` | `RADIANS(angle)` | Graus → radianos. |
+| `RAND` | `RAND()` | Volátil: um número real aleatório em `[0, 1)`. Veja [Funções voláteis](workbook-and-expressions.md#funções-voláteis). |
+| `RANDBETWEEN` | `RANDBETWEEN(bottom, top)` | Volátil: um número inteiro aleatório em `[bottom, top]` (inclusive); `bottom > top` → `#NUM!`; limites não inteiros truncam em direção a zero. |
 | `ROMAN` | `ROMAN(number, [form])` | Número (0-3999) → numeral romano clássico; `ROMAN(0)` = `""`. As formas concisas 1-4/`FALSE` não são suportadas (→ `#VALUE!`). |
 | `ROUND` | `ROUND(number, num_digits)` | Arredonda para a quantidade dada de dígitos. |
 | `ROUNDDOWN` | `ROUNDDOWN(number, num_digits)` | Arredonda em direção a zero. |
@@ -344,15 +346,16 @@ frequency ∉ {1,2,4}, basis ∉ 0..4, etc.).
 | `ODDLPRICE` | `ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, [basis])` | Preço de um título com último período irregular. |
 | `ODDLYIELD` | `ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, [basis])` | Rendimento de um título com último período irregular. |
 
-## Data e hora (23)
+## Data e hora (25)
 
 Datas são **números seriais** (`double`), exatamente como no Excel: a parte inteira conta os dias a
 partir do epoch 1899-12-30 e a fração é a hora do dia. As funções de data recebem seriais numéricos
 (construa-os com `DATE`/`TIME`, ou texto numérico que o `CoerceToNumber` já aceita); elas **não** fazem o
 parse implícito de *strings* de data (use `DATEVALUE`/`TIMEVALUE` para isso). Um serial negativo está
-fora do intervalo → `#NUM!`. `TODAY`/`NOW` estão **adiadas** (são voláteis — uma fase futura). Limitação
-documentada: os seriais 1..59 (jan–fev de 1900) renderizam um dia atrás do Excel e o serial 60 (o
-1900-02-29 fictício do Excel) não é representável; datas reais (serial ≥ 61, 1900-03-01) são exatas.
+fora do intervalo → `#NUM!`. `TODAY`/`NOW` leem o relógio e são **voláteis** — veja [Funções
+voláteis](workbook-and-expressions.md#funções-voláteis). Limitação documentada: os seriais 1..59 (jan–fev
+de 1900) renderizam um dia atrás do Excel e o serial 60 (o 1900-02-29 fictício do Excel) não é
+representável; datas reais (serial ≥ 61, 1900-03-01) são exatas.
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -370,9 +373,11 @@ documentada: os seriais 1..59 (jan–fev de 1900) renderizam um dia atrás do Ex
 | `MONTH` | `MONTH(serial)` | Mês (1–12). |
 | `NETWORKDAYS` | `NETWORKDAYS(start, end, [holidays])` | Dias úteis em `[start, end]` (inclusivo); sábado/domingo e `holidays` são excluídos. |
 | `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` com um fim de semana personalizável (número 1–7/11–17 ou uma máscara de 7 caracteres `"0000011"`). |
+| `NOW` | `NOW()` | Volátil: a data **e** hora local atuais como um serial. Veja [Funções voláteis](workbook-and-expressions.md#funções-voláteis). |
 | `SECOND` | `SECOND(serial)` | Segundo (0–59), arredondado ao segundo mais próximo. |
 | `TIME` | `TIME(hour, minute, second)` | Fração de hora do dia; componentes 0–32767 rolam, aplicados módulo 24h; negativo → `#NUM!`. |
 | `TIMEVALUE` | `TIMEVALUE(time_text)` | Converte uma string de hora (`HH:mm[:ss]`, `h:mm[:ss] AM/PM`) em uma fração `[0,1)`; não interpretável → `#VALUE!`. |
+| `TODAY` | `TODAY()` | Volátil: a data local atual como um serial de dia inteiro (o piso de `NOW()`). Veja [Funções voláteis](workbook-and-expressions.md#funções-voláteis). |
 | `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Dia da semana; `return_type` 1/2/3 e 11–17 (veja a tabela do WEEKDAY). |
 | `WEEKNUM` | `WEEKNUM(serial, [return_type])` | Semana do ano; Sistema 1 para 1/2/11–17, ISO 8601 (Sistema 2) para 21. |
 | `WORKDAY` | `WORKDAY(start, days, [holidays])` | Data `days` dias úteis a partir de `start` (start excluído); negativo anda para trás. |
@@ -405,7 +410,7 @@ Texto/Matemática.)
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 300 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 304 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -443,11 +448,11 @@ categoria não somam um total único — veja o `Parser.cs` para a lista registr
 </details>
 
 <details open>
-<summary><strong>Matemática e trigonometria</strong> — 72/82</summary>
+<summary><strong>Matemática e trigonometria</strong> — 74/82</summary>
 
-✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
 
-⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RAND` `RANDARRAY` `RANDBETWEEN` `SEQUENCE`
+⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY` `SEQUENCE`
 
 </details>
 
@@ -488,15 +493,13 @@ juntas em uma fase posterior. `GAUSS` aguarda com elas: é a CDF normal menos ½
 </details>
 
 <details open>
-<summary><strong>Data e hora</strong> — 23/25</summary>
+<summary><strong>Data e hora</strong> — 25/25</summary>
 
-✅ `DATE` `DATEDIF` `DATEVALUE` `DAY` `DAYS` `DAYS360` `EDATE` `EOMONTH` `HOUR` `ISOWEEKNUM` `MINUTE` `MONTH` `NETWORKDAYS` `NETWORKDAYS.INTL` `SECOND` `TIME` `TIMEVALUE` `WEEKDAY` `WEEKNUM` `WORKDAY` `WORKDAY.INTL` `YEAR` `YEARFRAC`
+✅ `DATE` `DATEDIF` `DATEVALUE` `DAY` `DAYS` `DAYS360` `EDATE` `EOMONTH` `HOUR` `ISOWEEKNUM` `MINUTE` `MONTH` `NETWORKDAYS` `NETWORKDAYS.INTL` `NOW` `SECOND` `TIME` `TIMEVALUE` `TODAY` `WEEKDAY` `WEEKNUM` `WORKDAY` `WORKDAY.INTL` `YEAR` `YEARFRAC`
 
-⬜ `NOW` `TODAY`
-
-`NOW` e `TODAY` estão **adiadas: voláteis** — elas leem o relógio do sistema, o que exige a
-infraestrutura de volatilidade (um `TimeProvider` mais a propagação de não cache) planejada para uma fase
-posterior, e não a matemática de datas entregue aqui.
+`NOW` e `TODAY` são **voláteis** — elas leem o relógio injetável do workbook e são atualizadas por
+`Recalculate()`. A categoria está agora completa (25/25). Veja [Funções
+voláteis](workbook-and-expressions.md#funções-voláteis).
 
 </details>
 
