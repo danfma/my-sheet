@@ -105,12 +105,13 @@ invalida caches de valor — host chama `InvalidateCache`, coerente com o indexe
 Espelhos do benchmark auditados: `MSheet` próprio, nada a ajustar. Verificação independente na worktree:
 core **844** (841+3 `SheetRemoveTests`), Excel **24**, fixture byte-intocada, build `--no-incremental`
 5 projetos 0 warnings. Nota: o prefixo correto do commit de quebra é **`feat(sheet)!:`** (a forma
-`feat!(escopo):` não parseia no versionize). **Integração à main ADIADA de propósito**: o fix escalar
-OR/AND (K1) deve entrar na main ANTES da quebra 3.0 para viabilizar release 2.9.x; a F2 forka desta
-branch.
+`feat!(escopo):` não parseia no versionize). Sequenciamento cumprido: o fix OR/AND saiu como **v2.9.1**
+ANTES da quebra; a branch foi rebaseada sobre a main pós-release (`a98d594` + `de80f97` sobre `e33b407`;
+verificação pós-rebase: core **854**, Excel 24, 0 warnings). **Merge à main pendente de autorização do
+usuário** (classificador barrou push de quebra); a F2 forka desta branch rebaseada.
 
 ## Phase 2: Índice write-maintained
-Status: Not started
+Status: In progress
 - [ ] Índice vitalício: lazy build 1×/vida; manutenção incremental em `SetCell`/`Remove` (adaptativa,
       item 3); `InvalidateCache` deixa de derrubá-lo; deserialize → flag rebuild.
 - [ ] Remover a admissão estrutural da Fase 5 (`_structuralIndexSeen`, modo ForceNaive/etc. viram
