@@ -100,14 +100,28 @@ read-once pass. Two internal caches collapse that to seconds. Both are bounded, 
 ### Layer 1 — the structural index
 
 Per sheet, a lazy index maps `column → cell ids ordered by row` (and the symmetric `row → ids` on
-demand). It is built **once per epoch** on the first open-range enumeration (a single O(N) pass) and
-then answers "which cells does `A:A` cover, in order?" without re-scanning the cell dictionary. Range
-bound resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every evaluation) reads the
+demand). It answers "which cells does `A:A` cover, in order?" without re-scanning the cell dictionary.
+Range bound resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every evaluation) reads the
 bounding box straight from the ordered lists by binary search.
 
-This is what makes **small columns in a big sheet** cheap: before the index, a formula referencing a
-16-cell column still walked all ~1.5M keys of the sheet to find those 16; after it, only the 16 are
-visited.
+This is what makes **small columns in a big sheet** cheap once the index exists: before the index, a
+formula referencing a 16-cell column still walked all ~1.5M keys of the sheet to find those 16; after
+it, only the 16 are visited.
+
+**Second-use admission.** Building the index is itself an O(N) pass (plus a bucket per populated column
+or row). That pays off only when a sheet is read through open ranges **more than once in an epoch**. A
+sheet read *exactly once* — the "`InvalidateCache()` then one whole-column read per epoch" shape — would
+pay a whole-sheet index build just to serve one column it never reuses. So, exactly like the range
+snapshot below, the index is **admitted on a sheet's second open-range read, not its first**: the first
+read serves itself from a **direct key scan** (the pre-index path), collecting and sorting *only the
+matched ids* into the same deterministic order the index yields; the second read builds the index and
+every read after reuses it. In a reuse-heavy pass (thousands of formulas over `A:A`) the single extra
+scan on the first formula is invisible; in a single-read-per-epoch pass it stays at pre-index (2.6.1)
+parity instead of rebuilding the index every epoch.
+
+**Lazy per-bucket sort.** Building the index bucketizes the ids but does **not** sort them; each
+column's list is ordered (by row) only on its first access, so a read that touches one narrow column of
+a wide sheet sorts only that one list, not every column.
 
 ### Layer 2 — epoch range caches
 
@@ -153,7 +167,7 @@ index describes *structure* and the range snapshot carries *values*:
 
 | Cache | Built | `Recalculate()` | `InvalidateCache()` |
 | --- | --- | --- | --- |
-| Structural index (Layer 1) | first open-range enumeration | **survives** (structure ≠ values) | dropped |
+| Structural index (Layer 1) | **second** open-range read of a sheet | **survives** (structure ≠ values) | dropped |
 | Range snapshots (Layer 2) | **second** cacheable range read | **dropped** (values may be volatile-tainted) | dropped |
 
 ```csharp

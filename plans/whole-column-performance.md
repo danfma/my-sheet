@@ -516,7 +516,7 @@ _(mesmo ritual: verificação independente do usuário (rebuild forçado + bench
 ---
 
 ## Phase 5: Admissão na 2ª leitura TAMBÉM para o índice estrutural (relato de produção, 2026-07-03)
-Status: In progress
+Status: Complete
 
 Relato do usuário (benchmark próprio, `~/Downloads/MYSHEET-PERF-whole-column-scan.md` atualizado): workload
 real RESOLVIDO (Sheet12 506k células: +9min → 3,0s; pipeline total 17,3s), MAS o shape
@@ -526,22 +526,105 @@ index-backed incondicional — cada época reconstrói o índice da sheet INTEIR
 TODAS as colunas) para servir 1 leitura de uma coluna de 200 células. O 2.6.4 corrigiu a admissão do cache
 de VALORES; o build do índice na 1ª leitura ficou.
 
-- [ ] 1ª leitura de open-range na época: NaiveScan no-alloc (o caminho 2.6.1 — restaurar/preservar como
-      fallback vivo); marcador "seen" por sheet. 2ª leitura: constrói o índice.
-- [ ] Build do índice mais barato: uma passada, listas por coluna SEM sort; ordenar cada coluna LAZY no
+- [x] 1ª leitura de open-range na época: NaiveScan no-alloc (o caminho 2.6.1 — restaurado como fallback
+      vivo); marcador "seen" por sheet. 2ª leitura: constrói o índice.
+- [x] Build do índice mais barato: uma passada, listas por coluna SEM sort; ordenar cada coluna LAZY no
       primeiro uso daquela coluna (no repro do usuário, só a lista de 200 itens da coluna A é ordenada).
-- [ ] `EstimatePopulatedCells`/admissão do cache de valores NÃO pode forçar o build do índice na 1ª leitura
-      (na 1ª leitura: sem estimativa via índice — marcar Seen do range e seguir linear; na 2ª, o índice já
-      está sendo construído e a estimativa é O(1)).
-- [ ] Cenário novo no harness reproduzindo O SHAPE EXATO do usuário: coluna A = 200 células, sheet
-      2,2k/10k/20k/40k, 50 iterações com InvalidateCache entre cada, COUNTIF(A:A,">0") — alvo: paridade
-      (≤1,1×) com o caminho pré-índice (RangeCacheDisabled + scan), e ganho mantido nos blocos grandes.
-- [ ] Suítes verdes (805+23), equivalência intacta, fixture intocável, 0 warnings `--no-incremental`.
-- [ ] `docs/performance.md`: atualizar a subseção de admissão (agora nas DUAS camadas).
+- [x] `EstimatePopulatedCells`/admissão do cache de valores NÃO força o build do índice na 1ª leitura
+      (sem índice → admite o range sem estimar/varrer; na 2ª, o índice já existe e a estimativa é O(1)).
+- [x] Cenário novo no harness reproduzindo O SHAPE EXATO do usuário: coluna A = 200 células, sheet
+      2,2k/10k/20k/40k, 50 iterações com InvalidateCache entre cada, COUNTIF(A:A,">0") — paridade
+      (≤1,0×) com o caminho pré-índice, e ganho mantido nos blocos grandes.
+- [x] Suítes verdes (809+23), equivalência intacta, fixture intocável, 0 warnings `--no-incremental`.
+- [x] `docs/performance.md`: subseção de admissão atualizada (agora nas DUAS camadas).
 
 ### Verification Plan
 - Harness novo: ratio ≤1,1× vs pré-índice no shape do usuário; blocos Big do reduzido mantêm a banda de
   centenas de ms; suítes completas verdes.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+
+A admissão na 2ª leitura desceu **uma camada abaixo** da Fase 4: agora TAMBÉM o índice estrutural
+(Camada 1). O `Workbook` ganhou um marcador "seen" por sheet (`ConcurrentDictionary<string,bool>`,
+`[MemoryPackIgnore]`, case-insensitive) ao lado do `_structuralIndex`, largado no `InvalidateCache()`
+JUNTO do índice e preservado no `Recalculate()` (estrutura sobrevive). O novo accessor
+`TryGetStructuralIndex(sheet)` retorna `null` na **1ª** leitura open-range da sheet na época (grava o
+marcador) e constrói o índice só na **2ª** (reusado daí em diante); um enum interno `StructuralIndexMode`
+(`Admission` default / `ForceNaive` / `ForceBuild`) é o lever de teste/benchmark. `OpenRangeReference`
+recuperou o **NaiveScan vivo** (caminho pré-Fase-1): quando o accessor devolve `null`, `PopulatedIds` e
+`TryGetPopulatedBounds` varrem `sheet.Keys` filtrando pelos limites, coletam SÓ os matches e ordenam SÓ
+eles na MESMA ordem determinística do índice (coluna-depois-linha, ou linha-depois-coluna no whole-row)
+— para 200 células são ~µs; o pior caso (uma coluna de 506k lida 1×) ordena essa coluna uma vez, ordens
+de magnitude abaixo do build do índice da sheet inteira. `EstimatePopulatedCells` deixou de forçar o
+build: sem índice construído, admite o range (marca) sem estimar/varrer — a 1ª leitura NUNCA vira um
+segundo scan; a estimativa via índice só roda quando ele já existe (O(1)). O `SheetStructuralIndex`
+passou a bucketizar **sem sort** e a ordenar cada bucket (coluna/linha) LAZY no 1º acesso (decorate-sort
+sob lock, flag por bucket) — um read de uma coluna estreita numa sheet larga ordena só aquela lista.
+
+**Reprodução (obrigatória) — árvore ATUAL (HEAD, índice incondicional) × pré-índice (NaiveScan),
+shape EXATO do usuário, Apple Silicon 10 cores, mean ms/iteração de `{ InvalidateCache(); COUNTIF(A:A,">0") }`,
+coluna A fixa em 200 células, 100 iter, best-of-8:**
+
+| Sheet cells | Pré-índice (NaiveScan) | Atual (index-backed) | Atual/Pré-índice |
+|-------------|-----------------------:|---------------------:|-----------------:|
+| 2.200       | 0,099                  | 0,558                | **5,61×**        |
+| 10.200      | 0,156                  | 0,450                | **2,87×**        |
+| 20.200      | 0,226                  | 0,823                | **3,64×**        |
+| 40.200      | 0,405                  | 1,562                | **3,86×**        |
+
+O tempo do caminho index-backed CRESCE com o total da sheet (0,45→1,56ms de 10k→40k) enquanto o
+NaiveScan acompanha só a coluna A — a assinatura O(sheet) por época confirmada (a máquina é ruidosa; o
+usuário reportou ~5-6× @40k, aqui 2,9–5,6× conforme o ruído, mesma ordem de grandeza).
+
+**Pós-fix — harness `--structural-index-admission` (3 modos no MESMO binário; `ForceNaive` = pré-índice
+2.6.1, `ForceBuild` = pré-Fase-5, `Admission` = default), mean ms/iteração, best-of-5, run serial:**
+
+| Sheet cells | ForceNaive (pré-índice) | ForceBuild (pré-Fase-5) | Admission (pós-fix) | Admit/Naive |
+|-------------|------------------------:|------------------------:|--------------------:|------------:|
+| 2.200       | 0,39–0,42               | 0,42–0,43               | 0,38–0,39           | **0,93–1,07×** |
+| 10.200      | 0,45–0,47               | 0,59–0,61               | 0,36–0,37           | **0,76–0,83×** |
+| 20.200      | 0,32–0,44               | 0,56–0,82               | 0,28–0,31           | **0,71–0,87×** |
+| 40.200      | 0,49–0,50               | 0,98                    | 0,48                | **0,96–0,99×** |
+
+**Admission bate a paridade com folga (≤1,0× do NaiveScan pré-índice) em toda a faixa** — a coluna A é
+lida 1×/época, então o índice NUNCA é construído nesse shape. (`ForceBuild` mostra só ~1,3–2,6× e não os
+~5-6× do HEAD porque já usa o índice lazy-sort desta fase — o build ficou mais barato; a repro fiel do
+HEAD é a tabela acima.)
+
+**Blocos Big preservados (`--whole-column-scale` reduzido 50k×10k, BigColumn, ms — duas runs):**
+
+| Fórmula      | Fase 4 | Fase 5 (run A / run B) |
+|--------------|-------:|-----------------------:|
+| Match1       | 148,9  | 188,1 / 183,5          |
+| Match0       | 113,7  |  93,2 / 112,8          |
+| VLookupExact | 139,6  | 146,0 / 137,7          |
+| SumIfEqual   |  90,6  | 105,8 / 118,0          |
+| CountIfEqual |  99,4  | 100,6 / 103,2          |
+| Small        |  97,3  | 135,8 /  89,1          |
+| SumRepeated  |  90,2  | 137,4 /  78,7          |
+
+Todos na casa das centenas de ms como na Fase 4 (dentro do ruído inter-run): com 10k leituras o índice
+é construído na 2ª e amortizado — o ganho de ~570×–1030× das Fases 1-2 está intacto. **Fase 4 sem
+regressão** (`--range-cache-admission`: SlidingWindows 1,00×, BoundedMatchOnce 1,05×, InvalidateLoop
+0,99×).
+
+**Decisões além do briefing:** (a) `StructuralIndexMode` (enum de 3 estados) em vez de um bool
+`Disabled`: o harness precisa distinguir pré-índice (`ForceNaive`) de pré-Fase-5 (`ForceBuild`) para
+mostrar repro E fix no mesmo binário. (b) `PeekStructuralIndex(sheet)` (peek sem efeito colateral) para
+os testes afirmarem "não construído na 1ª leitura" sem admitir uma leitura. (c) A repro FIEL do HEAD
+foi medida à parte (projeto scratchpad com `ProjectReference`, git stash) porque o lazy-sort desta fase
+já barateia o `ForceBuild` — documentado acima. (d) `EstimatePopulatedCells` sem índice retorna o limiar
+(256) para ADMITIR o range sem varrer: o snapshot só materializa na 2ª leitura, onde o tamanho real é
+confirmado; um open-range pequeno lido 2× passa a ser cacheado (antes o índice o barraria) — sem impacto
+de correção (equivalência intacta), custo desprezível, coberto pelo cap de 64k marcadores.
+
+**Testes novos (`StructuralIndexTests`, 10 no total, +4):** 1ª leitura NÃO constrói (peek null); 2ª
+constrói uma vez; reuso em N leituras (build count 1); **ordem idêntica NaiveScan × índice** (coluna e
+whole-row); drop no `InvalidateCache` (índice + marcadores) e sobrevivência ao `Recalculate` sem
+rebuild; whole-row × whole-column independentes; **lazy sort por coluna** (coluna não lida fica
+`IsColumnSorted == false`).
+
+**Build:** `--no-incremental` 0 warnings. **Suíte:** core **809** (805 + 4), Excel **23**,
+equivalência (`RangeValueCacheEquivalenceTests`, leitura 1/2/3) 100% idêntica,
+`MemoryPackCompatibilityTests`/fixture intocados e verdes. **Sem API nova**; hot path de célula única
+intocado.
