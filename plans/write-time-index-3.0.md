@@ -88,13 +88,26 @@ indexer `sheet["A1"] = expr`; remoção → `sheet.Remove("A1")`; object-initial
 popular via indexer; serialização sem ação (wire idêntico, provado pela fixture congelada).
 
 ## Phase 1: Encapsulamento (refactor puro, sem índice novo)
-Status: Not started
-- [ ] `SetCell` interno como único caminho de escrita; indexer delega; `Remove` público; `Cells` →
+Status: Complete
+- [x] `SetCell` interno como único caminho de escrita; indexer delega; `Remove` público; `Cells` →
       `IReadOnlyDictionary`. Ajustar espelhos do spike no benchmark. Migração dos ~10 sets internos: nada
       a fazer (já usam indexer).
-- [ ] Suítes inteiras verdes SEM mudança de comportamento; fixture verde; `docs/migrating-to-3.0.md`.
+- [x] Suítes inteiras verdes SEM mudança de comportamento; fixture verde; `docs/migrating-to-3.0.md`.
 ### Verification Plan
 - Core 841 / Excel 24 verdes; fixture verde; build 0 warnings.
+### Phase Summary
+Entregue na branch **`feat/3.0-sheet-encapsulation`** (fork de `8d56f2f`): `f9ab90b`
+`feat(sheet)!: encapsulate the cell store behind a write choke point` + `b67796e` guia de migração.
+`internal SetCell` = caminho único de escrita (doc-comment marca o attach point da F2 e do grafo de deps);
+indexer `set` delega; `public bool Remove(string)` novo com invalidação simétrica à escrita (mutação NÃO
+invalida caches de valor — host chama `InvalidateCache`, coerente com o indexer; teste cobre isso);
+`Cells` → `IReadOnlyDictionary` sobre `[MemoryPackInclude] _cells` (mesma posição, forma provada na F0).
+Espelhos do benchmark auditados: `MSheet` próprio, nada a ajustar. Verificação independente na worktree:
+core **844** (841+3 `SheetRemoveTests`), Excel **24**, fixture byte-intocada, build `--no-incremental`
+5 projetos 0 warnings. Nota: o prefixo correto do commit de quebra é **`feat(sheet)!:`** (a forma
+`feat!(escopo):` não parseia no versionize). **Integração à main ADIADA de propósito**: o fix escalar
+OR/AND (K1) deve entrar na main ANTES da quebra 3.0 para viabilizar release 2.9.x; a F2 forka desta
+branch.
 
 ## Phase 2: Índice write-maintained
 Status: Not started
