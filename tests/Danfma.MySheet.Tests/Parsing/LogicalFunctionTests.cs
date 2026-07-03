@@ -80,6 +80,123 @@ public class LogicalFunctionTests
         await Assert.That(Calc("=XOR(\"abc\")")).IsEqualTo(ErrorValue.NotValue);
     }
 
+    // --- OR / AND / XOR: text and blank inside a reference are ignored (Excel semantics) ---
+    // support.microsoft.com AND/OR/XOR remarks: "If a specified range contains no logical values,
+    // [the function] returns the #VALUE! error." Text and empty cells reached THROUGH a reference or
+    // array argument are ignored; #VALUE! is returned only when no evaluable value survives at all.
+    // Regression oracle: K1 comparison against Aspose.Cells 26.6 / Excel (MySheet 2.9.0 gave #VALUE!).
+
+    [Test]
+    public async Task Or_IgnoresTextFromReference()
+    {
+        // =OR(A192="Show", A208) with A192="Show", A208="Hide" (text): the comparison is TRUE and the
+        // text cell A208 is ignored -> TRUE (Excel/Aspose). MySheet 2.9.0 returned #VALUE!.
+        var cells = new (string, Expression)[]
+        {
+            ("A192", Expression.String("Show")),
+            ("A208", Expression.String("Hide")),
+        };
+
+        await Assert.That(Calc("=OR(A192=\"Show\", A208)", cells) as bool?).IsTrue();
+    }
+
+    [Test]
+    public async Task Or_ReturnsFalseWhenOnlyFalseSurvives()
+    {
+        // =OR(FALSE, A208): the text cell is ignored, only FALSE remains evaluable -> FALSE.
+        await Assert
+            .That(Calc("=OR(FALSE, A208)", ("A208", Expression.String("Hide"))) as bool?)
+            .IsFalse();
+    }
+
+    [Test]
+    public async Task Or_SingleTextReferenceIsValueError()
+    {
+        // =OR(A208) with A208 text: nothing evaluable survives -> #VALUE!.
+        await Assert
+            .That(Calc("=OR(A208)", ("A208", Expression.String("Hide"))))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task And_IgnoresTextFromReference()
+    {
+        // =AND(TRUE, A208): the text cell is ignored, only TRUE remains -> TRUE.
+        await Assert
+            .That(Calc("=AND(TRUE, A208)", ("A208", Expression.String("Hide"))) as bool?)
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task And_SingleTextReferenceIsValueError()
+    {
+        // =AND(A208) with A208 text: nothing evaluable survives -> #VALUE!.
+        await Assert
+            .That(Calc("=AND(A208)", ("A208", Expression.String("Hide"))))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Xor_IgnoresTextFromSingleCellReference()
+    {
+        // The same rule applies to a SINGLE cell reference, not just a range: =XOR(TRUE, A208) with
+        // A208 text ignores the text and leaves one TRUE -> TRUE (odd count). This closed a latent
+        // XOR gap: the range path already ignored text, but a single CellReference did not.
+        await Assert
+            .That(Calc("=XOR(TRUE, A208)", ("A208", Expression.String("Hide"))) as bool?)
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task Or_NumberFromReferenceIsEvaluated()
+    {
+        // A number reached through a reference still evaluates (non-zero -> TRUE), text alongside is
+        // ignored: =OR(A1, A2) with A1=5 (number), A2="x" (text) -> TRUE.
+        var cells = new (string, Expression)[]
+        {
+            ("A1", Expression.Number(5)),
+            ("A2", Expression.String("x")),
+        };
+
+        await Assert.That(Calc("=OR(A1, A2)", cells) as bool?).IsTrue();
+    }
+
+    [Test]
+    public async Task Or_LiteralTextArgumentStaysValueError()
+    {
+        // Open-oracle guard: a LITERAL text argument is NOT ignored (distinct path from a reference).
+        // =OR(FALSE, "x") -> #VALUE!, unchanged from 2.9.0 pending real-Excel validation of literals.
+        await Assert.That(Calc("=OR(FALSE, \"x\")")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=AND(TRUE, \"x\")")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Or_BlankCellReferenceIsIgnored()
+    {
+        // A blank cell reached through a reference is ignored like text: =OR(A1) with A1 empty leaves
+        // nothing evaluable -> #VALUE! (Excel). This changes the pre-fix blank->FALSE coercion.
+        await Assert.That(Calc("=OR(A1)")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Or_CrossSheetTextReferenceIsIgnored_K1Case()
+    {
+        // The exact K1 divergence: H23 = =IF(OR(Sheet8!A192="Show",Sheet8!A208),"*","") with
+        // Sheet8!A192="Show" and Sheet8!A208="Hide" (text). Excel/Aspose -> "*"; 2.9.0 gave #VALUE!.
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Sheet1");
+        var sheet8 = workbook.Sheets.Add("Sheet8");
+        sheet8["A192"] = Expression.String("Show");
+        sheet8["A208"] = Expression.String("Hide");
+
+        var result = ExpressionParser
+            .Parse("=IF(OR(Sheet8!A192=\"Show\",Sheet8!A208),\"*\",\"\")", main)
+            .Evaluate(workbook)
+            .AsObject();
+
+        await Assert.That(result as string).IsEqualTo("*");
+    }
+
     [Test]
     public async Task Ifs_ReturnsFirstMatch()
     {

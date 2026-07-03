@@ -13,18 +13,14 @@ public sealed partial record Or(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var result = false;
-
-        foreach (var argument in Arguments)
+        // Excel semantics (shared with AND/XOR): text and blank cells reached through a reference/array
+        // are ignored; #VALUE! only when nothing evaluable survives. OR is TRUE iff at least one
+        // evaluable logical value is TRUE.
+        if (LogicalReduction.Reduce(Arguments, context, out var trueCount, out var total) is { } error)
         {
-            if (argument.Evaluate(context).CoerceToBool(out var value) is { } error)
-            {
-                return ComputedValue.Error(error);
-            }
-
-            result |= value;
+            return ComputedValue.Error(error);
         }
 
-        return ComputedValue.Boolean(result);
+        return total == 0 ? ComputedValue.Error(Error.Value) : ComputedValue.Boolean(trueCount > 0);
     }
 }

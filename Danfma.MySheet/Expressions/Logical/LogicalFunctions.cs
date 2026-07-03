@@ -20,8 +20,9 @@ public sealed partial record FalseFunction(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record Xor(Expression[] Arguments) : Function
 {
-    // Excel: TRUE when the number of TRUE inputs is odd. Text/blank cells inside a reference are
-    // ignored; a call whose arguments contribute no logical value at all -> #VALUE! (per the docs).
+    // Excel: TRUE when the number of TRUE inputs is odd. Text/blank cells reached through a reference
+    // (a single cell as well as a range) are ignored; a call whose arguments contribute no logical value
+    // at all -> #VALUE! (per the docs). Shares the reduction with AND/OR via LogicalReduction.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         // A reference argument to a missing sheet is a structural #REF!.
@@ -30,87 +31,12 @@ public sealed partial record Xor(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var trueCount = 0;
-        var sawLogical = false;
-
-        foreach (var argument in Arguments)
+        if (LogicalReduction.Reduce(Arguments, context, out var trueCount, out var total) is { } error)
         {
-            if (argument is RangeReference or OpenRangeReference or UnionReference)
-            {
-                if (AccumulateRange(argument, context, ref trueCount, ref sawLogical) is { } rangeError)
-                {
-                    return ComputedValue.Error(rangeError);
-                }
-
-                continue;
-            }
-
-            var computed = argument.Evaluate(context);
-
-            if (computed.Kind == ComputedValueKind.Reference)
-            {
-                if (AccumulateValues(computed.EnumerateValues(context), ref trueCount, ref sawLogical)
-                    is { } referenceError)
-                {
-                    return ComputedValue.Error(referenceError);
-                }
-
-                continue;
-            }
-
-            // A direct scalar argument is coerced like AND/OR (text that is not a number -> #VALUE!).
-            if (computed.CoerceToBool(out var value) is { } error)
-            {
-                return ComputedValue.Error(error);
-            }
-
-            sawLogical = true;
-            trueCount += value ? 1 : 0;
+            return ComputedValue.Error(error);
         }
 
-        return sawLogical
-            ? ComputedValue.Boolean(trueCount % 2 == 1)
-            : ComputedValue.Error(Error.Value);
-    }
-
-    private static Error? AccumulateRange(
-        Expression argument,
-        EvaluationContext context,
-        ref int trueCount,
-        ref bool sawLogical
-    ) => AccumulateValues(ArgumentFlattening.ExpandComputedValues(argument, context), ref trueCount, ref sawLogical);
-
-    private static Error? AccumulateValues(
-        IEnumerable<ComputedValue> values,
-        ref int trueCount,
-        ref bool sawLogical
-    )
-    {
-        foreach (var value in values)
-        {
-            switch (value.Kind)
-            {
-                case ComputedValueKind.Error:
-                    value.TryGetError(out var error);
-                    return error;
-
-                case ComputedValueKind.Number:
-                    value.TryGetNumber(out var number);
-                    sawLogical = true;
-                    trueCount += number != 0 ? 1 : 0;
-                    break;
-
-                case ComputedValueKind.Boolean:
-                    value.TryGetBoolean(out var boolean);
-                    sawLogical = true;
-                    trueCount += boolean ? 1 : 0;
-                    break;
-
-                // Text and blank cells inside a reference are ignored, per the Excel docs.
-            }
-        }
-
-        return null;
+        return total == 0 ? ComputedValue.Error(Error.Value) : ComputedValue.Boolean(trueCount % 2 == 1);
     }
 }
 
