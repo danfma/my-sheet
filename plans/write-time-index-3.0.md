@@ -138,23 +138,51 @@ vivo (durante Fill pré-1ª-leitura o índice nem existe → overhead ~nulo); fi
 (one-shot, JIT/GC).
 
 ## Phase 3: Validação + docs + release
-Status: Not started
-- [ ] Micro-benchmark alvo (o do relatório K1): `COUNTIF(A:A)` com coluna A=200, sheet 10k→500k, POR
+Status: Complete
+- [x] Micro-benchmark alvo (o do relatório K1): `COUNTIF(A:A)` com coluna A=200, sheet 10k→500k, POR
       ÉPOCA (InvalidateCache entre leituras) — esperado **~flat** (sem rebuild por época; comparar com a
       tabela do usuário: Aspose ~0,4ms). Registrar.
-- [ ] Custo de escrita: micro de `SetCell` em massa (Fill-like, 500k sets em ordem e fora de ordem) —
+- [x] Custo de escrita: micro de `SetCell` em massa (Fill-like, 500k sets em ordem e fora de ordem) —
       gate: overhead ≤ ~5% vs 2.9.0.
-- [ ] Harness whole-column-scale completo + SheetBenchmarks vs main (alocação idêntica no hot path).
-- [ ] Docs: `performance.md` (Camada 1 agora write-maintained), `workbook-and-expressions.md` (Remove/
-      Cells read-only), guia de migração final — skill `code-documentation-doc-generate`. NÃO tocar
-      `docs/pt-BR/` (refresh no deploy).
-- [ ] Release **3.0.0** (`feat!` + BREAKING CHANGE) — dispatch em chamada separada pós-verificação;
+- [x] Harness whole-column-scale completo + SheetBenchmarks vs main (alocação idêntica no hot path).
+- [x] Docs: `performance.md` (Camada 1 agora write-maintained), `workbook-and-expressions.md` (Remove/
+      Cells read-only), guia de migração final. NÃO tocar `docs/pt-BR/` (refresh no deploy).
+- [x] Release **3.0.0** (`feat!` + BREAKING CHANGE) — dispatch em chamada separada pós-verificação;
       depois refresh pt-BR via Sonnet.
 ### Verification Plan
 - Tabela flat do micro-alvo; gate de escrita ≤5%; suítes/fixture verdes; versionize propõe major.
+### Phase Summary
+Entregue em `feat/3.0-validation` (rebaseada: `e3b5783` harness write-cost + micro-alvo estendido,
+`d9cda63` docs). **Micro-alvo re-rodado por mim**: flat/decrescente 0,27→**0,09 ms/época** @ 10k→500k
+(sem joelho; JIT tiering explica a queda) — vs Aspose ~0,4ms constante e 2.6.2 ~65-107ms @ 500k.
+**Gate de escrita SPLIT** (baseline = NuGet 2.9.1 publicado, probe isolado): Fill normal (índice ainda
+não construído) PASSA ~0%; bulk-write com índice VIVO estoura (+23-27% realista, ~50-90 ns/set de
+manutenção em `AddToBucket`) — **aceito pelo usuário** como custo write-time by-design (se paga na 1ª
+leitura de época seguinte); micro-opt futura registrada: cachear última (col,row) por bucket.
+SheetBenchmarks: alocação do hot path de leitura **byte-idêntica** aos planos. Docs atualizados com
+exemplos validados por compilação. Verificação independente: core 862 / Excel 24 / fixture intocada /
+0 warnings. **Probe de memória K1-shape (3.0)**: modelo 400k fórmulas ≈ 0,33GB residente (~885 B/fórmula
+= headroom do interning ≈ 340MB); passe de avaliação ≈ 0,15GB de churn; working set ~0,3GB — os ~8,66GB
+do K1 2.6.2 são churn de pipeline (épocas × passes + I/O + parse), não residência do modelo; decompor
+com o re-run separando working set × alocado.
 
 ## Final Recap
-_(ao concluir)_
+O 3.0 fechou o gap estrutural vs Aspose no acesso a coluna inteira. Fases: **F0** provou (fixture como
+juiz) que mover `Cells` para campo privado `[MemoryPackInclude]` preserva o schema byte-idêntico; **F1**
+encapsulou (breaking: `Cells` → `IReadOnlyDictionary`, sem `init`; `SetCell` interno único caminho de
+escrita + `Remove` público; guia de migração); **F2** entregou o índice estrutural write-maintained e
+VITALÍCIO no próprio `Sheet` (lazy 1×/vida, manutenção incremental adaptativa, sobrevive a
+`InvalidateCache`, rebuild pós-Load; admissão estrutural da Fase 5 aposentada; camada de valores por
+época intacta); **F3** validou (COUNTIF(A:A) ~flat 0,09-0,27 ms/época até 500k — abaixo do Aspose ~0,4ms;
+escrita: Fill ~0%, live-index +23-27% aceito) e publicou os docs. Suítes finais: core **862** / Excel
+**24**, fixture inalterada, 0 warnings. Em paralelo saiu o **v2.9.1** (OR/AND/XOR ignoram texto/vazio via
+referência — gap K1) e ficaram planejados: mini-CSE (`plans/mini-cse-array-arguments.md`, NÃO autorizado)
+e interning de esqueletos (headroom medido ~340MB residente @ 400k fórmulas).
+
 ## Deployment Plan
-_(verificação minha → merge → push → pré-condição merge-base em chamada separada → release 3.0.0 →
-`git pull` → refresh pt-BR. Guia de migração publicado junto.)_
+Executado em 2026-07-03: verificação independente por fase → rebase da cadeia
+(`feat/3.0-sheet-encapsulation` → `feat/3.0-write-time-index` → `feat/3.0-validation`) sobre a main →
+ff-merge → sanidade completa na main (build 0 warnings + 862/24) → push → `merge-base --is-ancestor` em
+chamada separada → `gh workflow run release.yml` (versionize deriva **3.0.0** do `feat(sheet)!:`) →
+`git pull --tags` → refresh `docs/pt-BR/` via agente Sonnet (guia de migração incluído). Para futuros
+releases: o mesmo ritual, sempre com o dispatch isolado em chamada própria.
