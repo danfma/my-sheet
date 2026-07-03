@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.9.1"></a>
+## [2.9.1](https://www.github.com/danfma/my-sheet/releases/tag/v2.9.1) (2026-07-03)
+
+### Bug Fixes
+
+* **logical:** ignore text and blank from references in OR/AND/XOR ([6a4cf7c](https://www.github.com/danfma/my-sheet/commit/6a4cf7cd1490014a5b885eb90765c6db60b7d3fd))
+
 <a name="2.9.0"></a>
 ## [2.9.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.9.0) (2026-07-03)
 
