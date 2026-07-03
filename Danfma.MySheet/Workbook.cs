@@ -188,6 +188,16 @@ public sealed partial class Workbook
     public Sheet this[string key] => Sheets[key];
 
     /// <summary>
+    /// Tries to resolve a sheet by name (case-insensitive, like Excel) without throwing, so a host can probe
+    /// for a sheet the way a formula does. Unlike the <see cref="this[string]"/> indexer — which keeps
+    /// throwing <see cref="KeyNotFoundException"/> for a direct host lookup, exactly like a dictionary — a
+    /// MISSING sheet inside a formula resolves to <c>#REF!</c> (see <see cref="GetCellValue"/>) rather than
+    /// aborting the evaluation.
+    /// </summary>
+    public bool TryGetSheet(string name, [MaybeNullWhen(false)] out Sheet sheet) =>
+        Sheets.TryGetValue(name, out sheet);
+
+    /// <summary>
     /// Returns the memoized <see cref="ComputedValue"/> of a cell — the cache stores the struct inline, so a
     /// cell referenced by many formulas is computed once with no per-cell heap box. The cache is NOT
     /// invalidated automatically on mutation — call <see cref="InvalidateCache"/> after editing cells.
@@ -220,8 +230,21 @@ public sealed partial class Workbook
 
         try
         {
+            // A reference to a sheet that does not exist is a STRUCTURAL failure (#REF!), fiel ao Excel — not
+            // a thrown KeyNotFoundException that would abort a whole batch. Detected here (before indexing) it
+            // covers the per-cell paths: CellReference.Evaluate and the cell-by-cell range enumerators, which
+            // all funnel through GetCellValue.
+            if (!Sheets.TryGetValue(sheetName, out var sheet))
+            {
+                var missing = ComputedValue.Error(Error.Ref);
+                cache[key] = missing;
+                _volatileTouched = outerTouched;
+
+                return missing;
+            }
+
             // Compute outside the dictionary (the formula recurses back in), then store.
-            var value = Sheets[sheetName][id].Evaluate(new EvaluationContext(this, sheetName, id));
+            var value = sheet[id].Evaluate(new EvaluationContext(this, sheetName, id));
 
             var cellTouched = _volatileTouched;
             if (cellTouched)

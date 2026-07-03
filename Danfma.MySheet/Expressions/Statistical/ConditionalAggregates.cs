@@ -14,6 +14,12 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
     // matches the criteria.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A range (or average_range) over a missing sheet is a structural #REF!.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
         var range = ArgumentFlattening.ExpandComputedValues(Arguments[0], context);
         var averageRange = Arguments.Length == 3
@@ -93,6 +99,16 @@ file static class CriteriaPairs
         out List<(List<ComputedValue> Range, Criteria Criteria)> pairs
     )
     {
+        // A value_range or criteria range over a missing sheet is a structural #REF! (AVERAGEIFS/MAXIFS/
+        // MINIFS all route here).
+        if (ReferenceGuard.MissingSheet(arguments, context) is { } missing)
+        {
+            valueRange = [];
+            pairs = [];
+
+            return missing;
+        }
+
         valueRange = ArgumentFlattening.ExpandComputedValues(arguments[0], context);
         pairs = [];
 

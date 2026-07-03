@@ -7,6 +7,12 @@ public sealed partial record CountA(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A reference to a missing sheet is a structural #REF!, not an empty range that COUNTA would tally 0.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var count = 0;
 
         foreach (var value in ArgumentFlattening.FlattenComputedValues(Arguments, context))

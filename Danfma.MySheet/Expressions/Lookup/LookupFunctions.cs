@@ -208,16 +208,19 @@ public sealed partial record Columns(Expression[] Arguments) : Function
     // exact structural count on a bounded column axis (COLUMNS(A:C) = 3) and the populated extent on an
     // open one; anything else is 1.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Number(
-            NamedReferences.TryResolveReference(Arguments[0], context, out var reference, boundOpenRanges: false)
-                ? reference switch
-                {
-                    RangeReference range => range.ColumnCount,
-                    OpenRangeReference open => open.ColumnExtent(context),
-                    _ => 1.0,
-                }
-                : 1.0
-        );
+        // A reference to a missing sheet is a structural #REF!, not an empty (0-column) extent.
+        ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing
+            ? ComputedValue.Error(missing)
+            : ComputedValue.Number(
+                NamedReferences.TryResolveReference(Arguments[0], context, out var reference, boundOpenRanges: false)
+                    ? reference switch
+                    {
+                        RangeReference range => range.ColumnCount,
+                        OpenRangeReference open => open.ColumnExtent(context),
+                        _ => 1.0,
+                    }
+                    : 1.0
+            );
 }
 
 [MemoryPackable]

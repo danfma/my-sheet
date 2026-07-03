@@ -7,6 +7,12 @@ public sealed partial record CountIfs(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A criteria range over a missing sheet is a structural #REF!.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var ranges = new List<List<ComputedValue>>();
         var criterias = new List<Criteria>();
 

@@ -70,7 +70,12 @@ public sealed partial record OpenRangeReference(
     /// </summary>
     internal IEnumerable<string> PopulatedIds(EvaluationContext context)
     {
-        var sheet = context.Workbook.Sheets[SheetName];
+        // A missing sheet has no populated cells; never throw here (the structural #REF! is raised by the
+        // consuming function's ReferenceGuard check, before it enumerates).
+        if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
+        {
+            yield break;
+        }
 
         foreach (var id in sheet.Keys)
         {
@@ -84,7 +89,10 @@ public sealed partial record OpenRangeReference(
     /// <summary>Enumerates the stored expression of every POPULATED cell within the limits (NaiveScan).</summary>
     public IEnumerable<Expression> Expand(EvaluationContext context)
     {
-        var sheet = context.Workbook.Sheets[SheetName];
+        if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
+        {
+            yield break;
+        }
 
         foreach (var id in PopulatedIds(context))
         {
@@ -122,7 +130,12 @@ public sealed partial record OpenRangeReference(
         maxRow = int.MinValue;
 
         var any = false;
-        var sheet = context.Workbook.Sheets[SheetName];
+
+        // A missing sheet yields no populated bounds (an empty selection); never throw here.
+        if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
+        {
+            return false;
+        }
 
         foreach (var id in sheet.Keys)
         {

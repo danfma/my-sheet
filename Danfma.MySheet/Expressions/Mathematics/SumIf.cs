@@ -8,6 +8,12 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
     // SUMIF(range, criteria, [sum_range]) — sums sum_range (or range) where range matches the criteria.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A range (or sum_range) over a missing sheet is a structural #REF!, not an empty range summing 0.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
         var range = ArgumentFlattening.ExpandComputedValues(Arguments[0], context);
         var sumRange =

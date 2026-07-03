@@ -19,7 +19,13 @@ public sealed partial record RangeReference(string StartId, string EndId, string
     /// </summary>
     public IEnumerable<Expression> Expand(EvaluationContext context)
     {
-        var sheet = context.Workbook.Sheets[SheetName];
+        // A missing sheet has no cells to enumerate; never throw here (the structural #REF! is raised by the
+        // consuming function's ReferenceGuard check, before it enumerates).
+        if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
+        {
+            yield break;
+        }
+
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
 
