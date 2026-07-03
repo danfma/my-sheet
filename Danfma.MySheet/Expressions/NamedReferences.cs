@@ -59,6 +59,33 @@ internal static class NamedReferences
     public static bool TryResolveReference(
         Expression expression,
         EvaluationContext context,
+        [NotNullWhen(true)] out Reference? reference,
+        bool boundOpenRanges = true
+    )
+    {
+        if (!TryResolveRaw(expression, context, out var raw))
+        {
+            reference = null;
+            return false;
+        }
+
+        // Consumers that need a CONCRETE range (VLOOKUP/HLOOKUP table, INDEX, OFFSET base) resolve an open
+        // range to its populated bounding box; ROWS/COLUMNS pass boundOpenRanges:false to keep the open
+        // reference and apply their populated-extent rule. An empty open range stays itself so ISREF/AREAS
+        // still see a reference.
+        reference =
+            boundOpenRanges && raw is OpenRangeReference open
+                ? (Reference?)open.ToBoundedRange(context) ?? open
+                : raw;
+
+        return true;
+    }
+
+    // The raw resolution (no open-range bounding): a reference node resolves to itself; a NameReference
+    // through the LET scope then the workbook's defined names, recursively, with the cycle guard.
+    private static bool TryResolveRaw(
+        Expression expression,
+        EvaluationContext context,
         [NotNullWhen(true)] out Reference? reference
     )
     {
@@ -97,7 +124,7 @@ internal static class NamedReferences
 
         try
         {
-            return TryResolveReference(definition, context, out reference);
+            return TryResolveRaw(definition, context, out reference);
         }
         finally
         {

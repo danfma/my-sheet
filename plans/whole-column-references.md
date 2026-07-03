@@ -92,22 +92,30 @@ de defined name) ganharam um `case OpenRangeReference` espelhando o `RangeRefere
 ---
 
 ## Phase 2: Consumidores sintáticos + ROWS/COLUMNS
-Status: Not started
+Status: Complete
 
-- [ ] `ToBoundedRange(context)` em `OpenRangeReference`: resolve à bounding-box POPULADA dentro dos limites —
-      cols/rows abertos preenchidos pela extensão populada (min/max das células que casam). Vazio → range
-      degenerado (`RowCount`=0). Usado onde um `RangeReference` concreto é exigido.
-- [ ] `NamedReferences.TryResolveReference` (ou os call-sites): `OpenRangeReference` resolve via
-      `ToBoundedRange` para VLOOKUP/HLOOKUP (table), INDEX, OFFSET (base), AREAS (conta 1), ISREF (true).
-      Testar `VLOOKUP(x, A:B, 2)` e `INDEX(A:A, 3)`.
-- [ ] `ROWS`/`COLUMNS`: reconhecer `OpenRangeReference` e usar a EXTENSÃO POPULADA (decisão travada) em vez
-      de `RangeReference.RowCount`. Testes: `ROWS(A:A)`, `COLUMNS(A:C)`, `ROWS(1:5)`, coluna/linha vazia → 0.
+- [x] `ToBoundedRange(context)` em `OpenRangeReference`: resolve à bounding-box POPULADA (min/max das
+      células que casam) como um `RangeReference` concreto; vazio → `null`.
+- [x] `NamedReferences.TryResolveReference` ganhou `boundOpenRanges = true` (default): um
+      `OpenRangeReference` resolve via `ToBoundedRange` (ou permanece ele mesmo se vazio, para ISREF/AREAS
+      continuarem vendo uma referência). Assim VLOOKUP/HLOOKUP (table), INDEX, OFFSET (base), AREAS (1),
+      ISREF (true) funcionam SEM tocar cada arquivo — todos casam `RangeReference` após a conversão.
+- [x] `ROWS`/`COLUMNS` chamam `TryResolveReference(..., boundOpenRanges: false)` para receber o
+      `OpenRangeReference` cru e aplicar `RowExtent`/`ColumnExtent`: eixo BOUNDED = estrutural
+      (`COLUMNS(A:C)`=3), eixo ABERTO = extensão populada (`ROWS(A:A)`=max−min+1; vazio → 0).
+- [x] Testes (`WholeColumnConsumerTests`, 14): `ROWS(A:A)`/esparsa/vazia, `COLUMNS(A:C)`=3/`COLUMNS(A:A)`=1,
+      `ROWS(1:5)`=5, `COLUMNS(1:5)`=extensão, `COLUMNS(2:2)` vazia=0, `VLOOKUP(2,A:B,2)`, `INDEX(A:A,3)`,
+      `OFFSET(A:A,1,0)`, `AREAS(A:A)`=1, `ISREF(A:A)` (populada e vazia).
 
 ### Verification Plan
 - Build `--no-incremental` 0 warnings; suíte verde incl. VLOOKUP/INDEX/ROWS/COLUMNS sobre coluna inteira.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+`ToBoundedRange` resolve a bounding-box populada; o parâmetro `boundOpenRanges` em `TryResolveReference`
+converte automaticamente para os consumidores que exigem range concreto (VLOOKUP/HLOOKUP/INDEX/OFFSET),
+enquanto ROWS/COLUMNS optam por `false` para preservar a abertura e aplicar a regra estrutural-vs-populada
+por eixo (divergência do Excel travada). ISREF/AREAS/OFFSET não precisaram de edição — a conversão os cobre.
+**Build:** 0 warnings. **Suíte:** core 729 (715 + 14), Excel 20 intacta.
 
 ---
 
