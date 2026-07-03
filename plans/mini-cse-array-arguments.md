@@ -92,20 +92,28 @@ com o Excel; a nuance broadcast+`#N/A` do Excel real só entraria se um consumid
 (4) taint volátil de broadcast = item da Fase C, como planejado.
 
 ## Phase B: Consumidores (SUM-família, SMALL/LARGE, INDEX)
-Status: Not started
-- [ ] `NumericAggregation.Fold` default case tenta `ArrayEvaluation` antes do caminho escalar;
+Status: Complete
+- [x] `NumericAggregation.Fold` default case tenta `ArrayEvaluation` antes do caminho escalar;
       `OrderSelection` idem para o 1º arg; `Index.Evaluate` aceita 1º arg array-elegível.
-- [ ] Testes RED→GREEN com os repros exatos do K1 (valores-oráculo do doc do usuário):
+- [x] Testes RED→GREEN com os repros exatos do K1 (valores-oráculo do doc do usuário):
       `SUM(IF(B2:B5="Show",1,0))=2`; `SMALL(IF(B2:B5="Show",ROW(B2:B5)),1)=3`; `...,2)=5`;
       `INDEX(ROW(B2:B5),1)=2`; + BH25-like completo (IF aninhado com `>` e IF-sem-else, cross-sheet).
-- [ ] Regressão: célula seca com IF-array continua `#VALUE!`; `SUM(range)` continua no memo Layer-2.
+- [x] Regressão: célula seca com IF-array continua `#VALUE!`; `SUM(range)` continua no memo Layer-2.
 ### Verification Plan
 - Repros = valores do oráculo; suítes completas verdes; fixture verde; build 0 warnings.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em **`feat/mini-cse-consumers`** (fork de `c99b776`), commit `dfa8cdb`. Portão comum:
+`ArrayEvaluation.IsArrayEligible` (walk sintático puro, sem avaliar — evita dupla-avaliação e risco com
+voláteis); hot path escalar intacto (short-circuit). Consumidores: `Fold` default case (cobre SUM/COUNT/
+AVERAGE/MIN/MAX **e transitivamente SMALL/LARGE/percentis** via `StatisticsMath.Collect` → decisão
+ACEITA: não duplicar no `OrderSelection`, seria caminho morto); `Index` com forma-array row-major +
+**caso especial documentado `INDEX(ROW(coluna aberta), n)` = identidade `top+n-1` sem materializar**
+(o idiom BH25 real; hoje dava `#REF!`; núcleo continua recusando open-range). 12 testes RED→GREEN
+(RED: 9 falhas + 3 verdes provando o comportamento atual), incluindo BH25-like cross-sheet completo.
+Verificação independente: core **885** (873+12) / Excel 24 / fixture intocada / 0 warnings.
 
 ## Phase C: Validação K1 + docs + release
-Status: Not started
+Status: In progress
 - [ ] Taint volátil: `SUM(IF(range=RAND()>0.5,...))`-like marca a época (teste com contador).
 - [ ] Custo: micro-benchmark do BH25-like @ 194 e @ 10k linhas — sem regressão nas suítes de perf.
 - [ ] Docs: `function-reference` (notas de array-context nas funções cobertas) + parágrafo em
