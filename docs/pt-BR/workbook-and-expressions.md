@@ -186,6 +186,58 @@ ExpressionParser.Parse("=SUM((A1:A3, C1:C3))", sheet); // união de referências
   contra as vinculações de `LET` e os [intervalos nomeados](#intervalos-nomeados) (*named ranges*) do
   workbook em tempo de avaliação, e produz `#NAME?` se não estiver vinculado.
 
+## Referências de coluna e linha inteira
+
+O MySheet suporta referências que são **abertas** (ilimitadas) em pelo menos um lado: uma coluna inteira,
+uma linha inteira, e as formas mistas de um lado só.
+
+```csharp
+ExpressionParser.Parse("=SUM(A:A)", sheet);     // coluna inteira A
+ExpressionParser.Parse("=SUM(A:C)", sheet);     // colunas A..C
+ExpressionParser.Parse("=SUM(1:1)", sheet);     // linha inteira 1
+ExpressionParser.Parse("=SUM(1:5)", sheet);     // linhas 1..5
+ExpressionParser.Parse("=SUM(A2:A)", sheet);    // coluna A a partir da linha 2 para baixo
+ExpressionParser.Parse("=SUM(A:A10)", sheet);   // coluna A até a linha 10
+ExpressionParser.Parse("=SUM(A1:C)", sheet);    // colunas A..C a partir da linha 1 para baixo
+ExpressionParser.Parse("=SUM(Data!A:A)", main); // qualificada por planilha; $A:$A é aceito e normalizado
+```
+
+Isso é convertido em um único `OpenRangeReference(int? ColMin, int? ColMax, int? RowMin, int? RowMax,
+string SheetName)`; cada limite é `null` no lado que estiver aberto. O endpoint da **esquerda** dá os
+limites inferiores (`ColMin`/`RowMin`), o da **direita** os limites superiores (`ColMax`/`RowMax`); um
+endpoint que nomeia só uma coluna não informa linha nenhuma (e vice-versa), então esse eixo permanece
+aberto naquele lado. Quando os quatro limites são conhecidos, o parser produz um `RangeReference` comum
+em vez disso.
+
+**Semântica — células populadas.** Um intervalo aberto significa *as células populadas dentro dos
+limites*, não uma grade fixa. A enumeração varre as células armazenadas da planilha e mantém aquelas cuja
+(coluna, linha) caem dentro dos limites não nulos; células em branco contribuem `0`, então `SUM(A:A)`
+corresponde ao Excel sem nunca materializar a coluna de 1.048.576 linhas. Uma coluna vazia soma `0`. Isso
+mantém a agregação de coluna/linha inteira barata no modelo esparso que o MySheet usa.
+
+**`:` força semântica de referência.** Um endpoint só de letras adjacente a `:` é uma **coluna**, e um
+endpoint inteiro uma **linha**, mesmo quando existe um intervalo nomeado com a mesma grafia — então
+`Sales:Sales` é a coluna `SALES`, não o intervalo nomeado. (Essa borda só importa se você nomear algo com
+o rótulo de uma coluna.)
+
+**`ROWS` / `COLUMNS` — uma divergência documentada em relação ao Excel.** O Excel reporta o tamanho fixo
+da grade (`ROWS(A:A)` = 1.048.576). Um modelo sem grade não tem essa grade, então o MySheet usa a
+**extensão populada** num eixo aberto e a **contagem estrutural exata** num eixo limitado:
+
+| Fórmula        | Resultado no MySheet                                    | Excel      |
+| -------------- | --------------------------------------------------------- | ---------- |
+| `ROWS(A:A)`    | linha populada máxima − linha populada mínima + 1 (0 se vazia) | 1.048.576 |
+| `COLUMNS(A:C)` | `3` (estrutural, exato)                                    | `3`        |
+| `COLUMNS(A:A)` | `1`                                                         | `1`        |
+| `ROWS(1:5)`    | `5` (estrutural)                                            | `5`        |
+
+**Consumidores de referência.** Onde um intervalo concreto é exigido — `VLOOKUP`/`HLOOKUP` (tabela),
+`INDEX`, `OFFSET` (base) — um intervalo aberto resolve para a **caixa delimitadora populada** dentro de
+seus limites; `AREAS` conta como uma área e `ISREF` reporta `true`. Assim, `VLOOKUP(2, A:B, 2)` e
+`INDEX(A:A, 3)` funcionam.
+
+**Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
+
 ## Intervalos nomeados
 
 Um workbook pode definir **nomes** que representam uma expressão — geralmente um intervalo ou célula

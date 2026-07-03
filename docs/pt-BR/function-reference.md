@@ -236,7 +236,7 @@ defensivo de correspondência de 1 segundo.
 | `AREAS` | `AREAS(reference)` | Número de áreas (intervalos contíguos ou células individuais) na referência — uma verificação sintática, como `ISREF`; não referência → `#VALUE!`. |
 | `CHOOSE` | `CHOOSE(index_num, value1, [value2], …)` | O valor na posição `index_num` (truncado); avaliação preguiçosa — apenas o argumento escolhido é avaliado; um intervalo escolhido permanece *range-aware* (`SUM(CHOOSE(…))`); fora do intervalo → `#VALUE!`. |
 | `COLUMN` | `COLUMN([reference])` | Número da coluna da referência (a coluna mais à esquerda para um intervalo) — ou da célula atual, quando chamada sem argumento. |
-| `COLUMNS` | `COLUMNS(range)` | Número de colunas do intervalo. |
+| `COLUMNS` | `COLUMNS(range)` | Número de colunas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de coluna limitado é exato (`COLUMNS(A:C)` = 3), um aberto usa a extensão populada. |
 | `FORMULATEXT` | `FORMULATEXT(reference)` | A fórmula da célula referenciada como TEXTO, com o `=` incluído (reescrita — *unparse* — no contexto de planilha da célula referenciada); uma célula literal ou vazia → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Pesquisa horizontal na primeira linha de uma tabela; exata ou aproximada; `row_index_num` < 1 → `#VALUE!`, além da tabela → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | O valor em uma posição (base 1) dentro de um intervalo. |
@@ -244,7 +244,7 @@ defensivo de correspondência de 1 segundo.
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | Posição (base 1) de um valor em um intervalo (`match_type`: 1 aproximado crescente — padrão, 0 exato, -1 aproximado decrescente). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | Uma referência deslocada (e opcionalmente redimensionada) a partir de uma referência inicial; pode retornar uma referência multicélula para consumidores que aceitam intervalos. |
 | `ROW` | `ROW([reference])` | Número da linha da referência — ou da célula atual, quando chamada sem argumento. |
-| `ROWS` | `ROWS(range)` | Número de linhas do intervalo. |
+| `ROWS` | `ROWS(range)` | Número de linhas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de linha aberto usa a extensão populada (`ROWS(A:A)` = linha populada máxima − linha populada mínima + 1, 0 se vazia — uma divergência documentada em relação à grade fixa do Excel), um limitado é exato (`ROWS(1:5)` = 5). |
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Pesquisa vertical na primeira coluna de uma tabela; exata ou aproximada. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Pesquisa moderna, com contingência para "não encontrado" e modos de correspondência/busca. |
 | `XMATCH` | `XMATCH(lookup_value, lookup_range, [match_mode], [search_mode])` | Posição (base 1) com os modos do `XLOOKUP` (0 exato — padrão, -1 exato-ou-menor, 1 exato-ou-maior, 2 curinga; busca 1/-1). |
