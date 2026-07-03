@@ -90,6 +90,135 @@ A camada de memoização rastreia as células em avaliação na thread atual. Um
 detectado e retorna `#REF!` (`Error.Ref`), em vez de estourar a pilha. O rastreamento é thread-local,
 então a avaliação concorrente da mesma célula em threads diferentes não é um falso ciclo.
 
+## Referências de coluna inteira em escala
+
+Fórmulas que consomem uma **referência de coluna inteira** — `MATCH(x, A:A)`, `VLOOKUP(x, A:B, 2, FALSE)`,
+`SUMIF(A:A, k)`, `SMALL(A:A, k)`, `SUM(A:A)` — são o caso patológico para uma engine ingênua. Cada fórmula
+dessas varre toda célula populada da coluna, então uma planilha com *F* fórmulas de coluna inteira sobre
+uma coluna de *N* células custa **O(F·N)**. Em um workbook real (~506 mil células em uma coluna, ~400 mil
+fórmulas referenciando-a) isso é ~2×10¹¹ visitas — aproximadamente **57 minutos** de varredura pura em uma
+passagem de carregar-uma-vez / ler-uma-vez. Dois caches internos reduzem isso a segundos. Ambos são
+limitados, descartáveis e não adicionam **nenhuma API pública** — o modelo esparso e o caminho rápido de
+célula única permanecem intocados.
+
+### Camada 1 — o índice estrutural
+
+Por planilha, um índice preguiçoso mapeia `coluna → ids de célula ordenados por linha` (e o simétrico
+`linha → ids` sob demanda). Ele é construído **uma vez por época** na primeira enumeração de range aberto
+(uma única passagem O(N)) e então responde "quais células `A:A` cobre, em ordem?" sem revarrer o
+dicionário de células. A resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET`
+fazem em toda avaliação) lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
+
+É isso que torna **colunas pequenas em uma planilha grande** baratas: antes do índice, uma fórmula
+referenciando uma coluna de 16 células ainda percorria todas as ~1,5 milhão de chaves da planilha para
+encontrar essas 16; depois dele, apenas as 16 são visitadas.
+
+### Camada 2 — caches de range por época
+
+Para um range populado acima de um limiar de tamanho, a engine materializa um **snapshot** — os
+`ComputedValue`s do range, em ordem de enumeração, lidos exatamente uma vez através da Camada 1 + o
+cache de células memoizado. Cada acelerador é então construído **de forma preguiçosa, sob demanda, e
+compartilhado por toda fórmula da época**:
+
+- um **hash de valor exato** (`valor → primeira posição`) → `MATCH(…,0)`, `XLOOKUP`/`XMATCH` exatos,
+  `VLOOKUP(…,FALSE)` em O(1);
+- um **índice ordenado** com posições de máximo por prefixo/sufixo → `MATCH` aproximado tipo 1/-1 e
+  `VLOOKUP(…,TRUE)` por busca binária, reproduzindo o desempate "último dos empatados" do Excel para
+  qualquer ordem de entrada;
+- uma **visão numérica ordenada** → `SMALL`/`LARGE`/`MEDIAN`/`PERCENTILE`/`QUARTILE` por indexação
+  direta;
+- um **mapa de igualdade numérica** (`valor → (soma, contagem)`) → `SUMIF`/`COUNTIF`/`AVERAGEIF` de
+  igualdade em O(1);
+- um **memo de agregado** → `SUM`/`COUNT`/`MAX`/`MIN`/`AVERAGE` de um range puro repetido dobrado uma
+  única vez.
+
+O custo geral cai de O(F·N) para **O(N + F·log N)**. A semântica é preservada bit a bit: quando um valor
+não se encaixa de forma limpa num índice (buscas equivalentes a branco, critérios de wildcard/comparação,
+o `XLOOKUP` aproximado "mais próximo"), o consumidor cai para uma **varredura linear sobre o snapshot em
+cache** — ainda servida pelo cache, então a releitura O(N) dos valores das células desaparece mesmo no
+caminho de fallback.
+
+**O limiar de 256 células.** Um range com menos de 256 células populadas não é colocado em cache: uma
+varredura linear já vence ali, e colocar em cache todo range minúsculo só inundaria o dicionário. A
+verificação usa uma estimativa barata de limite superior (área do retângulo, ou a soma das listas do
+índice estrutural cobertas) — ela nunca materializa um snapshot só para decidir.
+
+### Ciclo de vida: quando os caches são construídos e descartados
+
+Ambos os caches são por workbook, baseados em `ConcurrentDictionary`, criados livres de corrida no
+primeiro uso, e **não serializados** (um workbook carregado começa frio). Eles diferem apenas na
+invalidação, porque o índice estrutural descreve *estrutura* e o snapshot do range carrega *valores*:
+
+| Cache | Construído | `Recalculate()` | `InvalidateCache()` |
+| --- | --- | --- | --- |
+| Índice estrutural (Camada 1) | primeira enumeração de range aberto | **sobrevive** (estrutura ≠ valores) | descartado |
+| Snapshots de range (Camada 2) | primeira leitura de range cacheável | **descartado** (valores podem estar contaminados por volatilidade) | descartado |
+
+```csharp
+// Carregue uma vez, depois leia bastante: os caches se preenchem de forma preguiçosa na primeira
+// passagem e toda leitura posterior é servida a partir deles.
+var total = workbook.GetCellValue("Calc", "A1");   // constrói o índice + snapshot para A:A
+var next  = workbook.GetCellValue("Calc", "A2");   // mesma época → servida pelo snapshot compartilhado
+
+// Depois de editar células, limpe tudo antes de ler de novo:
+sheet["A1"] = new NumberValue(20);
+workbook.InvalidateCache();                          // descarta ambas as camadas
+
+// Uma atualização volátil (NOW/RAND) descarta apenas os snapshots de valor; o índice estrutural sobrevive:
+workbook.Recalculate();
+```
+
+### Números medidos
+
+Benchmark sintético de coluna inteira (`benchmarks/Danfma.MySheet.Benchmark`, `--whole-column-scale`),
+Apple Silicon, .NET 10. Cada linha é um `InvalidateCache()` + uma passagem completa de avaliação (o ciclo
+carregar-uma-vez / ler-uma-vez). "Antes" é a engine pré-cache; "Depois" é a engine de duas camadas.
+
+**Reduzido (50 mil células de dados × 10 mil fórmulas), bloco de fórmula sobre a coluna grande, wall-clock:**
+
+| Fórmula | Antes | Depois |
+| --- | --- | --- |
+| `MATCH(…,1)` | 80,5 s | 141 ms |
+| `MATCH(…,0)` | 73,6 s | 95 ms |
+| `VLOOKUP(…,FALSE)` | 8,1 s | 155 ms |
+| `SUMIF` (igualdade) | 70,5 s | 68 ms |
+| `SMALL` | 59,5 s | 75 ms |
+| `SUM` (repetido) | 55,2 s | 89 ms |
+
+**Escala plena (500 mil células de dados ≈ 1,5 milhão de células na planilha × 100 mil fórmulas), medido,
+não extrapolado:** qualquer bloco único de 100 mil fórmulas de coluna inteira sobre a coluna grande roda
+em **≤1,15 s** (contra uma estimativa de **~4,2 horas** na engine pré-cache — ~18.000× nas funções de
+varredura pura). Os 14 blocos (7 funções × 2 alvos, 1,4 milhão de avaliações) totalizam **7,7 s**. A
+memória extra que a avaliação retém (memo de célula + índice estrutural + snapshot de range) é de
+~75–122 MB para uma coluna grande de 500 mil células, transiente e descartada na invalidação; o pico do
+processo é dominado pelo próprio workbook, não pelos caches.
+
+> **Meça, não extrapole.** O custo pré-cache era verdadeiramente O(F·N), então cronometrar 1 mil fórmulas
+> e multiplicar por 100 era uma estimativa válida. Com os caches o custo é O(N + F·log N): a construção do
+> snapshot é um custo único O(N) amortizado por todo o bloco, então uma amostra de 1 mil × 100 multiplica
+> essa construção única por 100 e superestima muito. O número da escala plena acima é medido sobre as
+> 100 mil fórmulas reais.
+
+### Comparação com o ClosedXML
+
+A mesma carga de trabalho reduzida de coluna inteira (50 mil × 10 mil), cada engine em seu próprio
+processo:
+
+| Fórmula | MySheet | ClosedXML |
+| --- | --- | --- |
+| `MATCH(…,1)` (aproximado) | 123 ms | 67.294 ms |
+| `MATCH(…,0)` (exato) | 105 ms | 1.821 ms |
+| `VLOOKUP(…,FALSE)` | 154 ms | 1.463 ms |
+| `SUMIF` (igualdade) | 95 ms | 16.874 ms |
+| `COUNTIF` (igualdade) | 97 ms | 16.970 ms |
+| `SUM` (repetido) | 113 ms | 20.192 ms |
+| `SMALL` | ~78 ms | **`#NAME?` — não implementado** |
+
+Os resultados são idênticos onde ambas as engines calculam. O MySheet é mais rápido em toda função
+suportada (9,5× a 547×) **e** mantém um working set de pico menor (~152 MB vs. ~156 MB) mesmo carregando
+os caches por época — e ele responde `SMALL`/`LARGE` sobre uma coluna inteira, o que o ClosedXML não
+avalia de forma alguma.
+
 ## Cadeias profundas: `RunWithLargeStack`
 
 A avaliação é recursiva, e o risco não são *fórmulas* profundas, e sim **cadeias de dependência entre
@@ -143,4 +272,14 @@ memória) e o spike do `ComputedValue`:
 
 ```shell
 dotnet run --project benchmarks/Danfma.MySheet.Benchmark -c Release
+```
+
+Os números de escala de coluna inteira acima vêm de um harness dedicado de wall-clock (a linha de base
+O(F·N) é lenta demais para iterar sob o BenchmarkDotNet):
+
+```shell
+# Escala reduzida (50k × 10k), roda em segundos:
+dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --whole-column-scale
+# + a escala plena medida (500k × 100k), com memória por bloco:
+dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --whole-column-scale --full
 ```
