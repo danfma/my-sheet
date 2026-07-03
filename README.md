@@ -139,7 +139,9 @@ workbook.MergeIntoExcel("report.xlsx");
   [Volatile functions](docs/workbook-and-expressions.md#volatile-functions).
 - **References**: sheet-qualified (`Sheet2!A1`, `'My Sheet'!A1:B2`), absolute markers (`$A$1`),
   reference unions (`(A1:A3, C1:C3)`), whole-column/row and one-sided open references
-  (`A:A`, `A:C`, `1:5`, `A2:A`, `A:A10`, `A1:C` — the [populated cells](docs/workbook-and-expressions.md#whole-column-and-whole-row-references) within the limits), and case-insensitive sheet names.
+  (`A:A`, `A:C`, `1:5`, `A2:A`, `A:A10`, `A1:C` — the [populated cells](docs/workbook-and-expressions.md#whole-column-and-whole-row-references) within the limits), and case-insensitive sheet names. A
+  reference to a **non-existent sheet** resolves to `#REF!` (never throws), so a dangling cross-sheet
+  reference cannot abort a batch; `Workbook.TryGetSheet` is the non-throwing host lookup.
 - **Named ranges**: workbook-level defined names (`workbook.DefineName("Sales", "Data!A1:A3")`,
   case-insensitive) usable anywhere a range is — `SUM(Sales)`, `VLOOKUP(x, Table, 2)` — with `LET`
   shadowing, cycle detection (`#REF!` instead of overflow), and `.xlsx` round-trip.

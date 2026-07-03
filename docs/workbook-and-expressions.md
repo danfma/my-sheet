@@ -19,6 +19,10 @@ var same = workbook["Sheet1"];               // indexer access
 
 - **Sheet names are case-insensitive**, like in Excel: `workbook["sheet1"]` and `workbook["SHEET1"]`
   reach the same sheet.
+- The `this[string]` indexer **throws `KeyNotFoundException`** for a name that has no sheet — it is a
+  direct host lookup, like a dictionary. Use `TryGetSheet(name, out sheet)` to probe without a
+  `try`/`catch`. (A missing sheet referenced *inside a formula* is a different story: it resolves to
+  `#REF!` rather than throwing — see [evaluation error semantics](#parsing).)
 - `Sheets` is a `ConcurrentDictionary<string, Sheet>`, safe for concurrent readers (the intended
   background-extraction scenario).
 - `Sheets.Add(name)` assigns the sheet an `Index` equal to its insertion order — this is what the
@@ -28,8 +32,9 @@ Key `Workbook` members:
 
 | Member | Purpose |
 | --- | --- |
-| `Sheets` / `this[string]` | Access sheets by name (case-insensitive). |
-| `GetCellValue(sheetName, id)` | Memoized evaluation of one cell → `ComputedValue`. |
+| `Sheets` / `this[string]` | Access sheets by name (case-insensitive); the indexer throws `KeyNotFoundException` for a missing name. |
+| `TryGetSheet(name, out sheet)` | Non-throwing sheet lookup (case-insensitive) → `bool`; the host's counterpart to the throwing indexer. |
+| `GetCellValue(sheetName, id)` | Memoized evaluation of one cell → `ComputedValue`; a reference to a missing sheet resolves to `#REF!` (never throws). |
 | `InvalidateCache()` | Explicitly flushes the whole memoization cache (required after edits); also resets the volatile epoch. |
 | `Recalculate()` | Refreshes only volatile cells (see [Volatile functions](#volatile-functions)); keeps every stable cell cached. |
 | `TimeProvider` | Injectable clock for `NOW`/`TODAY` (defaults to `TimeProvider.System`, read in local time). |
@@ -94,7 +99,13 @@ Rules:
   Built-in functions also validate their argument count at parse time — `=ROUND(1)` throws, just as
   Excel would reject it at entry.
 - **Semantic errors do not throw** — an unknown function evaluates to `#NAME?`, a bad reference to
-  `#REF!`, and so on, as `ComputedValue` errors.
+  `#REF!`, and so on, as `ComputedValue` errors. A **reference to a sheet that does not exist**
+  (`=Ghost!A1`, `SUM(Ghost!A:A)`) is one such bad reference: it resolves to `#REF!` — never a thrown
+  `KeyNotFoundException` — so one dangling cross-sheet reference cannot abort a whole-workbook batch. A
+  missing sheet is a *structural* error, so it propagates through **every** consuming function, including
+  the error-ignoring `COUNT` family (`COUNT`/`COUNTA`/`COUNTIF` over a ghost sheet are `#REF!`, not `0`);
+  a value error *inside* a cell of an existing sheet keeps its usual per-function policy (`COUNT` ignores
+  it, `SUM` propagates it).
 
 ### Building trees in code
 
