@@ -10,6 +10,13 @@ public sealed partial record Irr(Expression[] Arguments) : Function
     // (default 0.1). #NUM! when the flows never change sign or the solver fails to converge.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet values range is a structural #REF! — an open-range ghost would otherwise be read as
+        // empty and reported as #NUM! (no sign change).
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var flows = new List<double>();
 
         foreach (var value in ArgumentFlattening.ExpandComputedValues(Arguments[0], context))

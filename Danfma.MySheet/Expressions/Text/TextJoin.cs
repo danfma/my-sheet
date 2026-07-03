@@ -7,6 +7,13 @@ public sealed partial record TextJoin(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet reference (delimiter cell or a joined range) is a structural #REF! — an open-range
+        // ghost would otherwise be read as empty and joined into "".
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToText(out var delimiter) is { } delimiterError)
         {
             return ComputedValue.Error(delimiterError);

@@ -153,6 +153,13 @@ public sealed partial record NetworkDays(Expression[] Arguments) : Function
     // NETWORKDAYS(start, end, [holidays]) — inclusive of both ends; Saturdays/Sundays and holidays excluded.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet reference (start/end cell or the holidays range) is a structural #REF! — a ghost
+        // holidays range would otherwise be read as empty and silently ignored.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var startSerial) is { } startError)
         {
             return ComputedValue.Error(startError);
@@ -193,6 +200,12 @@ public sealed partial record NetworkDaysIntl(Expression[] Arguments) : Function
     // An all-weekend schedule ("1111111") legitimately yields 0.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet reference (start/end cell or the holidays range) is a structural #REF!.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var startSerial) is { } startError)
         {
             return ComputedValue.Error(startError);
@@ -243,6 +256,12 @@ public sealed partial record Workday(Expression[] Arguments) : Function
     // counted); negative days walk backward.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet reference (start cell or the holidays range) is a structural #REF!.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var startSerial) is { } startError)
         {
             return ComputedValue.Error(startError);
@@ -319,6 +338,12 @@ public sealed partial record WorkdayIntl(Expression[] Arguments) : Function
     // weekend number (e.g. 0) → #NUM!; an all-weekend schedule has no day to land on → #NUM!.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet reference (start cell or the holidays range) is a structural #REF!.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var startSerial) is { } startError)
         {
             return ComputedValue.Error(startError);

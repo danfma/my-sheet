@@ -102,10 +102,13 @@ Rules:
   `#REF!`, and so on, as `ComputedValue` errors. A **reference to a sheet that does not exist**
   (`=Ghost!A1`, `SUM(Ghost!A:A)`) is one such bad reference: it resolves to `#REF!` — never a thrown
   `KeyNotFoundException` — so one dangling cross-sheet reference cannot abort a whole-workbook batch. A
-  missing sheet is a *structural* error, so it propagates through **every** consuming function, including
-  the error-ignoring `COUNT` family (`COUNT`/`COUNTA`/`COUNTIF` over a ghost sheet are `#REF!`, not `0`);
-  a value error *inside* a cell of an existing sheet keeps its usual per-function policy (`COUNT` ignores
-  it, `SUM` propagates it).
+  missing sheet is a *structural* error, so it propagates through **every** consuming function — the
+  aggregations, the error-ignoring `COUNT` family (`COUNT`/`COUNTA`/`COUNTIF` over a ghost sheet are
+  `#REF!`, not `0`), the lookups (`VLOOKUP`/`MATCH`/`XLOOKUP`/`INDEX`), `SUMPRODUCT` and the statistical
+  pairs, the financial cash-flow functions (`NPV`/`IRR`/`XIRR`/`MIRR`), the text joins (`CONCAT`/`TEXTJOIN`)
+  and the rest. A value error *inside* a cell of an existing sheet keeps its usual per-function policy
+  (`COUNT` ignores it, `SUM` propagates it), and an empty range over an *existing* sheet is still a value
+  outcome (`MATCH` over it is `#N/A`, not `#REF!`).
 
 ### Building trees in code
 

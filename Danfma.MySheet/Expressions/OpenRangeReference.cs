@@ -70,8 +70,10 @@ public sealed partial record OpenRangeReference(
     /// </summary>
     internal IEnumerable<string> PopulatedIds(EvaluationContext context)
     {
-        // A missing sheet has no populated cells; never throw here (the structural #REF! is raised by the
-        // consuming function's ReferenceGuard check, before it enumerates).
+        // Two layers guard a missing sheet. LOCAL guarantee: this scan never throws — a missing sheet yields
+        // nothing (yield break) instead of a KeyNotFoundException. STRUCTURAL resolution: every reference-
+        // consuming function first runs ReferenceGuard.MissingSheet and returns #REF! before it ever
+        // enumerates, so a missing sheet surfaces as #REF! (Excel parity) — never a silently empty column.
         if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
         {
             yield break;

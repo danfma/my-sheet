@@ -60,6 +60,12 @@ public sealed partial record Mirr(Expression[] Arguments) : Function
     // MIRR(values, finance_rate, reinvest_rate) — modified internal rate of return.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet values range is a structural #REF!, before the flows are read.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var flows = new List<double>();
         if (FinancialArguments.NumberList(Arguments[0], context, flows) is { } flowError)
         {
@@ -310,6 +316,12 @@ public sealed partial record FvSchedule(Expression[] Arguments) : Function
     // FVSCHEDULE(principal, schedule) — future value after applying a series of compound rates.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet schedule range is a structural #REF!, before the rates are read.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (FinancialArguments.Number(Arguments, 0, context, out var principal) is { } e0)
         {
             return ComputedValue.Error(e0);

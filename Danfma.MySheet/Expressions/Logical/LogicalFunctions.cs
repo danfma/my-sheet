@@ -24,6 +24,12 @@ public sealed partial record Xor(Expression[] Arguments) : Function
     // ignored; a call whose arguments contribute no logical value at all -> #VALUE! (per the docs).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A reference argument to a missing sheet is a structural #REF!.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var trueCount = 0;
         var sawLogical = false;
 

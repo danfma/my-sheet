@@ -8,6 +8,13 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
     // VLOOKUP(lookup, table, column_index, [range_lookup]) — searches the table's first column.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet table is a structural #REF! — a BOUNDED ghost range would otherwise scan its cells,
+        // skip the per-cell #REF! keys, and degrade to #N/A. Guard before the table is inspected.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         // The table may be written directly or through a defined name that stands for a range.
         if (
             !NamedReferences.TryResolveReference(Arguments[1], context, out var reference)

@@ -11,6 +11,13 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
     // The match engine itself is shared with XMATCH and LOOKUP (see LookupMatching).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet lookup/return array is a structural #REF! — distinct from an empty array over an
+        // existing sheet, which stays #N/A. Guard before enumerating so it is not swallowed as empty.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var lookup = Arguments[0].Evaluate(context);
         var lookupArray = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
         var returnArray = ArgumentFlattening.ExpandComputedValues(Arguments[2], context);
