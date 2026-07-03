@@ -32,6 +32,13 @@ if (args.Contains("--structural-index-lifetime"))
     return;
 }
 
+// Gate de custo de escrita do 3.0 (Fase 3): `dotnet run -c Release -- --write-cost`.
+if (args.Contains("--write-cost"))
+{
+    WriteCostHarness.Run();
+    return;
+}
+
 // Spike MessagePack format — byte sizes: `dotnet run -c Release -- --messagepack-size`.
 if (args.Contains("--messagepack-size"))
 {

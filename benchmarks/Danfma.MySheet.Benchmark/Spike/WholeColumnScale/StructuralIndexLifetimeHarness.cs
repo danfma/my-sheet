@@ -25,7 +25,11 @@ public static class StructuralIndexLifetimeHarness
     private const int ColumnACells = 200;
     private const int Iterations = 50;
 
-    private static readonly int[] SheetSizes = [2_200, 10_200, 20_200, 40_200];
+    // Phase 3 target table: the sheet total sweeps 10k → 500k (the K1 report's axis). Column A stays fixed at
+    // 200 cells; the rest fills OTHER columns, so COUNTIF(A:A) always scans only the 200 — the per-epoch time
+    // must stay ~flat as the sheet grows (the lifetime index is built once and survives InvalidateCache).
+    private static readonly int[] SheetSizes =
+        [10_200, 20_200, 40_200, 100_200, 200_200, 500_200];
 
     public static void Run()
     {
