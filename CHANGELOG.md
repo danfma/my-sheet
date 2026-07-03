@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.0.0"></a>
+## [3.0.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.0.0) (2026-07-03)
+
+### Features
+
+* **sheet:** encapsulate the cell store behind a write choke point ([93826a0](https://www.github.com/danfma/my-sheet/commit/93826a0ab5f140a1feba205371e2099c9dada77f))
+* **sheet:** make the structural index write-maintained and lifetime-scoped ([1eb8c17](https://www.github.com/danfma/my-sheet/commit/1eb8c174fa225e68cd418927bb6e9f01a5af6435))
+
+### Breaking Changes
+
+* **sheet:** encapsulate the cell store behind a write choke point ([93826a0](https://www.github.com/danfma/my-sheet/commit/93826a0ab5f140a1feba205371e2099c9dada77f))
+
 <a name="2.9.1"></a>
 ## [2.9.1](https://www.github.com/danfma/my-sheet/releases/tag/v2.9.1) (2026-07-03)
 
