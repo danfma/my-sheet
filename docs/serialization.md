@@ -21,6 +21,18 @@ Workbook restoredAsync = await Workbook.LoadAsync("model.mysheet", cancellationT
 `Load`/`LoadAsync` throw `InvalidDataException` if the file does not contain a workbook. The file
 extension is yours to choose — the examples use `.mysheet` by convention.
 
+## Save options
+
+The `Save(path, WorkbookSaveOptions)` / `SaveAsync` overloads take two **orthogonal** switches. `Load` needs
+no matching flag — it detects the format (raw vs. container, uncompressed vs. Brotli) from the file header.
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| [`IncludeComputedValues`](#warm-start-persisting-computed-values) | `bool` | `false` | Persist the memoization cache alongside the model so a load starts **warm** (skips recomputation). |
+| [`Compression`](#compression) | `WorkbookCompression` | `None` | `Brotli` shrinks the file with BCL Brotli at `Optimal` level. |
+
+With both at their defaults, `Save(path, options)` is byte-identical to `Save(path)`.
+
 ## What round-trips — and what does not
 
 The **cold** column is the default `Save`; the **warm** column is a save with
@@ -69,12 +81,18 @@ var warm = Workbook.Load("model.mysheet"); // reads back with the cache pre-popu
 
 ### File format
 
-- **Cold** (`Save(path)`, or `IncludeComputedValues = false`) — the raw MemoryPack of the model, byte-for-byte
-  identical to every prior version. This is a permanent contract, guarded by a regression test.
-- **Warm** — a small self-describing container: the magic `MSWM`, a 1-byte format version, the **same** model
-  bytes a cold save would write, then a value block (the MemoryPack of the cached values). `Load` sniffs the
-  4-byte magic: a match is a warm container, anything else is a raw (cold or pre-existing) model, so old files
-  keep loading unchanged.
+- **Cold, uncompressed** (`Save(path)`, or `IncludeComputedValues = false` with `Compression = None`) — the
+  raw MemoryPack of the model, byte-for-byte identical to every prior version. This is a permanent contract,
+  guarded by a regression test.
+- **Container** — every other combination is a small self-describing container: the magic `MSWM`, a 1-byte
+  format version, the uncompressed model length (int32 LE), then the body. `Load` sniffs the 4-byte magic: a
+  match is a container, anything else is a raw (cold or pre-existing) model, so old files keep loading
+  unchanged. The version byte selects the body encoding:
+  - **v1 (uncompressed warm)** — the **same** model bytes a cold save would write, then a value block (the
+    MemoryPack of the cached values). Warm-start files written before compression existed are exactly this.
+  - **v2 (Brotli)** — the model and value block concatenated and Brotli-compressed as a *single* stream (one
+    stream compresses better than two independent blocks). Used for any compressed save, cold or warm; a cold
+    compressed file simply carries an empty value block.
 
 Because the model and its values travel in one file, they can never desynchronize on load.
 
@@ -95,6 +113,50 @@ before reading, or you will read stale values. A warm load only skips the *first
 non-volatile cells — it changes nothing about how invalidation works afterwards. And, as with a cold load,
 [custom functions](custom-functions.md) must still be re-registered: cells that were **not** cached at save
 time (or that you invalidate) will re-evaluate their calls and need the implementation present.
+
+## Compression
+
+MemoryPack optimizes for speed, so its layout is fixed-width and redundant — which means it compresses
+extremely well. Pass `WorkbookCompression.Brotli` to shrink the saved file with the BCL's Brotli
+(`CompressionLevel.Optimal`); no third-party dependency is added.
+
+```csharp
+workbook.Save("model.mysheet.br", new WorkbookSaveOptions { Compression = WorkbookCompression.Brotli });
+
+var restored = Workbook.Load("model.mysheet.br"); // detects and decompresses transparently
+```
+
+Compression is orthogonal to warm start — combine them to persist a warm cache in a compressed file:
+
+```csharp
+workbook.Save("model.mysheet.br", new WorkbookSaveOptions
+{
+    IncludeComputedValues = true,
+    Compression = WorkbookCompression.Brotli,
+});
+```
+
+### Measured sizes
+
+Brotli-`Optimal` over the production MemoryPack bytes, three representative workbooks (Apple M1 Pro,
+.NET 10). Percentages are the compressed size as a fraction of the raw MemoryPack file:
+
+| Workbook | Cells | Raw MemoryPack | Brotli | Fraction |
+| --- | ---: | ---: | ---: | ---: |
+| Small (fixture-like) | 20 | 1,147 B | 289 B | ~25% |
+| Medium (values + formulas) | 7,500 | 348,035 B | 33,626 B | ~10% |
+| Large (whole-column model) | 302,048 | 7,935,568 B | 1,090,808 B | ~14% |
+
+The larger and more repetitive the model, the bigger the win — a real workbook typically drops to well
+under half its raw size. Compression trades CPU at save/load time for that space; leave it `None` when you
+save frequently to a fast local disk and file size is not a concern.
+
+### File naming
+
+The library **never** renames the file you pass — a compressed save writes exactly the path you give it,
+with no extension appended. Because the `MSWM` container is self-describing, `Load` does not rely on the
+name to decide whether to decompress. If you want compressed files to be recognizable, adopt a suffix
+convention in your own code (a `.br` suffix, as in the examples above, is the common choice).
 
 ## Compatibility
 

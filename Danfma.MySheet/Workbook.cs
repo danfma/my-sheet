@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Runtime.ExceptionServices;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
@@ -644,16 +645,23 @@ public sealed partial class Workbook
         return result;
     }
 
-    // === Warm-start container format =====================================================================
-    // A cold Save writes the RAW MemoryPack of the model, byte-identical to every prior version (a permanent
-    // regression contract). A warm Save (IncludeComputedValues) wraps that SAME model block in a self-
-    // describing container so a Load can repopulate _cache and skip recomputation:
-    //   magic "MSWM" (4) | version (1) | modelLength (int32 LE, 4) | model bytes | value-block bytes
-    // The value block is the MemoryPack of a List<CachedCellValue> surrogate. Load sniffs the 4-byte magic:
-    // a match is a container, anything else is a raw (legacy or cold) model. The raw MemoryPack object header
-    // is a small member count (Workbook = 0x02), never 'M' (0x4D), so the two are unambiguous.
+    // === Save container format ===========================================================================
+    // A cold, uncompressed Save writes the RAW MemoryPack of the model, byte-identical to every prior version
+    // (a permanent regression contract). Any other combination wraps that model in a self-describing container
+    // whose fixed 9-byte header is shared by every version:
+    //   magic "MSWM" (4) | version (1) | modelLength (int32 LE, 4) | body
+    // `version` selects the body encoding (the header layout and offsets never change — new warm-start files
+    // stay v1, so their tests are unaffected):
+    //   v1 (uncompressed): body = model bytes | value-block bytes            (warm-start, unchanged)
+    //   v2 (Brotli):       body = Brotli(model bytes | value-block bytes)    (cold OR warm, compressed)
+    // In every version `modelLength` is the UNCOMPRESSED model length, used to slice the (decompressed) body
+    // into model vs. values. The value block is the MemoryPack of a List<CachedCellValue> surrogate (empty for
+    // a cold compressed save). Load sniffs the 4-byte magic: a match is a container, anything else is a raw
+    // (legacy or cold) model — the raw MemoryPack object header is a small member count (Workbook = 0x02),
+    // never 'M' (0x4D), so the two are unambiguous.
     private static ReadOnlySpan<byte> ContainerMagic => "MSWM"u8;
-    private const byte ContainerVersion = 1;
+    private const byte ContainerVersionUncompressed = 1;
+    private const byte ContainerVersionBrotli = 2;
     private const int ContainerHeaderLength = 4 + 1 + 4; // magic + version + modelLength
 
     /// <summary>
@@ -663,10 +671,15 @@ public sealed partial class Workbook
     public void Save(string path) => File.WriteAllBytes(path, MemoryPackSerializer.Serialize(this));
 
     /// <summary>
-    /// Serializes the workbook to a file. With <see cref="WorkbookSaveOptions.IncludeComputedValues"/> the
-    /// memoized values travel with the model in a container so a later <see cref="Load(string)"/> starts warm
-    /// (no recomputation); otherwise the file is byte-identical to <see cref="Save(string)"/>. Volatile and
-    /// reference-typed cache entries are never persisted.
+    /// Serializes the workbook to a file, honoring <paramref name="options"/>. With
+    /// <see cref="WorkbookSaveOptions.IncludeComputedValues"/> the memoized values travel with the model in a
+    /// container so a later <see cref="Load(string)"/> starts warm (no recomputation); volatile and
+    /// reference-typed cache entries are never persisted. With
+    /// <see cref="WorkbookSaveOptions.Compression"/> set to <see cref="WorkbookCompression.Brotli"/> the payload
+    /// is Brotli-compressed inside the container. When both are at their defaults
+    /// (<see cref="WorkbookCompression.None"/>, no values) the file is byte-identical to
+    /// <see cref="Save(string)"/>. Either overload's output is transparently read back by
+    /// <see cref="Load(string)"/>.
     /// </summary>
     public void Save(string path, WorkbookSaveOptions options)
     {
@@ -696,28 +709,65 @@ public sealed partial class Workbook
         await File.WriteAllBytesAsync(path, SerializeToBytes(options), cancellationToken);
     }
 
-    // The bytes a warm/cold Save writes. Cold (or IncludeComputedValues = false) is the raw model, identical
-    // to Save(path); warm wraps it in the container with the value block.
+    // The bytes a Save writes. A cold, uncompressed save is the raw model, byte-identical to Save(path). Every
+    // other combination is a container: warm (uncompressed) stays v1; anything compressed is v2 (Brotli over
+    // model||values as ONE stream — a single stream compresses better than two separate blocks).
     private byte[] SerializeToBytes(WorkbookSaveOptions options)
     {
         var model = MemoryPackSerializer.Serialize(this);
+        var compress = options.Compression == WorkbookCompression.Brotli;
 
-        if (!options.IncludeComputedValues)
+        // Cold + uncompressed → the historical raw format (permanent byte-identity contract).
+        if (!options.IncludeComputedValues && !compress)
         {
             return model;
         }
 
-        var values = MemoryPackSerializer.Serialize(SnapshotComputedValues());
-        var buffer = new byte[ContainerHeaderLength + model.Length + values.Length];
+        // A cold compressed save carries no values; a warm save snapshots the cache.
+        var values = MemoryPackSerializer.Serialize(
+            options.IncludeComputedValues ? SnapshotComputedValues() : new List<CachedCellValue>()
+        );
+
+        return compress
+            ? BuildContainer(ContainerVersionBrotli, model, BrotliCompress(model, values))
+            : BuildContainer(ContainerVersionUncompressed, model, Concat(model, values));
+    }
+
+    // Prepends the fixed 9-byte header to an already-encoded body. `modelLength` is always the UNCOMPRESSED
+    // model length so the reader can slice model vs. values after (optionally) decompressing the body.
+    private static byte[] BuildContainer(byte version, byte[] model, byte[] body)
+    {
+        var buffer = new byte[ContainerHeaderLength + body.Length];
         var span = buffer.AsSpan();
 
         ContainerMagic.CopyTo(span);
-        span[4] = ContainerVersion;
+        span[4] = version;
         BinaryPrimitives.WriteInt32LittleEndian(span.Slice(5, 4), model.Length);
-        model.CopyTo(span.Slice(ContainerHeaderLength));
-        values.CopyTo(span.Slice(ContainerHeaderLength + model.Length));
+        body.CopyTo(span.Slice(ContainerHeaderLength));
 
         return buffer;
+    }
+
+    private static byte[] Concat(byte[] first, byte[] second)
+    {
+        var buffer = new byte[first.Length + second.Length];
+        first.CopyTo(buffer.AsSpan());
+        second.CopyTo(buffer.AsSpan(first.Length));
+        return buffer;
+    }
+
+    // Compresses model||values as a single Brotli stream (Optimal). One stream compresses better than two
+    // independently-compressed blocks because the coder shares context across the whole payload.
+    private static byte[] BrotliCompress(byte[] model, byte[] values)
+    {
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            brotli.Write(model);
+            brotli.Write(values);
+        }
+
+        return output.ToArray();
     }
 
     // Snapshots the memoized cache into surrogates, EXCLUDING volatile-tainted entries (they must re-sample on
@@ -794,33 +844,60 @@ public sealed partial class Workbook
     private static Workbook DeserializeContainer(byte[] bytes, string path)
     {
         var version = bytes[4];
-        if (version != ContainerVersion)
+        var modelLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(5, 4));
+
+        if (modelLength < 0)
         {
-            throw new InvalidDataException(
-                $"'{path}' is a MySheet warm-start container of unsupported version {version}."
-            );
+            throw new InvalidDataException($"'{path}' is a corrupt MySheet container.");
         }
 
-        var modelLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(5, 4));
-        var modelEnd = ContainerHeaderLength + modelLength;
-
-        if (modelLength < 0 || modelEnd > bytes.Length)
+        // Resolve the (decompressed) body once, then slice model vs. values by modelLength. For v1 the body is
+        // the bytes after the header verbatim; for v2 it is the Brotli-decompressed payload.
+        var body = version switch
         {
-            throw new InvalidDataException($"'{path}' is a corrupt MySheet warm-start container.");
+            ContainerVersionUncompressed => bytes.AsMemory(ContainerHeaderLength),
+            ContainerVersionBrotli => BrotliDecompress(bytes.AsSpan(ContainerHeaderLength), path),
+            _ => throw new InvalidDataException(
+                $"'{path}' is a MySheet container of unsupported version {version}."
+            ),
+        };
+
+        if (modelLength > body.Length)
+        {
+            throw new InvalidDataException($"'{path}' is a corrupt MySheet container.");
         }
 
         var workbook =
-            MemoryPackSerializer.Deserialize<Workbook>(
-                bytes.AsSpan(ContainerHeaderLength, modelLength)
-            ) ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+            MemoryPackSerializer.Deserialize<Workbook>(body.Span.Slice(0, modelLength))
+            ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
 
         var values =
-            MemoryPackSerializer.Deserialize<List<CachedCellValue>>(bytes.AsSpan(modelEnd))
+            MemoryPackSerializer.Deserialize<List<CachedCellValue>>(body.Span.Slice(modelLength))
             ?? new List<CachedCellValue>();
 
         workbook.LoadComputedValues(values);
 
         return workbook;
+    }
+
+    private static byte[] BrotliDecompress(ReadOnlySpan<byte> compressed, string path)
+    {
+        try
+        {
+            using var input = new MemoryStream(compressed.ToArray());
+            using var brotli = new BrotliStream(input, CompressionMode.Decompress);
+            using var output = new MemoryStream();
+            brotli.CopyTo(output);
+            return output.ToArray();
+        }
+        catch (Exception inner)
+            when (inner is InvalidDataException or IOException or InvalidOperationException)
+        {
+            throw new InvalidDataException(
+                $"'{path}' is a corrupt MySheet container (Brotli payload could not be decompressed).",
+                inner
+            );
+        }
     }
 
     public void RegisterFunction(string name, CustomFunction function) =>
