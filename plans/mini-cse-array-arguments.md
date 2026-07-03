@@ -70,15 +70,26 @@ schema — se você se pegar precisando de tag MemoryPack, saiu do escopo). Suí
 Golden values SÓ de oráculo (Excel real/Aspose — pedir ao usuário na dúvida; lição dos golden values).
 
 ## Phase A: Núcleo `ArrayEvaluation`
-Status: In progress
-- [ ] `ArrayEvaluation.TryEvaluate(Expression, EvaluationContext, out ArrayResult)` interno com o
+Status: Complete
+- [x] `ArrayEvaluation.TryEvaluate(Expression, EvaluationContext, out ArrayResult)` interno com o
       conjunto do item 1 (range, broadcast, BinaryOperation, If com/sem else, Row) + dims R×C.
-- [ ] Testes unitários diretos do avaliador: `B2:B5="Show"` → `[F,T,F,T]`-like; `IF(cond,1,0)` → vetor;
+- [x] Testes unitários diretos do avaliador: `B2:B5="Show"` → `[F,T,F,T]`-like; `IF(cond,1,0)` → vetor;
       `IF(cond,ROW(range))` → números+FALSE; mismatch dims; erro por elemento; range aberto → recusa.
 ### Verification Plan
 - Testes novos verdes; suítes completas verdes (nada de produção consome o avaliador ainda); build 0 warnings.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em **`feat/mini-cse-core`** (fork de `dded8b6`), commit `c99b776`. `ArrayEvaluation.TryEvaluate`
+interno + `ArrayEvaluationResult` struct (row-major, dims R×C); operandos com broadcast de escalar;
+recursão sobre range fechado (via `CellComputedValueAt` — mesmo choke point `GetCellValue`, memoização/
+taint preservados), `BinaryOperation` (semântica compartilhada via `Apply` extraído), `If` 2/3-args com
+condição array (sem else → FALSE), `Row(range)`; recusa: nó não-elegível, range aberto. 11 testes
+RED→GREEN (RED: 9 falhas + 2 recusas esperadas). Verificação independente: core **873** / Excel 24 /
+fixture intocada / 0 warnings. **Decisões do orquestrador sobre as ambiguidades da entrega**:
+(1) row-major CONFIRMADO — `INDEX` da Fase B indexa row-major se receber 2-D (K1 é 1-D, indiferente);
+(2) mismatch de dims = vetor inteiro `#VALUE!` MANTIDO (para SUM/SMALL "primeiro erro vence" coincide
+com o Excel; a nuance broadcast+`#N/A` do Excel real só entraria se um consumidor futuro precisar);
+(3) `IF` com condição ESCALAR e ramo array fica FORA (fora do escopo K1; F2 decide);
+(4) taint volátil de broadcast = item da Fase C, como planejado.
 
 ## Phase B: Consumidores (SUM-família, SMALL/LARGE, INDEX)
 Status: Not started
