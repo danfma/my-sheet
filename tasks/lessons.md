@@ -96,3 +96,10 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   `_epochNow` (um `double?`) 1× por época com avaliação concorrente, um `lock` sempre (`_epochNow ??= …` dentro)
   é correto e barato (não é caminho quente: 1× por célula volátil por época). O fast-path `if (_epochNow is {})`
   sem lock teria torn read do `double?` (struct não-atômica). Não otimize prematuramente o que não é hot.
+
+- **Agentes nunca devem usar `git commit --amend` (nem rewrite) em branch compartilhada.** Na fase de perf
+  de coluna inteira, o agente A amendou o próprio commit de docs (44c0662→6b85577) DEPOIS que o agente B já
+  tinha bifurcado do commit original → históricos divergentes e rebase forçado na integração. Conteúdo era
+  benigno (tabela de resultados), mas a forma certa era um commit NOVO ("docs: add full-scale numbers").
+  Regra para briefings: append-only também no git — amend só se o commit nunca saiu do próprio agente E
+  nenhum outro trabalho partiu dele (na prática: nunca).
