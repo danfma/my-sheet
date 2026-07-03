@@ -107,28 +107,43 @@ Suítes: core **757** (737 + 20), Excel **22** — todas verdes.
 ---
 
 ## Phase 2: Regressão de batch + interop + docs
-Status: Not started
+Status: Complete
 
 **Documentação: usar a skill `code-documentation-doc-generate`.**
 
-- [ ] Teste de regressão do cenário REAL do report: workbook com fórmulas cross-sheet penduradas; avaliar
-      TODAS as células num loop (`GetCellValue` por célula) — asserir **nenhuma exceção** e cada célula
-      pendurada = #REF!. (Prova que o batch de ~495k não aborta mais.)
-- [ ] Interop: `.xlsx` com fórmula que referencia sheet ausente → `Load` + avaliação = #REF! (não lança).
-      Teste com fixture montada.
-- [ ] `docs/workbook-and-expressions.md`: a seção de erros semânticos confirma "referência a sheet
-      inexistente → #REF! (não lança)"; documentar `TryGetSheet`. `README.md` se citar semântica de erro.
-      NÃO tocar `docs/pt-BR/` (refresh no deploy).
-- [ ] Plano: fases Complete + Phase Summary + Final Recap.
+- [x] Teste de regressão do cenário REAL do report: `Batch_WithDanglingRefs_NeverThrows` (inclui
+      `=UPPER(BOX11MNO_HIDE!E9)`, `=SUM(Ghost!A:A)`, `=COUNTIF(Ghost!D:D,1)`) — loop `GetCellValue` por
+      célula, asserindo nenhuma exceção e cada célula pendurada = #REF!, células boas normais.
+- [x] Interop: `MissingSheetInteropTests.Load_FormulaReferencingMissingSheet_EvaluatesToRef` — fixture
+      ClosedXML com `Ghost!A1`/`SUM(Ghost!A:A)`/`UPPER(Ghost!E9)` → `ExcelFile.Load` + avaliação = #REF!,
+      sem lançar; célula bem-formada no mesmo workbook avalia normal.
+- [x] `docs/workbook-and-expressions.md`: seção de erros semânticos confirma sheet inexistente → #REF!
+      (não lança) e a distinção estrutural vs valor-de-célula; tabela de membros + bullets documentam
+      `TryGetSheet` e o contraste com o indexer que lança. `README.md`: bullet de References atualizado.
+      `docs/pt-BR/` intocado (refresh no deploy).
+- [x] Plano: fases Complete + Phase Summary + Final Recap.
 
 ### Verification Plan
 - Build `--no-incremental` 0 warnings; ambas as suítes verdes; o teste de batch prova zero-throw.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Regressão de batch e interop verdes. Docs via skill `code-documentation-doc-generate`: patch cirúrgico em
+`docs/workbook-and-expressions.md` (erros semânticos + `TryGetSheet` na tabela/bullets) e `README.md`
+(References). Build `--no-incremental`: 0 warnings. Core **757**, Excel **23** (22 + interop) — verdes.
 
 ## Final Recap
-_(escrever quando as fases 1–2 concluírem)_
+Bug fechado: referência a sheet inexistente resolve para **#REF!** por célula, sem lançar
+`KeyNotFoundException` — um batch de workbook inteiro não aborta mais. Mecanismo: `Workbook.TryGetSheet`
+(público, aditivo) + guard em `GetCellValue`; helper `ReferenceGuard.MissingSheet` (detecção estrutural
+pré-enumeração) checado nos choke points `NumericAggregation.Fold`/`FoldA` e explícito nas funções que
+ignoram o canal de erro (COUNT/COUNTA/COUNTBLANK/COUNTIF/COUNTIFS, SUMIF/SUMIFS, AVERAGEIF(S)/MAXIFS/MINIFS,
+ROWS/COLUMNS, SUBTOTAL); enumeradores (`RangeReference.Expand`, `OpenRangeReference.PopulatedIds`/`Expand`/
+`TryGetPopulatedBounds`) tornados no-throw; VLOOKUP/HLOOKUP e OFFSET dão #REF! pelos seus próprios paths de
+resolução. A distinção estrutural-vs-valor está provada na matriz: COUNT/COUNTIF sobre sheet-fantasma =
+#REF!; COUNT sobre célula #DIV/0! em sheet existente ainda ignora; SUM propaga. Indexer `this[key]` continua
+lançando (decisão). Fixture `workbook-pre-namespaces.msgpack.bin`/`MemoryPackCompatibilityTests` intocáveis
+e verdes. Suítes: core **757** (737 + 20), Excel **23** (22 + 1). Build `--no-incremental`: 0 warnings.
+Commits (branch `fix/missing-sheet-ref`, sem push — release é gate do usuário): ver Deployment Plan.
 
 ## Deployment Plan
 Fluxo por **PR** (decisão do usuário, 2026-07-03 — não fazer ff direto na main desta vez):
