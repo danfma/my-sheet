@@ -23,13 +23,17 @@ extension is yours to choose — the examples use `.mysheet` by convention.
 
 ## What round-trips — and what does not
 
-| | Persisted? | Notes |
-| --- | --- | --- |
-| Sheets (name, tab order) | Yes | The case-insensitive name lookup is restored on deserialization. |
-| Cells and full expression trees | Yes | Formulas stay formulas — a loaded workbook keeps recalculating. |
-| Custom-function **calls** (`FunctionCall` nodes) | Yes | Name and argument expressions round-trip. |
-| Custom-function **implementations** (delegates) | **No** | Behavior is code, not data — re-register after loading. |
-| Memoization cache | **No** | Values are recomputed lazily on first read after loading. |
+The **cold** column is the default `Save`; the **warm** column is a save with
+[`IncludeComputedValues`](#warm-start-persisting-computed-values) (everything a cold save persists,
+plus the memoized values).
+
+| | Cold | Warm | Notes |
+| --- | --- | --- | --- |
+| Sheets (name, tab order) | Yes | Yes | The case-insensitive name lookup is restored on deserialization. |
+| Cells and full expression trees | Yes | Yes | Formulas stay formulas — a loaded workbook keeps recalculating. |
+| Custom-function **calls** (`FunctionCall` nodes) | Yes | Yes | Name and argument expressions round-trip. |
+| Custom-function **implementations** (delegates) | **No** | **No** | Behavior is code, not data — re-register after loading. |
+| Memoization cache | **No** | **Partly** | Cold recomputes lazily on first read. Warm restores the cache — except volatile and reference-typed cells (below), which still recompute. |
 
 The practical consequence: if your workbook uses [custom functions](custom-functions.md), re-register
 them after every `Load`, or those calls evaluate to `#NAME?`:
@@ -47,6 +51,50 @@ restored.RegisterFunction("CUSTOM", (arguments, wb) =>
 
 double value = restored.GetCellValue("Sheet1", "A1").ToDouble();
 ```
+
+## Warm start: persisting computed values
+
+By default a saved file is the **model only** — every value is recomputed lazily on the first read after
+loading. Pass `WorkbookSaveOptions { IncludeComputedValues = true }` to also persist the memoization cache,
+so a load starts **warm** and serves already-computed cells without re-evaluating them:
+
+```csharp
+workbook.Save("model.mysheet", new WorkbookSaveOptions { IncludeComputedValues = true });
+// await workbook.SaveAsync("model.mysheet", new WorkbookSaveOptions { IncludeComputedValues = true }, ct);
+
+var warm = Workbook.Load("model.mysheet"); // reads back with the cache pre-populated
+```
+
+`Load`/`LoadAsync` need no flag — they detect the format from the file header.
+
+### File format
+
+- **Cold** (`Save(path)`, or `IncludeComputedValues = false`) — the raw MemoryPack of the model, byte-for-byte
+  identical to every prior version. This is a permanent contract, guarded by a regression test.
+- **Warm** — a small self-describing container: the magic `MSWM`, a 1-byte format version, the **same** model
+  bytes a cold save would write, then a value block (the MemoryPack of the cached values). `Load` sniffs the
+  4-byte magic: a match is a warm container, anything else is a raw (cold or pre-existing) model, so old files
+  keep loading unchanged.
+
+Because the model and its values travel in one file, they can never desynchronize on load.
+
+### What warm start does *not* freeze
+
+Two kinds of cached value are deliberately **excluded** from the snapshot and recompute on first read, even
+from a warm file:
+
+- **Volatile cells** — anything that touched `NOW`/`TODAY`/`RAND`/`RANDBETWEEN` (directly or transitively).
+  Persisting them would "freeze yesterday's clock"; instead they re-sample on the next read.
+- **Reference-typed results** — rare as a final cell value and cheap to rebuild.
+
+### Staleness contract
+
+Warm start persists values you already computed; it does not track edits. The post-load contract is the same
+as always: **after editing cells, call `InvalidateCache()`** (or `Recalculate()` for a volatile-only refresh)
+before reading, or you will read stale values. A warm load only skips the *first* recomputation of unchanged,
+non-volatile cells — it changes nothing about how invalidation works afterwards. And, as with a cold load,
+[custom functions](custom-functions.md) must still be re-registered: cells that were **not** cached at save
+time (or that you invalidate) will re-evaluate their calls and need the implementation present.
 
 ## Compatibility
 

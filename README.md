@@ -154,7 +154,9 @@ workbook.MergeIntoExcel("report.xlsx");
 - **Memoization**: per-cell cache (storing `ComputedValue` inline — no long-lived per-cell box) with
   explicit invalidation (`InvalidateCache`); circular references become `#REF!` instead of a stack
   overflow.
-- **MemoryPack serialization** of the workbook (`Workbook.Save`/`Load`, sync and async).
+- **MemoryPack serialization** of the workbook (`Workbook.Save`/`Load`, sync and async), with an opt-in
+  **warm start** (`WorkbookSaveOptions.IncludeComputedValues`) that persists the computed cache so a load
+  skips recomputation; the default save stays byte-identical to the model-only format.
 - **Excel (.xlsx) interop** via `Danfma.MySheet.Excel` (OpenXML SDK, cross-platform, no Excel
   installation): `ExcelFile.Load`, `SaveAsExcel` (`ValuesOnly` snapshot or `Formulas` with cached
   values), and `MergeIntoExcel` (inject computed values into an existing file, preserving formatting).

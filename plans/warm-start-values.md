@@ -29,7 +29,7 @@ TDD; verificação `--no-incremental` 0 warnings; fixture `workbook-pre-namespac
 **821**, Excel **24**. Commits inglês, semantic, SEM atribuição a IA, SEM amend. NÃO push.
 
 ## Phase 1: Container + save/load warm
-Status: Not started
+Status: Complete
 - [ ] `WorkbookSaveOptions { bool IncludeComputedValues }`; overloads de `Save`/`SaveAsync`.
 - [ ] Container writer/reader (magic `MSWM`+versão; bloco modelo = bytes MemoryPack atuais; bloco valores
       = MemoryPack de `List<CachedCellValue>` surrogate). `Load`/`LoadAsync` sniffam o prefixo.
@@ -43,7 +43,7 @@ Status: Not started
 - Suítes verdes + novos; fixture verde; teste de bytes frio==atual.
 
 ## Phase 2: Docs + fechamento
-Status: Not started
+Status: Complete
 - [ ] `docs/serialization.md` (tabela persisted/not-persisted ganha a coluna warm; contrato de staleness)
       via skill `code-documentation-doc-generate`; README bullet. NÃO tocar `docs/pt-BR/`.
 - [ ] Plano: fases Complete + Final Recap.
@@ -51,6 +51,41 @@ Status: Not started
 - Suítes verdes; build 0 warnings.
 
 ## Final Recap
-_(ao concluir)_
+Delivered on branch `feat/warm-start` (from HEAD `d38e5e1`), two commits, no push/amend.
+
+**Suites:** core **833** (821 baseline + 12 new), Excel **24**, all green; `dotnet build -c Release
+--no-incremental` → 0 warnings / 0 errors. The frozen `workbook-pre-namespaces.msgpack.bin` fixture and
+`MemoryPackCompatibilityTests` are untouched and still pass (loaded via the raw sniff branch).
+
+**Proofs (tests in `WarmStartSaveLoadTests`):**
+- *Cold byte-identity* — `Save(path)` bytes == `MemoryPackSerializer.Serialize(wb)`; `Save(path, {false})`
+  == `Save(path)`; and a warm file's model block == the cold bytes. Permanent regression.
+- *Zero recompute* — a counting `TICK()` custom function: a warm-loaded cached cell reads back its value
+  with the counter still 0 (no evaluation), while an uncached `TICK()` cell recomputes and needs the
+  function re-registered (`#NAME?` otherwise).
+- *Volatiles excluded* — `=NOW()` cached under a pinned clock is NOT persisted; post-load it re-samples a
+  new (later) clock while the stable neighbour stays warm.
+- Every kind (Number/Boolean/Text/Error/Blank) round-trips; Reference surrogate is `null` (excluded);
+  warm + edit + `InvalidateCache()` recomputes; empty cache → container with cold model + empty block;
+  async warm round-trip.
+
+**Design decisions beyond the plan (all within its constraints):**
+- Container layout finalized as `MSWM`(4) + version(1) + **model length (int32 LE, 4)** + model + value
+  block. The explicit length prefix (plan left it open) lets the reader slice model vs. values without a
+  second scan; the value block is simply the tail.
+- Sniff safety argued from the MemoryPack object header: a raw `Workbook` starts with its member count
+  (`0x02`), never `'M'` (`0x4D`) — so magic detection is unambiguous. No collision with the legacy fixture
+  (`0x01`).
+- `Save(path, { IncludeComputedValues = false })` is defined to be byte-identical to `Save(path)` (raw),
+  reserving the container strictly for the warm case (empty cache → container with an empty value block, per
+  the plan's "warm == frio + bloco vazio").
+- Surrogate is a MemoryPackable `internal record CachedCellValue` (Kind + double + string? + int errorCode);
+  `ComputedValue` stays non-serializable. `Error.Code`/`Error.FromCode` (internal) bridge the error code.
+- Load repopulates `_cache` through the existing lazy `_cache ??= new()` path (survives MemoryPack's
+  field-initializer bypass), consistent with the other lazy fields.
+
+Files: `Danfma.MySheet/WorkbookSaveOptions.cs`, `Danfma.MySheet/CachedCellValue.cs`,
+`Danfma.MySheet/Workbook.cs` (Save/SaveAsync overloads, container writer/reader, snapshot/restore),
+`tests/Danfma.MySheet.Tests/WarmStartSaveLoadTests.cs`, `docs/serialization.md`, `README.md`.
 ## Deployment Plan
 _(verificação minha → merge → push → release minor → refresh pt-BR)_
