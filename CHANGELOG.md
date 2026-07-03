@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.9.0"></a>
+## [2.9.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.9.0) (2026-07-03)
+
+### Features
+
+* **core:** add optional Brotli compression to workbook saves ([1b7b907](https://www.github.com/danfma/my-sheet/commit/1b7b9079305ccb7c077f328360cc1859dddf2273))
+
 <a name="2.8.1"></a>
 ## [2.8.1](https://www.github.com/danfma/my-sheet/releases/tag/v2.8.1) (2026-07-03)
 
