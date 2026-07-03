@@ -8,7 +8,7 @@
   <PropertyGroup>
     <!-- Kept in lockstep with Danfma.MySheet: versionize (run at the repo root) bumps every versioned
          project to the same number, so both packages always release together with matching versions. -->
-    <Version>2.6.1</Version>
+    <Version>2.6.2</Version>
     <PackageId>Danfma.MySheet.Excel</PackageId>
     <Authors>Daniel Ferreira Monteiro Alves</Authors>
     <Description>Excel (.xlsx) interop for Danfma.MySheet: load workbooks (values and formulas) into the MySheet engine, export workbooks to .xlsx and merge computed values into existing files — cross-platform via the OpenXML SDK, no Excel installation required.</Description>
