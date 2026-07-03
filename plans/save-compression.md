@@ -8,11 +8,10 @@ core)**; ZstdSharp é dependência nova no pacote publicado — só se justifica
 ## Números de referência (spike, payload grande 302k células, fração do MemoryPack cru)
 MsgPack+LZ4 35,0% · MemoryPack+GZip 15,4% · **MemoryPack+Brotli 13,7%**.
 
-## Gate de decisão (travado)
-- Se ZStd (níveis padrão e alto) ficar **dentro de ~±15% do Brotli em tamanho** sem vantagem dramática de
-  velocidade → **implementar Brotli** (BCL, zero-dep), sem consultar de novo.
-- Se ZStd **vencer com folga** (>15% menor OU >2× mais rápido comprimindo com tamanho ≤ Brotli) → PARAR
-  após a medição e reportar (dependência nova no core é gate do usuário).
+## Gate de decisão — RESOLVIDO pelo usuário (2026-07-03), medição ABORTADA
+ZStandard nativo no .NET chega só na versão 11 (targetamos net10.0) e não entra dependência nova no core →
+**codec = Brotli (BCL, zero-dep), direto**. A medição ZstdSharp foi cancelada antes de executar; revisitar
+apenas se/quando o target migrar para .NET 11 (aí o ZStd nativo é custo zero e a comparação vale a pena).
 
 ## Design da feature (defaults; usuário pode vetar)
 - `WorkbookSaveOptions.Compression` enum `{ None (default), Brotli }` — ortogonal ao
@@ -26,11 +25,11 @@ MsgPack+LZ4 35,0% · MemoryPack+GZip 15,4% · **MemoryPack+Brotli 13,7%**.
 - Nível: `CompressionLevel.Optimal` default (medir Fastest como referência no relatório).
 
 ## Fases
-1. **Medição ZStd** (ZstdSharp SÓ no csproj de benchmark): tamanho+velocidade nos 3 payloads, níveis 3 e
-   ~19, tabela no plano ao lado dos números do spike. Aplicar o gate.
-2. **Feature Brotli** (se o gate liberar): opção + container flags + testes (round-trip frio/warm
-   comprimido; default intacto byte-idêntico; legado raw carrega; fixture verde) + docs
-   (`serialization.md` via skill de docs) — release minor.
+1. ~~Medição ZStd~~ — **ABORTADA** (decisão do usuário acima).
+2. **Feature Brotli** (EM EXECUÇÃO): `WorkbookSaveOptions.Compression { None, Brotli }` + container MSWM
+   com flags + testes (round-trip frio/warm comprimido; default intacto byte-idêntico; legado raw carrega;
+   fixture verde; warm comprimido mantém zero-recompute) + docs (`serialization.md` via skill) — release
+   minor.
 
 _(Resultados e Phase Summaries ao concluir; mesmas regras de sempre: TDD, `--no-incremental`, fixture
 intocável, commits semantic, sem push/amend.)_
