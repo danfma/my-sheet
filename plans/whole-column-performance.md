@@ -511,3 +511,37 @@ Suítes verdes (805 + 23), 0 warnings, fixture intocada.
 ## Deployment Plan
 _(mesmo ritual: verificação independente do usuário (rebuild forçado + benchmark) → merge → push → release
 **2.7.0** lockstep → `git pull` → refresh `docs/pt-BR/` via Sonnet. PR opcional a critério do usuário.)_
+
+
+---
+
+## Phase 5: Admissão na 2ª leitura TAMBÉM para o índice estrutural (relato de produção, 2026-07-03)
+Status: In progress
+
+Relato do usuário (benchmark próprio, `~/Downloads/MYSHEET-PERF-whole-column-scan.md` atualizado): workload
+real RESOLVIDO (Sheet12 506k células: +9min → 3,0s; pipeline total 17,3s), MAS o shape
+"InvalidateCache + 1 leitura por época" regrediu ~5-6× vs 2.6.1 (COUNTIF(A:A) médio, coluna A fixa em 200
+células, sheet 2,2k→40k: 0,94ms → 5,52ms @40k). Causa: desde a Fase 1 a ENUMERAÇÃO open-range é
+index-backed incondicional — cada época reconstrói o índice da sheet INTEIRA (O(N) + alocação + sort de
+TODAS as colunas) para servir 1 leitura de uma coluna de 200 células. O 2.6.4 corrigiu a admissão do cache
+de VALORES; o build do índice na 1ª leitura ficou.
+
+- [ ] 1ª leitura de open-range na época: NaiveScan no-alloc (o caminho 2.6.1 — restaurar/preservar como
+      fallback vivo); marcador "seen" por sheet. 2ª leitura: constrói o índice.
+- [ ] Build do índice mais barato: uma passada, listas por coluna SEM sort; ordenar cada coluna LAZY no
+      primeiro uso daquela coluna (no repro do usuário, só a lista de 200 itens da coluna A é ordenada).
+- [ ] `EstimatePopulatedCells`/admissão do cache de valores NÃO pode forçar o build do índice na 1ª leitura
+      (na 1ª leitura: sem estimativa via índice — marcar Seen do range e seguir linear; na 2ª, o índice já
+      está sendo construído e a estimativa é O(1)).
+- [ ] Cenário novo no harness reproduzindo O SHAPE EXATO do usuário: coluna A = 200 células, sheet
+      2,2k/10k/20k/40k, 50 iterações com InvalidateCache entre cada, COUNTIF(A:A,">0") — alvo: paridade
+      (≤1,1×) com o caminho pré-índice (RangeCacheDisabled + scan), e ganho mantido nos blocos grandes.
+- [ ] Suítes verdes (805+23), equivalência intacta, fixture intocável, 0 warnings `--no-incremental`.
+- [ ] `docs/performance.md`: atualizar a subseção de admissão (agora nas DUAS camadas).
+
+### Verification Plan
+- Harness novo: ratio ≤1,1× vs pré-índice no shape do usuário; blocos Big do reduzido mantêm a banda de
+  centenas de ms; suítes completas verdes.
+
+### Phase Summary
+_(escrever quando a fase concluir)_
