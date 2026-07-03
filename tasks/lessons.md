@@ -125,3 +125,10 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   Antes de comparar whole-column com o ClosedXML, um spike de 16 linhas confirmou o que ele avalia: MATCH/
   VLOOKUP/SUMIF/COUNTIF/SUM sim, mas SMALL/LARGE → `#NAME?`. A incapacidade é resposta (eles não competem em
   SMALL), e evita medir o par inexistente e reportar um "ganho" inventado.
+
+- **Antes de disparar release: confirmar que o commit-alvo ESTÁ na main.** No fix de admissão do range
+  cache, mergeei a branch da worktree (que não tinha o commit — o agente criou uma branch própria nomeada
+  no relatório) e disparei o release: o v2.6.3 saiu VAZIO (docs-only) e o fix teve que sair como v2.6.4.
+  Regras: (1) integrar a branch que o agente NOMEIA no relatório, não a branch da worktree; (2) `git log`
+  confirmando o hash do fix na main é pré-condição do `gh workflow run release.yml`; (3) nunca engolir
+  falha de `git branch -d` com `|| true` — a recusa "not fully merged" era o aviso.
