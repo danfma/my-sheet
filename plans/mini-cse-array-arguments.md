@@ -7,10 +7,9 @@ AST novo. É o subconjunto do F2 que o K1 exige (evidência em `plans/function-c
 "Evidência K1 no 2.9.0"); o F2 completo (`FILTER`/`SORT`/spill/`ComputedValueKind.Array` público)
 permanece fase futura própria.
 
-> **STATUS: PLANEJADO, NÃO AUTORIZADO PARA EXECUÇÃO.** O usuário pediu plano-somente (2026-07-03).
-> Execução só com "prossiga/execute" explícito. Sequenciamento sugerido: após o 3.0 fechar (as frentes
-> não conflitam em arquivos — isto vive na avaliação, o 3.0 no armazenamento — mas supervisão de uma
-> frente de cada vez é o fluxo estabelecido).
+> **STATUS: EXECUÇÃO AUTORIZADA pelo usuário em 2026-07-03** ("podemos atacar o mini-cse"), após o
+> fechamento do 3.0 (v3.0.0 publicado). Fases uma a uma com verificação independente entre elas.
+> Baseline pós-3.0: core **862** / Excel **24** verdes.
 
 ## Fatos do codebase que ancoram o design (mapa auditado 2026-07-03)
 - `Expression.Evaluate(EvaluationContext) → ComputedValue` é o contrato único; **não há kind de array**
@@ -71,7 +70,7 @@ schema — se você se pegar precisando de tag MemoryPack, saiu do escopo). Suí
 Golden values SÓ de oráculo (Excel real/Aspose — pedir ao usuário na dúvida; lição dos golden values).
 
 ## Phase A: Núcleo `ArrayEvaluation`
-Status: Not started
+Status: In progress
 - [ ] `ArrayEvaluation.TryEvaluate(Expression, EvaluationContext, out ArrayResult)` interno com o
       conjunto do item 1 (range, broadcast, BinaryOperation, If com/sem else, Row) + dims R×C.
 - [ ] Testes unitários diretos do avaliador: `B2:B5="Show"` → `[F,T,F,T]`-like; `IF(cond,1,0)` → vetor;
