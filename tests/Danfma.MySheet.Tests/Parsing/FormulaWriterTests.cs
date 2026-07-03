@@ -48,6 +48,15 @@ public class FormulaWriterTests
     [Arguments("Sheet2!A1+1")]
     [Arguments("Sheet2!A1:B2")]
     [Arguments("'My Sheet'!A1")]
+    // Whole-column / whole-row and one-sided open references.
+    [Arguments("SUM(A:A)")]
+    [Arguments("SUM(A:C)")]
+    [Arguments("SUM(1:1)")]
+    [Arguments("SUM(1:5)")]
+    [Arguments("SUM(A2:A)")]
+    [Arguments("SUM(A:A10)")]
+    [Arguments("SUM(A1:C)")]
+    [Arguments("SUM(Sheet2!A:A)")]
     public async Task RoundTrips_CanonicalText(string formula)
     {
         await Assert.That(Parse(formula).ToFormula(ContextSheet)).IsEqualTo(formula);

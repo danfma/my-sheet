@@ -120,29 +120,61 @@ por eixo (divergência do Excel travada). ISREF/AREAS/OFFSET não precisaram de 
 ---
 
 ## Phase 3: Un-parse + interop xlsx + documentação
-Status: Not started
+Status: Complete
 
-**Documentação: usar a skill `code-documentation-doc-generate`** (extrair do código → atualizar → validar
-exemplos por compilação).
+**Documentação: usada a skill `code-documentation-doc-generate`** (extraído do código → atualizado →
+exemplos validados: os blocos de doc espelham exatamente chamadas `ExpressionParser.Parse` já cobertas
+pelos testes).
 
-- [ ] `FormulaWriter.Write`: emitir `A:A`, `A:C`, `1:1`, `1:5`, as mistas (`A2:A`, `A:A10`, `A1:C`) e
-      sheet-qualified fora do contexto. Corpus exaustivo de round-trip em `FormulaWriterTests`.
-- [ ] Interop: `ExcelFile.Load` parseia `<f>` com `A:A` (já cai no ParseRange novo); `SaveAsExcel`/defined
-      names emitem `A:A` corretamente. Teste round-trip com ClosedXML (que suporta full-column refs).
-- [ ] `docs/function-reference.md` ou `workbook-and-expressions.md`: seção "Whole-column and whole-row
-      references" — sintaxe, semântica "células populadas", a divergência do `ROWS`/`COLUMNS`, os limites
-      (misto fora de escopo). `README.md`: bullet. NÃO tocar `docs/pt-BR/` (refresh no deploy).
-- [ ] Plano: fases Complete + Phase Summary + Final Recap.
+- [x] `FormulaWriter.Write` ganhou `case OpenRangeReference` + `WriteOpenEndpoint` (coluna→letras,
+      linha→número, ambos→cell id) + sheet-qualifier. Corpus de round-trip canônico exato em
+      `FormulaWriterTests` (`A:A`, `A:C`, `1:1`, `1:5`, `A2:A`, `A:A10`, `A1:C`, `Sheet2!A:A`).
+- [x] Interop: sem edição em `ExcelFile.cs` — o Load cai no `ParseRange`/`ParseQualifiedReference` novos e
+      o SaveAsExcel emite via `FormulaWriter`. `WholeColumnInteropTests` (2): Load de `<f>SUM(A:A)`;
+      Export→oráculo ClosedXML lê `SUM(A:A)` verbatim + re-eval pelo nosso reader.
+- [x] `docs/workbook-and-expressions.md`: nova seção "Whole-column and whole-row references" (sintaxe,
+      semântica células-populadas, tabela da divergência `ROWS`/`COLUMNS`, `:` força coluna, intersecção
+      fora de escopo). `function-reference.md`: notas em `ROWS`/`COLUMNS`. `README.md`: bullet de
+      References. `docs/pt-BR/` intocado (refresh no deploy).
+- [x] Plano: fases Complete + Phase Summary + Final Recap.
 
 ### Verification Plan
 - Build `--no-incremental` 0 warnings; ambas as suítes verdes; round-trip `Parse(ToFormula(Parse("A:A")))`
   estrutural; round-trip xlsx com oráculo ClosedXML.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+`FormulaWriter` reconstrói cada endpoint a partir de `ColMin/ColMax/RowMin/RowMax` (round-trip exato por
+string para os casos canônicos). A interop xlsx funcionou de graça (Load pelo parser novo, Save pelo writer
+novo), verificada nas duas direções com ClosedXML como oráculo. Documentação atualizada nos três arquivos
+en, com a divergência do `ROWS`/`COLUMNS` tabelada. **Build:** 0 warnings. **Suíte:** core 737, Excel 22.
 
 ## Final Recap
-_(escrever quando as fases 1–3 concluírem)_
+
+Implementadas as referências de coluna inteira (`A:A`), linha inteira (`1:1`) e mistas de um lado
+(`A2:A`, `A:A10`, `A1:C`), qualificadas (`Data!A:A`) e absolutas (`$A:$A`), num release aditivo 2.6.0.
+
+- **Tipo único** `OpenRangeReference(int? ColMin, int? ColMax, int? RowMin, int? RowMax, string SheetName)`
+  — tag MemoryPackUnion **316 (append)**. O parser só o produz quando ≥1 limite é aberto; 4 limites
+  conhecidos ⇒ `RangeReference` normal (caminho existente intocado).
+- **NaiveScan no-alloc**: `CellAddress.TryGetColumnRow` lê (coluna, linha) da string-id sem substring nem
+  `int.Parse`; a enumeração itera `Sheet.Cells.Keys` e filtra pelos limites não-null. Semântica = células
+  POPULADAS (blanks = 0; coluna vazia → SUM 0).
+- **Consumidores**: agregação via `case OpenRangeReference` espelhando `RangeReference`; consumidores
+  sintáticos resolvidos por `ToBoundedRange` (bounding-box populada) plugado em `TryResolveReference`
+  (`boundOpenRanges`); `ROWS`/`COLUMNS` usam extensão populada (aberto) / estrutural (bounded) — divergência
+  do Excel travada e documentada.
+- **Compat binária**: `MemoryPackCompatibilityTests` verde (fixture intocada). **Suítes**: core **737**
+  (698 + 39), Excel **22** (20 + 2); build **0 warnings** (rebuild `--no-incremental`).
+- **Deviations do plano** (justificadas): (1) enumeração — mantido `Evaluate = #VALUE!` e adicionado
+  `case OpenRangeReference` a cada sítio (fiel à simetria com `RangeReference`), em vez de retornar
+  Reference-kind. (2) `TryResolveReference` NÃO regride ROWS/COLUMNS: o novo parâmetro `boundOpenRanges`
+  deixa os demais consumidores (VLOOKUP/INDEX/OFFSET/AREAS/ISREF) funcionarem SEM edição, pois recebem a
+  bounding-box já convertida. (3) `ToBoundedRange` usa a caixa POPULADA (não os limites nominais), então
+  `VLOOKUP(x, A:C, 3)` com C vazia diverge do Excel (coerente com a semântica populada; sem teste).
+- **Distinção coluna-pura × defined name**: feita pela adjacência ao `:` — um `NameReference` só-letras
+  (via `CellAddress.TryParseColumn`, que engole `$`) ou um `NumberValue` inteiro≥1 viram eixo; o `:` força
+  a semântica de referência mesmo havendo nome homônimo. **Normalização das mistas**: `OpenRangeReference.Create`
+  troca cantos revertidos por eixo (min ≤ max quando ambos não-null); um lado aberto fica `null` naquele eixo.
 
 ## Deployment Plan
 _(mesmo ritual: verificação independente minha com rebuild forçado → merge `feature/whole-column-refs` →

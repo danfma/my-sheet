@@ -138,7 +138,8 @@ workbook.MergeIntoExcel("report.xlsx");
   (`workbook.RandomSeed`) for reproducible runs — see
   [Volatile functions](docs/workbook-and-expressions.md#volatile-functions).
 - **References**: sheet-qualified (`Sheet2!A1`, `'My Sheet'!A1:B2`), absolute markers (`$A$1`),
-  reference unions (`(A1:A3, C1:C3)`), and case-insensitive sheet names.
+  reference unions (`(A1:A3, C1:C3)`), whole-column/row and one-sided open references
+  (`A:A`, `A:C`, `1:5`, `A2:A`, `A:A10`, `A1:C` — the [populated cells](docs/workbook-and-expressions.md#whole-column-and-whole-row-references) within the limits), and case-insensitive sheet names.
 - **Named ranges**: workbook-level defined names (`workbook.DefineName("Sales", "Data!A1:A3")`,
   case-insensitive) usable anywhere a range is — `SUM(Sales)`, `VLOOKUP(x, Table, 2)` — with `LET`
   shadowing, cycle detection (`#REF!` instead of overflow), and `.xlsx` round-trip.

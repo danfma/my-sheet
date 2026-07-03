@@ -85,6 +85,13 @@ public static class FormulaWriter
                 builder.Append(range.StartId).Append(':').Append(range.EndId);
                 break;
 
+            case OpenRangeReference open:
+                WriteSheetQualifier(builder, open.SheetName, context);
+                WriteOpenEndpoint(builder, open.ColMin, open.RowMin);
+                builder.Append(':');
+                WriteOpenEndpoint(builder, open.ColMax, open.RowMax);
+                break;
+
             case UnionReference union:
                 builder.Append('(');
                 WriteList(builder, union.Areas, context);
@@ -151,6 +158,30 @@ public static class FormulaWriter
             }
 
             Write(builder, items[i], context, minPrecedence: 0);
+        }
+    }
+
+    // Renders one endpoint of an open range: the column letters (when the column is known) followed by the
+    // row number (when the row is known). A column-only endpoint prints "A", a row-only endpoint "1", a
+    // both-known endpoint the full cell id "A1" — so A:A, 1:5, A1:C etc. all re-parse to the same tree.
+    private static void WriteOpenEndpoint(StringBuilder builder, int? column, int? row)
+    {
+        if (column is { } columnNumber)
+        {
+            var start = builder.Length;
+            var value = columnNumber;
+
+            while (value > 0)
+            {
+                var remainder = (value - 1) % 26;
+                builder.Insert(start, (char)('A' + remainder));
+                value = (value - 1) / 26;
+            }
+        }
+
+        if (row is { } rowNumber)
+        {
+            builder.Append(rowNumber);
         }
     }
 

@@ -230,7 +230,7 @@ defensive 1-second match timeout.
 | `AREAS` | `AREAS(reference)` | Number of areas (contiguous ranges or single cells) in the reference — a syntactic check, like `ISREF`; non-reference → `#VALUE!`. |
 | `CHOOSE` | `CHOOSE(index_num, value1, [value2], …)` | The value at `index_num` (truncated); lazy — only the chosen argument is evaluated; a chosen range stays range-aware (`SUM(CHOOSE(…))`); out of range → `#VALUE!`. |
 | `COLUMN` | `COLUMN([reference])` | Column number of the reference (leftmost column for a range) — or of the current cell when called with no argument. |
-| `COLUMNS` | `COLUMNS(range)` | Number of columns in the range. |
+| `COLUMNS` | `COLUMNS(range)` | Number of columns in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) a bounded column axis is exact (`COLUMNS(A:C)` = 3), an open one uses the populated extent. |
 | `FORMULATEXT` | `FORMULATEXT(reference)` | The referenced cell's formula as TEXT, `=` included (un-parsed in the referenced cell's sheet context); a literal or empty cell → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Horizontal lookup in the first row of a table; exact or approximate; `row_index_num` < 1 → `#VALUE!`, beyond the table → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | The value at a 1-based position inside a range. |
@@ -238,7 +238,7 @@ defensive 1-second match timeout.
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | 1-based position of a value in a range (`match_type`: 1 approximate ascending — default, 0 exact, -1 approximate descending). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | A reference displaced (and optionally resized) from a starting reference; may return a multi-cell reference for range-aware consumers. |
 | `ROW` | `ROW([reference])` | Row number of the reference — or of the current cell when called with no argument. |
-| `ROWS` | `ROWS(range)` | Number of rows in the range. |
+| `ROWS` | `ROWS(range)` | Number of rows in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) an open row axis uses the populated extent (`ROWS(A:A)` = max − min populated row + 1, 0 if empty — a documented divergence from Excel's fixed grid), a bounded one is exact (`ROWS(1:5)` = 5). |
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Vertical lookup in the first column of a table; exact or approximate. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Modern lookup with not-found fallback and match/search modes. |
 | `XMATCH` | `XMATCH(lookup_value, lookup_range, [match_mode], [search_mode])` | 1-based position with `XLOOKUP`'s modes (0 exact — default, -1 exact-or-smaller, 1 exact-or-larger, 2 wildcard; search 1/-1). |

@@ -177,6 +177,55 @@ ExpressionParser.Parse("=SUM((A1:A3, C1:C3))", sheet); // reference union (insid
 - A bare name that is not a cell id (e.g. `=total`) is a `NameReference` — it resolves against `LET`
   bindings and workbook [named ranges](#named-ranges) at evaluation time, and yields `#NAME?` if unbound.
 
+## Whole-column and whole-row references
+
+MySheet supports references that are **open** (unbounded) on at least one side: a whole column, a whole
+row, and the one-sided mixed forms.
+
+```csharp
+ExpressionParser.Parse("=SUM(A:A)", sheet);     // whole column A
+ExpressionParser.Parse("=SUM(A:C)", sheet);     // columns A..C
+ExpressionParser.Parse("=SUM(1:1)", sheet);     // whole row 1
+ExpressionParser.Parse("=SUM(1:5)", sheet);     // rows 1..5
+ExpressionParser.Parse("=SUM(A2:A)", sheet);    // column A from row 2 downward
+ExpressionParser.Parse("=SUM(A:A10)", sheet);   // column A up to row 10
+ExpressionParser.Parse("=SUM(A1:C)", sheet);    // columns A..C from row 1 downward
+ExpressionParser.Parse("=SUM(Data!A:A)", main); // sheet-qualified; $A:$A is accepted and normalized
+```
+
+These parse to a single `OpenRangeReference(int? ColMin, int? ColMax, int? RowMin, int? RowMax, string
+SheetName)`; each limit is `null` where that side is open. The **left** endpoint gives the lower bounds
+(`ColMin`/`RowMin`), the **right** the upper bounds (`ColMax`/`RowMax`); an endpoint that names only a
+column informs no row (and vice-versa), so that axis stays open on that side. When all four limits are
+known the parser produces a plain `RangeReference` instead.
+
+**Semantics — populated cells.** An open range means *the populated cells within the limits*, not a fixed
+grid. Enumeration scans the sheet's stored cells and keeps those whose (column, row) fall inside the
+non-null bounds; blank cells contribute `0`, so `SUM(A:A)` matches Excel while never materializing the
+1,048,576-row column. An empty column sums to `0`. This keeps whole-column aggregation cheap on the sparse
+model MySheet uses.
+
+**`:` forces reference semantics.** A letters-only endpoint adjacent to `:` is a **column**, and an
+integer endpoint a **row**, even when a defined name of the same spelling exists — so `Sales:Sales` is the
+column `SALES`, not the named range. (This edge only matters if you name something after a column label.)
+
+**`ROWS` / `COLUMNS` — a documented divergence from Excel.** Excel reports the fixed grid size
+(`ROWS(A:A)` = 1,048,576). A gridless model has no such grid, so MySheet uses the **populated extent** on
+an open axis and the **exact structural count** on a bounded axis:
+
+| Formula        | MySheet result                              | Excel      |
+| -------------- | ------------------------------------------- | ---------- |
+| `ROWS(A:A)`    | max populated row − min populated row + 1 (0 if empty) | 1,048,576 |
+| `COLUMNS(A:C)` | `3` (structural, exact)                     | `3`        |
+| `COLUMNS(A:A)` | `1`                                         | `1`        |
+| `ROWS(1:5)`    | `5` (structural)                            | `5`        |
+
+**Reference consumers.** Where a concrete range is required — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,
+`OFFSET` (base) — an open range resolves to the **populated bounding box** within its limits; `AREAS`
+counts it as one area and `ISREF` reports `true`. So `VLOOKUP(2, A:B, 2)` and `INDEX(A:A, 3)` work.
+
+**Out of scope.** Spatial intersection of two open ranges is not modeled.
+
 ## Named ranges
 
 A workbook can define **names** that stand for an expression — usually a sheet-qualified range or cell,
