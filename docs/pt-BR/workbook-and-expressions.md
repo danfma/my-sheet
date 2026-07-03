@@ -161,6 +161,39 @@ bool isHigh = adHoc.Evaluate(workbook).ToBoolean();
 Não existe outra API de avaliação: quem precisa de um `object?` fracamente tipado chama `.AsObject()` no
 resultado.
 
+### Resultados de fórmula nunca são em branco (paridade com o Excel)
+
+Na **borda da célula** — `GetCellValue` — o resultado de uma fórmula nunca é em branco, exatamente como
+no Excel: quando uma célula que TEM conteúdo (sua expressão não é o `BlankValue` vazio) avalia para em
+branco, `GetCellValue` retorna `ComputedValue.Number(0)`, e é esse `0` coagido que entra no cache. Uma
+célula verdadeiramente vazia (sua expressão é `BlankValue.Instance`, por exemplo um id que nunca foi
+definido) permanece em branco.
+
+```csharp
+sheet["A1"] = Cell("F10", sheet);                       // =F10, F10 vazio
+workbook.GetCellValue("Sheet1", "A1").ToDouble();        // 0   (resultado de fórmula coagido)
+workbook.GetCellValue("Sheet1", "F10").Kind;             // Blank (célula verdadeiramente vazia)
+
+sheet["A2"] = ExpressionParser.Parse("=IF(TRUE, F10)", sheet);
+workbook.GetCellValue("Sheet1", "A2").ToDouble();        // 0   (ramo em branco coagido)
+```
+
+A coerção pertence à **célula**, não à expressão: `Evaluate` mantém o valor em branco INTERNAMENTE,
+então em branco ainda se compara como `""`/`0`/`FALSE` dentro de uma expressão. Isso preserva a
+semântica interna enquanto casa com o Excel na borda de exibição:
+
+```csharp
+sheet["A3"] = ExpressionParser.Parse("=IF(F10=\"\",1,2)", sheet);
+workbook.GetCellValue("Sheet1", "A3").ToDouble();        // 1   (F10 vazio ainda é igual a "" internamente)
+sheet["A4"] = ExpressionParser.Parse("=F10&\"\"", sheet);
+workbook.GetCellValue("Sheet1", "A4").ToText();          // ""  (resultado é texto, não em branco → não coagido)
+```
+
+Os efeitos de paridade se propagam, todos batendo com o Excel: `ISBLANK(A1)` com `A1 = "=F10"` é
+**FALSE** (A1 agora é 0), `COUNT` conta uma célula formula-vazia (0 é um número) enquanto `COUNTBLANK`
+não conta mais, e a exportação `SaveAsExcel` `ValuesOnly` grava `0` para uma célula formula-vazia em vez
+de omiti-la.
+
 ## Operadores
 
 O MySheet faz o parse do conjunto de operadores do Excel. Forças de ligação (precedência) da mais fraca

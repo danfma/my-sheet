@@ -104,21 +104,37 @@ célula única permanecem intocados.
 ### Camada 1 — o índice estrutural
 
 Por planilha, um índice preguiçoso mapeia `coluna → ids de célula ordenados por linha` (e o simétrico
-`linha → ids` sob demanda). Ele é construído **uma vez por época** na primeira enumeração de range aberto
-(uma única passagem O(N)) e então responde "quais células `A:A` cobre, em ordem?" sem revarrer o
-dicionário de células. A resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET`
-fazem em toda avaliação) lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
+`linha → ids` sob demanda). Ele responde "quais células `A:A` cobre, em ordem?" sem revarrer o dicionário
+de células. A resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET` fazem em
+toda avaliação) lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
 
-É isso que torna **colunas pequenas em uma planilha grande** baratas: antes do índice, uma fórmula
-referenciando uma coluna de 16 células ainda percorria todas as ~1,5 milhão de chaves da planilha para
-encontrar essas 16; depois dele, apenas as 16 são visitadas.
+É isso que torna **colunas pequenas em uma planilha grande** baratas assim que o índice existe: antes do
+índice, uma fórmula referenciando uma coluna de 16 células ainda percorria todas as ~1,5 milhão de
+chaves da planilha para encontrar essas 16; depois dele, apenas as 16 são visitadas.
+
+**Admissão na segunda leitura de uso.** Construir o índice é, em si, uma passagem O(N) (mais um bucket
+por coluna ou linha populada). Isso só compensa quando uma planilha é lida através de ranges abertos
+**mais de uma vez em uma época**. Uma planilha lida *exatamente uma vez* — o formato "`InvalidateCache()`
+depois uma leitura de coluna inteira por época" — pagaria a construção de um índice da planilha inteira
+só para servir uma coluna que nunca reutiliza. Então, exatamente como o snapshot de range abaixo, o
+índice é **admitido na segunda leitura de range aberto de uma planilha, não na primeira**: a primeira
+leitura se serve de uma **varredura direta de chaves** (o caminho pré-índice), coletando e ordenando
+*apenas os ids correspondentes* na mesma ordem determinística que o índice produz; a segunda leitura
+constrói o índice e toda leitura seguinte o reutiliza. Em uma passagem de reuso intenso (milhares de
+fórmulas sobre `A:A`) a única varredura extra na primeira fórmula é imperceptível; em uma passagem de
+uma leitura por época, ela permanece na paridade pré-índice (2.6.1) em vez de reconstruir o índice a
+cada época.
+
+**Ordenação preguiçosa por bucket.** Construir o índice organiza os ids em buckets, mas **não** os
+ordena; a lista de cada coluna é ordenada (por linha) apenas no primeiro acesso, então uma leitura que
+toca apenas uma coluna estreita de uma planilha larga ordena somente essa lista, não toda coluna.
 
 ### Camada 2 — caches de range por época
 
-Para um range populado acima de um limiar de tamanho, a engine materializa um **snapshot** — os
-`ComputedValue`s do range, em ordem de enumeração, lidos exatamente uma vez através da Camada 1 + o
-cache de células memoizado. Cada acelerador é então construído **de forma preguiçosa, sob demanda, e
-compartilhado por toda fórmula da época**:
+Para um range populado acima de um limiar de tamanho que é lido **mais de uma vez em uma época**, a
+engine materializa um **snapshot** — os `ComputedValue`s do range, em ordem de enumeração, lidos
+exatamente uma vez através da Camada 1 + o cache de células memoizado. Cada acelerador é então
+construído **de forma preguiçosa, sob demanda, e compartilhado por toda fórmula da época**:
 
 - um **hash de valor exato** (`valor → primeira posição`) → `MATCH(…,0)`, `XLOOKUP`/`XMATCH` exatos,
   `VLOOKUP(…,FALSE)` em O(1);
@@ -138,10 +154,22 @@ o `XLOOKUP` aproximado "mais próximo"), o consumidor cai para uma **varredura l
 cache** — ainda servida pelo cache, então a releitura O(N) dos valores das células desaparece mesmo no
 caminho de fallback.
 
-**O limiar de 256 células.** Um range com menos de 256 células populadas não é colocado em cache: uma
-varredura linear já vence ali, e colocar em cache todo range minúsculo só inundaria o dicionário. A
-verificação usa uma estimativa barata de limite superior (área do retângulo, ou a soma das listas do
-índice estrutural cobertas) — ela nunca materializa um snapshot só para decidir.
+**Admissão na segunda leitura de uso.** Materializar um snapshot só compensa quando um range é lido
+repetidamente. Um range lido *exatamente uma vez* por época — uma janela deslizante (`SUM(A$1:A500)`,
+`SUM(A$1:A501)`, …), uma busca limitada de uso único, um loop com muita invalidação — pagaria uma
+construção O(N) que nunca reutiliza. Então um range é **admitido na sua segunda leitura, não na
+primeira**: a primeira leitura apenas registra um marcador leve e segue o caminho linear; o snapshot é
+construído na segunda leitura e compartilhado por toda leitura seguinte. Em uma passagem de reuso
+intenso (milhares de fórmulas sobre `A:A`) isso custa uma varredura linear extra na primeiríssima
+fórmula e é imperceptível; em uma passagem de uso único, isso remove por completo a materialização
+desperdiçada. (Um marcador é descartado junto com o cache ao final da época; um limite defensivo de 64
+mil marcadores impede que uma inundação adversarial de ranges distintos de uso único faça o conjunto de
+marcadores crescer sem limite.)
+
+**O limiar de 256 células.** Um range com menos de 256 células populadas não é colocado em cache — nem
+sequer marcado: uma varredura linear já vence ali, e rastrear todo range minúsculo só inundaria o
+dicionário. A verificação usa uma estimativa barata de limite superior (área do retângulo, ou a soma
+das listas do índice estrutural cobertas) — ela nunca materializa um snapshot só para decidir.
 
 ### Ciclo de vida: quando os caches são construídos e descartados
 
@@ -151,14 +179,15 @@ invalidação, porque o índice estrutural descreve *estrutura* e o snapshot do 
 
 | Cache | Construído | `Recalculate()` | `InvalidateCache()` |
 | --- | --- | --- | --- |
-| Índice estrutural (Camada 1) | primeira enumeração de range aberto | **sobrevive** (estrutura ≠ valores) | descartado |
-| Snapshots de range (Camada 2) | primeira leitura de range cacheável | **descartado** (valores podem estar contaminados por volatilidade) | descartado |
+| Índice estrutural (Camada 1) | **segunda** leitura de range aberto de uma planilha | **sobrevive** (estrutura ≠ valores) | descartado |
+| Snapshots de range (Camada 2) | **segunda** leitura de range cacheável | **descartado** (valores podem estar contaminados por volatilidade) | descartado |
 
 ```csharp
 // Carregue uma vez, depois leia bastante: os caches se preenchem de forma preguiçosa na primeira
 // passagem e toda leitura posterior é servida a partir deles.
-var total = workbook.GetCellValue("Calc", "A1");   // constrói o índice + snapshot para A:A
-var next  = workbook.GetCellValue("Calc", "A2");   // mesma época → servida pelo snapshot compartilhado
+var total = workbook.GetCellValue("Calc", "A1");   // 1ª leitura de A:A → marca, caminho linear
+var next  = workbook.GetCellValue("Calc", "A2");   // 2ª leitura → constrói o snapshot compartilhado
+var more  = workbook.GetCellValue("Calc", "A3");   // 3ª+ leitura → servida pelo snapshot compartilhado
 
 // Depois de editar células, limpe tudo antes de ler de novo:
 sheet["A1"] = new NumberValue(20);

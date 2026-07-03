@@ -26,6 +26,14 @@ ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 | `Error` | Um erro do Excel (`#DIV/0!`, `#N/A`, …) como uma struct [`Error`](#a-struct-error). | nenhuma |
 | `Reference` | Uma referência produzida por uma função como `OFFSET` (veja [Referências](#referências-e-enumeratevalues)). | carrega a referência já existente |
 
+> **Resultados de fórmula nunca são em branco na borda da célula (paridade com o Excel).** `Blank` é o
+> que você obtém de uma célula verdadeiramente vazia (expressão `BlankValue`) ou de um argumento omitido.
+> Mas uma célula que TEM conteúdo cuja fórmula avalia para em branco é coagida: `GetCellValue` retorna
+> `Number(0)`, exatamente como o Excel — por exemplo, `=Sheet2!F10` com `F10` vazio, ou `=IF(TRUE, F10)`,
+> é lido como `0`, não em branco. A coerção é da **célula**, não da expressão — `Evaluate` mantém o
+> branco internamente (em branco ainda se compara como `""`/`0`/`FALSE` dentro de uma expressão). Veja
+> [Resultados de fórmula nunca são em branco](workbook-and-expressions.md#resultados-de-fórmula-nunca-são-em-branco-paridade-com-o-excel).
+
 ## Extraindo valores
 
 A extração é **explícita e estrita por tipo exato** — não há coerção ao estilo do Excel nesta superfície
