@@ -108,6 +108,18 @@ frozen binary fixture that has covered the format since 2.0
 (`tests/Danfma.MySheet.Tests/Fixtures/workbook-pre-namespaces.msgpack.bin`), loaded and re-evaluated on
 every run.
 
+## Performance — no action required
+
+The write choke point lets 3.0 make the whole-column **structural index write-maintained**. In 2.x that
+index was rebuilt per cache epoch (on an open-range read after each `InvalidateCache()`); in 3.0 the
+`Sheet` keeps it current as cells are written and deleted, so it is built once per sheet and **survives
+`InvalidateCache()`**. The visible effect is that the "load once, then re-read a whole column every
+epoch" shape stops paying a per-epoch index rebuild — its cost flattens to track the column, not the
+sheet total (see [Performance](performance.md#repeated-whole-column-reads-scale-with-the-column-not-the-sheet)).
+This is transparent: same results, same call sequence (still `edit → InvalidateCache() → read`), nothing
+to change in your code. The one caller-facing consequence is the encapsulation above — writes and deletes
+must go through the indexer and `Remove` (which is how the index stays correct), exactly as documented.
+
 ## Behavior
 
 No formula semantics, parsing, evaluation results, or save format changed. The break is confined to the

@@ -57,12 +57,21 @@ sheet["B1"] = ExpressionParser.Parse("=A1*2", sheet);
 Expression cell = sheet["A1"];      // get: never throws — a missing cell reads as BlankValue.Instance
 bool exists = sheet.ContainsKey("C1");                  // false
 bool found = sheet.TryGetValue("A1", out var stored);   // true
+bool removed = sheet.Remove("B1");                       // delete a cell → true if it existed
 
 foreach (var (id, expression) in sheet) { /* iterate stored cells */ }
 ```
 
 - The **getter never throws**: reading an id that was never set returns `BlankValue.Instance`, which
   evaluates to a blank — exactly how Excel treats an empty cell.
+- **Writing goes through the indexer `set`, and deleting through `Remove`** — the two, and only, paths
+  that change a sheet's cells. `Remove(id)` returns `true` when a cell was there and `false` for a no-op.
+  Like the `set`, `Remove` does not clear the memoization cache on its own: after editing (writing or
+  removing), call `workbook.InvalidateCache()` before reading again for the change to be observed.
+- **`Cells` is a read-only view** (`IReadOnlyDictionary<string, Expression>`) of the stored cells —
+  enumerable and indexable for reading (`sheet.Cells["A1"]`, `sheet.Cells.Count`), but not mutable;
+  mutate through the indexer and `Remove`. (Callers upgrading from 2.x that mutated `Cells` directly:
+  see [Migrating to 3.0](migrating-to-3.0.md).)
 - `Keys`, `Values` and `Count` expose only the cells that were actually stored.
 - Cell ids are plain A1-style strings. The parser normalizes them to upper-case and strips absolute
   markers (`$A$1` → `A1`); when setting cells through the indexer yourself, use the normalized form

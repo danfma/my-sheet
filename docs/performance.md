@@ -94,30 +94,30 @@ Formulas that consume a **whole-column reference** — `MATCH(x, A:A)`, `VLOOKUP
 formula scans every populated cell of the column, so a sheet with *F* whole-column formulas over a
 column of *N* cells costs **O(F·N)**. On a real workbook (~506k cells in one column, ~400k formulas
 referencing it) that is ~2×10¹¹ visits — roughly **57 minutes** of pure scanning on a load-once /
-read-once pass. Two internal caches collapse that to seconds. Both are bounded, discardable, and add
-**no public API** — the sparse model and the single-cell hot path are untouched.
+read-once pass. Two internal caches collapse that to seconds. Both are bounded and internal — no cache
+tuning knobs to set — and the sparse model and the single-cell hot path are untouched.
 
 ### Layer 1 — the structural index
 
-Per sheet, a lazy index maps `column → cell ids ordered by row` (and the symmetric `row → ids` on
-demand). It answers "which cells does `A:A` cover, in order?" without re-scanning the cell dictionary.
-Range bound resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every evaluation) reads the
-bounding box straight from the ordered lists by binary search.
+Per sheet, the index maps `column → cell ids ordered by row` (and the symmetric `row → ids` on demand).
+It answers "which cells does `A:A` cover, in order?" without re-scanning the cell dictionary. Range bound
+resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every evaluation) reads the bounding box
+straight from the ordered lists by binary search.
 
-This is what makes **small columns in a big sheet** cheap once the index exists: before the index, a
-formula referencing a 16-cell column still walked all ~1.5M keys of the sheet to find those 16; after
-it, only the 16 are visited.
+This is what makes **small columns in a big sheet** cheap: before the index, a formula referencing a
+16-cell column still walked all ~1.5M keys of the sheet to find those 16; after it, only the 16 are
+visited.
 
-**Second-use admission.** Building the index is itself an O(N) pass (plus a bucket per populated column
-or row). That pays off only when a sheet is read through open ranges **more than once in an epoch**. A
-sheet read *exactly once* — the "`InvalidateCache()` then one whole-column read per epoch" shape — would
-pay a whole-sheet index build just to serve one column it never reuses. So, exactly like the range
-snapshot below, the index is **admitted on a sheet's second open-range read, not its first**: the first
-read serves itself from a **direct key scan** (the pre-index path), collecting and sorting *only the
-matched ids* into the same deterministic order the index yields; the second read builds the index and
-every read after reuses it. In a reuse-heavy pass (thousands of formulas over `A:A`) the single extra
-scan on the first formula is invisible; in a single-read-per-epoch pass it stays at pre-index (2.6.1)
-parity instead of rebuilding the index every epoch.
+**Write-maintained and lifetime-scoped.** The index is built **once per sheet, lazily on that sheet's
+first open-range read**, and then kept current by every cell write. The `Sheet` funnels all mutation
+through a single write choke point — the indexer `set` and `Remove` — and each insert or delete updates
+the index in place, so it never needs a full rebuild. Because it is maintained on the write, it is *not*
+tied to a value-cache epoch: unlike the value caches, **`InvalidateCache()` does not drop it** (clearing
+memoized values never changes which cells exist — only a write does, and a write maintains it). Absorbing
+a write is cheap: an in-order append — the common Fill pattern — is O(1); an out-of-order insert only
+marks its one column dirty so that column re-sorts on its next read; a delete removes the id from its
+bucket in O(bucket). The index is never serialized, so a workbook loaded from disk starts without one and
+rebuilds it once on its first open-range read for that instance's life.
 
 **Lazy per-bucket sort.** Building the index bucketizes the ids but does **not** sort them; each
 column's list is ordered (by row) only on its first access, so a read that touches one narrow column of
@@ -161,13 +161,14 @@ lists) — it never materializes a snapshot just to decide.
 
 ### Lifecycle: when the caches are built and dropped
 
-Both caches are per-workbook, `ConcurrentDictionary`-based, created race-free on first use, and **not
-serialized** (a loaded workbook starts cold). They differ only in invalidation, because the structural
-index describes *structure* and the range snapshot carries *values*:
+Both caches are created race-free on first use and **not serialized** (a loaded workbook starts cold).
+They differ in ownership and invalidation, because the structural index describes *structure* (owned by
+the `Sheet`, maintained on the write) while the range snapshot carries *values* (owned by the `Workbook`,
+epoch-scoped):
 
 | Cache | Built | `Recalculate()` | `InvalidateCache()` |
 | --- | --- | --- | --- |
-| Structural index (Layer 1) | **second** open-range read of a sheet | **survives** (structure ≠ values) | dropped |
+| Structural index (Layer 1) | **first** open-range read of a sheet (once per its life), then write-maintained | **survives** (structure ≠ values) | **survives** (write-maintained, not epoch-scoped) |
 | Range snapshots (Layer 2) | **second** cacheable range read | **dropped** (values may be volatile-tainted) | dropped |
 
 ```csharp
@@ -177,9 +178,10 @@ var total = workbook.GetCellValue("Calc", "A1");   // 1st read of A:A → marks 
 var next  = workbook.GetCellValue("Calc", "A2");   // 2nd read → builds the shared snapshot
 var more  = workbook.GetCellValue("Calc", "A3");   // 3rd+ read → served from the shared snapshot
 
-// After editing cells, flush everything before reading again:
+// After editing cells, flush the value caches before reading again. The write already maintained the
+// structural index, so InvalidateCache leaves Layer 1 in place and drops only the value caches:
 sheet["A1"] = new NumberValue(20);
-workbook.InvalidateCache();                          // drops both layers
+workbook.InvalidateCache();                          // drops the value caches; Layer 1 survives
 
 // A volatile refresh (NOW/RAND) drops only the value snapshots; the structural index survives:
 workbook.Recalculate();
@@ -214,6 +216,26 @@ dropped on invalidation; the process peak is dominated by the workbook itself, n
 > build is a one-time O(N) cost amortized across the whole block, so a 1k sample × 100 multiplies that
 > one-time build by 100 and wildly over-estimates. The full number above is measured over the real 100k
 > formulas.
+
+### Repeated whole-column reads scale with the column, not the sheet
+
+Because Layer 1 is write-maintained and survives `InvalidateCache()`, the "load once, then re-read a
+whole column every epoch" shape costs the same no matter how large the *rest* of the sheet is. This
+harness (`--structural-index-lifetime`) fixes column A at 200 populated cells, grows the sheet total from
+10k to 500k by filling *other* columns, and times `{ InvalidateCache(); COUNTIF(A:A,">0") }` per epoch:
+
+| Sheet total cells | Mean ms per epoch | First read (one-time index build) |
+| --- | --- | --- |
+| 10,200 | 0.31 | 12.2 ms |
+| 40,200 | 0.29 | 1.4 ms |
+| 100,200 | 0.28 | 5.2 ms |
+| 200,200 | 0.11 | 14.6 ms |
+| 500,200 | 0.11 | 30.4 ms |
+
+The per-epoch time stays flat (it tracks column A's 200 cells, not the sheet), while the *first* read
+pays the one-time O(sheet) index build. The index survives every later `InvalidateCache()`, so no epoch
+after the first rebuilds it — the read is served from the maintained index each time. For reference, the
+comparison the design targeted (Aspose's write-time column model) is ~0.4 ms constant on this shape.
 
 ### Compared to ClosedXML
 
