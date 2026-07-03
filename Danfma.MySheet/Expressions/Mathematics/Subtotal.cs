@@ -29,6 +29,14 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Value);
         }
 
+        // A reference argument to a missing sheet is a structural #REF! that short-circuits SUBTOTAL, before
+        // any per-cell scan (which would otherwise index a non-existent sheet, or be swallowed by the
+        // COUNT/COUNTA codes).
+        if (ReferenceGuard.MissingSheet(Arguments[1..], context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var values = new List<ComputedValue>();
 
         foreach (var argument in Arguments[1..])

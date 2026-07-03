@@ -46,23 +46,26 @@ Excel **22**; 0 warnings. Commits inglês, semantic (`fix(refs): ...`), SEM atri
 ---
 
 ## Phase 1: Resolução de sheet ausente → #REF! (a correção)
-Status: Not started
+Status: Complete
 
-- [ ] `Workbook.TryGetSheet(string name, out Sheet sheet)` público (usa o `Sheets` dictionary; case-insensitive
+- [x] `Workbook.TryGetSheet(string name, out Sheet sheet)` público (usa o `Sheets` dictionary; case-insensitive
       como o resto). `GetCellValue`: se `!TryGetSheet(sheetName, ...)` → `ComputedValue.Error(Error.Ref)`
       (antes de indexar). Cobre `CellReference` e os paths por-célula (`RangeReference.ExpandComputedValues`).
-- [ ] Guardar os sites de ENUMERAÇÃO que indexam o sheet direto para ler `.Keys`/`.Cells`
+- [x] Guardar os sites de ENUMERAÇÃO que indexam o sheet direto para ler `.Keys`/`.Cells`
       (`RangeReference.Expand`; `OpenRangeReference.PopulatedIds`/`Expand`/`TryGetPopulatedBounds`;
-      `Subtotal` ×3): sheet ausente → tratar como referência estrutural inválida.
-- [ ] **Propagação estrutural**: as funções consumidoras devem retornar #REF! quando o argumento é uma
-      referência a sheet inexistente, ANTES da política per-célula. Escolher o mecanismo mais limpo (ex.:
-      helper `TryMissingSheet(arg, context) : Error?` checado no choke point de cada cluster —
-      `NumericAggregation.Fold`/`FoldA` para SUM/AVERAGE/MIN/MAX/COUNT/COUNTA; `ArgumentFlattening` para
-      COUNTIF/SUMIF/AVERAGEIF/SUMPRODUCT; `NamedReferences.TryResolveReference` para VLOOKUP/INDEX/OFFSET/
-      ROWS/COLUMNS/AREAS/ISREF). Referência = CellReference/RangeReference/OpenRangeReference/UnionReference
-      (todas as áreas) e o resultado-Reference do OFFSET. Evitar cirurgia por-função repetida: preferir os
-      choke points compartilhados.
-- [ ] **Matriz de contrato (o teste que prova a semântica) — RED primeiro:**
+      `Subtotal` — short-circuit em `Evaluate`): sheet ausente → não lança (yield break / false); a curto-
+      circuitação estrutural fica nos choke points.
+- [x] **Propagação estrutural**: helper `ReferenceGuard.MissingSheet(arg|args, context) : Error?`
+      (reconhece CellReference/RangeReference/OpenRangeReference/UnionReference — todas as áreas — e
+      NameReference que resolve para uma dessas). Checado nos choke points: `NumericAggregation.Fold`/`FoldA`
+      (cobre SUM/AVERAGE/MIN/MAX/PRODUCT/STDEV/VAR/… que propagam via o canal de erro), e explícito nas
+      funções que IGNORAM o canal de erro ou consomem streams: COUNT, COUNTA, COUNTBLANK, COUNTIF, COUNTIFS,
+      SUMIF, SUMIFS, AVERAGEIF(+CriteriaPairs para AVERAGEIFS/MAXIFS/MINIFS), ROWS, COLUMNS, SUBTOTAL. VLOOKUP/
+      HLOOKUP dão #REF! de graça (o guard de `TryGetPopulatedBounds` faz `ToBoundedRange`→null→open range→não
+      é `RangeReference`→#REF!). OFFSET dá #REF! via o próprio `TryResolveReference`. Long tail (SUMPRODUCT,
+      MATCH/XLOOKUP/INDEX, financeiras, texto) NÃO lança (safety net dos enumeradores) — degrada, fora da
+      matriz.
+- [x] **Matriz de contrato (o teste que prova a semântica) — RED primeiro:**
       | Fórmula | Esperado |
       |---|---|
       | `=Ghost!A1` | #REF! (kind Error) |
@@ -82,14 +85,24 @@ Status: Not started
       | `=COUNT(A:A)` com `A1=1/0` (célula com erro) | conta os números, IGNORA o erro |
       | `=SUM(A:A)` com `A1=1/0` | #DIV/0! (SUM propaga erro de valor — comportamento atual) |
       | `=Main!A2` (existente, vazia) | Blank |
-- [ ] Nenhuma célula lança: `MemoryPackCompatibilityTests` verde; suíte inteira verde.
+- [x] Nenhuma célula lança: `MemoryPackCompatibilityTests` verde; suíte inteira verde.
 
 ### Verification Plan
 - `dotnet build Danfma.MySheet.slnx -c Release --no-incremental` → 0 warnings.
 - Suíte core verde incl. a matriz nova; Excel (22) intacta; fixture verde.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Matriz de contrato em `tests/…/Expressions/MissingSheetReferenceTests.cs` (20 casos): escrita RED primeiro
+(15 falhas, KeyNotFoundException), depois GREEN. Mecanismo:
+- `Workbook.TryGetSheet` (público, aditivo) + guard em `GetCellValue` (sheet ausente → `#REF!` cacheado,
+  antes de indexar). O indexer `this[key]` continua lançando (decisão).
+- `ReferenceGuard.MissingSheet` (novo, `Expressions/ReferenceGuard.cs`) — detecção estrutural pré-enumeração.
+- Enumeradores no-throw: `RangeReference.Expand`, `OpenRangeReference.PopulatedIds`/`Expand`/
+  `TryGetPopulatedBounds` (`TryGetValue`→yield break/false). Subtotal curto-circuita em `Evaluate`.
+- Choke `Fold`/`FoldA` + guards explícitos nas funções error-ignoring/stream (ver acima).
+Prova da distinção: COUNT/COUNTIF sobre sheet-fantasma → `#REF!`; COUNT sobre célula `#DIV/0!` em sheet
+existente → ignora (conta 2); SUM sobre a mesma → propaga `#DIV/0!`. Build `--no-incremental`: 0 warnings.
+Suítes: core **757** (737 + 20), Excel **22** — todas verdes.
 
 ---
 

@@ -38,6 +38,15 @@ internal static class NumericAggregation
     )
         where TFold : struct, INumericFold
     {
+        // A reference argument to a missing sheet is a STRUCTURAL #REF! that short-circuits the whole
+        // aggregation, before enumeration. Returned through the error channel, so functions that propagate
+        // errors (SUM, AVERAGE, MIN, MAX, PRODUCT, STDEV, VAR, …) surface it. COUNT ignores this channel, so
+        // it guards structurally on its own.
+        if (ReferenceGuard.MissingSheet(arguments, context) is { } missingSheet)
+        {
+            return missingSheet;
+        }
+
         Error? error = null;
 
         foreach (var argument in arguments)
@@ -107,6 +116,12 @@ internal static class NumericAggregation
     )
         where TFold : struct, INumericFold
     {
+        // See Fold: a missing-sheet reference is a structural #REF! that short-circuits the aggregation.
+        if (ReferenceGuard.MissingSheet(arguments, context) is { } missingSheet)
+        {
+            return missingSheet;
+        }
+
         Error? error = null;
 
         foreach (var argument in arguments)
