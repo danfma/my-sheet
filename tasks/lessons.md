@@ -132,3 +132,10 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   Regras: (1) integrar a branch que o agente NOMEIA no relatório, não a branch da worktree; (2) `git log`
   confirmando o hash do fix na main é pré-condição do `gh workflow run release.yml`; (3) nunca engolir
   falha de `git branch -d` com `|| true` — a recusa "not fully merged" era o aviso.
+
+- **Reincidência do release vazio (2.8.1) — a causa raiz era o ENCADEAMENTO, não a falta de checagem.** Eu
+  tinha a lição ("confirmar hash na main antes do release") e até imprimi o git log — mas o `gh workflow
+  run` estava no MESMO bloco Bash que o rebase que falhou, então disparou de qualquer jeito. Regra
+  reforçada: o dispatch de release vive SEMPRE numa chamada separada, DEPOIS de eu ler a verificação da
+  pré-condição (merge-base --is-ancestor do hash da feature). Blocos compostos param de valer para
+  qualquer sequência que contenha uma ação irreversível.
