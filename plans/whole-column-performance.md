@@ -178,30 +178,89 @@ rebuild), ordem coluna-depois-linha independente de inserção, e independência
 ---
 
 ## Phase 2: Camada 2 — range caches por época (snapshot + derivados)
-Status: Not started
+Status: Complete
 
-- [ ] `RangeValueCache` interno no `Workbook` (`ConcurrentDictionary<(string Sheet, Reference Range), entry>`,
-      `[MemoryPackIgnore]`, lazy): snapshot materializado + derivados lazy (hash exato; ordenado c/ posições;
-      mapas de igualdade p/ critérios; memo de agregado). Descartado em `InvalidateCache()` E `Recalculate()`.
-- [ ] Ligar nos consumidores (sem mudar semântica; fallback linear sobre o snapshot p/ casos não-indexáveis:
-      wildcards, criteria não-igualdade sem stretch, ranges pequenos < limiar ~256 células p/ não pagar
-      overhead onde o linear ganha):
-      - `Match`/`XMatch`/`XLookup` (exato→hash; aproximado→busca binária; wildcard→linear).
-      - `VLookup`/`HLookup`/`Lookup` (FALSE→hash na coluna-chave; TRUE→binária).
-      - `SumIf`/`CountIf`/`AverageIf` single-range (igualdade→mapa; resto→linear no snapshot).
-      - `Small`/`Large`/`Median`/`Percentile`/`Quartile` (ordenado compartilhado).
-      - `Sum`/`Count`/`CountA`/`Max`/`Min` de range puro → memo de agregado.
-- [ ] Testes de equivalência: harness que avalia o MESMO conjunto de fórmulas com caches frios (1ª leitura)
-      e quentes (2ª) e compara resultado a resultado; + casos de borda (erros no range propagam igual;
-      texto case-insensitive; tipos mistos; range vazio; sheet-fantasma → #REF! intacto).
-- [ ] Stretch (só se couber limpo): prefix-sums p/ SUMIF/COUNTIF com `>`/`>=`/`<`/`<=`.
+- [x] `RangeValueCache` interno no `Workbook` (`ConcurrentDictionary<Reference, RangeSnapshot>`,
+      `[MemoryPackIgnore]`, lazy via `Interlocked.CompareExchange`): snapshot materializado + derivados lazy
+      (`Lazy<T>`: hash exato; ordenado c/ posições + prefix/suffix-max; mapa de igualdade numérica p/ critérios;
+      view de números ordenados + primeiro erro; memo de agregado). Descartado em `InvalidateCache()` E
+      `Recalculate()`.
+- [x] Ligar nos consumidores (sem mudar semântica; fallback linear sobre o snapshot p/ casos não-indexáveis):
+      - `Match` (exato→hash; aproximado tipo 1/-1→prefix/suffix-max; blank-equiv/erro→linear).
+      - `XMatch`/`XLookup` (exato forward→hash; resto→`LookupMatching` sobre o array cacheado).
+      - `VLookup`/`HLookup` (FALSE→hash da coluna/linha-chave; TRUE→prefix-max); `Lookup` (array cacheado).
+      - `SumIf`/`CountIf`/`AverageIf` single-range (igualdade numérica→mapa; resto→linear no snapshot).
+      - `Small`/`Large`/`Median`/`Percentile`/`Quartile`/`PercentRank`/`TrimMean` (números ordenados compart.).
+      - `Sum`/`Count`/`CountA`/`Max`/`Min`/`Average` de range puro → memo de agregado.
+- [x] Testes de equivalência: harness diferencial (`RangeValueCacheEquivalenceTests`) — 7 cenários × 43 fórmulas
+      = 301 casos, cada um avaliado BYPASS × FRIO × QUENTE e comparado resultado a resultado; + casos dirigidos
+      (aproximado c/ duplicatas → última posição; erro no meio propaga; threshold engaja/pula).
+- [x] Stretch (prefix-sums p/ `>`/`<`): NÃO feito — critérios de comparação usam fallback linear sobre o
+      snapshot (já elimina o re-scan de valores; suficiente p/ o alvo). Adiado.
 
 ### Verification Plan
 - Suíte completa verde `--no-incremental` 0 warnings; fixture verde; equivalência frio×quente 100%.
 - Benchmark reduzido: MATCH/SUMIF/SMALL sobre coluna grande colapsam de O(F×N) para O(N + F·log N).
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+`RangeSnapshot` (novo, `Danfma.MySheet/RangeValueCache.cs`, interno): materializa 1× o array de `ComputedValue`
+de um range populado (na MESMA ordem/valores que os consumidores já veem, via Camada 1 + `GetCellValue`), com
+derivados LAZY compartilhados por toda a época: (1) **hash exato** por tipo (`Dictionary<double,int>` números,
+`Dictionary<string,int>` OrdinalIgnoreCase texto, posições bool) → 1ª posição; (2) **índice ordenado** por
+`ValueCoercion.Compare` (não-blank/não-erro) + `PrefixMaxPosition`/`SuffixMaxPosition` que reproduzem MATCH tipo
+1/-1 EXATAMENTE p/ qualquer ordem de entrada (a ÚLTIMA posição entre os empatados = máx posição do prefixo/
+sufixo qualificado); (3) **mapa de igualdade numérica** `número → (soma, contagem)`; (4) **view de números
+ordenados** + primeiro erro (semântica `NumericAggregation.Fold`); (5) **memo de agregado** `(tipo) →
+ComputedValue`. Ancorado no `Workbook` via `ConcurrentDictionary<Reference, RangeSnapshot>` `[MemoryPackIgnore]`,
+criado lazy com `Interlocked.CompareExchange`; descartado em `InvalidateCache()` E `Recalculate()` (valores
+podem ser volatile-tainted). Limiar de **256 células populadas** (estimativa barata via área do retângulo ou
+soma das listas do índice estrutural, SEM materializar): abaixo dele → `null` → caminho linear original. VLOOKUP/
+HLOOKUP modelam a coluna/linha-chave como um `RangeReference` derivado do bounding box da tabela (posição do
+snapshot = linha/coluna 1-based). Toda semântica preservada bit a bit; onde não indexável (lookup blank-equiv,
+critério não-igualdade, wildcard, XLOOKUP aproximado "closest") → fallback linear SOBRE o snapshot cacheado
+(elimina o re-scan de valores mesmo assim).
+
+**Reduzido (50k×10k), harness, mesma máquina (Apple Silicon 10 cores), wall-clock ms — BigColumn:**
+
+| Fórmula      | Antes (Fase 1) | Depois (Fase 2) | Ganho     |
+|--------------|---------------:|----------------:|----------:|
+| Match1       |      80.511,2  |         141,1   | **~570×** |
+| Match0       |      73.571,4  |          95,3   | **~770×** |
+| VLookupExact |       8.096,7  |         154,7   | **~52×**  |
+| SumIfEqual   |      70.490,1  |          68,2   | **~1030×**|
+| CountIfEqual |      71.437,7  |          82,3   | **~870×** |
+| Small        |      59.455,5  |          74,9   | **~790×** |
+| SumRepeated  |      55.167,1  |          89,0   | **~620×** |
+
+(Baseline "Antes" = re-medição desta máquina pré-Fase-2, commit `44c0662`; a Fase 1 já havia colapsado a coluna
+ESTREITA, intocada aqui — 60–130ms.) Todos os blocos BigColumn caíram para a **casa das centenas de ms**: build
+do snapshot 1× (O(N)) + 10k lookups O(1)/O(log n). VLOOKUP fica mais alto (155ms) porque ainda paga 10k
+`CellComputedValueAt` na coluna de retorno + o snapshot da coluna-chave.
+
+**Equivalência:** `RangeValueCacheEquivalenceTests` — **301 casos** (7 cenários: ascendente, com duplicatas,
+NÃO-ordenado, tipos mistos, COM erros, zeros/blanks, texto) × 43 fórmulas — BYPASS × FRIO × QUENTE **100%
+idênticos**; + 3 testes dirigidos (duplicatas→última posição; erro propaga em SMALL/SUM/MEDIAN; threshold
+engaja acima de 256 / pula abaixo).
+
+**Memória (reduzido, 50k):** snapshot de valores ≈ 1,2MB; stack de derivados de UM range de 50k (hash 2,23 +
+ordenado 1,59 + mapa numérico 2,60 + números ordenados 0,39) ≈ **6,8MB**; pico absoluto medido com TODOS os
+derivados num único range = 15,6MB (inclui o cache de células + índice estrutural pré-Fase-2). Na prática cada
+bloco constrói 1–2 derivados → pico real por bloco ~2–4MB. Dentro da projeção do plano (30–60MB p/ 506k).
+
+**Decisões além do plano:** (a) **limiar 256** confirmado no benchmark (coluna estreita de 16 pula, big de 50k
+engaja). (b) **Hash de igualdade exata**: só responde p/ lookup NÃO-blank-equivalente (número ≠ 0, texto ≠ "",
+TRUE) e não-NaN — a regra intransitiva do blank (`blank = 0 = "" = FALSE`, mas `0 ≠ ""`) e o `NaN` do
+`Dictionary<double>` fariam divergir; blank-equiv/blank/erro/NaN → `Unsupported` → linear. (c) **MATCH aproximado
+com duplicatas** resolvido por prefix/suffix-max-position sobre o ordenado — reproduz "última posição dos
+empatados" p/ QUALQUER ordem de entrada (não só ascendente), sem assumir dados ordenados. (d) **XLOOKUP
+aproximado** NÃO acelerado (engine "closest" diverge do MATCH) — linear sobre snapshot; só o exato-forward usa
+hash (com guarda `lookupArray.Count ≤ returnArray.Count`). (e) **SUMIF/AVERAGEIF com sum_range separado** ou
+critério texto/wildcard/comparação → linear sobre snapshot (mapa só p/ igualdade numérica single-range); o par
+(criteria,sum) na chave ficou de fora. (f) `LookupMatching.FindMatch` e `StatisticsMath.Percentile*` migraram de
+`List<ComputedValue>`/`List<double>` p/ `IReadOnlyList<...>` p/ receber o array/lista cacheados sem cópia.
+
+**Build:** `--no-incremental` 0 warnings. **Suíte:** core **805** (801 + 4 novos), Excel **23**,
+`MemoryPackCompatibilityTests`/fixture intocados e verdes.
 
 ---
 
