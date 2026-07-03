@@ -618,17 +618,22 @@ merge + aval do usuário; sem push.
   `TRANSPOSE` `MMULT` `MINVERSE` `MDETERM` `MUNIT` `FREQUENCY` `TEXTSPLIT` `TEXTJOIN`-array `TOCOL`
   `TOROW` `WRAPROWS` `WRAPCOLS` `TAKE` `DROP` `CHOOSEROWS` `CHOOSECOLS` `HSTACK` `VSTACK` `EXPAND`
   `RANDARRAY` (também F1) `MODE.MULT` `ARRAYTOTEXT` `PERCENTOF` `AGGREGATE` `TRIMRANGE` + revisitar spill.
-  **Evidência K1 no 2.9.0 (usuário, 2026-07-03) — dois gaps confirmados vs Excel/Aspose:**
-  (a) *avaliação implícita de array (CSE)*: `=SUM(IF(B2:B5="Show",1,0))` → `#VALUE!` (Excel: 2);
-  `=SMALL(IF(B2:B5="Show",ROW(B2:B5)),1)` → `#VALUE!` (Excel: 3); `=INDEX(ROW(B2:B5),1)` → `#REF!`
-  (Excel: 2). Funções não avaliam elemento-a-elemento com IF/ROW sobre range — é o que DOMINA as
-  divergências do K1 (maquinaria de page-break). Núcleo do caso de negócio do F2.
-  (b) *OR/AND com argumento de texto* → `#VALUE!` onde o relato diz que o Excel ignora texto/vazio.
-  CAVEAT de validação (não confirmado por oráculo ainda): a regra documentada do Excel é ignorar
-  texto/vazio **dentro de arrays/referências**; argumento de texto LITERAL não-coercível
-  (`=OR(TRUE,"texto")`) retorna `#VALUE!` no Excel real. Validar as duas formas contra oráculo antes de
-  corrigir (lição dos golden values); a forma range-arg é bug escalar pequeno, candidato a 2.9.x/3.0.x
-  fora do F2.
+  **Evidência K1 no 2.9.0 (usuário, 2026-07-03, `MYSHEET-CALC-DIVERGENCES.md`)** — MySheet 2.9.0 ×
+  Aspose.Cells 26.6 no workbook idêntico, pós-fix do port Aspose (display-name → codeName; ~2.063 diffs
+  eram limitação do port, não do MySheet): **concordância 99,946% (565.781/566.086)**; as 305 células
+  divergentes restantes traçam a DOIS gaps genuínos do MySheet:
+  (a) *avaliação implícita de array (CSE)* — DOMINA os 305 diffs (maquinaria de page-break, ex. real:
+  `BH25 =IF(BG25="Page Break",IF($BD25="","",INDEX(ROW($A:$A),SMALL(IF($A$2:$A$194="Show",IF(ROW($A$2:
+  $A$194)>$BD25,ROW($A$2:$A$194))),$BB$2))),"")` + colunas B*/BK*/BJ* downstream). Repros:
+  `=SUM(IF(B2:B5="Show",1,0))` → `#VALUE!` (Excel: 2); `=SMALL(IF(B2:B5="Show",ROW(B2:B5)),1)` →
+  `#VALUE!` (Excel: 3); `=INDEX(ROW(B2:B5),1)` → `#REF!` (Excel: 2). Núcleo do caso de negócio do F2.
+  (b) *OR/AND retornam `#VALUE!` com qualquer arg de texto* — ex. real: `H23 =IF(OR(Sheet8!A192="Show",
+  Sheet8!A208),"*","")` com A208 texto → MySheet `#VALUE!`, Excel/Aspose `"*"`. Para args de
+  ARRAY/REFERÊNCIA a regra Excel é documentada (texto/vazio ignorados; `#VALUE!` só se não sobrar nada
+  avaliável) — fix seguro, escalar, fora do F2, candidato a 2.9.x/3.0.x. Semântica de texto LITERAL
+  direto (`=OR(TRUE,"x")`): o doc do usuário espera TRUE (skip); prior meu diz que o Excel real dá
+  `#VALUE!` p/ literal não-coercível — irrelevante p/ o K1, mas decidir por oráculo (Excel real) antes
+  de fixar o caso literal e o de literal coercível (`"TRUE"`).
 - **F3 LAMBDA**: §A3 → `LAMBDA` `BYROW` `BYCOL` `MAP` `REDUCE` `SCAN` `MAKEARRAY` `ISOMITTED`.
 - **F4 Distribuições**: §A4 → NORM/T/CHISQ/F/GAMMA/BETA/BINOM/POISSON/WEIBULL/EXPON/LOGNORM/NEGBINOM/
   HYPGEOM + testes de hipótese + `CONFIDENCE.*` `CRITBINOM` + aliases compat correspondentes +
