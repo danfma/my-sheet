@@ -93,6 +93,16 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             return lookup;
         }
 
+        // The first row is a sub-range of the table; its per-epoch snapshot serves the key search O(1)
+        // (exact) / O(log n) (approximate). A 1-based snapshot position IS the 1-based table column, because
+        // the key row enumerates left-to-right. A small table keeps the linear scan.
+        var keyRow = new RangeReference(
+            new CellAddress(table.LeftColumn, table.TopRow).ToId(),
+            new CellAddress(table.LeftColumn + table.ColumnCount - 1, table.TopRow).ToId(),
+            table.SheetName
+        );
+        var keySnapshot = context.Workbook.TryGetRangeSnapshot(keyRow, context);
+
         var matchColumn = -1;
 
         if (approximate)
@@ -100,28 +110,51 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             // Largest first-row key <= lookup, assuming the row is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like
             // the <= operator — not only numeric keys.
-            for (var column = 1; column <= table.ColumnCount; column++)
+            if (keySnapshot is not null)
             {
-                var key = table.CellComputedValueAt(context, 1, column);
-                if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+                var position = keySnapshot.ApproximateAscendingPosition(lookup);
+                matchColumn = position >= 1 ? position : -1;
+            }
+            else
+            {
+                for (var column = 1; column <= table.ColumnCount; column++)
                 {
-                    continue;
-                }
+                    var key = table.CellComputedValueAt(context, 1, column);
+                    if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+                    {
+                        continue;
+                    }
 
-                if (ValueCoercion.Compare(key, lookup) <= 0)
-                {
-                    matchColumn = column;
+                    if (ValueCoercion.Compare(key, lookup) <= 0)
+                    {
+                        matchColumn = column;
+                    }
                 }
             }
         }
         else
         {
-            for (var column = 1; column <= table.ColumnCount; column++)
+            if (keySnapshot is not null)
             {
-                if (ValueCoercion.AreEqual(table.CellComputedValueAt(context, 1, column), lookup))
+                switch (keySnapshot.TryExactPosition(lookup, out var position))
                 {
-                    matchColumn = column;
-                    break;
+                    case ExactMatchOutcome.Found:
+                        matchColumn = position;
+                        break;
+                    case ExactMatchOutcome.NotFound:
+                        return ComputedValue.Error(Error.NA);
+                }
+            }
+
+            if (matchColumn < 1)
+            {
+                for (var column = 1; column <= table.ColumnCount; column++)
+                {
+                    if (ValueCoercion.AreEqual(table.CellComputedValueAt(context, 1, column), lookup))
+                    {
+                        matchColumn = column;
+                        break;
+                    }
                 }
             }
         }
@@ -179,9 +212,9 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
             return Find(lookup, keys, results);
         }
 
-        var lookupVector = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
+        var lookupVector = ArgumentFlattening.ExpandCached(Arguments[1], context, out _);
         var resultVector = Arguments.Length == 3
-            ? ArgumentFlattening.ExpandComputedValues(Arguments[2], context)
+            ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
             : lookupVector;
 
         return Find(lookup, lookupVector, resultVector);
@@ -189,8 +222,8 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
 
     private static ComputedValue Find(
         in ComputedValue lookup,
-        List<ComputedValue> keys,
-        List<ComputedValue> results
+        IReadOnlyList<ComputedValue> keys,
+        IReadOnlyList<ComputedValue> results
     )
     {
         var count = Math.Min(keys.Count, results.Count);
@@ -255,7 +288,7 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
-        var array = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
+        var array = ArgumentFlattening.ExpandCached(Arguments[1], context, out var snapshot);
 
         var matchMode = 0.0;
         if (
@@ -273,6 +306,19 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         )
         {
             return ComputedValue.Error(searchError);
+        }
+
+        // Forward exact (the default) → O(1) via the value→first-position hash; every other mode (reverse,
+        // approximate, wildcard) keeps the shared LookupMatching engine over the cached array.
+        if ((int)matchMode == 0 && searchMode >= 0 && snapshot is not null)
+        {
+            switch (snapshot.TryExactPosition(lookup, out var hashPosition))
+            {
+                case ExactMatchOutcome.Found:
+                    return ComputedValue.Number(hashPosition);
+                case ExactMatchOutcome.NotFound:
+                    return ComputedValue.Error(Error.NA);
+            }
         }
 
         var match = LookupMatching.FindMatch(

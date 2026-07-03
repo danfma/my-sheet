@@ -19,8 +19,8 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
-        var lookupArray = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
-        var returnArray = ArgumentFlattening.ExpandComputedValues(Arguments[2], context);
+        var lookupArray = ArgumentFlattening.ExpandCached(Arguments[1], context, out var lookupSnapshot);
+        var returnArray = ArgumentFlattening.ExpandCached(Arguments[2], context, out _);
 
         var matchMode = 0.0;
         if (
@@ -41,6 +41,28 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         }
 
         var count = Math.Min(lookupArray.Count, returnArray.Count);
+
+        // Forward exact (the default) → O(1) via the value→first-position hash, but only when the whole
+        // lookup array is covered by the return array (so the hashed position is a valid return index — the
+        // linear engine only scans the shared [0, count) prefix). Every other case keeps LookupMatching.
+        if (
+            (int)matchMode == 0
+            && searchMode >= 0
+            && lookupSnapshot is not null
+            && lookupSnapshot.Count <= returnArray.Count
+        )
+        {
+            switch (lookupSnapshot.TryExactPosition(lookup, out var hashPosition))
+            {
+                case ExactMatchOutcome.Found:
+                    return returnArray[hashPosition - 1];
+                case ExactMatchOutcome.NotFound:
+                    return Arguments.Length >= 4 && Arguments[3] is not BlankValue
+                        ? Arguments[3].Evaluate(context)
+                        : ComputedValue.Error(Error.NA);
+            }
+        }
+
         var match = LookupMatching.FindMatch(
             lookup,
             lookupArray,

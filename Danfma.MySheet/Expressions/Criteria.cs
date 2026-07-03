@@ -52,6 +52,23 @@ internal sealed class Criteria
             : new Criteria(op, numeric: false, 0, rest);
     }
 
+    /// <summary>
+    /// True when this is a plain numeric equality (<c>=k</c> / a bare number), the one criterion shape the
+    /// Layer-2 numeric-equality map answers in O(1). A non-numeric equality, or any comparison/wildcard,
+    /// returns false and the caller scans the cached snapshot linearly (still no cell re-read).
+    /// </summary>
+    internal bool TryGetNumericEquality(out double number)
+    {
+        if (_numeric && _op == Op.Equal)
+        {
+            number = _number;
+            return true;
+        }
+
+        number = 0;
+        return false;
+    }
+
     public bool Matches(in ComputedValue cellValue)
     {
         if (_numeric)

@@ -5,7 +5,10 @@ namespace Danfma.MySheet.Expressions.Statistical;
 [MemoryPackable]
 public sealed partial record Max(Expression[] Arguments) : Function
 {
-    public override ComputedValue Evaluate(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        RangeAggregate.Memoize(Arguments, context, AggregateKind.Max, () => Compute(context));
+
+    private ComputedValue Compute(EvaluationContext context)
     {
         var fold = new MaxFold();
 

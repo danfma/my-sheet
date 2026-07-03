@@ -14,17 +14,37 @@ public sealed partial record Median(Expression[] Arguments) : Function
     // MEDIAN(number1, …) — middle value (mean of the two middle values for an even count).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (StatisticsMath.Collect(Arguments, context, out var values) is { } error)
+        IReadOnlyList<double> values;
+
+        // A single big populated range → the shared per-epoch sorted-number view (built once); otherwise the
+        // ordinary collect-then-sort. The first cell error propagates exactly as StatisticsMath.Collect does.
+        if (
+            Arguments is [Reference reference]
+            && context.Workbook.TryGetRangeSnapshot(reference, context) is { } snapshot
+        )
         {
-            return ComputedValue.Error(error);
+            values = snapshot.SortedNumericValues(out var firstError);
+
+            if (firstError is { } arrayError)
+            {
+                return ComputedValue.Error(arrayError);
+            }
+        }
+        else
+        {
+            if (StatisticsMath.Collect(Arguments, context, out var collected) is { } error)
+            {
+                return ComputedValue.Error(error);
+            }
+
+            collected.Sort();
+            values = collected;
         }
 
         if (values.Count == 0)
         {
             return ComputedValue.Error(Error.Num);
         }
-
-        values.Sort();
 
         var middle = values.Count / 2;
 
@@ -250,7 +270,7 @@ public sealed partial record PercentRankInc(Expression[] Arguments) : Function
         return ComputedValue.Number(ExcelMath.TruncateToDigits(fraction, significance));
     }
 
-    private static double InterpolatedRank(List<double> sorted, double x, bool exclusive)
+    private static double InterpolatedRank(IReadOnlyList<double> sorted, double x, bool exclusive)
     {
         // Exact hit: the documented rank of the data value itself.
         var below = 0;
@@ -376,23 +396,46 @@ file static class OrderSelection
     public static Error? SortedArrayAndScalar(
         Expression[] arguments,
         EvaluationContext context,
-        out List<double> sorted,
+        out IReadOnlyList<double> sorted,
         out double scalar
     )
     {
         scalar = 0;
 
-        if (StatisticsMath.Collect([arguments[0]], context, out sorted) is { } error)
+        // A big populated array argument is served from the shared per-epoch sorted-number view (built
+        // once), so SMALL/LARGE/PERCENTILE/QUARTILE/PERCENTRANK/TRIMMEAN over a whole column stop
+        // re-collecting and re-sorting per formula. The first cell error propagates exactly as
+        // StatisticsMath.Collect would, and BEFORE the scalar is evaluated (same order as the linear path).
+        if (
+            arguments[0] is Reference reference
+            && context.Workbook.TryGetRangeSnapshot(reference, context) is { } snapshot
+        )
         {
+            var numbers = snapshot.SortedNumericValues(out var firstError);
+            sorted = numbers;
+
+            if (firstError is { } arrayError)
+            {
+                return arrayError;
+            }
+
+            return arguments[1].Evaluate(context).CoerceToNumber(out scalar);
+        }
+
+        if (StatisticsMath.Collect([arguments[0]], context, out var collected) is { } error)
+        {
+            sorted = collected;
             return error;
         }
 
         if (arguments[1].Evaluate(context).CoerceToNumber(out scalar) is { } scalarError)
         {
+            sorted = collected;
             return scalarError;
         }
 
-        sorted.Sort();
+        collected.Sort();
+        sorted = collected;
         return null;
     }
 

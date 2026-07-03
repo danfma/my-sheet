@@ -115,4 +115,24 @@ internal static class ArgumentFlattening
         return values;
     }
 
+    /// <summary>
+    /// The Layer-2 view of a single range/vector argument: the shared per-epoch snapshot's values when the
+    /// argument is a big populated range (so the O(N) cell re-read is paid once for the whole epoch), else
+    /// the ordinary per-call expansion. The returned list is identical, cell for cell, to
+    /// <see cref="ExpandComputedValues(Expression, EvaluationContext)"/> — the snapshot is built through the
+    /// same enumeration — so a linear scan over it stays bit-for-bit equivalent. <paramref name="snapshot"/>
+    /// is non-null exactly when the cached derived accelerators (hash, sorted index, …) are available.
+    /// </summary>
+    public static IReadOnlyList<ComputedValue> ExpandCached(
+        Expression argument,
+        EvaluationContext context,
+        out RangeSnapshot? snapshot
+    )
+    {
+        snapshot = argument is Reference reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            : null;
+
+        return snapshot?.Values ?? (IReadOnlyList<ComputedValue>)ExpandComputedValues(argument, context);
+    }
 }

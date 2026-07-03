@@ -5,7 +5,10 @@ namespace Danfma.MySheet.Expressions.Statistical;
 [MemoryPackable]
 public sealed partial record Count(Expression[] Arguments) : Function
 {
-    public override ComputedValue Evaluate(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        RangeAggregate.Memoize(Arguments, context, AggregateKind.Count, () => Compute(context));
+
+    private ComputedValue Compute(EvaluationContext context)
     {
         // COUNT ignores cell VALUE errors, but a reference to a missing sheet is a STRUCTURAL #REF! it must
         // still surface — so it is guarded explicitly (COUNT discards Fold's error channel).

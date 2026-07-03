@@ -58,6 +58,16 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return lookup;
         }
 
+        // The first column is a sub-range of the table; its per-epoch snapshot serves the key search O(1)
+        // (exact) / O(log n) (approximate). A 1-based snapshot position IS the 1-based table row, because the
+        // key column enumerates top-to-bottom. A small table (below the cache threshold) keeps the linear scan.
+        var keyColumn = new RangeReference(
+            new CellAddress(table.LeftColumn, table.TopRow).ToId(),
+            new CellAddress(table.LeftColumn, table.TopRow + table.RowCount - 1).ToId(),
+            table.SheetName
+        );
+        var keySnapshot = context.Workbook.TryGetRangeSnapshot(keyColumn, context);
+
         var matchRow = -1;
 
         if (approximate)
@@ -65,28 +75,52 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             // Largest first-column key <= lookup, assuming the table is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like the
             // <= operator — not only numeric keys.
-            for (var row = 1; row <= table.RowCount; row++)
+            if (keySnapshot is not null)
             {
-                var key = table.CellComputedValueAt(context, row, 1);
-                if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+                var position = keySnapshot.ApproximateAscendingPosition(lookup);
+                matchRow = position >= 1 ? position : -1;
+            }
+            else
+            {
+                for (var row = 1; row <= table.RowCount; row++)
                 {
-                    continue;
-                }
+                    var key = table.CellComputedValueAt(context, row, 1);
+                    if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+                    {
+                        continue;
+                    }
 
-                if (ValueCoercion.Compare(key, lookup) <= 0)
-                {
-                    matchRow = row;
+                    if (ValueCoercion.Compare(key, lookup) <= 0)
+                    {
+                        matchRow = row;
+                    }
                 }
             }
         }
         else
         {
-            for (var row = 1; row <= table.RowCount; row++)
+            // Exact → the value→first-position hash; a blank-equivalent lookup falls back to the linear scan.
+            if (keySnapshot is not null)
             {
-                if (ValueCoercion.AreEqual(table.CellComputedValueAt(context, row, 1), lookup))
+                switch (keySnapshot.TryExactPosition(lookup, out var position))
                 {
-                    matchRow = row;
-                    break;
+                    case ExactMatchOutcome.Found:
+                        matchRow = position;
+                        break;
+                    case ExactMatchOutcome.NotFound:
+                        return ComputedValue.Error(Error.NA);
+                }
+            }
+
+            if (matchRow < 1)
+            {
+                for (var row = 1; row <= table.RowCount; row++)
+                {
+                    if (ValueCoercion.AreEqual(table.CellComputedValueAt(context, row, 1), lookup))
+                    {
+                        matchRow = row;
+                        break;
+                    }
                 }
             }
         }

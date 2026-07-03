@@ -133,6 +133,128 @@ public sealed partial class Workbook
             sheet
         );
 
+    // === Layer-2 range value cache (whole-column scale) =================================================
+    // Per-epoch snapshot (materialized ComputedValue[] + lazy derived accelerators) of a populated range,
+    // keyed by the range reference record (OpenRangeReference/RangeReference have value equality). The
+    // snapshot re-reads cell VALUES once and every consuming formula of the epoch then serves its lookup /
+    // criterion / aggregate O(1)/O(log n) instead of re-scanning N cells. Values can be volatile-tainted, so
+    // this is dropped by BOTH InvalidateCache() AND Recalculate() (unlike the structural index). Lazily
+    // created race-free via the RangeCache accessor — never `= new()` on the field (MemoryPack bypasses it).
+    [MemoryPackIgnore]
+    private ConcurrentDictionary<Reference, RangeSnapshot>? _rangeCache;
+
+    // A range with fewer than this many populated cells is not cached: a linear scan already wins there and
+    // caching every tiny range would flood the dictionary. Measured against the whole-column benchmark.
+    private const int RangeCacheMinimumCells = 256;
+
+    private ConcurrentDictionary<Reference, RangeSnapshot> RangeCache
+    {
+        get
+        {
+            var existing = _rangeCache;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new ConcurrentDictionary<Reference, RangeSnapshot>();
+            return Interlocked.CompareExchange(ref _rangeCache, created, null) ?? created;
+        }
+    }
+
+    // Test-only bypass: forces every consumer down the pre-cache linear path, so the equivalence harness can
+    // capture the "no cache" expectation and diff it against the cache-served result. Not serialized.
+    [MemoryPackIgnore]
+    internal bool RangeCacheDisabled { get; set; }
+
+    /// <summary>
+    /// The shared per-epoch <see cref="RangeSnapshot"/> for a populated range, or <c>null</c> when the range
+    /// is not cacheable (not a rectangle/open range, below the size threshold, or the cache is disabled) —
+    /// in which case the caller keeps its existing linear path. Internal — part of the evaluation contract.
+    /// </summary>
+    internal RangeSnapshot? TryGetRangeSnapshot(Reference range, EvaluationContext context)
+    {
+        if (RangeCacheDisabled || range is not (RangeReference or OpenRangeReference))
+        {
+            return null;
+        }
+
+        var cache = RangeCache;
+
+        if (cache.TryGetValue(range, out var existing))
+        {
+            return existing;
+        }
+
+        if (EstimatePopulatedCells(range, context) < RangeCacheMinimumCells)
+        {
+            return null;
+        }
+
+        return cache.GetOrAdd(
+            range,
+            static (key, ctx) => RangeSnapshot.Build(key, ctx),
+            context
+        );
+    }
+
+    // A cheap UPPER BOUND on a range's populated-cell count, used only to decide whether caching is worth it.
+    // A bounded rectangle uses its area; an open range sums the covered structural-index lists (ignoring row
+    // bounds — an over-estimate is harmless: it only risks caching a range that turns out small).
+    private int EstimatePopulatedCells(Reference range, EvaluationContext context)
+    {
+        switch (range)
+        {
+            case RangeReference rectangle:
+                var area = (long)rectangle.RowCount * rectangle.ColumnCount;
+                return area >= RangeCacheMinimumCells ? RangeCacheMinimumCells : (int)area;
+
+            case OpenRangeReference open:
+                if (!Sheets.TryGetValue(open.SheetName, out var sheet))
+                {
+                    return 0;
+                }
+
+                var index = GetStructuralIndex(open.SheetName, sheet);
+                var total = 0;
+
+                // Whole-row shape (both column limits open, row axis bounded): sum the covered rows.
+                if (open is { ColMin: null, ColMax: null, RowMin: { } rowMin, RowMax: { } rowMax })
+                {
+                    for (var row = rowMin; row <= rowMax && total < RangeCacheMinimumCells; row++)
+                    {
+                        if (index.Rows.TryGetValue(row, out var rowIds))
+                        {
+                            total += rowIds.Count;
+                        }
+                    }
+
+                    return total;
+                }
+
+                // Column-driven shapes: sum the covered columns' lengths (an upper bound over row bounds).
+                foreach (var (column, columnIds) in index.Columns)
+                {
+                    if (
+                        (open.ColMin is not { } min || column >= min)
+                        && (open.ColMax is not { } max || column <= max)
+                    )
+                    {
+                        total += columnIds.Count;
+                        if (total >= RangeCacheMinimumCells)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                return total;
+
+            default:
+                return 0;
+        }
+    }
+
     // Backing field for the injectable clock; ignored by MemoryPack (runtime config, not persisted state).
     [MemoryPackIgnore]
     private TimeProvider? _timeProvider;
@@ -314,6 +436,9 @@ public sealed partial class Workbook
         // NOT touch it: a volatile refresh changes values, never which cells exist.
         _structuralIndex?.Clear();
 
+        // The value snapshots are stale once any cell changed.
+        _rangeCache?.Clear();
+
         lock (VolatileLock)
         {
             _epochNow = null;
@@ -342,6 +467,10 @@ public sealed partial class Workbook
 
             tainted.Clear();
         }
+
+        // The value snapshots may hold volatile-tainted values, so they are dropped on a volatile refresh too
+        // (the structural index — pure structure — survives).
+        _rangeCache?.Clear();
 
         lock (VolatileLock)
         {

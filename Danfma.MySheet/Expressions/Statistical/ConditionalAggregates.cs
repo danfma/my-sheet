@@ -21,9 +21,20 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         }
 
         var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
-        var range = ArgumentFlattening.ExpandComputedValues(Arguments[0], context);
+        var range = ArgumentFlattening.ExpandCached(Arguments[0], context, out var snapshot);
+
+        // Single-range numeric `=k` criterion → O(1) via the numeric-equality map (Σ/count of the matching
+        // cells). Any other shape scans the cached snapshot(s) linearly (no cell re-read).
+        if (Arguments.Length < 3 && snapshot is not null && criteria.TryGetNumericEquality(out var key))
+        {
+            var (keySum, keyCount) = snapshot.NumericEquality(key);
+            return keyCount == 0
+                ? ComputedValue.Error(Error.DivZero)
+                : ComputedValue.Number(keySum / keyCount);
+        }
+
         var averageRange = Arguments.Length == 3
-            ? ArgumentFlattening.ExpandComputedValues(Arguments[2], context)
+            ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
             : range;
 
         var total = 0.0;

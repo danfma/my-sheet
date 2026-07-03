@@ -10,7 +10,7 @@ internal static class LookupMatching
 {
     public static int FindMatch(
         in ComputedValue lookup,
-        List<ComputedValue> array,
+        IReadOnlyList<ComputedValue> array,
         int count,
         int matchMode,
         bool reverse
@@ -38,7 +38,7 @@ internal static class LookupMatching
         };
     }
 
-    private static int Wildcard(in ComputedValue lookup, List<ComputedValue> array, int count, bool reverse)
+    private static int Wildcard(in ComputedValue lookup, IReadOnlyList<ComputedValue> array, int count, bool reverse)
     {
         var pattern = lookup.TryGetText(out var p) ? p : string.Empty;
 
@@ -54,7 +54,7 @@ internal static class LookupMatching
         return -1;
     }
 
-    private static int Closest(in ComputedValue lookup, List<ComputedValue> array, int count, bool below)
+    private static int Closest(in ComputedValue lookup, IReadOnlyList<ComputedValue> array, int count, bool below)
     {
         // An error has no place in the ordering, so there is no closest match.
         if (lookup.Kind == ComputedValueKind.Error)
