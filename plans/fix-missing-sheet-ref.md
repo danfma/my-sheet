@@ -118,5 +118,11 @@ _(escrever quando a fase concluir)_
 _(escrever quando as fases 1–2 concluírem)_
 
 ## Deployment Plan
-_(mesmo ritual: verificação independente minha com rebuild forçado → merge `fix/missing-sheet-ref` → push →
-`gh workflow run release.yml` → **2.6.1** (patch) lockstep → `git pull` → refresh `docs/pt-BR/` via Sonnet.)_
+Fluxo por **PR** (decisão do usuário, 2026-07-03 — não fazer ff direto na main desta vez):
+1. Verificação independente minha com rebuild forçado (`--no-incremental`): a matriz de contrato inteira, os
+   dois lados da distinção estrutural-vs-valor, fixture binária, o teste de batch sem throw.
+2. `git push origin fix/missing-sheet-ref` (a branch, não a main).
+3. `gh pr create` — título/descrição referenciando o bug report (sheet inexistente → #REF!), a matriz de
+   contrato e os 9 sites; corpo com o rodapé de PR do harness. Deixar para o usuário revisar e mergear.
+4. Após o merge do PR pelo usuário: `gh workflow run release.yml` → **2.6.1** (patch) lockstep → `git pull`
+   → refresh `docs/pt-BR/` via sub-agente Sonnet.
