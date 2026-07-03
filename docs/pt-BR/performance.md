@@ -98,32 +98,32 @@ dessas varre toda célula populada da coluna, então uma planilha com *F* fórmu
 uma coluna de *N* células custa **O(F·N)**. Em um workbook real (~506 mil células em uma coluna, ~400 mil
 fórmulas referenciando-a) isso é ~2×10¹¹ visitas — aproximadamente **57 minutos** de varredura pura em uma
 passagem de carregar-uma-vez / ler-uma-vez. Dois caches internos reduzem isso a segundos. Ambos são
-limitados, descartáveis e não adicionam **nenhuma API pública** — o modelo esparso e o caminho rápido de
-célula única permanecem intocados.
+limitados e internos — sem parâmetros de ajuste de cache para configurar — e o modelo esparso e o caminho
+rápido de célula única permanecem intocados.
 
 ### Camada 1 — o índice estrutural
 
-Por planilha, um índice preguiçoso mapeia `coluna → ids de célula ordenados por linha` (e o simétrico
-`linha → ids` sob demanda). Ele responde "quais células `A:A` cobre, em ordem?" sem revarrer o dicionário
-de células. A resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET` fazem em
-toda avaliação) lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
+Por planilha, o índice mapeia `coluna → ids de célula ordenados por linha` (e o simétrico `linha → ids`
+sob demanda). Ele responde "quais células `A:A` cobre, em ordem?" sem revarrer o dicionário de células. A
+resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET` fazem em toda avaliação)
+lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
 
-É isso que torna **colunas pequenas em uma planilha grande** baratas assim que o índice existe: antes do
-índice, uma fórmula referenciando uma coluna de 16 células ainda percorria todas as ~1,5 milhão de
-chaves da planilha para encontrar essas 16; depois dele, apenas as 16 são visitadas.
+É isso que torna **colunas pequenas em uma planilha grande** baratas: antes do índice, uma fórmula
+referenciando uma coluna de 16 células ainda percorria todas as ~1,5 milhão de chaves da planilha para
+encontrar essas 16; depois dele, apenas as 16 são visitadas.
 
-**Admissão na segunda leitura de uso.** Construir o índice é, em si, uma passagem O(N) (mais um bucket
-por coluna ou linha populada). Isso só compensa quando uma planilha é lida através de ranges abertos
-**mais de uma vez em uma época**. Uma planilha lida *exatamente uma vez* — o formato "`InvalidateCache()`
-depois uma leitura de coluna inteira por época" — pagaria a construção de um índice da planilha inteira
-só para servir uma coluna que nunca reutiliza. Então, exatamente como o snapshot de range abaixo, o
-índice é **admitido na segunda leitura de range aberto de uma planilha, não na primeira**: a primeira
-leitura se serve de uma **varredura direta de chaves** (o caminho pré-índice), coletando e ordenando
-*apenas os ids correspondentes* na mesma ordem determinística que o índice produz; a segunda leitura
-constrói o índice e toda leitura seguinte o reutiliza. Em uma passagem de reuso intenso (milhares de
-fórmulas sobre `A:A`) a única varredura extra na primeira fórmula é imperceptível; em uma passagem de
-uma leitura por época, ela permanece na paridade pré-índice (2.6.1) em vez de reconstruir o índice a
-cada época.
+**Mantido na escrita e com escopo de tempo de vida.** O índice é construído **uma vez por planilha, de
+forma preguiçosa na primeira leitura de range aberto dessa planilha**, e depois é mantido atualizado a
+cada escrita de célula. A `Sheet` canaliza toda mutação através de um único ponto de estrangulamento de
+escrita — o indexador `set` e o `Remove` — e cada inserção ou remoção atualiza o índice no local, então
+ele nunca precisa de uma reconstrução completa. Como é mantido na escrita, ele *não* está atrelado a uma
+época de cache de valores: ao contrário dos caches de valor, **`InvalidateCache()` não o descarta**
+(limpar valores memoizados nunca muda quais células existem — apenas uma escrita muda, e uma escrita
+mantém o índice). Absorver uma escrita é barato: um acréscimo em ordem — o padrão comum de preenchimento
+(Fill) — é O(1); uma inserção fora de ordem apenas marca sua única coluna como suja, para que essa coluna
+se reordene na próxima leitura; uma remoção retira o id do seu bucket em O(bucket). O índice nunca é
+serializado, então um workbook carregado do disco começa sem um e o reconstrói uma vez, na primeira
+leitura de range aberto, durante a vida dessa instância.
 
 **Ordenação preguiçosa por bucket.** Construir o índice organiza os ids em buckets, mas **não** os
 ordena; a lista de cada coluna é ordenada (por linha) apenas no primeiro acesso, então uma leitura que
@@ -173,13 +173,14 @@ das listas do índice estrutural cobertas) — ela nunca materializa um snapshot
 
 ### Ciclo de vida: quando os caches são construídos e descartados
 
-Ambos os caches são por workbook, baseados em `ConcurrentDictionary`, criados livres de corrida no
-primeiro uso, e **não serializados** (um workbook carregado começa frio). Eles diferem apenas na
-invalidação, porque o índice estrutural descreve *estrutura* e o snapshot do range carrega *valores*:
+Ambos os caches são criados livres de corrida no primeiro uso e **não são serializados** (um workbook
+carregado começa frio). Eles diferem na posse e na invalidação, porque o índice estrutural descreve
+*estrutura* (pertence à `Sheet`, mantido na escrita), enquanto o snapshot de range carrega *valores*
+(pertence ao `Workbook`, com escopo de época):
 
 | Cache | Construído | `Recalculate()` | `InvalidateCache()` |
 | --- | --- | --- | --- |
-| Índice estrutural (Camada 1) | **segunda** leitura de range aberto de uma planilha | **sobrevive** (estrutura ≠ valores) | descartado |
+| Índice estrutural (Camada 1) | **primeira** leitura de range aberto de uma planilha (uma vez durante sua vida), depois mantido na escrita | **sobrevive** (estrutura ≠ valores) | **sobrevive** (mantido na escrita, sem escopo de época) |
 | Snapshots de range (Camada 2) | **segunda** leitura de range cacheável | **descartado** (valores podem estar contaminados por volatilidade) | descartado |
 
 ```csharp
@@ -189,9 +190,10 @@ var total = workbook.GetCellValue("Calc", "A1");   // 1ª leitura de A:A → mar
 var next  = workbook.GetCellValue("Calc", "A2");   // 2ª leitura → constrói o snapshot compartilhado
 var more  = workbook.GetCellValue("Calc", "A3");   // 3ª+ leitura → servida pelo snapshot compartilhado
 
-// Depois de editar células, limpe tudo antes de ler de novo:
+// Depois de editar células, limpe os caches de valor antes de ler de novo. A escrita já manteve o
+// índice estrutural, então o InvalidateCache deixa a Camada 1 intacta e descarta apenas os caches de valor:
 sheet["A1"] = new NumberValue(20);
-workbook.InvalidateCache();                          // descarta ambas as camadas
+workbook.InvalidateCache();                          // descarta os caches de valor; a Camada 1 sobrevive
 
 // Uma atualização volátil (NOW/RAND) descarta apenas os snapshots de valor; o índice estrutural sobrevive:
 workbook.Recalculate();
@@ -227,6 +229,28 @@ processo é dominado pelo próprio workbook, não pelos caches.
 > snapshot é um custo único O(N) amortizado por todo o bloco, então uma amostra de 1 mil × 100 multiplica
 > essa construção única por 100 e superestima muito. O número da escala plena acima é medido sobre as
 > 100 mil fórmulas reais.
+
+### Leituras repetidas de coluna inteira escalam com a coluna, não com a planilha
+
+Como a Camada 1 é mantida na escrita e sobrevive ao `InvalidateCache()`, o formato "carregar uma vez,
+depois reler uma coluna inteira a cada época" custa o mesmo, não importa o quão grande seja o *resto* da
+planilha. Este harness (`--structural-index-lifetime`) fixa a coluna A em 200 células populadas, cresce o
+total da planilha de 10 mil para 500 mil preenchendo *outras* colunas, e cronometra
+`{ InvalidateCache(); COUNTIF(A:A,">0") }` por época:
+
+| Total de células na planilha | Média de ms por época | Primeira leitura (construção única do índice) |
+| --- | --- | --- |
+| 10.200 | 0,31 | 12,2 ms |
+| 40.200 | 0,29 | 1,4 ms |
+| 100.200 | 0,28 | 5,2 ms |
+| 200.200 | 0,11 | 14,6 ms |
+| 500.200 | 0,11 | 30,4 ms |
+
+O tempo por época permanece estável (ele acompanha as 200 células da coluna A, não a planilha), enquanto
+a *primeira* leitura paga a construção única O(planilha) do índice. O índice sobrevive a todo
+`InvalidateCache()` posterior, então nenhuma época depois da primeira o reconstrói — a leitura é servida a
+partir do índice mantido a cada vez. Como referência, a comparação que o design tinha como alvo (o modelo
+de coluna com escrita em tempo real da Aspose) é ~0,4 ms constante nesse formato.
 
 ### Comparação com o ClosedXML
 

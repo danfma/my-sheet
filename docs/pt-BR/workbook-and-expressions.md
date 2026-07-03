@@ -60,12 +60,22 @@ sheet["B1"] = ExpressionParser.Parse("=A1*2", sheet);
 Expression cell = sheet["A1"];      // get: nunca lança — uma célula ausente é lida como BlankValue.Instance
 bool exists = sheet.ContainsKey("C1");                  // false
 bool found = sheet.TryGetValue("A1", out var stored);   // true
+bool removed = sheet.Remove("B1");                       // exclui uma célula → true se ela existia
 
 foreach (var (id, expression) in sheet) { /* itera as células armazenadas */ }
 ```
 
 - O **getter nunca lança exceção**: ler um id que nunca foi definido retorna `BlankValue.Instance`, que
   é avaliado como em branco — exatamente como o Excel trata uma célula vazia.
+- **A escrita passa pelo `set` do indexador, e a exclusão passa por `Remove`** — os dois, e únicos,
+  caminhos que alteram as células de uma planilha. `Remove(id)` retorna `true` quando havia uma célula
+  ali e `false` para uma operação sem efeito. Assim como o `set`, o `Remove` não limpa o cache de
+  memoização por conta própria: depois de editar (escrever ou remover), chame `workbook.InvalidateCache()`
+  antes de ler de novo para que a mudança seja observada.
+- **`Cells` é uma visão somente leitura** (`IReadOnlyDictionary<string, Expression>`) das células
+  armazenadas — enumerável e indexável para leitura (`sheet.Cells["A1"]`, `sheet.Cells.Count`), mas não
+  mutável; mute através do indexador e de `Remove`. (Para quem está migrando da 2.x e mutava `Cells`
+  diretamente: veja [Migrando para a 3.0](migrating-to-3.0.md).)
 - `Keys`, `Values` e `Count` expõem apenas as células que foram de fato armazenadas.
 - Ids de célula são strings simples no estilo A1. O parser as normaliza para maiúsculas e remove os
   marcadores absolutos (`$A$1` → `A1`); ao definir células diretamente pelo indexador, use a forma
