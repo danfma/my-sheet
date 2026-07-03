@@ -87,6 +87,126 @@ The memoization layer tracks the cells being evaluated on the current thread. A 
 `B1=A1`) is detected and returns `#REF!` (`Error.Ref`) instead of overflowing the stack. The tracking
 is thread-local, so concurrent evaluation of the same cell on different threads is not a false cycle.
 
+## Whole-column references at scale
+
+Formulas that consume a **whole-column reference** — `MATCH(x, A:A)`, `VLOOKUP(x, A:B, 2, FALSE)`,
+`SUMIF(A:A, k)`, `SMALL(A:A, k)`, `SUM(A:A)` — are the pathological case for a naive engine. Each such
+formula scans every populated cell of the column, so a sheet with *F* whole-column formulas over a
+column of *N* cells costs **O(F·N)**. On a real workbook (~506k cells in one column, ~400k formulas
+referencing it) that is ~2×10¹¹ visits — roughly **57 minutes** of pure scanning on a load-once /
+read-once pass. Two internal caches collapse that to seconds. Both are bounded, discardable, and add
+**no public API** — the sparse model and the single-cell hot path are untouched.
+
+### Layer 1 — the structural index
+
+Per sheet, a lazy index maps `column → cell ids ordered by row` (and the symmetric `row → ids` on
+demand). It is built **once per epoch** on the first open-range enumeration (a single O(N) pass) and
+then answers "which cells does `A:A` cover, in order?" without re-scanning the cell dictionary. Range
+bound resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every evaluation) reads the
+bounding box straight from the ordered lists by binary search.
+
+This is what makes **small columns in a big sheet** cheap: before the index, a formula referencing a
+16-cell column still walked all ~1.5M keys of the sheet to find those 16; after it, only the 16 are
+visited.
+
+### Layer 2 — epoch range caches
+
+For a populated range above a size threshold, the engine materializes a **snapshot** — the range's
+`ComputedValue`s in enumeration order, read exactly once through Layer 1 + the memoized cell cache.
+Every accelerator is then built **lazily, on first demand, and shared by every formula of the epoch**:
+
+- an **exact-value hash** (`value → first position`) → `MATCH(…,0)`, exact `XLOOKUP`/`XMATCH`,
+  `VLOOKUP(…,FALSE)` in O(1);
+- a **sorted index** with prefix/suffix-max positions → approximate `MATCH` type 1/-1 and
+  `VLOOKUP(…,TRUE)` by binary search, reproducing Excel's "last of the tied" tie-break for any input
+  order;
+- a **sorted-number view** → `SMALL`/`LARGE`/`MEDIAN`/`PERCENTILE`/`QUARTILE` by direct indexing;
+- a **numeric-equality map** (`value → (sum, count)`) → equality `SUMIF`/`COUNTIF`/`AVERAGEIF` in O(1);
+- an **aggregate memo** → `SUM`/`COUNT`/`MAX`/`MIN`/`AVERAGE` of a repeated pure range folded once.
+
+The overall cost drops from O(F·N) to **O(N + F·log N)**. Semantics are preserved bit for bit: where a
+value does not fit an index cleanly (blank-equivalent lookups, wildcard/comparison criteria, the
+"closest" approximate `XLOOKUP`) the consumer falls back to a **linear scan over the cached snapshot** —
+still cache-served, so the O(N) re-read of cell values is gone even on the fallback path.
+
+**The 256-cell threshold.** A range with fewer than 256 populated cells is not cached: a linear scan
+already wins there and caching every tiny range would only flood the dictionary. The check uses a cheap
+upper-bound estimate (rectangle area, or the sum of the covered structural-index lists) — it never
+materializes a snapshot just to decide.
+
+### Lifecycle: when the caches are built and dropped
+
+Both caches are per-workbook, `ConcurrentDictionary`-based, created race-free on first use, and **not
+serialized** (a loaded workbook starts cold). They differ only in invalidation, because the structural
+index describes *structure* and the range snapshot carries *values*:
+
+| Cache | Built | `Recalculate()` | `InvalidateCache()` |
+| --- | --- | --- | --- |
+| Structural index (Layer 1) | first open-range enumeration | **survives** (structure ≠ values) | dropped |
+| Range snapshots (Layer 2) | first cacheable range read | **dropped** (values may be volatile-tainted) | dropped |
+
+```csharp
+// Load once, then read a lot: the caches fill lazily on the first pass and every later read is served
+// from them.
+var total = workbook.GetCellValue("Calc", "A1");   // builds the index + snapshot for A:A
+var next  = workbook.GetCellValue("Calc", "A2");   // same epoch → served from the shared snapshot
+
+// After editing cells, flush everything before reading again:
+sheet["A1"] = new NumberValue(20);
+workbook.InvalidateCache();                          // drops both layers
+
+// A volatile refresh (NOW/RAND) drops only the value snapshots; the structural index survives:
+workbook.Recalculate();
+```
+
+### Measured numbers
+
+Synthetic whole-column benchmark (`benchmarks/Danfma.MySheet.Benchmark`, `--whole-column-scale`), Apple
+Silicon, .NET 10. Each row is one `InvalidateCache()` + one full evaluation pass (the load-once /
+read-once cycle). "Before" is the pre-cache engine; "After" is the two-layer engine.
+
+**Reduced (50k data cells × 10k formulas), formula block over the big column, wall-clock:**
+
+| Formula | Before | After |
+| --- | --- | --- |
+| `MATCH(…,1)` | 80.5 s | 141 ms |
+| `MATCH(…,0)` | 73.6 s | 95 ms |
+| `VLOOKUP(…,FALSE)` | 8.1 s | 155 ms |
+| `SUMIF` (equality) | 70.5 s | 68 ms |
+| `SMALL` | 59.5 s | 75 ms |
+| `SUM` (repeated) | 55.2 s | 89 ms |
+
+**Full (500k data cells ≈ 1.5M cells in the sheet × 100k formulas), measured, not extrapolated:** any
+single block of 100k whole-column formulas over the big column runs in **≤1.15 s** (down from an
+estimated **~4.2 hours** on the pre-cache engine — ~18,000× on the pure-scan functions). All 14 blocks
+(7 functions × 2 targets, 1.4M evaluations) total **7.7 s**. The extra memory the evaluation retains
+(cell memo + structural index + range snapshot) is ~75–122 MB for a 500k-cell big column, transient and
+dropped on invalidation; the process peak is dominated by the workbook itself, not the caches.
+
+> **Measure, don't extrapolate.** The pre-cache cost was truly O(F·N), so timing 1k formulas and
+> multiplying by 100 was a valid estimate. With the caches the cost is O(N + F·log N): the snapshot
+> build is a one-time O(N) cost amortized across the whole block, so a 1k sample × 100 multiplies that
+> one-time build by 100 and wildly over-estimates. The full number above is measured over the real 100k
+> formulas.
+
+### Compared to ClosedXML
+
+The same reduced whole-column workload (50k × 10k), each engine in its own process:
+
+| Formula | MySheet | ClosedXML |
+| --- | --- | --- |
+| `MATCH(…,1)` (approximate) | 123 ms | 67,294 ms |
+| `MATCH(…,0)` (exact) | 105 ms | 1,821 ms |
+| `VLOOKUP(…,FALSE)` | 154 ms | 1,463 ms |
+| `SUMIF` (equality) | 95 ms | 16,874 ms |
+| `COUNTIF` (equality) | 97 ms | 16,970 ms |
+| `SUM` (repeated) | 113 ms | 20,192 ms |
+| `SMALL` | ~78 ms | **`#NAME?` — not implemented** |
+
+Results are identical where both engines compute. MySheet is faster in every supported function (9.5× to
+547×) **and** holds a lower peak working set (~152 MB vs ~156 MB) even while carrying the epoch caches —
+and it answers `SMALL`/`LARGE` over a whole column, which ClosedXML does not evaluate at all.
+
 ## Deep chains: `RunWithLargeStack`
 
 Evaluation is recursive, and the risk is not deep *formulas* but long **dependency chains between
@@ -140,4 +260,14 @@ point) and the `ComputedValue` spike:
 
 ```shell
 dotnet run --project benchmarks/Danfma.MySheet.Benchmark -c Release
+```
+
+The whole-column scale numbers above come from a dedicated wall-clock harness (the O(F·N) baseline is
+too slow to iterate under BenchmarkDotNet):
+
+```shell
+# Reduced scale (50k × 10k), runs in seconds:
+dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --whole-column-scale
+# + the measured full scale (500k × 100k), with per-block memory:
+dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --whole-column-scale --full
 ```
