@@ -133,6 +133,91 @@ public sealed partial class Workbook
             sheet
         );
 
+    // Per-sheet "an open range has been read once this epoch" markers. Second-use admission for Layer 1:
+    // building the index (an O(N) pass + per-bucket allocation) pays off only when a sheet is read through an
+    // open range MORE than once per epoch. A sheet read exactly once (the "InvalidateCache + one whole-column
+    // read per epoch" shape) would pay the build it never reuses — the 2.6.2/2.6.4 index regression. So the
+    // FIRST open-range read of a sheet records a marker and stays on the NaiveScan path; the SECOND builds the
+    // index. Dropped by InvalidateCache() with the index; survives Recalculate() (structure is unchanged).
+    [MemoryPackIgnore]
+    private ConcurrentDictionary<string, bool>? _structuralIndexSeen;
+
+    private ConcurrentDictionary<string, bool> StructuralIndexSeen
+    {
+        get
+        {
+            var existing = _structuralIndexSeen;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            return Interlocked.CompareExchange(ref _structuralIndexSeen, created, null) ?? created;
+        }
+    }
+
+    /// <summary>
+    /// Test/benchmark hook to force the structural-index admission policy: <see cref="StructuralIndexMode.Admission"/>
+    /// (production default — build on the 2nd read), <see cref="StructuralIndexMode.ForceNaive"/> (always
+    /// NaiveScan — the pre-index 2.6.1 baseline) or <see cref="StructuralIndexMode.ForceBuild"/> (build on
+    /// every read — the pre-Phase-5 tree). Not serialized.
+    /// </summary>
+    [MemoryPackIgnore]
+    internal StructuralIndexMode StructuralIndexMode { get; set; } = StructuralIndexMode.Admission;
+
+    /// <summary>
+    /// The structural index to use for an open-range read of a sheet, or <c>null</c> when the caller must
+    /// NaiveScan (the sheet's FIRST open-range read this epoch, or <see cref="StructuralIndexMode.ForceNaive"/>).
+    /// The SECOND read builds the index and every read after reuses it. Internal — evaluation contract.
+    /// </summary>
+    internal SheetStructuralIndex? TryGetStructuralIndex(string sheetName, Sheet sheet)
+    {
+        switch (StructuralIndexMode)
+        {
+            case StructuralIndexMode.ForceNaive:
+                return null;
+            case StructuralIndexMode.ForceBuild:
+                return GetStructuralIndex(sheetName, sheet);
+        }
+
+        // Already built this epoch (a prior second-or-later read): reuse it.
+        if (_structuralIndex is { } built && built.TryGetValue(sheetName, out var existing))
+        {
+            return existing;
+        }
+
+        // First read this epoch: record the marker and keep the caller on the NaiveScan path. (Race-benign:
+        // if two threads both see "first", one NaiveScans and the other builds — both yield the same ids.)
+        if (StructuralIndexSeen.TryAdd(sheetName, true))
+        {
+            return null;
+        }
+
+        // Second (or later) read: build the index (once) and reuse it thereafter.
+        return GetStructuralIndex(sheetName, sheet);
+    }
+
+    /// <summary>The already-built structural index for a sheet, or <c>null</c> when none has been built this
+    /// epoch — a side-effect-free peek (never admits a read, never bucketizes). Test/introspection only.</summary>
+    internal SheetStructuralIndex? PeekStructuralIndex(string sheetName) =>
+        _structuralIndex is { } built && built.TryGetValue(sheetName, out var existing) ? existing : null;
+
+    // The structural index to use for the cache-size ESTIMATE, WITHOUT admitting a read (the estimate must not
+    // count as one of the two admission reads, nor force the O(N) build on a range's first read). ForceBuild
+    // builds (to reproduce the pre-Phase-5 tree in the harness); otherwise it only peeks an already-built map.
+    private SheetStructuralIndex? StructuralIndexForEstimate(string sheetName, Sheet sheet)
+    {
+        if (StructuralIndexMode == StructuralIndexMode.ForceBuild)
+        {
+            return GetStructuralIndex(sheetName, sheet);
+        }
+
+        return _structuralIndex is { } built && built.TryGetValue(sheetName, out var existing)
+            ? existing
+            : null;
+    }
+
     // === Layer-2 range value cache (whole-column scale) =================================================
     // Per-epoch snapshot (materialized ComputedValue[] + lazy derived accelerators) of a populated range,
     // keyed by the range reference record (OpenRangeReference/RangeReference have value equality). The
@@ -239,7 +324,15 @@ public sealed partial class Workbook
                     return 0;
                 }
 
-                var index = GetStructuralIndex(open.SheetName, sheet);
+                // First read of this range: the structural index is not built yet and the estimate must NOT
+                // force it (that is the Phase-5 regression). With no cheap count available, admit the range so
+                // its size is confirmed only when the snapshot is actually built on the second read.
+                var index = StructuralIndexForEstimate(open.SheetName, sheet);
+                if (index is null)
+                {
+                    return RangeCacheMinimumCells;
+                }
+
                 var total = 0;
 
                 // Whole-row shape (both column limits open, row axis bounded): sum the covered rows.
@@ -247,24 +340,21 @@ public sealed partial class Workbook
                 {
                     for (var row = rowMin; row <= rowMax && total < RangeCacheMinimumCells; row++)
                     {
-                        if (index.Rows.TryGetValue(row, out var rowIds))
-                        {
-                            total += rowIds.Count;
-                        }
+                        total += index.RowLength(row);
                     }
 
                     return total;
                 }
 
                 // Column-driven shapes: sum the covered columns' lengths (an upper bound over row bounds).
-                foreach (var (column, columnIds) in index.Columns)
+                foreach (var column in index.ColumnKeys)
                 {
                     if (
                         (open.ColMin is not { } min || column >= min)
                         && (open.ColMax is not { } max || column <= max)
                     )
                     {
-                        total += columnIds.Count;
+                        total += index.ColumnLength(column);
                         if (total >= RangeCacheMinimumCells)
                         {
                             break;
@@ -471,6 +561,7 @@ public sealed partial class Workbook
         // Cells may have been added or removed, so the structural index is stale too. Recalculate() does
         // NOT touch it: a volatile refresh changes values, never which cells exist.
         _structuralIndex?.Clear();
+        _structuralIndexSeen?.Clear();
 
         // The value snapshots are stale once any cell changed.
         _rangeCache?.Clear();

@@ -24,6 +24,13 @@ if (args.Contains("--range-cache-admission"))
     return;
 }
 
+// Admissão do índice estrutural na 2ª leitura (Fase 5): `dotnet run -c Release -- --structural-index-admission`.
+if (args.Contains("--structural-index-admission"))
+{
+    StructuralIndexAdmissionHarness.Run();
+    return;
+}
+
 // Spike CellValue (Fase 2): `dotnet run -c Release -- --filter *Spike*`.
 // Sem filtro cai no menu do BenchmarkSwitcher; SheetBenchmarks continua disponível.
 BenchmarkSwitcher.FromAssembly(typeof(SheetBenchmarks).Assembly).Run(args);

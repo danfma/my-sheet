@@ -73,18 +73,29 @@ public sealed partial record OpenRangeReference(
             yield break;
         }
 
-        var index = context.Workbook.GetStructuralIndex(SheetName, sheet);
+        var index = context.Workbook.TryGetStructuralIndex(SheetName, sheet);
+
+        // First open-range read of this sheet this epoch (or the ForceNaive baseline): no index yet — scan
+        // the keys directly (the pre-Phase-1 path) and sort ONLY the matches into the SAME deterministic order
+        // the index yields, so results and enumeration order stay identical to the index-backed path.
+        if (index is null)
+        {
+            foreach (var id in NaiveScan(sheet))
+            {
+                yield return id;
+            }
+
+            yield break;
+        }
 
         // Whole-row reference (column axis fully open, row axis bounded): drive the symmetric ROW index so
         // a whole-row read touches only its rows, never the big columns. Yields row-then-column order; with
         // no column bound to apply, every id in the row's (column-sorted) list qualifies.
         if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
         {
-            var rows = index.Rows;
-
             for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
-                if (rows.TryGetValue(row, out var rowIds))
+                if (index.TryGetRow(row, out var rowIds))
                 {
                     foreach (var id in rowIds)
                     {
@@ -99,11 +110,9 @@ public sealed partial record OpenRangeReference(
         // Column-driven path (every other shape): visit only the covered columns, each list already row-
         // sorted. A row bound narrows each list to its qualifying slice by binary search — no per-id
         // parsing, and a pure whole column (A:A) yields its list verbatim.
-        var columns = index.Columns;
-
-        foreach (var column in ColumnsToVisit(columns))
+        foreach (var column in ColumnsToVisit(index))
         {
-            if (!columns.TryGetValue(column, out var columnIds))
+            if (!index.TryGetColumn(column, out var columnIds))
             {
                 continue;
             }
@@ -118,11 +127,65 @@ public sealed partial record OpenRangeReference(
         }
     }
 
+    // The pre-index NaiveScan: filter the sheet's keys by the reference limits, collect the matches and sort
+    // ONLY them into the index's deterministic order — column-then-row, except a whole-row reference which is
+    // row-then-column. For a narrow reference (e.g. a 200-cell column) this sorts a handful of ids; even the
+    // worst case (one 500k column read once) sorts that column once, far below the whole-sheet index build.
+    private List<string> NaiveScan(Sheet sheet)
+    {
+        var wholeRow = ColMin is null && ColMax is null && RowMin is not null && RowMax is not null;
+        var matches = new List<(int Primary, int Secondary, string Id)>();
+
+        foreach (var id in sheet.Keys)
+        {
+            if (!CellAddress.TryGetColumnRow(id, out var column, out var row))
+            {
+                continue;
+            }
+
+            if (ColMin is { } colMin && column < colMin)
+            {
+                continue;
+            }
+
+            if (ColMax is { } colMax && column > colMax)
+            {
+                continue;
+            }
+
+            if (RowMin is { } rowMin && row < rowMin)
+            {
+                continue;
+            }
+
+            if (RowMax is { } rowMax && row > rowMax)
+            {
+                continue;
+            }
+
+            matches.Add(wholeRow ? (row, column, id) : (column, row, id));
+        }
+
+        matches.Sort(static (a, b) =>
+        {
+            var primary = a.Primary.CompareTo(b.Primary);
+            return primary != 0 ? primary : a.Secondary.CompareTo(b.Secondary);
+        });
+
+        var ids = new List<string>(matches.Count);
+        foreach (var match in matches)
+        {
+            ids.Add(match.Id);
+        }
+
+        return ids;
+    }
+
     // The columns the reference covers, ascending. When both column limits are known it is the finite
     // inclusive range [ColMin, ColMax] (the fast, common case: A:A, A:C, A2:A, A:A10, A1:C). When a column
     // side is open it is the populated columns within whatever bound IS known, sorted so enumeration stays
     // column-ascending.
-    private IEnumerable<int> ColumnsToVisit(Dictionary<int, List<string>> columns)
+    private IEnumerable<int> ColumnsToVisit(SheetStructuralIndex index)
     {
         if (ColMin is { } lowerColumn && ColMax is { } upperColumn)
         {
@@ -136,7 +199,7 @@ public sealed partial record OpenRangeReference(
 
         var matching = new List<int>();
 
-        foreach (var column in columns.Keys)
+        foreach (var column in index.ColumnKeys)
         {
             if ((ColMin is not { } min || column >= min) && (ColMax is not { } max || column <= max))
             {
@@ -206,17 +269,28 @@ public sealed partial record OpenRangeReference(
             return false;
         }
 
-        var index = context.Workbook.GetStructuralIndex(SheetName, sheet);
+        var index = context.Workbook.TryGetStructuralIndex(SheetName, sheet);
+
+        // First open-range read of this sheet this epoch (or ForceNaive): no index yet — derive the bounding
+        // box from a direct filtered scan of the keys, exactly as the pre-Phase-1 path did.
+        if (index is null)
+        {
+            return TryGetPopulatedBoundsNaive(
+                sheet,
+                out minColumn,
+                out maxColumn,
+                out minRow,
+                out maxRow
+            );
+        }
 
         // Whole-row shape: each covered row's list is column-sorted, so its first/last ids give the column
         // extremes directly (no column bound applies on this branch, by definition).
         if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
         {
-            var rows = index.Rows;
-
             for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
-                if (!rows.TryGetValue(row, out var rowIds) || rowIds.Count == 0)
+                if (!index.TryGetRow(row, out var rowIds) || rowIds.Count == 0)
                 {
                     continue;
                 }
@@ -236,11 +310,9 @@ public sealed partial record OpenRangeReference(
 
         // Column-driven shapes: each covered column's list is row-sorted, so the row extremes within the
         // row bounds are found by binary search at both ends.
-        var columns = index.Columns;
-
-        foreach (var column in ColumnsToVisit(columns))
+        foreach (var column in ColumnsToVisit(index))
         {
-            if (!columns.TryGetValue(column, out var columnIds) || columnIds.Count == 0)
+            if (!index.TryGetColumn(column, out var columnIds) || columnIds.Count == 0)
             {
                 continue;
             }
@@ -261,6 +333,60 @@ public sealed partial record OpenRangeReference(
             CellAddress.TryGetColumnRow(columnIds[last], out _, out var highRow);
             if (lowRow < minRow) minRow = lowRow;
             if (highRow > maxRow) maxRow = highRow;
+        }
+
+        return any;
+    }
+
+    // The pre-index bounding-box scan: one filtered pass over the sheet keys tracking the column/row extremes
+    // of the matches. Used on a sheet's first open-range read (before the index is admitted).
+    private bool TryGetPopulatedBoundsNaive(
+        Sheet sheet,
+        out int minColumn,
+        out int maxColumn,
+        out int minRow,
+        out int maxRow
+    )
+    {
+        minColumn = int.MaxValue;
+        maxColumn = int.MinValue;
+        minRow = int.MaxValue;
+        maxRow = int.MinValue;
+
+        var any = false;
+
+        foreach (var id in sheet.Keys)
+        {
+            if (!CellAddress.TryGetColumnRow(id, out var column, out var row))
+            {
+                continue;
+            }
+
+            if (ColMin is { } colMin && column < colMin)
+            {
+                continue;
+            }
+
+            if (ColMax is { } colMax && column > colMax)
+            {
+                continue;
+            }
+
+            if (RowMin is { } rowMin && row < rowMin)
+            {
+                continue;
+            }
+
+            if (RowMax is { } rowMax && row > rowMax)
+            {
+                continue;
+            }
+
+            any = true;
+            if (column < minColumn) minColumn = column;
+            if (column > maxColumn) maxColumn = column;
+            if (row < minRow) minRow = row;
+            if (row > maxRow) maxRow = row;
         }
 
         return any;
