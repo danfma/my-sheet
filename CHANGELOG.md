@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.6.1"></a>
+## [2.6.1](https://www.github.com/danfma/my-sheet/releases/tag/v2.6.1) (2026-07-03)
+
+### Bug Fixes
+
+* **refs:** resolve missing-sheet #REF! across the long-tail consumers ([278b079](https://www.github.com/danfma/my-sheet/commit/278b07962b4f13425ed85f7ed32ae3d314ad5c8e))
+* **refs:** resolve missing-sheet reference to #REF! instead of throwing ([f903a77](https://www.github.com/danfma/my-sheet/commit/f903a773160e18af538ced2b037693f9f1c580b9))
+
 <a name="2.6.0"></a>
 ## [2.6.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.6.0) (2026-07-03)
 
