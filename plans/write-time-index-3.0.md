@@ -56,13 +56,36 @@ TDD; verificação `--no-incremental` 0 warnings; fixture `workbook-pre-namespac
 chamada separada após `merge-base --is-ancestor` (lição).
 
 ## Phase 0: Prova de schema + congelamento de superfície
-Status: Not started
-- [ ] Spike-let: mover `Cells` para campo privado `[MemoryPackInclude]` (mesma posição) num branch
+Status: Complete
+- [x] Spike-let: mover `Cells` para campo privado `[MemoryPackInclude]` (mesma posição) num branch
       descartável; fixture + round-trip DEVEM passar sem regenerar nada. Se falhar → PARAR e reportar
       alternativas (surrogate/MemoryPackConstructor) antes de prosseguir.
-- [ ] Congelar a superfície 3.0 do `Sheet` (tabela antes/depois no plano) + esboço do guia de migração.
+- [x] Congelar a superfície 3.0 do `Sheet` (tabela antes/depois no plano) + esboço do guia de migração.
 ### Verification Plan
 - Fixture verde no spike-let; tabela de superfície escrita.
+### Phase Summary
+**Schema PRESERVADO** (2026-07-03). Spike na branch `spike/3.0-schema-proof` (commit `abc5ba4`, pai
+`8d56f2f`): property `Cells { get; init; }` → campo privado `[MemoryPackInclude] _cells` na MESMA posição
+de declaração + `Cells` público `IReadOnlyDictionary` com `[MemoryPackIgnore]`. MemoryPack ordena membros
+por declaração → wire byte-idêntico (membro #3). Verificação independente na worktree: fixture/teste-juiz
+intocados (diff só em `Workbook.cs`), build `--no-incremental` 5 projetos 0 warnings, core 841 / Excel 24 /
+`MemoryPackCompatibilityTests` 1/1 verdes. Surrogate/`MemoryPackConstructor` NÃO necessários. Sem risco de
+`_cells` null pós-`Load` (o membro existe em todo arquivo já gravado; initializer só serve ao `new Sheet`).
+Auditoria: nenhum consumidor de produção usa `sheet.Cells` como `Dictionary` nem `new Sheet { Cells = … }`
+(espelhos do benchmark usam `MSheet` próprio — nada a ajustar na F1, confirmar lá).
+
+**Superfície 3.0 congelada** (única quebra = linha 1):
+
+| Membro | 2.9 (antes) | 3.0 (depois) | Quebra? |
+|---|---|---|---|
+| `Cells` | `Dictionary<string, Expression> { get; init; }` | `IReadOnlyDictionary<string, Expression> { get; }` | **SIM** (tipo + perda do `init`) |
+| `this[string]` | `get`/`set` | inalterado (`set` delega ao `SetCell` interno na F1) | Não |
+| `Remove(string)` | não existe | novo `public bool Remove(string id)` (F1) | Adição |
+| `Count`/`Keys`/`Values`/`ContainsKey`/`TryGetValue`/enumeração/`Name`/`Index` | — | inalterados | Não |
+
+Guia de migração (esboço aprovado para F1, `docs/migrating-to-3.0.md`): leituras inalteradas; escrita →
+indexer `sheet["A1"] = expr`; remoção → `sheet.Remove("A1")`; object-initializer de `Cells` → construir e
+popular via indexer; serialização sem ação (wire idêntico, provado pela fixture congelada).
 
 ## Phase 1: Encapsulamento (refactor puro, sem índice novo)
 Status: Not started
