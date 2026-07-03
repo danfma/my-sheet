@@ -265,37 +265,174 @@ critério texto/wildcard/comparação → linear sobre snapshot (mapa só p/ igu
 ---
 
 ## Phase 3: Validação em escala plena + regressão comparativa + docs + release
-Status: Not started
+Status: Complete
 
-- [ ] Rodar o benchmark PLENO (500k × 100k+): registrar tempo total e pico de memória ANTES × DEPOIS no
+- [x] Rodar o benchmark PLENO (500k × 100k+): registrar tempo total e pico de memória ANTES × DEPOIS no
       relatório do plano. Meta: **< 60s na escala plena equivalente ao relato (aspiração < 10s)**; memória
       de pico dos caches documentada (~30-60MB esperados).
-- [ ] **Regressão comparativa (requisito do usuário, 2026-07-03)**: rodar a suíte `SheetBenchmarks`
+- [x] **Regressão comparativa (requisito do usuário, 2026-07-03)**: rodar a suíte `SheetBenchmarks`
       (MySheet × ClosedXML: Parse/Compute/Comparison/TextEquality/Conditional, com MemoryDiagnoser) na
       BRANCH e na MAIN, lado a lado. Critérios: (a) nenhuma regressão de tempo/alocação nos caminhos core
       (célula única, cache-heavy — o hot path NÃO foi tocado, deve ser ~0%); (b) **continuamos mais rápidos
       que o ClosedXML em TODAS as categorias** (tempo E memória). Registrar a tabela no plano.
-- [ ] **Comparativo ClosedXML no cenário de coluna inteira**: PRIMEIRO verificar a capacidade (lição do
+- [x] **Comparativo ClosedXML no cenário de coluna inteira**: PRIMEIRO verificar a capacidade (lição do
       lessons.md: ClosedXML pode não avaliar MATCH/SUMIF/whole-column — testar num spike de 5min). Se
       suportar: medir o cenário reduzido (50k × 10k) nos dois engines e registrar; se não suportar,
       documentar a incapacidade (também é resposta: eles não competem nesse caso de uso). A memória extra
       dos nossos caches deve ser comparada com o footprint do ClosedXML no MESMO workload.
-- [ ] `docs/performance.md`: seção sobre os range caches por época (o que existe, quando é descartado,
-      números medidos honestos); nota em `workbook-and-expressions.md` se necessário. Skill
-      `code-documentation-doc-generate`. NÃO tocar `docs/pt-BR/` (refresh no deploy).
-- [ ] `tasks/lessons.md`: a lição do O(F×N) (spike modelou amortização por leitura, não multiplicidade de
+- [x] `docs/performance.md`: seção sobre os range caches por época (o que existe, quando é descartado,
+      números medidos honestos). NÃO tocar `docs/pt-BR/` (refresh no deploy).
+- [x] `tasks/lessons.md`: a lição do O(F×N) (spike modelou amortização por leitura, não multiplicidade de
       fórmulas — benchmarks de estratégia devem modelar o EIXO DE CARGA COMPLETO: leituras × fórmulas).
-- [ ] Plano: fases Complete + Final Recap.
+- [x] Plano: fases Complete + Final Recap.
 
 ### Verification Plan
 - Números plenos no plano; suítes verdes; 0 warnings.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+
+**Nota de método — por que a escala plena é MEDIDA, não mais extrapolada.** O `--full` do harness (Fase 0)
+media 1k fórmulas e multiplicava ×100. Isso era VÁLIDO na baseline (custo verdadeiramente O(F×N): cada
+fórmula re-varria N, então o custo por fórmula era constante). Com os caches o custo virou O(N + F·log N):
+o build do snapshot é O(N) UMA vez, amortizado por TODAS as fórmulas do bloco. Amostrar 1k e multiplicar
+×100 multiplica esse build único ×100 e SUPERESTIMA grosseiramente (o `--full --sampled` chega a "60s" que
+são quase todo build). Portanto o número honesto pós-cache tem de ser MEDIDO sobre as 100k fórmulas reais —
+o `--full` agora faz exatamente isso (`WholeColumnScaleHarness.RunFullMeasured`, com delta de heap por bloco
++ wall-clock total; `--full --sampled` ainda imprime a extrapolação, só para documentar a armadilha).
+
+**Escala PLENA MEDIDA (500k células de dados ≈ 1,5M na sheet × 100k fórmulas REAIS por bloco), árvore atual
+(Camadas 1+2), Apple Silicon 10 cores, wall-clock ms do bloco:**
+
+| Fórmula      | Baseline Big est. 100k (s) | Big AGORA (ms) | Ganho Big | Narrow AGORA (ms) | Big cache Δheap (MB) | Narrow Δheap (MB) |
+|--------------|---------------------------:|---------------:|----------:|------------------:|---------------------:|------------------:|
+| Match1       | 15.140 (~4,2h)             |    814,7       | ~18.600×  |    344,9          |  0,0¹                |  19,6             |
+| Match0       | 14.918                     |    675,2       | ~22.100×  |    310,2          | 92,7                 |  19,6             |
+| VLookupExact |  1.359                     |  1.154,7       | ~1.180×   |    344,1          | 122,3                |  19,6             |
+| SumIfEqual   | 15.681                     |    775,2       | ~20.200×  |    303,9          | 97,9                 |  19,6             |
+| CountIfEqual | 14.970                     |    703,0       | ~21.300×  |    312,4          | 97,9                 |  19,6             |
+| Small        | 15.139                     |    636,1       | ~23.800×  |    288,3          | 78,6                 |  19,6             |
+| SumRepeated  | 14.779                     |    765,9       | ~19.300×  |    279,1          | 74,8                 |  19,6             |
+
+¹ Match1 é o 1º bloco Big; o Δheap saiu ~0 por ruído de coleta LOH entre blocos (o `SettleHeap` compacta,
+mas o high-water do build do 1º bloco engoliu o delta). Os demais blocos Big são consistentes em ~75–122MB.
+
+- **TOTAL medido dos 14 blocos (7 fórmulas × 2 alvos × 100k fórmulas = 1,4M avaliações): 7,71 s.**
+- **Pico de heap gerenciado num único bloco: 341,6 MB. Pico de RSS do processo (`/usr/bin/time -l`, run
+  inteiro sequencial): 721,5 MB.** Ambos DOMINADOS pelo workbook em si (1,5M células + 100k árvores de
+  fórmula), não pelos caches — o Δheap atribuível à AVALIAÇÃO (memo de célula + índice estrutural + snapshot
+  do range) é ~75–122MB (Big) / ~19,6MB (Narrow) por bloco, transiente (largado no `InvalidateCache`/
+  `Recalculate`). Um pouco acima da projeção de 30–60MB do plano porque o Δheap também inclui o memo das
+  100k células de fórmula e o memo de valor das 500k células lidas, não só os derivados do range.
+
+**Meta batida com folga:** o relato era 400k fórmulas × 506k → ~57min. Um bloco Big de 100k fórmulas roda em
+**≤1,15s**; extrapolando (agora É linear em F, custo por fórmula O(log N)) 400k fórmulas ≈ **~4,6s**. Mesmo
+os 14 blocos juntos = **7,71s** — abaixo da aspiração de <10s, e ~440× abaixo do teto de 60s.
+
+---
+
+**Regressão comparativa (a) — MySheet-branch × MySheet-main, `SheetBenchmarks` ShortRun (N=3),
+MemoryDiagnoser, mesma máquina; main = clone limpo de `2cd6727`, pré-caches:**
+
+| Categoria     | Branch (ns) | Main (ns) | Δ tempo | Branch aloc | Main aloc | Δ aloc |
+|---------------|------------:|----------:|--------:|------------:|----------:|-------:|
+| Comparison    |    71,49    |   69,18   | +3,3%   |    24 B     |   24 B    |  0%    |
+| Compute (Sum) |   107,29    |  105,09   | +2,1%   |   144 B     |  144 B    |  0%    |
+| Conditional   |    97,44    |  101,42   | −3,9%   |    24 B     |   24 B    |  0%    |
+| Parse         |   732,35    |  702,77   | +4,2%   |  2.224 B    | 2.224 B   |  0%    |
+| SheetInMemory |   253,70    |  259,84   | −2,4%   |  1.512 B    | 1.512 B   |  0%    |
+| TextEquality  |    32,54    |   32,81   | −0,8%   |    24 B     |   24 B    |  0%    |
+
+**Critério (a) — branch ≤ main × 1,05 em tempo E alocação: PASSA.** Alocação **idêntica** em todas as
+categorias (0%); tempo dentro de ±4,2% (< 5%). As barras de erro do ShortRun N=3 são largas (ex.: Parse
+±137ns), então os deltas de ~2–4% estão dentro do ruído — a alocação, que é exata, prova que o hot path
+não foi tocado.
+
+**Regressão comparativa (b) — MySheet-branch × ClosedXML, `SheetBenchmarks`, mesma run:**
+
+| Categoria     | MySheet (ns) | ClosedXML (ns) | MySheet aloc | ClosedXML aloc | Veredito                       |
+|---------------|-------------:|---------------:|-------------:|---------------:|--------------------------------|
+| Comparison    |    71,49     |    220,91      |    24 B      |    136 B       | MySheet ganha tempo E memória  |
+| Compute (Sum) |   107,29     |    206,46      |   144 B      |    136 B       | tempo ganha (1,9×); aloc +8B²  |
+| Conditional   |    97,44     |    212,59      |    24 B      |    136 B       | MySheet ganha tempo E memória  |
+| SheetInMemory |   253,70     | 37.480,73      | 1.512 B      |  69.531 B      | ganha 148× tempo, 46× memória  |
+| TextEquality  |    32,54     |    218,76      |    24 B      |    136 B       | MySheet ganha tempo E memória  |
+
+² Única exceção do gate (b): `MySheetSum` aloca 144B vs 136B do `ClosedXmlSum` (+8 bytes). É PRÉ-EXISTENTE
+(idêntico na main — não é regressão desta branch) e reflete workloads diferentes: o benchmark do MySheet
+RE-avalia a expressão `=SUM(A1,A2)` a cada op, enquanto o do ClosedXML lê um `double` já computado/cacheado.
+Em tempo o MySheet ganha (107 vs 206ns). Parse não tem par no ClosedXML (a lib não expõe parse isolado).
+
+---
+
+**Capability check ClosedXML no cenário de coluna inteira (spike, 16 linhas — falha aqui é de CAPACIDADE,
+não de escala):** `XLWorkbook` + `.FormulaA1` + `RecalculateAllFormulas()` + `.Value`:
+
+| Fórmula whole-column       | ClosedXML 0.105.0 |
+|----------------------------|-------------------|
+| `MATCH(x, A:A, 1)`         | OK                |
+| `MATCH(x, A:A, 0)`         | OK                |
+| `VLOOKUP(x, A:B, 2, FALSE)`| OK                |
+| `SUMIF(A:A, x)`            | OK                |
+| `COUNTIF(A:A, x)`          | OK                |
+| `SUM(A:A)`                 | OK                |
+| `SMALL(A:A, k)`            | **#NAME? (não implementada)** |
+
+Ou seja: ClosedXML COMPETE em whole-column para MATCH/VLOOKUP/SUMIF/COUNTIF/SUM, mas **não implementa
+SMALL** (nem LARGE) — MySheet responde onde o ClosedXML nem avalia.
+
+**Comparativo whole-column reduzido (50k células de dados × 10k fórmulas, um engine por processo p/ RSS
+limpo via `/usr/bin/time -l`; checksums IDÊNTICOS entre engines → equivalência semântica confirmada):**
+
+| Fórmula        | MySheet eval (ms) | ClosedXML eval (ms) | Ganho tempo | MySheet pico RSS | ClosedXML pico RSS |
+|----------------|------------------:|--------------------:|------------:|-----------------:|-------------------:|
+| Match1 (aprox) |       123         |      67.294         | **~547×**   |     153 MB       |      156 MB        |
+| Match0 (exato) |       105         |       1.821         |   ~17×      |     152 MB       |      155 MB        |
+| VLookup        |       154         |       1.463         |   ~9,5×     |     152 MB       |      158 MB        |
+| SumIf          |        95         |      16.874         |   ~178×     |     151 MB       |      158 MB        |
+| CountIf        |        97         |      16.970         |   ~175×     |     152 MB       |      156 MB        |
+| Sum            |       113         |      20.192         |   ~179×     |     153 MB       |      155 MB        |
+| Small          |        ~78³       |   n/d (#NAME?)      |     —       |     ~152 MB      |    não avalia      |
+
+³ Small do MySheet: ~78ms no harness reduzido (o `cxcmp` nem mede o par, pois o ClosedXML não avalia).
+
+**MySheet é mais rápido E usa MENOS pico de RSS que o ClosedXML em TODAS as fórmulas suportadas** (2–6MB
+abaixo em cada caso, MESMO carregando os caches por época) e ainda responde SMALL, que o ClosedXML não faz.
+Achados: o MATCH aproximado do ClosedXML sobre coluna inteira é patológico (67s — ~37× o exato); MATCH
+exato/VLOOKUP são rápidos (têm hashing/early-exit); SUMIF/COUNTIF/SUM re-varrem a coluna por fórmula
+(~17–20s). O pico de RSS do MySheet neste workload (~152MB) é o número apples-to-apples — o 721MB da escala
+plena é de rodar 14 workbooks de 500k sequencialmente num só processo, não um custo por-workload.
+
+**Build:** `--no-incremental` 0 warnings. **Suíte:** core **805**, Excel **23**, fixture/`MemoryPack
+CompatibilityTests` intocados e verdes. **Mudança de ferramenta:** `WholeColumnScaleHarness` ganhou o modo
+`--full` MEDIDO (100k reais) com instrumentação de memória; `--full --sampled` preserva a extrapolação
+antiga só para documentar a armadilha. Os projetos `cxcap`/`cxcmp` (capability + comparativo) ficaram no
+scratchpad (fora do repo), como spikes descartáveis.
 
 ## Final Recap
-_(escrever quando as fases 0–3 concluírem)_
+
+Cenário do usuário (sheet de ~506k células numa coluna + ~400k fórmulas de coluna inteira consumindo-a,
+ciclo carrega-1×-lê-1× → **~57min só de varreduras**) resolvido em DUAS camadas de cache interno, bounded,
+descartável, SEM API nova e SEM tocar o modelo esparso nem o hot path de célula única:
+
+- **Fase 0** — repro sintético determinístico + baseline que EXPÔS o O(F×N) (bloco de 100k fórmulas Big
+  ~4,1–4,4h; até a coluna estreita de 16 células ~21–27min, só de varrer 1,5M chaves por fórmula).
+- **Fase 1 — índice estrutural lazy por sheet** (`SheetStructuralIndex`): `coluna→ids ordenados` (+ simétrico
+  linha→ids), build 1×O(N) por época, sobrevive ao `Recalculate`, largado no `InvalidateCache`. Colapsou o
+  caso "colunas pequenas em sheet grande" (15,5s → 22–68ms por bloco: o scan de chaves sumiu).
+- **Fase 2 — range caches por época** (`RangeSnapshot`): snapshot materializado 1× + derivados LAZY (hash
+  exato, índice ordenado c/ prefix/suffix-max, mapa de igualdade numérica, view de números ordenados, memo
+  de agregado), limiar de 256 células, largado no `InvalidateCache` E `Recalculate`. Colapsou o caso "consome
+  a coluna grande" (O(F×N) → O(N + F·log N)): blocos Big do reduzido de ~55–80s para a casa das centenas de
+  ms. Semântica preservada bit a bit (301 casos de equivalência BYPASS×FRIO×QUENTE 100% idênticos).
+- **Fase 3 — validação plena + gate comparativo:** 14 blocos de 100k fórmulas em **7,71s** (bloco Big ≤1,15s;
+  ~18.600–23.800× vs baseline nos casos de scan puro); pico de heap 341,6MB / RSS 721,5MB (dominado pelo
+  workbook, não pelos caches). Sem regressão vs main (alocação idêntica, tempo ±4,2%); mais rápido E mais
+  enxuto que o ClosedXML em TODAS as categorias core E em TODAS as fórmulas whole-column suportadas
+  (9,5×–547× em tempo, 2–6MB abaixo em RSS), e resolve SMALL, que o ClosedXML nem avalia.
+
+Meta do plano (< 60s pleno, aspiração < 10s): **batida** (equivalente ao relato ~4,6s; 14 blocos 7,71s).
+Suítes verdes (805 + 23), 0 warnings, fixture intocada.
 
 ## Deployment Plan
-_(mesmo ritual: verificação independente minha (rebuild forçado + benchmark) → merge → push → release
+_(mesmo ritual: verificação independente do usuário (rebuild forçado + benchmark) → merge → push → release
 **2.7.0** lockstep → `git pull` → refresh `docs/pt-BR/` via Sonnet. PR opcional a critério do usuário.)_

@@ -103,3 +103,25 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   benigno (tabela de resultados), mas a forma certa era um commit NOVO ("docs: add full-scale numbers").
   Regra para briefings: append-only também no git — amend só se o commit nunca saiu do próprio agente E
   nenhum outro trabalho partiu dele (na prática: nunca).
+
+## MySheet — benchmarks de estratégia / eixo de carga (2026-07-03, coluna inteira)
+
+- **Um benchmark de ESTRATÉGIA tem de modelar o EIXO DE CARGA COMPLETO: leituras × fórmulas × tamanho.**
+  O spike de coluna inteira (`plans/whole-column-spike.md`) mediu "273 µs/scan, 1× por época via memoização"
+  e concluiu break-even do índice em "≥4 leituras/época". Verdade — mas POR FÓRMULA: a memoização é por
+  CÉLULA, não por época global. Com F=400k fórmulas cada uma varrendo N=506k chaves, o custo real é
+  O(F×N) ≈ 2×10¹¹ visitas ≈ 57min — o break-even foi estourado por 5 ORDENS DE GRANDEZA. O spike modelou o
+  eixo da AMORTIZAÇÃO POR LEITURA (quantas vezes um MESMO scan é reusado) e esqueceu o eixo da MULTIPLICIDADE
+  DE FÓRMULAS (quantos scans distintos existem). Regra: antes de cravar um limiar/estratégia, enumere TODOS
+  os eixos que multiplicam o custo (nº de fórmulas × nº de células por fórmula × nº de leituras) e ponha o
+  pior deles no gerador do benchmark — senão o número "por unidade" mente sobre o total.
+- **Pós-otimização, extrapolação linear de amostra pode INVERTER de válida para enganosa.** O harness `--full`
+  amostrava 1k fórmulas e multiplicava ×100. Na baseline (custo O(F×N), linear por fórmula) isso era CORRETO.
+  Depois dos caches (custo O(N + F·log N)) o build do snapshot é O(N) UMA vez amortizado por TODO o bloco —
+  amostrar 1k e multiplicar ×100 multiplica esse build único ×100 e superestima grosseiramente (deu "60s" que
+  eram quase todo build). Regra: quando a mudança que você está medindo altera a COMPLEXIDADE (não só a
+  constante), a extrapolação de amostra que valia na baseline deixa de valer — MEÇA a carga real.
+- **Verificar a capacidade do concorrente ANTES de afirmar que você "ganha" (corolário da lição financeira).**
+  Antes de comparar whole-column com o ClosedXML, um spike de 16 linhas confirmou o que ele avalia: MATCH/
+  VLOOKUP/SUMIF/COUNTIF/SUM sim, mas SMALL/LARGE → `#NAME?`. A incapacidade é resposta (eles não competem em
+  SMALL), e evita medir o par inexistente e reportar um "ganho" inventado.
