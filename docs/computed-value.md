@@ -24,6 +24,14 @@ ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 | `Error` | An Excel error (`#DIV/0!`, `#N/A`, …) as an [`Error`](#the-error-struct) struct. | none |
 | `Reference` | A reference produced by a function such as `OFFSET` (see [References](#references-and-enumeratevalues)). | carries the existing reference |
 
+> **Formula results are never blank at the cell boundary (Excel parity).** `Blank` is what you get from a
+> truly empty cell (`BlankValue` expression) or an omitted argument. But a cell that HAS content whose
+> formula evaluates to blank is coerced: `GetCellValue` returns `Number(0)`, exactly like Excel — e.g.
+> `=Sheet2!F10` with `F10` empty, or `=IF(TRUE, F10)`, reads as `0`, not blank. The coercion is the
+> **cell's**, not the expression's — `Evaluate` keeps blank internally (blank still compares as `""`/`0`/
+> `FALSE` inside an expression). See
+> [Formula results are never blank](workbook-and-expressions.md#formula-results-are-never-blank-excel-parity).
+
 ## Extracting values
 
 Extraction is **explicit and strict by exact kind** — there is no Excel-style coercion at this surface

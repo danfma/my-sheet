@@ -427,7 +427,19 @@ public sealed partial class Workbook
             }
 
             // Compute outside the dictionary (the formula recurses back in), then store.
-            var value = sheet[id].Evaluate(new EvaluationContext(this, sheetName, id));
+            var expression = sheet[id];
+            var value = expression.Evaluate(new EvaluationContext(this, sheetName, id));
+
+            // Excel parity — a formula result is NEVER blank at the CELL boundary: when a cell that HAS
+            // content (its expression is not the empty BlankValue) evaluates to blank (e.g. =Sheet2!F10 with
+            // F10 empty, or =IF(TRUE, F10)), Excel displays 0, so the coerced 0 is what enters the cache. A
+            // truly empty cell (BlankValue expression) stays blank. The coercion is the CELL's, not the
+            // expression's: Expression.Evaluate keeps blank INTERNALLY (blank still compares as ""/0/FALSE
+            // inside an expression), so it is intentionally NOT touched here.
+            if (expression is not BlankValue && value.Kind == ComputedValueKind.Blank)
+            {
+                value = ComputedValue.Number(0);
+            }
 
             var cellTouched = _volatileTouched;
             if (cellTouched)

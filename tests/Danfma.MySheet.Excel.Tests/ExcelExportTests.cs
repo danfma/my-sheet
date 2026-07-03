@@ -75,6 +75,32 @@ public class ExcelExportTests
     }
 
     [Test]
+    public async Task ValuesOnly_FormulaWithEmptyResult_WritesZero()
+    {
+        // Excel-parity: a formula whose result is blank displays 0, so ValuesOnly writes 0 (it used to omit
+        // the cell). =F10 with F10 empty round-trips as a literal 0, not a missing cell.
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-export-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            var workbook = new Workbook();
+            var sheet = workbook.Sheets.Add("Data");
+            sheet["A1"] = ExpressionParser.Parse("=F10", sheet);
+
+            workbook.SaveAsExcel(path, new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly });
+
+            var reloaded = ExcelFile.Load(path);
+
+            await Assert.That(reloaded["Data"]["A1"]).IsTypeOf<NumberValue>();
+            await Assert.That(reloaded.GetCellValue("Data", "A1").ToDouble()).IsEqualTo(0.0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     public async Task Formulas_RoundTripThroughOurReader()
     {
         await WithExport(

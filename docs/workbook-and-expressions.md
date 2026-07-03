@@ -154,6 +154,37 @@ bool isHigh = adHoc.Evaluate(workbook).ToBoolean();
 There is no other evaluation API: callers that need a loosely-typed `object?` call `.AsObject()` on the
 result.
 
+### Formula results are never blank (Excel parity)
+
+At the **cell boundary** — `GetCellValue` — a formula result is never blank, exactly like Excel: when a
+cell that HAS content (its expression is not the empty `BlankValue`) evaluates to blank, `GetCellValue`
+returns `ComputedValue.Number(0)`, and that coerced `0` is what enters the cache. A cell that is truly
+empty (its expression is `BlankValue.Instance`, e.g. an id that was never set) stays blank.
+
+```csharp
+sheet["A1"] = Cell("F10", sheet);                       // =F10, F10 empty
+workbook.GetCellValue("Sheet1", "A1").ToDouble();        // 0   (formula result coerced)
+workbook.GetCellValue("Sheet1", "F10").Kind;             // Blank (truly empty cell)
+
+sheet["A2"] = ExpressionParser.Parse("=IF(TRUE, F10)", sheet);
+workbook.GetCellValue("Sheet1", "A2").ToDouble();        // 0   (blank branch coerced)
+```
+
+The coercion belongs to the **cell**, not the expression: `Evaluate` keeps blank INTERNALLY, so blank
+still compares as `""`/`0`/`FALSE` inside an expression. This preserves the internal semantics while
+matching Excel at the display boundary:
+
+```csharp
+sheet["A3"] = ExpressionParser.Parse("=IF(F10=\"\",1,2)", sheet);
+workbook.GetCellValue("Sheet1", "A3").ToDouble();        // 1   (F10 empty still equals "" internally)
+sheet["A4"] = ExpressionParser.Parse("=F10&\"\"", sheet);
+workbook.GetCellValue("Sheet1", "A4").ToText();          // ""  (result is text, not blank → not coerced)
+```
+
+The parity effects cascade, all matching Excel: `ISBLANK(A1)` with `A1 = "=F10"` is **FALSE** (A1 is now
+0), `COUNT` counts a formula-empty cell (0 is a number) while `COUNTBLANK` no longer does, and the
+`SaveAsExcel` `ValuesOnly` export writes `0` for a formula-empty cell instead of omitting it.
+
 ## Operators
 
 MySheet parses the Excel operator set. Binding powers (precedence) from loosest to tightest:

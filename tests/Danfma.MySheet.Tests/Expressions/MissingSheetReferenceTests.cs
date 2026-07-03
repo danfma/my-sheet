@@ -286,11 +286,15 @@ public class MissingSheetReferenceTests
     }
 
     [Test]
-    public async Task Cell_ExistingSheet_Empty_IsBlank()
+    public async Task Cell_ExistingSheet_Empty_CoercesToZero()
     {
+        // Control: a reference into an EXISTING sheet's empty cell is NOT #REF! (unlike a missing sheet).
+        // Excel-parity update — a formula result is never blank at the CELL boundary, so =Main!A2 (A2 empty)
+        // now displays 0 instead of blank. The control's real point (existing sheet ≠ #REF!) is preserved.
         var value = Eval("=Main!A2");
 
-        await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Blank);
+        await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Number);
+        await Assert.That(value.ToDouble()).IsEqualTo(0.0);
     }
 
     // === No cell throws: a whole batch with dangling refs resolves, each to #REF! ========================
