@@ -455,7 +455,90 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             return new RangeReference(start.Id, end.Id, start.SheetName);
         }
 
+        // The ':' operator forces reference semantics: a letters-only endpoint is a COLUMN and an
+        // integer endpoint a ROW, even when a defined name of the same spelling exists. This yields the
+        // whole-column/row and one-sided open references (A:A, 1:5, A2:A, A:A10, A1:C).
+        if (TryBuildOpenRange(left, right, SheetOf(left, right), out var open))
+        {
+            return open;
+        }
+
         throw new ParseException("The ':' range operator requires cell references", colon.Position);
+    }
+
+    // The sheet a range lives on: the left endpoint's sheet when it carries one, else the right's, else
+    // the parser's context sheet (a column-/row-only endpoint carries no sheet).
+    private string SheetOf(Expression left, Expression right) =>
+        left is CellReference lc ? lc.SheetName
+        : right is CellReference rc ? rc.SheetName
+        : sheetName;
+
+    // Combines two endpoints (each contributing what it knows) into an open range: the left gives the
+    // lower bounds, the right the upper bounds. When all four limits are known it degrades to a plain
+    // RangeReference so the existing bounded path is never regressed.
+    private static bool TryBuildOpenRange(
+        Expression left,
+        Expression right,
+        string sheet,
+        out Expression result
+    )
+    {
+        if (
+            TryEndpoint(left, out var colMin, out var rowMin)
+            && TryEndpoint(right, out var colMax, out var rowMax)
+        )
+        {
+            if (
+                colMin is { } cMin
+                && colMax is { } cMax
+                && rowMin is { } rMin
+                && rowMax is { } rMax
+            )
+            {
+                result = new RangeReference(
+                    new CellAddress(cMin, rMin).ToId(),
+                    new CellAddress(cMax, rMax).ToId(),
+                    sheet
+                );
+                return true;
+            }
+
+            result = OpenRangeReference.Create(colMin, colMax, rowMin, rowMax, sheet);
+            return true;
+        }
+
+        result = null!;
+        return false;
+    }
+
+    // Reads what a range endpoint knows: a cell gives (column,row); a letters-only name gives a column
+    // (row open); a positive-integer number gives a row (column open). Anything else is not an endpoint.
+    private static bool TryEndpoint(Expression expression, out int? column, out int? row)
+    {
+        switch (expression)
+        {
+            case CellReference cell:
+                var address = CellAddress.Parse(cell.Id);
+                column = address.Column;
+                row = address.Row;
+                return true;
+
+            case NameReference name when CellAddress.TryParseColumn(name.Name, out var parsedColumn):
+                column = parsedColumn;
+                row = null;
+                return true;
+
+            case NumberValue { Value: var value }
+                when value >= 1 && value <= int.MaxValue && value == Math.Floor(value):
+                column = null;
+                row = (int)value;
+                return true;
+
+            default:
+                column = null;
+                row = null;
+                return false;
+        }
     }
 
     private Expression ParseIdentifier(Token token)
@@ -488,14 +571,57 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
     private Expression ParseQualifiedReference(string sheet)
     {
         Expect(TokenType.Bang);
-        var token = Advance();
+        var first = Advance();
 
-        if (token.Type != TokenType.Identifier || !IsCellReference(token.Text))
+        // A qualified range/open-range: Data!A1:B2, Data!A:A, Data!1:5, Data!A1:C. Both endpoints live on
+        // the qualified sheet; the ':' forces reference semantics on a column-/row-only endpoint.
+        if (Current.Type == TokenType.Colon)
         {
-            throw new ParseException("Expected a cell reference after '!'", token.Position);
+            Advance();
+            var second = Advance();
+
+            if (
+                TryEndpointToken(first, sheet, out var left)
+                && TryEndpointToken(second, sheet, out var right)
+                && TryBuildOpenRange(left, right, sheet, out var range)
+            )
+            {
+                return range;
+            }
+
+            throw new ParseException("Expected a cell reference after '!'", first.Position);
         }
 
-        return new CellReference(NormalizeCellId(token.Text), sheet);
+        if (first.Type != TokenType.Identifier || !IsCellReference(first.Text))
+        {
+            throw new ParseException("Expected a cell reference after '!'", first.Position);
+        }
+
+        return new CellReference(NormalizeCellId(first.Text), sheet);
+    }
+
+    // Turns a range-endpoint token into the expression a qualified open range is built from: a cell id
+    // becomes a sheet-qualified CellReference, a letters-only identifier a column NameReference, an
+    // integer a row NumberValue. Validation of "letters-only column" / "integer row" happens in
+    // TryEndpoint when the range is built.
+    private static bool TryEndpointToken(Token token, string sheet, out Expression endpoint)
+    {
+        if (token.Type == TokenType.Identifier)
+        {
+            endpoint = IsCellReference(token.Text)
+                ? new CellReference(NormalizeCellId(token.Text), sheet)
+                : new NameReference(token.Text);
+            return true;
+        }
+
+        if (token.Type == TokenType.Number)
+        {
+            endpoint = new NumberValue(double.Parse(token.Text, CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        endpoint = null!;
+        return false;
     }
 
     // Strips absolute markers ('$') and upper-cases, e.g. $A$1 -> A1. The reference identifies the same

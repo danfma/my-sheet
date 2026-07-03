@@ -336,6 +336,8 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(313, typeof(Today))]
 [MemoryPackUnion(314, typeof(Rand))]
 [MemoryPackUnion(315, typeof(RandBetween))]
+// Whole-column / whole-row / one-sided open references (A:A, 1:1, A2:A, A:A10, A1:C).
+[MemoryPackUnion(316, typeof(OpenRangeReference))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

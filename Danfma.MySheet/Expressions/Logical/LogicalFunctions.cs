@@ -29,7 +29,7 @@ public sealed partial record Xor(Expression[] Arguments) : Function
 
         foreach (var argument in Arguments)
         {
-            if (argument is RangeReference or UnionReference)
+            if (argument is RangeReference or OpenRangeReference or UnionReference)
             {
                 if (AccumulateRange(argument, context, ref trueCount, ref sawLogical) is { } rangeError)
                 {

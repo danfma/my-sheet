@@ -39,7 +39,7 @@ internal static class NamedReferences
 
         try
         {
-            return definition is RangeReference or UnionReference
+            return definition is RangeReference or OpenRangeReference or UnionReference
                 ? ComputedValue.Reference((Reference)definition)
                 : definition.Evaluate(context);
         }

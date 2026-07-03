@@ -56,34 +56,38 @@ Contexto de código:
 ---
 
 ## Phase 1: Parser + OpenRangeReference + enumeração (o caso de agregação)
-Status: Not started
+Status: Complete
 
-- [ ] `OpenRangeReference(int? ColMin, int? ColMax, int? RowMin, int? RowMax, string SheetName) : Reference`
+- [x] `OpenRangeReference(int? ColMin, int? ColMax, int? RowMin, int? RowMax, string SheetName) : Reference`
       (record MemoryPackable, tag 316). `Evaluate` = `#VALUE!` (como `RangeReference` bare). Normaliza
-      cantos (min ≤ max quando ambos não-null).
-- [ ] Extrator no-alloc em `CellAddress` (ou helper): `TryGetColumnRow(string id, out int col, out int row)`
-      sem alocar substring (o benchmark: 273 µs vs 1.303 µs com substring).
-- [ ] `Expand(context)` / `ExpandComputedValues(context)`: NaiveScan — iterar `sheet.Cells.Keys`, extrair
-      (col,row) no-alloc, manter as células dentro dos limites NÃO-null (null = passa sempre), `yield` o
-      valor/`GetCellValue`. Ordem determinística (col, depois row) para testes.
-- [ ] `Parser.ParseRange` + `ParseQualifiedReference`: montar `OpenRangeReference` a partir dos endpoints.
-      Cada endpoint informa o que sabe — `CellReference`→(col,row); coluna-pura (`NameReference` só-letras)→
-      col; linha-pura (`NumberValue` inteiro)→row. Esquerdo dá limites inferiores, direito superiores; eixo
-      não-informado por um lado fica aberto (null) desse lado. **O `:` força semântica de referência**: um
-      nome só-letras adjacente a `:` é COLUNA, mesmo que exista defined name homônimo (documentar).
-      `Data!A:A` → OpenRangeReference qualificado. Se TODOS os 4 limites resultarem não-null → produzir um
-      `RangeReference` normal (não regredir o caminho existente).
-- [ ] Testes (agregação — caminho limpo): `SUM(A:A)`, `AVERAGE(A:A)`, `COUNTA(A:A)`, `MAX(A:C)`, `SUM(1:1)`,
-      `SUM(1:5)`, `SUMIF(A:A,">5")`, `SUM(Data!A:A)` cross-sheet; **mistas**: `SUM(A2:A)` (ignora A1),
-      `SUM(A:A10)` (só até linha 10), `SUM(A1:C)`; coluna esparsa (A1 e A100 → 2 células, 98 vazias
-      intocadas); coluna vazia → 0; `$A:$A` normaliza.
+      cantos via `OpenRangeReference.Create` (min ≤ max quando ambos não-null).
+- [x] Extrator no-alloc em `CellAddress`: `TryGetColumnRow(string id, out int col, out int row)`
+      sem alocar substring (lê letras acumulando a coluna, depois dígitos acumulando a linha; sem
+      `int.Parse`). Também `TryParseColumn` (label só-letras, engole `$`).
+- [x] `Expand(context)` / `ExpandComputedValues(context)` via `PopulatedIds(context)`: NaiveScan —
+      itera `sheet.Cells.Keys`, extrai (col,row) no-alloc, mantém as células dentro dos limites NÃO-null
+      (null = passa sempre), `yield` o valor/`GetCellValue`.
+- [x] `Parser.ParseRange` + `ParseQualifiedReference`: montam `OpenRangeReference` via `TryBuildOpenRange`
+      a partir de dois `TryEndpoint`s. `CellReference`→(col,row); `NameReference` só-letras→col;
+      `NumberValue` inteiro≥1→row. Esquerdo=limites inferiores, direito=superiores; eixo não-informado fica
+      aberto. `:` força referência (nome só-letras vira coluna). `Data!A:A` qualificado. 4 limites não-null
+      → `RangeReference` normal (caminho existente preservado).
+- [x] Testes (`WholeColumnReferenceTests`, 17): `SUM/AVERAGE/COUNTA/MAX`, `SUM(1:1)`, `SUM(1:5)`,
+      `SUMIF(A:A,">5")`, `SUM(Data!A:A)`, mistas `SUM(A2:A)`/`SUM(A:A10)`/`SUM(A1:C)`, esparsa, vazia→0,
+      `$A:$A`, e asserts de tipo (A:A→OpenRangeReference, A1:B2→RangeReference).
 
 ### Verification Plan
 - `dotnet build Danfma.MySheet.slnx -c Release --no-incremental` → 0 warnings.
 - Suíte core verde + os novos; `MemoryPackCompatibilityTests` verde (tags append). Excel (20) intacta.
 
 ### Phase Summary
-_(escrever quando a fase concluir)_
+Adicionado o tipo único `OpenRangeReference` (tag MemoryPackUnion 316, append). Enumeração de células
+POPULADAS via NaiveScan no-alloc (`CellAddress.TryGetColumnRow`). O parser distingue coluna-pura de
+defined name pela adjacência ao `:` (um `NameReference` só-letras vira coluna). Consumidores de agregação
+(`SUM/AVERAGE/MIN/MAX/COUNT`/*A, `SUMIF/COUNTIF/SUMIFS/COUNTIFS/SUMPRODUCT`, conditional/statistical via
+`ArgumentFlattening`, `SUBTOTAL`, `NPV`, `XOR`, `CHOOSE`, e `ComputedValue.EnumerateValues` para o caminho
+de defined name) ganharam um `case OpenRangeReference` espelhando o `RangeReference`. **Build:** 0 warnings.
+**Suíte:** core 715 (698 + 17), Excel 20, `MemoryPackCompatibilityTests` verde.
 
 ---
 

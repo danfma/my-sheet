@@ -38,6 +38,14 @@ public sealed partial record Npv(Expression[] Arguments) : Function
 
                     break;
 
+                case OpenRangeReference open:
+                    foreach (var value in open.ExpandComputedValues(context))
+                    {
+                        AddReferenced(value, denominator, ref discount, ref sum, ref error);
+                    }
+
+                    break;
+
                 case CellReference cell:
                     AddReferenced(cell.Evaluate(context), denominator, ref discount, ref sum, ref error);
                     break;

@@ -52,6 +52,14 @@ internal static class NumericAggregation
 
                     break;
 
+                case OpenRangeReference open:
+                    foreach (var value in open.ExpandComputedValues(context))
+                    {
+                        AddReferenced(value, ref fold, ref error);
+                    }
+
+                    break;
+
                 case CellReference cell:
                     AddReferenced(cell.Evaluate(context), ref fold, ref error);
                     break;
@@ -107,6 +115,14 @@ internal static class NumericAggregation
             {
                 case RangeReference range:
                     foreach (var value in range.ExpandComputedValues(context))
+                    {
+                        AddReferencedA(value, ref fold, ref error);
+                    }
+
+                    break;
+
+                case OpenRangeReference open:
+                    foreach (var value in open.ExpandComputedValues(context))
                     {
                         AddReferencedA(value, ref fold, ref error);
                     }

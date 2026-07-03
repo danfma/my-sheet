@@ -24,6 +24,14 @@ internal static class ArgumentFlattening
 
                     break;
 
+                case OpenRangeReference open:
+                    foreach (var value in open.ExpandComputedValues(context))
+                    {
+                        yield return value;
+                    }
+
+                    break;
+
                 case UnionReference union:
                     foreach (var value in union.ExpandComputedValues(context))
                     {
@@ -64,6 +72,14 @@ internal static class ArgumentFlattening
         {
             case RangeReference range:
                 foreach (var value in range.ExpandComputedValues(context))
+                {
+                    values.Add(value);
+                }
+
+                break;
+
+            case OpenRangeReference open:
+                foreach (var value in open.ExpandComputedValues(context))
                 {
                     values.Add(value);
                 }

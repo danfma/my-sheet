@@ -166,6 +166,14 @@ public readonly struct ComputedValue
 
                 break;
 
+            case OpenRangeReference open:
+                foreach (var value in open.ExpandComputedValues(context))
+                {
+                    yield return value;
+                }
+
+                break;
+
             case UnionReference union:
                 foreach (var value in union.ExpandComputedValues(context))
                 {

@@ -77,6 +77,21 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
                 break;
             }
 
+            case OpenRangeReference open:
+            {
+                var sheet = context.Workbook.Sheets[open.SheetName];
+
+                foreach (var id in open.PopulatedIds(context))
+                {
+                    if (sheet[id] is not Subtotal)
+                    {
+                        values.Add(context.Workbook.GetCellValue(open.SheetName, id));
+                    }
+                }
+
+                break;
+            }
+
             case CellReference cell:
                 if (context.Workbook.Sheets[cell.SheetName][cell.Id] is not Subtotal)
                 {

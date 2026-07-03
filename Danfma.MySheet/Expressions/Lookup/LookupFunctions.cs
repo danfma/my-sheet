@@ -31,7 +31,7 @@ public sealed partial record Choose(Expression[] Arguments) : Function
 
         // A chosen range stays a reference, so range-aware consumers (SUM(CHOOSE(2,A1:A10,B1:B10)))
         // expand it — the same technique OFFSET uses for its multi-cell results.
-        return chosen is RangeReference or UnionReference
+        return chosen is RangeReference or OpenRangeReference or UnionReference
             ? ComputedValue.Reference((Reference)chosen)
             : chosen.Evaluate(context);
     }
