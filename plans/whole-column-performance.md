@@ -3,7 +3,7 @@
 Cenário real (usuário, 2026-07-03): sheet com ~506.082 células numa coluna + ~399.776 fórmulas de coluna
 inteira (`MATCH/VLOOKUP/XLOOKUP/INDEX`, `SUMIF/COUNTIF/AVERAGEIF`, `IF/ROW/SMALL`) **referenciando a coluna
 grande**, ciclo carrega-1×-lê-1× → **~57min só de varreduras**. Meta: colapsar para **segundos**, mantendo
-memória enxuta (o foco segue: bater ClosedXML/Aspose em performance E memória). Release **2.7.0**.
+memória enxuta (o foco segue: bater ClosedXML/Aspose em performance E memória). Release: saiu como **2.6.2** (patch — commits perf/test/docs, sem feat: não há API nova; semver correto).
 
 ## Diagnóstico (por que o NaiveScan implodiu — lição registrada)
 O spike (`plans/whole-column-spike.md`) raciocinou "273 µs/scan, 1× por época via memoização" — verdade POR
