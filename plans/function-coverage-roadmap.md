@@ -630,10 +630,12 @@ merge + aval do usuário; sem push.
   (b) *OR/AND retornam `#VALUE!` com qualquer arg de texto* — ex. real: `H23 =IF(OR(Sheet8!A192="Show",
   Sheet8!A208),"*","")` com A208 texto → MySheet `#VALUE!`, Excel/Aspose `"*"`. Para args de
   ARRAY/REFERÊNCIA a regra Excel é documentada (texto/vazio ignorados; `#VALUE!` só se não sobrar nada
-  avaliável) — fix seguro, escalar, fora do F2, candidato a 2.9.x/3.0.x. Semântica de texto LITERAL
-  direto (`=OR(TRUE,"x")`): o doc do usuário espera TRUE (skip); prior meu diz que o Excel real dá
-  `#VALUE!` p/ literal não-coercível — irrelevante p/ o K1, mas decidir por oráculo (Excel real) antes
-  de fixar o caso literal e o de literal coercível (`"TRUE"`).
+  avaliável). **CORRIGIDO no v2.9.1** (`6a4cf7c`, redutor compartilhado `LogicalReduction`; XOR incluído
+  — tinha o mesmo bug latente p/ célula única; blank via referência agora ignorado como no Excel:
+  `=OR(A1)` vazia → `#VALUE!`, antes FALSE). Semântica de texto LITERAL direto (`=OR(TRUE,"x")`)
+  INALTERADA (`#VALUE!`) e pendente de oráculo: o doc do usuário espera TRUE (skip); prior meu diz que o
+  Excel real dá `#VALUE!` p/ literal não-coercível — decidir com teste no Excel real antes de mudar
+  (cobre também literal coercível `"TRUE"`).
 - **F3 LAMBDA**: §A3 → `LAMBDA` `BYROW` `BYCOL` `MAP` `REDUCE` `SCAN` `MAKEARRAY` `ISOMITTED`.
 - **F4 Distribuições**: §A4 → NORM/T/CHISQ/F/GAMMA/BETA/BINOM/POISSON/WEIBULL/EXPON/LOGNORM/NEGBINOM/
   HYPGEOM + testes de hipótese + `CONFIDENCE.*` `CRITBINOM` + aliases compat correspondentes +
