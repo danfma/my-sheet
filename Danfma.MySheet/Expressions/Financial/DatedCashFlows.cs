@@ -12,6 +12,12 @@ public sealed partial record XNpv(Expression[] Arguments) : Function
     // XNPV(rate, values, dates) — net present value of dated cash flows (365-day actual discounting).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet values/dates range is a structural #REF!, before the flows are read.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (FinancialArguments.Number(Arguments, 0, context, out var rate) is { } rateError)
         {
             return ComputedValue.Error(rateError);
@@ -37,6 +43,12 @@ public sealed partial record XIrr(Expression[] Arguments) : Function
     // XIRR(values, dates, [guess]) — internal rate of return of dated cash flows. guess defaults to 0.1.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet values/dates range is a structural #REF!, before the flows are read.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (DatedFlows.Read(Arguments, 0, context, out var flows, out var dates) is { } error)
         {
             return ComputedValue.Error(error);

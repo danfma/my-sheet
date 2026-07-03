@@ -7,6 +7,13 @@ public sealed partial record Match(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet lookup array is a structural #REF! — distinct from an empty array over an existing
+        // sheet, which stays #N/A. Guard before enumerating so the missing sheet is not swallowed as empty.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var lookup = Arguments[0].Evaluate(context);
         var array = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
 

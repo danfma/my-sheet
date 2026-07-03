@@ -61,10 +61,10 @@ Status: Complete
       (cobre SUM/AVERAGE/MIN/MAX/PRODUCT/STDEV/VAR/… que propagam via o canal de erro), e explícito nas
       funções que IGNORAM o canal de erro ou consomem streams: COUNT, COUNTA, COUNTBLANK, COUNTIF, COUNTIFS,
       SUMIF, SUMIFS, AVERAGEIF(+CriteriaPairs para AVERAGEIFS/MAXIFS/MINIFS), ROWS, COLUMNS, SUBTOTAL. VLOOKUP/
-      HLOOKUP dão #REF! de graça (o guard de `TryGetPopulatedBounds` faz `ToBoundedRange`→null→open range→não
-      é `RangeReference`→#REF!). OFFSET dá #REF! via o próprio `TryResolveReference`. Long tail (SUMPRODUCT,
-      MATCH/XLOOKUP/INDEX, financeiras, texto) NÃO lança (safety net dos enumeradores) — degrada, fora da
-      matriz.
+      HLOOKUP dão #REF! de graça sobre um OPEN range fantasma (o guard de `TryGetPopulatedBounds` faz
+      `ToBoundedRange`→null→open range→não é `RangeReference`→#REF!). OFFSET dá #REF! via o próprio
+      `TryResolveReference`. A "long tail" (SUMPRODUCT, MATCH/XLOOKUP, financeiras, texto, e VLOOKUP/HLOOKUP
+      sobre um range BOUNDED fantasma) ficou coberta na **Phase 3** — paridade total com o Excel.
 - [x] **Matriz de contrato (o teste que prova a semântica) — RED primeiro:**
       | Fórmula | Esperado |
       |---|---|
@@ -130,6 +130,64 @@ Status: Complete
 Regressão de batch e interop verdes. Docs via skill `code-documentation-doc-generate`: patch cirúrgico em
 `docs/workbook-and-expressions.md` (erros semânticos + `TryGetSheet` na tabela/bullets) e `README.md`
 (References). Build `--no-incremental`: 0 warnings. Core **757**, Excel **23** (22 + interop) — verdes.
+
+## Phase 3: Excel-parity da cauda (long tail)
+Status: Complete
+
+Estende o #REF! estrutural a TODA função consumidora de referência que ainda degradava para `0`/`#N/A`/`#VALUE!`/
+`#NUM!`/`""` sobre um sheet-fantasma (o safety-net dos enumeradores não bastava: um OPEN range fantasma vira
+uma sequência VAZIA — silenciosamente engolido — e um BOUNDED range fantasma vira células `#REF!` que os
+lookups descartavam, degradando para `#N/A`). Mecanismo uniforme, baixo risco: `if
+(ReferenceGuard.MissingSheet(Arguments, context) is { } m) return ComputedValue.Error(m);` no TOPO de cada
+`Evaluate`, ANTES da política per-célula — mais dois choke points compartilhados.
+
+- [x] Auditoria exaustiva: `grep` por `ExpandComputedValues`/`FlattenComputedValues`/`PairwiseRanges`/`Fold`,
+      cruzando com quem já tinha `ReferenceGuard`. Achado-chave: a família order/dispersion (MEDIAN, MODE,
+      STDEV*, VAR*, PERCENTILE*, QUARTILE*, RANK*, LARGE, SMALL, SKEW*, KURT, GEOMEAN, HARMEAN, AVEDEV, DEVSQ,
+      TRIMMEAN, PERCENTRANK*, + aliases legados) JÁ estava coberta de graça, pois `StatisticsMath.Collect`/
+      `CollectA` roteiam por `NumericAggregation.Fold`/`FoldA` (já guardados na Phase 1). Idem PRODUCT/SUMSQ/
+      MULTINOMIAL/GCD/LCM.
+- [x] Choke point 1 — `PairwiseRanges.Expand`: guard em x e y ⇒ cobre SUMX2MY2/SUMX2PY2/SUMXMY2 e TODA a
+      bivariada (CORREL, PEARSON, COVARIANCE.P/S, RSQ, SLOPE, INTERCEPT, STEYX, FORECAST.LINEAR) + os aliases
+      legados COVAR e FORECAST (chamam os `Compute` internos, que passam pelo mesmo helper).
+- [x] Early-return `ReferenceGuard.MissingSheet(Arguments, …)` explícito nas demais:
+      SUMPRODUCT; PROB; MATCH, XLOOKUP, XMATCH, LOOKUP, VLOOKUP, HLOOKUP (os dois últimos fechando o gap do
+      range BOUNDED fantasma); NPV, IRR, XNPV, XIRR, MIRR, FVSCHEDULE; NETWORKDAYS, NETWORKDAYS.INTL, WORKDAY,
+      WORKDAY.INTL; SERIESSUM; TEXTJOIN, CONCAT, CONCATENATE; AND, OR, XOR; ROW, COLUMN.
+- [x] Matriz de contrato estendida em `MissingSheetReferenceTests` (RED primeiro: 29 falhas → GREEN):
+      `SUMPRODUCT(Ghost!A:A,Main!A:A)`, `SUMPRODUCT(Main!A1:A2,Ghost!B1:B2)`, `SUMX2MY2`, `CORREL`, `COVAR`,
+      `FORECAST`, `PROB`, `MATCH(1,Ghost!A:A)`, `XLOOKUP`, `XMATCH`, `LOOKUP`, `INDEX`, `VLOOKUP(1,Ghost!A1:B5,2)`,
+      `HLOOKUP(1,Ghost!A1:B5,2)`, `TEXTJOIN`, `CONCAT`, `CONCATENATE`, `NPV(0.1,Ghost!A:A)`, `NPV(Ghost!A1,…)`,
+      `IRR`, `MIRR`, `XNPV`, `XIRR`, `FVSCHEDULE`, `NETWORKDAYS(…,Ghost!C:C)`, `WORKDAY(…,Ghost!C:C)`, `SERIESSUM`,
+      `AND`/`OR`/`XOR(Ghost!A:A)`, `ROW`/`COLUMN(Ghost!A1)`, `MEDIAN`, `PERCENTILE` — todos #REF!.
+- [x] Controles de NÃO-regressão adicionados e verdes: `MATCH(1,A:A)` (sheet existente, sem match) → #N/A;
+      `XLOOKUP(1,A:A,B:B)` (existente, vazio) → #N/A; `SUMPRODUCT(A1:A2,B1:B2)` → número; `CORREL` normal →
+      número. A distinção "sheet-fantasma = #REF! estrutural" vs "range vazio em sheet existente = #N/A/valor"
+      segue intacta.
+
+### NÃO tocado (com justificativa)
+- **Família error-inspecting** (ISERROR/ISERR/ISNA/ISREF/ISFORMULA/N/TYPE/ERROR.TYPE, IFERROR/IFNA): DEVEM
+  capturar o #REF! de uma referência fantasma, não propagá-lo — `ISERROR(Ghost!A1)` = TRUE, fiel ao Excel.
+  Uma célula-fantasma já avalia para #REF! (Phase 1) e elas o inspecionam; um guard as quebraria.
+- **CHOOSE**: lazy por contrato (só o argumento escolhido é avaliado); um guard em todos os args quebraria a
+  preguiça. Uma referência fantasma escolhida é resolvida por quem a consome (agora guardado).
+- **INDEX / OFFSET**: já retornam #REF! por si — INDEX sobre bounded fantasma devolve a célula #REF! e sobre
+  open fantasma cai no `ToBoundedRange`→null→#REF!; OFFSET resolve a base por `TryResolveReference`.
+- **Order/dispersion stats + PRODUCT/SUMSQ/GCD/LCM/MULTINOMIAL**: já cobertos via `Fold`/`FoldA` (Phase 1).
+
+### Verification
+Build `Danfma.MySheet.slnx -c Release --no-incremental` → **0 warnings**. Core **795** (todas verdes, incl. a
+matriz estendida e os controles), Excel **23**, fixture `MemoryPackCompatibilityTests` verde e intocada.
+
+### Phase Summary
+Paridade total com o Excel para sheet-fantasma: QUALQUER função que consome uma referência a um sheet
+inexistente retorna #REF!. Funções tocadas (guard explícito, salvo onde indicado): SUMPRODUCT; PROB; MATCH,
+XLOOKUP, XMATCH, LOOKUP, VLOOKUP, HLOOKUP; NPV, IRR, XNPV, XIRR, MIRR, FVSCHEDULE; NETWORKDAYS,
+NETWORKDAYS.INTL, WORKDAY, WORKDAY.INTL; SERIESSUM; TEXTJOIN, CONCAT, CONCATENATE; AND, OR, XOR; ROW, COLUMN; e
+— via o choke point `PairwiseRanges.Expand` — SUMX2MY2, SUMX2PY2, SUMXMY2, CORREL, PEARSON, COVARIANCE.P,
+COVARIANCE.S, RSQ, SLOPE, INTERCEPT, STEYX, FORECAST.LINEAR, COVAR, FORECAST. Nenhuma cirurgia por-célula:
+early-return de 2 choke points + um guard de 4 linhas no topo de cada `Evaluate`. Suítes: core **795**,
+Excel **23**, 0 warnings.
 
 ## Final Recap
 Bug fechado: referência a sheet inexistente resolve para **#REF!** por célula, sem lançar

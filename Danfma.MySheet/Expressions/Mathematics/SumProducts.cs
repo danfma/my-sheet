@@ -13,6 +13,12 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
     // SUMPRODUCT(array1, [array2], …) — Σ over positions of the product across arrays.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A reference to a missing sheet is a structural #REF! that short-circuits before any array is read.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var arrays = new List<List<ComputedValue>>(Arguments.Length);
 
         foreach (var argument in Arguments)

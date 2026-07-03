@@ -11,6 +11,13 @@ public sealed partial record Npv(Expression[] Arguments) : Function
     // text/logicals/blanks pulled from *referenced* cells are ignored.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // Any reference argument (the rate cell or a cash-flow range) to a missing sheet is a structural
+        // #REF! — an open-range ghost would otherwise be swallowed as empty, silently yielding 0.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var rate) is { } rateError)
         {
             return ComputedValue.Error(rateError);

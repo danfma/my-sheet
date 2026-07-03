@@ -44,6 +44,13 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
     // searches the table's first ROW and returns from row_index in the matching column.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet table is a structural #REF! — a BOUNDED ghost range would otherwise scan its cells,
+        // skip the per-cell #REF! keys, and degrade to #N/A. Guard before the table is inspected.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         // The table may be written directly or through a defined name that stands for a range.
         if (
             !NamedReferences.TryResolveReference(Arguments[1], context, out var reference)
@@ -135,6 +142,12 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
     // (cross-type ordering, shared with XLOOKUP's -1 mode); below the smallest -> #N/A.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet vector/array is a structural #REF!, before any match is attempted.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var lookup = Arguments[0].Evaluate(context);
 
         if (lookup.Kind == ComputedValueKind.Error)
@@ -191,14 +204,17 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
 public sealed partial record Column(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        Arguments switch
-        {
-            [CellReference cell] => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
-            [RangeReference range] => ComputedValue.Number(range.LeftColumn),
-            // COLUMN() with no argument uses the cell currently being evaluated, when one is known.
-            [] when context.CellId is { } id => ComputedValue.Number(CellAddress.Parse(id).Column),
-            _ => ComputedValue.Error(Error.Value),
-        };
+        // A reference to a missing sheet is a structural #REF!, not a column position.
+        ReferenceGuard.MissingSheet(Arguments, context) is { } missing
+            ? ComputedValue.Error(missing)
+            : Arguments switch
+            {
+                [CellReference cell] => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
+                [RangeReference range] => ComputedValue.Number(range.LeftColumn),
+                // COLUMN() with no argument uses the cell currently being evaluated, when one is known.
+                [] when context.CellId is { } id => ComputedValue.Number(CellAddress.Parse(id).Column),
+                _ => ComputedValue.Error(Error.Value),
+            };
 }
 
 [MemoryPackable]
@@ -232,6 +248,12 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
     // first-to-last (default), -1 last-to-first (binary modes not supported). No match -> #N/A.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet array is a structural #REF! — distinct from an empty existing array (still #N/A).
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var lookup = Arguments[0].Evaluate(context);
         var array = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
 

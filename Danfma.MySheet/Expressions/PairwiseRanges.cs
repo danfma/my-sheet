@@ -29,6 +29,19 @@ internal static class PairwiseRanges
     {
         pairs = [];
 
+        // A reference argument to a missing sheet is a STRUCTURAL #REF! that short-circuits the whole
+        // pairwise computation (the SUMX* family and every bivariate statistic), before enumeration — ahead
+        // of the caller's shape/value policy.
+        if (ReferenceGuard.MissingSheet(xArgument, context) is { } xMissing)
+        {
+            return xMissing;
+        }
+
+        if (ReferenceGuard.MissingSheet(yArgument, context) is { } yMissing)
+        {
+            return yMissing;
+        }
+
         var xs = ArgumentFlattening.ExpandComputedValues(xArgument, context);
         var ys = ArgumentFlattening.ExpandComputedValues(yArgument, context);
 

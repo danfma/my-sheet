@@ -167,6 +167,12 @@ public sealed partial record SeriesSum(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A missing-sheet coefficients range is a structural #REF!, before the series is summed.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var x) is { } xError)
         {
             return ComputedValue.Error(xError);

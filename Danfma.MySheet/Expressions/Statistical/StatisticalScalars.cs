@@ -131,6 +131,12 @@ public sealed partial record Prob(Expression[] Arguments) : Function
     // (0, 1] or a probability total ≠ 1 → #NUM!; ranges of different lengths → #N/A.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // A reference to a missing sheet is a structural #REF! that short-circuits before the ranges are read.
+        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
         var xs = ArgumentFlattening.ExpandComputedValues(Arguments[0], context);
         var probs = ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
 
