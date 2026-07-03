@@ -141,13 +141,24 @@ public sealed partial class Workbook
     // this is dropped by BOTH InvalidateCache() AND Recalculate() (unlike the structural index). Lazily
     // created race-free via the RangeCache accessor — never `= new()` on the field (MemoryPack bypasses it).
     [MemoryPackIgnore]
-    private ConcurrentDictionary<Reference, RangeSnapshot>? _rangeCache;
+    private ConcurrentDictionary<Reference, RangeCacheEntry>? _rangeCache;
 
     // A range with fewer than this many populated cells is not cached: a linear scan already wins there and
     // caching every tiny range would flood the dictionary. Measured against the whole-column benchmark.
     private const int RangeCacheMinimumCells = 256;
 
-    private ConcurrentDictionary<Reference, RangeSnapshot> RangeCache
+    // Defensive cap on lightweight "Seen" markers. A workload of single-use ranges that clear the threshold
+    // (e.g. 10k distinct sliding windows) only ever leaves markers behind — never a built snapshot — so the
+    // marker set could grow unbounded within an epoch. Each marker is tiny (a key + a null-snapshot slot) and
+    // drops on InvalidateCache/Recalculate, but past this count new ranges simply stay on the linear path
+    // rather than pay even the marker. 64k markers is far above any legitimate reuse-heavy working set.
+    private const int RangeCacheMarkerCap = 65_536;
+
+    // Approximate count of live entries (markers + built). Interlocked, reset when the cache is dropped; used
+    // only to enforce RangeCacheMarkerCap cheaply (ConcurrentDictionary.Count would lock every bucket).
+    private int _rangeCacheEntryCount;
+
+    private ConcurrentDictionary<Reference, RangeCacheEntry> RangeCache
     {
         get
         {
@@ -157,7 +168,7 @@ public sealed partial class Workbook
                 return existing;
             }
 
-            var created = new ConcurrentDictionary<Reference, RangeSnapshot>();
+            var created = new ConcurrentDictionary<Reference, RangeCacheEntry>();
             return Interlocked.CompareExchange(ref _rangeCache, created, null) ?? created;
         }
     }
@@ -169,8 +180,14 @@ public sealed partial class Workbook
 
     /// <summary>
     /// The shared per-epoch <see cref="RangeSnapshot"/> for a populated range, or <c>null</c> when the range
-    /// is not cacheable (not a rectangle/open range, below the size threshold, or the cache is disabled) —
-    /// in which case the caller keeps its existing linear path. Internal — part of the evaluation contract.
+    /// is not cacheable (not a rectangle/open range, below the size threshold, the cache is disabled, or this
+    /// is the range's FIRST read this epoch) — in which case the caller keeps its existing linear path.
+    ///
+    /// <para><b>Second-use admission (Phase 4).</b> Materializing a snapshot pays off only when a range is read
+    /// more than once per epoch. A range read exactly once (a sliding window, a one-shot bounded lookup) would
+    /// pay an O(N) build it never reuses — the 2.6.2 regression. So the first read only records a lightweight
+    /// marker and returns <c>null</c> (the caller's linear path is used); the snapshot is built on the SECOND
+    /// read and reused by every read after. Ranges below the threshold are never even marked.</para>
     /// </summary>
     internal RangeSnapshot? TryGetRangeSnapshot(Reference range, EvaluationContext context)
     {
@@ -181,21 +198,28 @@ public sealed partial class Workbook
 
         var cache = RangeCache;
 
-        if (cache.TryGetValue(range, out var existing))
+        // Already seen this epoch: the second (or later) read builds the snapshot (once) and reuses it.
+        if (cache.TryGetValue(range, out var entry))
         {
-            return existing;
+            return entry.GetOrBuild(range, context);
         }
 
-        if (EstimatePopulatedCells(range, context) < RangeCacheMinimumCells)
+        // First read: only worth remembering if it clears the size threshold and we are under the marker cap.
+        if (
+            Volatile.Read(ref _rangeCacheEntryCount) >= RangeCacheMarkerCap
+            || EstimatePopulatedCells(range, context) < RangeCacheMinimumCells
+        )
         {
             return null;
         }
 
-        return cache.GetOrAdd(
-            range,
-            static (key, ctx) => RangeSnapshot.Build(key, ctx),
-            context
-        );
+        // Record a bare "Seen" marker and keep this first read on the linear path.
+        if (cache.TryAdd(range, new RangeCacheEntry()))
+        {
+            Interlocked.Increment(ref _rangeCacheEntryCount);
+        }
+
+        return null;
     }
 
     // A cheap UPPER BOUND on a range's populated-cell count, used only to decide whether caching is worth it.
@@ -438,6 +462,7 @@ public sealed partial class Workbook
 
         // The value snapshots are stale once any cell changed.
         _rangeCache?.Clear();
+        Volatile.Write(ref _rangeCacheEntryCount, 0);
 
         lock (VolatileLock)
         {
@@ -471,6 +496,7 @@ public sealed partial class Workbook
         // The value snapshots may hold volatile-tainted values, so they are dropped on a volatile refresh too
         // (the structural index — pure structure — survives).
         _rangeCache?.Clear();
+        Volatile.Write(ref _rangeCacheEntryCount, 0);
 
         lock (VolatileLock)
         {

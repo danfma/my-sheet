@@ -17,6 +17,13 @@ if (args.Contains("--whole-column-scale"))
     return;
 }
 
+// Regressão de admissão do range cache (Fase 4): `dotnet run -c Release -- --range-cache-admission`.
+if (args.Contains("--range-cache-admission"))
+{
+    RangeCacheAdmissionHarness.Run();
+    return;
+}
+
 // Spike CellValue (Fase 2): `dotnet run -c Release -- --filter *Spike*`.
 // Sem filtro cai no menu do BenchmarkSwitcher; SheetBenchmarks continua disponível.
 BenchmarkSwitcher.FromAssembly(typeof(SheetBenchmarks).Assembly).Run(args);

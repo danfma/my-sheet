@@ -36,6 +36,39 @@ internal static class RangeAggregate
             : compute();
 }
 
+/// <summary>
+/// A per-epoch admission slot for one range key. The cache admits a range only on its SECOND read: the first
+/// read records a lightweight <c>Seen</c> marker (this entry with a null snapshot) and keeps the caller on its
+/// linear path; the second read builds the <see cref="RangeSnapshot"/> and every read thereafter reuses it.
+/// This spares the O(N) materialization for ranges a formula reads exactly ONCE per epoch (sliding windows,
+/// single-shot bounded lookups, invalidate-heavy loops), which was the 2.6.2 production regression.
+///
+/// <para>The build is race-benign: two threads arriving on the second read may both build, but
+/// <see cref="Interlocked.CompareExchange{T}(ref T,T,T)"/> keeps exactly one instance and the loser is
+/// dropped — the same "build once, publish once" guarantee the rest of the workbook caches use.</para>
+/// </summary>
+internal sealed class RangeCacheEntry
+{
+    private RangeSnapshot? _snapshot;
+
+    /// <summary>The built snapshot, or <c>null</c> while the entry is still a bare <c>Seen</c> marker.</summary>
+    public RangeSnapshot? Snapshot => _snapshot;
+
+    /// <summary>Returns the snapshot, building it on first demand (the range's second read). Concurrent callers
+    /// may build in parallel but publish a single instance.</summary>
+    public RangeSnapshot GetOrBuild(Reference range, EvaluationContext context)
+    {
+        var existing = _snapshot;
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var built = RangeSnapshot.Build(range, context);
+        return Interlocked.CompareExchange(ref _snapshot, built, null) ?? built;
+    }
+}
+
 /// <summary>Outcome of an exact-hash probe: the value's kind decides whether the hash can answer at all.</summary>
 internal enum ExactMatchOutcome
 {

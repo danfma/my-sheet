@@ -7,11 +7,12 @@ using StringValue = Danfma.MySheet.Expressions.StringValue;
 namespace Danfma.MySheet.Tests.Expressions;
 
 /// <summary>
-/// Differential proof for the Layer-2 range value cache (whole-column scale, Phase 2): the SAME battery of
-/// whole-column formulas must produce IDENTICAL results with the cache BYPASSED (the pre-cache linear paths),
-/// with it COLD (first read builds the snapshot) and with it WARM (second read reuses it) — across data that
-/// stresses every derived accelerator and every documented fall-back (unsorted, duplicates, mixed types,
-/// errors mid-range, blanks, zeros/empty text). The cache changes performance, never semantics.
+/// Differential proof for the Layer-2 range value cache (whole-column scale, Phase 2; second-use admission,
+/// Phase 4): the SAME battery of whole-column formulas must produce IDENTICAL results with the cache BYPASSED
+/// (the pre-cache linear paths) and across the THREE reads of the admission policy — read 1 (linear fallback,
+/// the range is only marked), read 2 (the snapshot is built) and read 3 (the built snapshot is reused) —
+/// across data that stresses every derived accelerator and every documented fall-back (unsorted, duplicates,
+/// mixed types, errors mid-range, blanks, zeros/empty text). The cache changes performance, never semantics.
 /// </summary>
 public class RangeValueCacheEquivalenceTests
 {
@@ -78,7 +79,7 @@ public class RangeValueCacheEquivalenceTests
     ];
 
     [Test]
-    public async Task Cache_MatchesBypass_ColdAndWarm_AcrossScenariosAndFormulas()
+    public async Task Cache_MatchesBypass_AcrossTheThreeAdmissionReads_ScenariosAndFormulas()
     {
         var failures = new List<string>();
         var cases = 0;
@@ -92,12 +93,21 @@ public class RangeValueCacheEquivalenceTests
                 cases++;
 
                 var expected = Evaluate(workbook, sheet, formula, useCache: false);
-                var cold = Evaluate(workbook, sheet, formula, useCache: true);
-                var warm = Describe(ExpressionParser.Parse(formula, sheet).Evaluate(workbook)); // no invalidate
 
-                if (cold != expected || warm != expected)
+                // With second-use admission the reads have distinct internal paths, all of which must agree
+                // with the bypass: read 1 is the linear fallback (the range is only marked), read 2 builds the
+                // snapshot, read 3 reuses it. One InvalidateCache, then three consecutive evaluations.
+                workbook.RangeCacheDisabled = false;
+                workbook.InvalidateCache();
+                var read1 = Describe(ExpressionParser.Parse(formula, sheet).Evaluate(workbook));
+                var read2 = Describe(ExpressionParser.Parse(formula, sheet).Evaluate(workbook));
+                var read3 = Describe(ExpressionParser.Parse(formula, sheet).Evaluate(workbook));
+
+                if (read1 != expected || read2 != expected || read3 != expected)
                 {
-                    failures.Add($"{scenario} :: {formula} :: expected={expected} cold={cold} warm={warm}");
+                    failures.Add(
+                        $"{scenario} :: {formula} :: expected={expected} read1={read1} read2={read2} read3={read3}"
+                    );
                 }
             }
         }
@@ -107,7 +117,7 @@ public class RangeValueCacheEquivalenceTests
     }
 
     [Test]
-    public async Task Cache_ActuallyEngages_AboveThreshold_AndSkips_Below()
+    public async Task Cache_AdmitsOnSecondRead_AboveThreshold_AndNeverAdmits_Below()
     {
         var (workbook, _) = Build(Scenario.AscendingNumbers);
         var context = new EvaluationContext(workbook);
@@ -115,7 +125,15 @@ public class RangeValueCacheEquivalenceTests
         var big = OpenRangeReference.Create(1, 1, null, null, "Data"); // A:A, 300 populated
         var small = new RangeReference("A1", "A10", "Data"); // 10 cells, below threshold
 
-        await Assert.That(workbook.TryGetRangeSnapshot(big, context) is not null).IsTrue();
+        // Second-use admission: the FIRST read of a big range only marks it (linear path → null); the SECOND
+        // read builds and returns the snapshot; every read thereafter reuses that same instance.
+        await Assert.That(workbook.TryGetRangeSnapshot(big, context) is null).IsTrue();
+        var built = workbook.TryGetRangeSnapshot(big, context);
+        await Assert.That(built is not null).IsTrue();
+        await Assert.That(ReferenceEquals(workbook.TryGetRangeSnapshot(big, context), built)).IsTrue();
+
+        // A sub-threshold range is never even marked, so it never admits no matter how often it is read.
+        await Assert.That(workbook.TryGetRangeSnapshot(small, context) is null).IsTrue();
         await Assert.That(workbook.TryGetRangeSnapshot(small, context) is null).IsTrue();
     }
 
@@ -128,7 +146,7 @@ public class RangeValueCacheEquivalenceTests
         const string formula = "=MATCH(50,Data!A:A,1)";
 
         var expected = Evaluate(workbook, sheet, formula, useCache: false);
-        var cached = Evaluate(workbook, sheet, formula, useCache: true);
+        var cached = EvaluateBuilt(workbook, sheet, formula);
 
         await Assert.That(cached).IsEqualTo(expected);
     }
@@ -141,7 +159,7 @@ public class RangeValueCacheEquivalenceTests
         foreach (var formula in new[] { "=SMALL(Data!A:A,5)", "=SUM(Data!A:A)", "=MEDIAN(Data!A:A)" })
         {
             var expected = Evaluate(workbook, sheet, formula, useCache: false);
-            var cached = Evaluate(workbook, sheet, formula, useCache: true);
+            var cached = EvaluateBuilt(workbook, sheet, formula);
             await Assert.That(cached).IsEqualTo(expected);
         }
     }
@@ -153,6 +171,16 @@ public class RangeValueCacheEquivalenceTests
         workbook.RangeCacheDisabled = !useCache;
         workbook.InvalidateCache();
         return Describe(ExpressionParser.Parse(formula, sheet).Evaluate(workbook));
+    }
+
+    // Drives the cache to its BUILT (second-read) path: the first read only marks the range and takes the
+    // linear fallback, so the second read — evaluated here and returned — is the one served by the snapshot.
+    private static string EvaluateBuilt(Workbook workbook, Sheet sheet, string formula)
+    {
+        workbook.RangeCacheDisabled = false;
+        workbook.InvalidateCache();
+        _ = ExpressionParser.Parse(formula, sheet).Evaluate(workbook); // read 1 → mark + linear
+        return Describe(ExpressionParser.Parse(formula, sheet).Evaluate(workbook)); // read 2 → built snapshot
     }
 
     private static string Describe(ComputedValue value) =>

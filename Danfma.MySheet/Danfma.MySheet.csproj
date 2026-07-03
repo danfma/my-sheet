@@ -26,5 +26,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Danfma.MySheet.Tests" />
+    <InternalsVisibleTo Include="Danfma.MySheet.Benchmark" />
   </ItemGroup>
 </Project>

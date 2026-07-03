@@ -111,9 +111,10 @@ visited.
 
 ### Layer 2 — epoch range caches
 
-For a populated range above a size threshold, the engine materializes a **snapshot** — the range's
-`ComputedValue`s in enumeration order, read exactly once through Layer 1 + the memoized cell cache.
-Every accelerator is then built **lazily, on first demand, and shared by every formula of the epoch**:
+For a populated range above a size threshold that is read **more than once in an epoch**, the engine
+materializes a **snapshot** — the range's `ComputedValue`s in enumeration order, read exactly once
+through Layer 1 + the memoized cell cache. Every accelerator is then built **lazily, on first demand,
+and shared by every formula of the epoch**:
 
 - an **exact-value hash** (`value → first position`) → `MATCH(…,0)`, exact `XLOOKUP`/`XMATCH`,
   `VLOOKUP(…,FALSE)` in O(1);
@@ -129,10 +130,20 @@ value does not fit an index cleanly (blank-equivalent lookups, wildcard/comparis
 "closest" approximate `XLOOKUP`) the consumer falls back to a **linear scan over the cached snapshot** —
 still cache-served, so the O(N) re-read of cell values is gone even on the fallback path.
 
-**The 256-cell threshold.** A range with fewer than 256 populated cells is not cached: a linear scan
-already wins there and caching every tiny range would only flood the dictionary. The check uses a cheap
-upper-bound estimate (rectangle area, or the sum of the covered structural-index lists) — it never
-materializes a snapshot just to decide.
+**Second-use admission.** Materializing a snapshot only pays off when a range is read repeatedly.
+A range read *exactly once* per epoch — a sliding window (`SUM(A$1:A500)`, `SUM(A$1:A501)`, …), a
+one-shot bounded lookup, an invalidate-heavy loop — would pay an O(N) build it never reuses. So a
+range is **admitted on its second read, not its first**: the first read only records a lightweight
+marker and takes the linear path; the snapshot is built on the second read and shared by every read
+thereafter. In a reuse-heavy pass (thousands of formulas over `A:A`) this costs one extra linear scan
+on the very first formula and is invisible; in a single-use pass it removes the wasted materialization
+entirely. (A marker is dropped with the cache at epoch end; a defensive cap of 64k markers stops an
+adversarial flood of distinct single-use ranges from growing the marker set without bound.)
+
+**The 256-cell threshold.** A range with fewer than 256 populated cells is not cached — and not even
+marked: a linear scan already wins there and tracking every tiny range would only flood the dictionary.
+The check uses a cheap upper-bound estimate (rectangle area, or the sum of the covered structural-index
+lists) — it never materializes a snapshot just to decide.
 
 ### Lifecycle: when the caches are built and dropped
 
@@ -143,13 +154,14 @@ index describes *structure* and the range snapshot carries *values*:
 | Cache | Built | `Recalculate()` | `InvalidateCache()` |
 | --- | --- | --- | --- |
 | Structural index (Layer 1) | first open-range enumeration | **survives** (structure ≠ values) | dropped |
-| Range snapshots (Layer 2) | first cacheable range read | **dropped** (values may be volatile-tainted) | dropped |
+| Range snapshots (Layer 2) | **second** cacheable range read | **dropped** (values may be volatile-tainted) | dropped |
 
 ```csharp
 // Load once, then read a lot: the caches fill lazily on the first pass and every later read is served
 // from them.
-var total = workbook.GetCellValue("Calc", "A1");   // builds the index + snapshot for A:A
-var next  = workbook.GetCellValue("Calc", "A2");   // same epoch → served from the shared snapshot
+var total = workbook.GetCellValue("Calc", "A1");   // 1st read of A:A → marks it, linear path
+var next  = workbook.GetCellValue("Calc", "A2");   // 2nd read → builds the shared snapshot
+var more  = workbook.GetCellValue("Calc", "A3");   // 3rd+ read → served from the shared snapshot
 
 // After editing cells, flush everything before reading again:
 sheet["A1"] = new NumberValue(20);

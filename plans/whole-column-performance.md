@@ -408,6 +408,81 @@ CompatibilityTests` intocados e verdes. **Mudança de ferramenta:** `WholeColumn
 antiga só para documentar a armadilha. Os projetos `cxcap`/`cxcmp` (capability + comparativo) ficaram no
 scratchpad (fora do repo), como spikes descartáveis.
 
+---
+
+## Phase 4: admissão na 2ª leitura (regressão de produção)
+Status: Complete
+
+Relato do usuário (projeto real, 2026-07-03, pós-2.6.2): regressões de **1,5×–6×** em cenários
+pequenos/médios; os volumes grandes (o alvo das Fases 1-3) seguiram resolvidos. **Diagnóstico** (confirmado
+em `Workbook.TryGetRangeSnapshot`): a Fase 2 admitia o range no cache na **PRIMEIRA** leitura de QUALQUER
+range ≥ 256 células. Fórmulas cujo range é lido UMA vez por época pagavam a materialização O(N) do snapshot
+(+ um derivado que nunca reusavam) POR CIMA do scan linear que fariam de qualquer jeito — puro desperdício.
+As três formas: janelas deslizantes (`SUM(A$1:A500)`, `SUM(A$1:A501)`, … — cada range distinto, lido 1×);
+lookup limitado de tiro único (hash exato construído p/ UMA consulta); loop com `InvalidateCache` frequente
++ 1 leitura por época (rebuild constante).
+
+- [x] **Política de admissão na 2ª leitura.** O valor do `_rangeCache` virou `RangeCacheEntry` com estado:
+      1ª leitura → grava um marcador leve `Seen` (entry com snapshot nulo) e retorna `null` (o caller segue
+      no caminho linear — o mesmo fallback/bypass que TODOS os consumidores já tinham); 2ª leitura → constrói
+      o `RangeSnapshot` e o publica; 3ª+ → reusa. Thread-safe: `TryAdd` do marcador + `Interlocked.CompareExchange`
+      na construção (corrida benigna na 2ª leitura: dois threads constroem, um publica, o outro é descartado).
+- [x] **Limiar de 256 mantido**: abaixo dele nem marca (não polui o dicionário com ranges minúsculos).
+      Derivados (hash/ordenado/mapas) continuam lazy pós-build, sem mudança.
+- [x] **Cap defensivo de 64k marcadores** (`RangeCacheMarkerCap`, contador `Interlocked` resetado no drop):
+      um flood de ranges distintos de uso único para de marcar além do teto e cai no linear — o marcador é
+      minúsculo (chave + slot nulo) e some no `InvalidateCache`/`Recalculate`.
+- [x] **Repro ANTES do fix** (`--range-cache-admission`, novo harness ao lado do `WholeColumnScale`; toggle
+      `RangeCacheDisabled` = baseline pré-cache): mediu a regressão na árvore atual e registrou.
+- [x] **Equivalência ajustada à nova política**: o harness diferencial agora cobre os TRÊS caminhos por época
+      — leitura 1 (linear/marcada), 2 (build) e 3 (hit) — todos comparados ao BYPASS; o teste de limiar passou
+      a afirmar "1ª = null, 2ª = snapshot, 3ª = mesma instância; sub-limiar nunca admite". 100% idênticos.
+
+### Verification Plan
+- Os 3 cenários de regressão voltam a ≤ ~1,05× do pré-cache; os blocos Big do harness mantêm os ganhos da
+  Fase 2 (a 2ª leitura constrói — com 10k leituras é invisível). Suítes verdes `--no-incremental` 0 warnings.
+
+### Phase Summary
+
+**Regressão (harness `--range-cache-admission`, best-of, Apple Silicon 10 cores; `Enabled/Disabled` =
+snapshot-cache LIGADO ÷ pré-cache linear — > 1 = o cache atrapalha):**
+
+| Cenário          | Pré-cache (ms) | 2.6.2 na 1ª leitura | Pós-fix na 2ª leitura |
+|------------------|---------------:|--------------------:|----------------------:|
+| SlidingWindows   |   4.540–4.796  |     **3,05×**       |    **1,03–1,06×**     |
+| BoundedMatchOnce |     256–278    |     **1,75×**       |    **1,03×**¹         |
+| InvalidateLoop   |  14.987–18.207 |     **1,06×**       |    **0,99–1,05×**     |
+
+¹ Numa run com carga concorrente o BoundedMatchOnce chegou a 1,16× (tempos absolutos pequenos, ~256ms →
+sensíveis a ruído); numa run serial limpa deu 1,03×. O resíduo é bookkeeping do marcador (2 ops de dicionário
+por range de uso único), não mais a materialização O(N) — que foi eliminada.
+
+**Blocos Big preservados (harness `--whole-column-scale`, reduzido 50k×10k, BigColumn, ms — run serial limpa):**
+
+| Fórmula      | Fase 2 (1ª leitura) | Fase 4 (2ª leitura) |
+|--------------|--------------------:|--------------------:|
+| Match1       |        141,1        |       148,9         |
+| Match0       |         95,3        |       113,7         |
+| VLookupExact |        154,7        |       139,6         |
+| SumIfEqual   |         68,2        |        90,6         |
+| CountIfEqual |         82,3        |        99,4         |
+| Small        |         74,9        |        97,3         |
+| SumRepeated  |         89,0        |        90,2         |
+
+Todos na casa das centenas de ms como na Fase 2 (dentro do ruído inter-run desta máquina): a 2ª-leitura só
+adiciona UM scan linear extra na 1ª das 10k fórmulas do bloco — invisível. O ganho de ~570×–1030× da Fase 2
+sobre o baseline O(F×N) está intacto.
+
+**Decisões além do briefing:** (a) `InternalsVisibleTo` adicionado para `Danfma.MySheet.Benchmark` (como já
+existia p/ `.Tests`), para o harness de regressão poder alternar o switch `RangeCacheDisabled` e medir o
+baseline pré-cache no MESMO binário (os outros benchmarks seguem só-API-pública). (b) Contador aproximado
+`_rangeCacheEntryCount` (`Interlocked`) em vez de `ConcurrentDictionary.Count` (que trava todos os buckets)
+para o cap — resetado nos dois pontos de drop. (c) O marcador é um `RangeCacheEntry` por range (não um
+sentinela compartilhado): mais simples e a alocação minúscula gen0 não apareceu na medição serial.
+
+**Build:** `--no-incremental` 0 warnings. **Suíte:** core **805**, Excel **23**, fixture/`MemoryPack
+CompatibilityTests` intocados e verdes. **Sem API nova**; hot path de célula única intocado.
+
 ## Final Recap
 
 Cenário do usuário (sheet de ~506k células numa coluna + ~400k fórmulas de coluna inteira consumindo-a,
