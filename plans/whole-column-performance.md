@@ -205,12 +205,22 @@ _(escrever quando a fase concluir)_
 
 ---
 
-## Phase 3: Validação em escala plena + docs + release
+## Phase 3: Validação em escala plena + regressão comparativa + docs + release
 Status: Not started
 
 - [ ] Rodar o benchmark PLENO (500k × 100k+): registrar tempo total e pico de memória ANTES × DEPOIS no
       relatório do plano. Meta: **< 60s na escala plena equivalente ao relato (aspiração < 10s)**; memória
       de pico dos caches documentada (~30-60MB esperados).
+- [ ] **Regressão comparativa (requisito do usuário, 2026-07-03)**: rodar a suíte `SheetBenchmarks`
+      (MySheet × ClosedXML: Parse/Compute/Comparison/TextEquality/Conditional, com MemoryDiagnoser) na
+      BRANCH e na MAIN, lado a lado. Critérios: (a) nenhuma regressão de tempo/alocação nos caminhos core
+      (célula única, cache-heavy — o hot path NÃO foi tocado, deve ser ~0%); (b) **continuamos mais rápidos
+      que o ClosedXML em TODAS as categorias** (tempo E memória). Registrar a tabela no plano.
+- [ ] **Comparativo ClosedXML no cenário de coluna inteira**: PRIMEIRO verificar a capacidade (lição do
+      lessons.md: ClosedXML pode não avaliar MATCH/SUMIF/whole-column — testar num spike de 5min). Se
+      suportar: medir o cenário reduzido (50k × 10k) nos dois engines e registrar; se não suportar,
+      documentar a incapacidade (também é resposta: eles não competem nesse caso de uso). A memória extra
+      dos nossos caches deve ser comparada com o footprint do ClosedXML no MESMO workload.
 - [ ] `docs/performance.md`: seção sobre os range caches por época (o que existe, quando é descartado,
       números medidos honestos); nota em `workbook-and-expressions.md` se necessário. Skill
       `code-documentation-doc-generate`. NÃO tocar `docs/pt-BR/` (refresh no deploy).
