@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.8.0"></a>
+## [2.8.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.8.0) (2026-07-03)
+
+### Features
+
+* **core:** persist computed values for warm-start loads ([8887d2e](https://www.github.com/danfma/my-sheet/commit/8887d2ebbb58af3e522f9899f7cd73bfb17ae12d))
+
 <a name="2.7.0"></a>
 ## [2.7.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.7.0) (2026-07-03)
 
