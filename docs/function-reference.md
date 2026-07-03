@@ -15,7 +15,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 
 | Function | Arguments | Description |
 | --- | --- | --- |
-| `AND` | `AND(logical1, [logical2], …)` | `TRUE` if every argument is truthy. |
+| `AND` | `AND(logical1, [logical2], …)` | `TRUE` if every argument is truthy; text/blank cells reached through a reference are ignored. |
 | `FALSE` | `FALSE()` | The logical value `FALSE` (function form of the literal). |
 | `IF` | `IF(condition, value_if_true, [value_if_false])` | Conditional; only the taken branch is evaluated. |
 | `IFERROR` | `IFERROR(value, value_if_error)` | `value`, or the fallback when `value` is any error. |
@@ -23,10 +23,10 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `IFS` | `IFS(test1, value1, [test2, value2], …)` | First value whose test is `TRUE` (lazy, like `IF`); no `TRUE` test → `#N/A`. |
 | `LET` | `LET(name1, value1, [name2, value2, …], calculation)` | Binds names usable in `calculation` (e.g. `=LET(x, A1*2, x+x)`). Names are local to the formula. |
 | `NOT` | `NOT(logical)` | Logical negation. |
-| `OR` | `OR(logical1, [logical2], …)` | `TRUE` if any argument is truthy. |
+| `OR` | `OR(logical1, [logical2], …)` | `TRUE` if any argument is truthy; text/blank cells reached through a reference are ignored. |
 | `SWITCH` | `SWITCH(expression, value1, result1, …, [default])` | First result whose value equals `expression` (lazy; `=` equality semantics); no match → default or `#N/A`. |
 | `TRUE` | `TRUE()` | The logical value `TRUE` (function form of the literal). |
-| `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` when the number of `TRUE` inputs is odd; text/blank cells in ranges are ignored. |
+| `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` when the number of `TRUE` inputs is odd; text/blank cells reached through a reference are ignored. |
 
 ## Math and trigonometry (74)
 
