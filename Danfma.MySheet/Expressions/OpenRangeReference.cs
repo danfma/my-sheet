@@ -54,19 +54,13 @@ public sealed partial record OpenRangeReference(
     // exactly like a bare RangeReference.
     public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
 
-    private bool Contains(int column, int row) =>
-        (ColMin is not { } colMin || column >= colMin)
-        && (ColMax is not { } colMax || column <= colMax)
-        && (RowMin is not { } rowMin || row >= rowMin)
-        && (RowMax is not { } rowMax || row <= rowMax);
-
     /// <summary>Backwards-compatible entry point mirroring <see cref="RangeReference.Expand(Workbook)"/>.</summary>
     public IEnumerable<Expression> Expand(Workbook workbook) => Expand(new EvaluationContext(workbook));
 
     /// <summary>
-    /// The NaiveScan: yields the id of every POPULATED cell within the limits. Iterates
-    /// <c>Sheet.Cells.Keys</c> and extracts (column,row) with the no-alloc
-    /// <see cref="CellAddress.TryGetColumnRow"/> — no substring, no <c>int.Parse</c>.
+    /// Yields the id of every POPULATED cell within the limits, in column-then-row order, using the
+    /// Layer-1 <see cref="SheetStructuralIndex"/> so a narrow reference in a big sheet no longer scans
+    /// every key — it visits only the columns (or, for a whole row, the rows) the reference covers.
     /// </summary>
     internal IEnumerable<string> PopulatedIds(EvaluationContext context)
     {
@@ -79,12 +73,82 @@ public sealed partial record OpenRangeReference(
             yield break;
         }
 
-        foreach (var id in sheet.Keys)
+        var index = context.Workbook.GetStructuralIndex(SheetName, sheet);
+
+        // Whole-row reference (column axis fully open, row axis bounded): drive the symmetric ROW index so
+        // a whole-row read touches only its rows, never the big columns. Yields row-then-column order; with
+        // no column bound to apply, every id in the row's (column-sorted) list qualifies.
+        if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
         {
-            if (CellAddress.TryGetColumnRow(id, out var column, out var row) && Contains(column, row))
+            var rows = index.Rows;
+
+            for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
-                yield return id;
+                if (rows.TryGetValue(row, out var rowIds))
+                {
+                    foreach (var id in rowIds)
+                    {
+                        yield return id;
+                    }
+                }
             }
+
+            yield break;
+        }
+
+        // Column-driven path (every other shape): visit only the covered columns, each list already row-
+        // sorted. A row bound narrows each list to its qualifying slice by binary search — no per-id
+        // parsing, and a pure whole column (A:A) yields its list verbatim.
+        var columns = index.Columns;
+
+        foreach (var column in ColumnsToVisit(columns))
+        {
+            if (!columns.TryGetValue(column, out var columnIds))
+            {
+                continue;
+            }
+
+            var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnIds, rowMin) : 0;
+            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnIds, rowMax) : columnIds.Count - 1;
+
+            for (var i = first; i <= last; i++)
+            {
+                yield return columnIds[i];
+            }
+        }
+    }
+
+    // The columns the reference covers, ascending. When both column limits are known it is the finite
+    // inclusive range [ColMin, ColMax] (the fast, common case: A:A, A:C, A2:A, A:A10, A1:C). When a column
+    // side is open it is the populated columns within whatever bound IS known, sorted so enumeration stays
+    // column-ascending.
+    private IEnumerable<int> ColumnsToVisit(Dictionary<int, List<string>> columns)
+    {
+        if (ColMin is { } lowerColumn && ColMax is { } upperColumn)
+        {
+            for (var column = lowerColumn; column <= upperColumn; column++)
+            {
+                yield return column;
+            }
+
+            yield break;
+        }
+
+        var matching = new List<int>();
+
+        foreach (var column in columns.Keys)
+        {
+            if ((ColMin is not { } min || column >= min) && (ColMax is not { } max || column <= max))
+            {
+                matching.Add(column);
+            }
+        }
+
+        matching.Sort();
+
+        foreach (var column in matching)
+        {
+            yield return column;
         }
     }
 
@@ -115,8 +179,12 @@ public sealed partial record OpenRangeReference(
     }
 
     /// <summary>
-    /// Scans for the populated bounding box within the limits. Returns <c>false</c> when no populated cell
-    /// falls inside the bounds (an empty selection).
+    /// Computes the populated bounding box within the limits. Returns <c>false</c> when no populated cell
+    /// falls inside the bounds (an empty selection, or a missing sheet — no throw, exactly as before).
+    /// Because each index list is sorted (a column's ids by row, a row's ids by column), the box comes from
+    /// the FIRST and LAST qualifying entry of each covered list — O(covered lists · log n), never a walk
+    /// over every id. VLOOKUP/INDEX resolve their open table through here on every evaluation, so this must
+    /// not re-enumerate the whole column.
     /// </summary>
     private bool TryGetPopulatedBounds(
         EvaluationContext context,
@@ -133,28 +201,99 @@ public sealed partial record OpenRangeReference(
 
         var any = false;
 
-        // A missing sheet yields no populated bounds (an empty selection); never throw here.
         if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
         {
             return false;
         }
 
-        foreach (var id in sheet.Keys)
+        var index = context.Workbook.GetStructuralIndex(SheetName, sheet);
+
+        // Whole-row shape: each covered row's list is column-sorted, so its first/last ids give the column
+        // extremes directly (no column bound applies on this branch, by definition).
+        if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
         {
-            if (!CellAddress.TryGetColumnRow(id, out var column, out var row) || !Contains(column, row))
+            var rows = index.Rows;
+
+            for (var row = wholeRowMin; row <= wholeRowMax; row++)
+            {
+                if (!rows.TryGetValue(row, out var rowIds) || rowIds.Count == 0)
+                {
+                    continue;
+                }
+
+                any = true;
+                if (row < minRow) minRow = row;
+                if (row > maxRow) maxRow = row;
+
+                CellAddress.TryGetColumnRow(rowIds[0], out var firstColumn, out _);
+                CellAddress.TryGetColumnRow(rowIds[^1], out var lastColumn, out _);
+                if (firstColumn < minColumn) minColumn = firstColumn;
+                if (lastColumn > maxColumn) maxColumn = lastColumn;
+            }
+
+            return any;
+        }
+
+        // Column-driven shapes: each covered column's list is row-sorted, so the row extremes within the
+        // row bounds are found by binary search at both ends.
+        var columns = index.Columns;
+
+        foreach (var column in ColumnsToVisit(columns))
+        {
+            if (!columns.TryGetValue(column, out var columnIds) || columnIds.Count == 0)
             {
                 continue;
+            }
+
+            var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnIds, rowMin) : 0;
+            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnIds, rowMax) : columnIds.Count - 1;
+
+            if (first > last)
+            {
+                continue; // no populated cell of this column falls inside the row bounds
             }
 
             any = true;
             if (column < minColumn) minColumn = column;
             if (column > maxColumn) maxColumn = column;
-            if (row < minRow) minRow = row;
-            if (row > maxRow) maxRow = row;
+
+            CellAddress.TryGetColumnRow(columnIds[first], out _, out var lowRow);
+            CellAddress.TryGetColumnRow(columnIds[last], out _, out var highRow);
+            if (lowRow < minRow) minRow = lowRow;
+            if (highRow > maxRow) maxRow = highRow;
         }
 
         return any;
     }
+
+    // Binary search over a row-sorted id list: the index of the first id whose row is >= target
+    // (list.Count when none). The parse never fails — malformed ids are filtered out at index build.
+    private static int FirstAtOrAboveRow(List<string> rowSortedIds, int target)
+    {
+        var low = 0;
+        var high = rowSortedIds.Count;
+
+        while (low < high)
+        {
+            var mid = (low + high) >> 1;
+            CellAddress.TryGetColumnRow(rowSortedIds[mid], out _, out var row);
+
+            if (row < target)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    // The index of the last id whose row is <= target (-1 when none).
+    private static int LastAtOrBelowRow(List<string> rowSortedIds, int target) =>
+        FirstAtOrAboveRow(rowSortedIds, target + 1) - 1;
 
     /// <summary>
     /// Resolves this open range to the concrete <see cref="RangeReference"/> of its POPULATED bounding box,

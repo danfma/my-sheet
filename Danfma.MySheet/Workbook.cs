@@ -96,6 +96,43 @@ public sealed partial class Workbook
         }
     }
 
+    // === Layer-1 structural index (whole-column scale) ==================================================
+    // Per-sheet "which cells exist in this column/row" index (column → row-sorted ids, and the symmetric
+    // row map), built lazily on the first whole-column/row read. Structure ≠ values, so it is dropped by
+    // InvalidateCache() (cells may have changed) but SURVIVES Recalculate() (a volatile refresh never
+    // changes which cells exist). Keyed by sheet name case-insensitively (like Sheets). Lazily created
+    // race-free via the StructuralIndex accessor — never `= new()` on the field, which MemoryPack bypasses.
+    [MemoryPackIgnore]
+    private ConcurrentDictionary<string, SheetStructuralIndex>? _structuralIndex;
+
+    private ConcurrentDictionary<string, SheetStructuralIndex> StructuralIndex
+    {
+        get
+        {
+            var existing = _structuralIndex;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new ConcurrentDictionary<string, SheetStructuralIndex>(
+                StringComparer.OrdinalIgnoreCase
+            );
+            return Interlocked.CompareExchange(ref _structuralIndex, created, null) ?? created;
+        }
+    }
+
+    /// <summary>
+    /// The lazily-built <see cref="SheetStructuralIndex"/> for a sheet, shared across every whole-column/row
+    /// read of the current cache epoch. Internal — part of the evaluation contract, not host API.
+    /// </summary>
+    internal SheetStructuralIndex GetStructuralIndex(string sheetName, Sheet sheet) =>
+        StructuralIndex.GetOrAdd(
+            sheetName,
+            static (_, target) => new SheetStructuralIndex(target),
+            sheet
+        );
+
     // Backing field for the injectable clock; ignored by MemoryPack (runtime config, not persisted state).
     [MemoryPackIgnore]
     private TimeProvider? _timeProvider;
@@ -272,6 +309,10 @@ public sealed partial class Workbook
     {
         _cache?.Clear();
         _volatileTainted?.Clear();
+
+        // Cells may have been added or removed, so the structural index is stale too. Recalculate() does
+        // NOT touch it: a volatile refresh changes values, never which cells exist.
+        _structuralIndex?.Clear();
 
         lock (VolatileLock)
         {
