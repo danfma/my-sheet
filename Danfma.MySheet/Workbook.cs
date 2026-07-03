@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System.Buffers.Binary;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
@@ -201,7 +202,9 @@ public sealed partial class Workbook
     /// <summary>The already-built structural index for a sheet, or <c>null</c> when none has been built this
     /// epoch — a side-effect-free peek (never admits a read, never bucketizes). Test/introspection only.</summary>
     internal SheetStructuralIndex? PeekStructuralIndex(string sheetName) =>
-        _structuralIndex is { } built && built.TryGetValue(sheetName, out var existing) ? existing : null;
+        _structuralIndex is { } built && built.TryGetValue(sheetName, out var existing)
+            ? existing
+            : null;
 
     // The structural index to use for the cache-size ESTIMATE, WITHOUT admitting a read (the estimate must not
     // count as one of the two admission reads, nor force the O(N) build on a range's first read). ForceBuild
@@ -641,13 +644,37 @@ public sealed partial class Workbook
         return result;
     }
 
+    // === Warm-start container format =====================================================================
+    // A cold Save writes the RAW MemoryPack of the model, byte-identical to every prior version (a permanent
+    // regression contract). A warm Save (IncludeComputedValues) wraps that SAME model block in a self-
+    // describing container so a Load can repopulate _cache and skip recomputation:
+    //   magic "MSWM" (4) | version (1) | modelLength (int32 LE, 4) | model bytes | value-block bytes
+    // The value block is the MemoryPack of a List<CachedCellValue> surrogate. Load sniffs the 4-byte magic:
+    // a match is a container, anything else is a raw (legacy or cold) model. The raw MemoryPack object header
+    // is a small member count (Workbook = 0x02), never 'M' (0x4D), so the two are unambiguous.
+    private static ReadOnlySpan<byte> ContainerMagic => "MSWM"u8;
+    private const byte ContainerVersion = 1;
+    private const int ContainerHeaderLength = 4 + 1 + 4; // magic + version + modelLength
+
     /// <summary>
     /// Serializes the workbook to a file (MemoryPack). The cell cache and registered custom functions are
-    /// not persisted — they are rebuilt/re-registered after loading.
+    /// not persisted — they are rebuilt/re-registered after loading. Byte-identical across versions.
     /// </summary>
     public void Save(string path) => File.WriteAllBytes(path, MemoryPackSerializer.Serialize(this));
 
-    /// <inheritdoc cref="Save"/>
+    /// <summary>
+    /// Serializes the workbook to a file. With <see cref="WorkbookSaveOptions.IncludeComputedValues"/> the
+    /// memoized values travel with the model in a container so a later <see cref="Load(string)"/> starts warm
+    /// (no recomputation); otherwise the file is byte-identical to <see cref="Save(string)"/>. Volatile and
+    /// reference-typed cache entries are never persisted.
+    /// </summary>
+    public void Save(string path, WorkbookSaveOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        File.WriteAllBytes(path, SerializeToBytes(options));
+    }
+
+    /// <inheritdoc cref="Save(string)"/>
     public async Task SaveAsync(string path, CancellationToken cancellationToken = default)
     {
         await using var stream = File.Create(path);
@@ -658,23 +685,142 @@ public sealed partial class Workbook
         );
     }
 
-    /// <summary>Loads a workbook from a file written by <see cref="Save"/> and returns the new instance.</summary>
-    public static Workbook Load(string path) =>
-        MemoryPackSerializer.Deserialize<Workbook>(File.ReadAllBytes(path))
-        ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
-
-    /// <inheritdoc cref="Load"/>
-    public static async Task<Workbook> LoadAsync(
+    /// <inheritdoc cref="Save(string, WorkbookSaveOptions)"/>
+    public async Task SaveAsync(
         string path,
+        WorkbookSaveOptions options,
         CancellationToken cancellationToken = default
     )
     {
-        await using var stream = File.OpenRead(path);
+        ArgumentNullException.ThrowIfNull(options);
+        await File.WriteAllBytesAsync(path, SerializeToBytes(options), cancellationToken);
+    }
 
-        return await MemoryPackSerializer.DeserializeAsync<Workbook>(
-                stream,
-                cancellationToken: cancellationToken
+    // The bytes a warm/cold Save writes. Cold (or IncludeComputedValues = false) is the raw model, identical
+    // to Save(path); warm wraps it in the container with the value block.
+    private byte[] SerializeToBytes(WorkbookSaveOptions options)
+    {
+        var model = MemoryPackSerializer.Serialize(this);
+
+        if (!options.IncludeComputedValues)
+        {
+            return model;
+        }
+
+        var values = MemoryPackSerializer.Serialize(SnapshotComputedValues());
+        var buffer = new byte[ContainerHeaderLength + model.Length + values.Length];
+        var span = buffer.AsSpan();
+
+        ContainerMagic.CopyTo(span);
+        span[4] = ContainerVersion;
+        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(5, 4), model.Length);
+        model.CopyTo(span.Slice(ContainerHeaderLength));
+        values.CopyTo(span.Slice(ContainerHeaderLength + model.Length));
+
+        return buffer;
+    }
+
+    // Snapshots the memoized cache into surrogates, EXCLUDING volatile-tainted entries (they must re-sample on
+    // the next read after loading) and reference-typed values (unrepresentable — their cells recompute).
+    private List<CachedCellValue> SnapshotComputedValues()
+    {
+        var list = new List<CachedCellValue>();
+
+        if (_cache is not { } cache)
+        {
+            return list;
+        }
+
+        var tainted = _volatileTainted;
+
+        foreach (var (key, value) in cache)
+        {
+            if (tainted is not null && tainted.ContainsKey(key))
+            {
+                continue;
+            }
+
+            if (CachedCellValue.TryFrom(key.Sheet, key.Id, value) is { } surrogate)
+            {
+                list.Add(surrogate);
+            }
+        }
+
+        return list;
+    }
+
+    // Repopulates the memoized cache from a warm value block, reusing the same lazy _cache creation path as
+    // GetCellValue so the field survives MemoryPack's field-initializer bypass and stays consistent.
+    private void LoadComputedValues(List<CachedCellValue> values)
+    {
+        if (values.Count == 0)
+        {
+            return;
+        }
+
+        var cache = _cache ??= new();
+
+        foreach (var entry in values)
+        {
+            cache[(entry.SheetName, entry.CellId)] = entry.ToComputedValue();
+        }
+    }
+
+    /// <summary>Loads a workbook from a file written by <see cref="Save(string)"/> and returns the new
+    /// instance. Warm-start containers repopulate the value cache; raw (cold/legacy) files load unchanged.</summary>
+    public static Workbook Load(string path) => Deserialize(File.ReadAllBytes(path), path);
+
+    /// <inheritdoc cref="Load(string)"/>
+    public static async Task<Workbook> LoadAsync(
+        string path,
+        CancellationToken cancellationToken = default
+    ) => Deserialize(await File.ReadAllBytesAsync(path, cancellationToken), path);
+
+    // Sniffs the 4-byte magic: a container repopulates the warm cache; anything else is a raw model.
+    private static Workbook Deserialize(byte[] bytes, string path)
+    {
+        if (
+            bytes.Length >= ContainerHeaderLength
+            && bytes.AsSpan(0, ContainerMagic.Length).SequenceEqual(ContainerMagic)
+        )
+        {
+            return DeserializeContainer(bytes, path);
+        }
+
+        return MemoryPackSerializer.Deserialize<Workbook>(bytes)
+            ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+    }
+
+    private static Workbook DeserializeContainer(byte[] bytes, string path)
+    {
+        var version = bytes[4];
+        if (version != ContainerVersion)
+        {
+            throw new InvalidDataException(
+                $"'{path}' is a MySheet warm-start container of unsupported version {version}."
+            );
+        }
+
+        var modelLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(5, 4));
+        var modelEnd = ContainerHeaderLength + modelLength;
+
+        if (modelLength < 0 || modelEnd > bytes.Length)
+        {
+            throw new InvalidDataException($"'{path}' is a corrupt MySheet warm-start container.");
+        }
+
+        var workbook =
+            MemoryPackSerializer.Deserialize<Workbook>(
+                bytes.AsSpan(ContainerHeaderLength, modelLength)
             ) ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+
+        var values =
+            MemoryPackSerializer.Deserialize<List<CachedCellValue>>(bytes.AsSpan(modelEnd))
+            ?? new List<CachedCellValue>();
+
+        workbook.LoadComputedValues(values);
+
+        return workbook;
     }
 
     public void RegisterFunction(string name, CustomFunction function) =>
@@ -742,10 +888,12 @@ public sealed partial class Workbook
             CellReference cell => cell.SheetName.Length == 0,
             RangeReference range => range.SheetName.Length == 0,
             UnionReference union => union.Areas.Any(HasUnqualifiedReference),
-            BinaryOperation binary =>
-                HasUnqualifiedReference(binary.Left) || HasUnqualifiedReference(binary.Right),
+            BinaryOperation binary => HasUnqualifiedReference(binary.Left)
+                || HasUnqualifiedReference(binary.Right),
             UnaryOperation unary => HasUnqualifiedReference(unary.Operand),
-            Function function => FormulaWriter.Call(function).Arguments.Any(HasUnqualifiedReference),
+            Function function => FormulaWriter
+                .Call(function)
+                .Arguments.Any(HasUnqualifiedReference),
             _ => false,
         };
 }
