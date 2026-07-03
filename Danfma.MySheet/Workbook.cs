@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 using MemoryPack;
@@ -99,128 +100,10 @@ public sealed partial class Workbook
     }
 
     // === Layer-1 structural index (whole-column scale) ==================================================
-    // Per-sheet "which cells exist in this column/row" index (column → row-sorted ids, and the symmetric
-    // row map), built lazily on the first whole-column/row read. Structure ≠ values, so it is dropped by
-    // InvalidateCache() (cells may have changed) but SURVIVES Recalculate() (a volatile refresh never
-    // changes which cells exist). Keyed by sheet name case-insensitively (like Sheets). Lazily created
-    // race-free via the StructuralIndex accessor — never `= new()` on the field, which MemoryPack bypasses.
-    [MemoryPackIgnore]
-    private ConcurrentDictionary<string, SheetStructuralIndex>? _structuralIndex;
-
-    private ConcurrentDictionary<string, SheetStructuralIndex> StructuralIndex
-    {
-        get
-        {
-            var existing = _structuralIndex;
-            if (existing is not null)
-            {
-                return existing;
-            }
-
-            var created = new ConcurrentDictionary<string, SheetStructuralIndex>(
-                StringComparer.OrdinalIgnoreCase
-            );
-            return Interlocked.CompareExchange(ref _structuralIndex, created, null) ?? created;
-        }
-    }
-
-    /// <summary>
-    /// The lazily-built <see cref="SheetStructuralIndex"/> for a sheet, shared across every whole-column/row
-    /// read of the current cache epoch. Internal — part of the evaluation contract, not host API.
-    /// </summary>
-    internal SheetStructuralIndex GetStructuralIndex(string sheetName, Sheet sheet) =>
-        StructuralIndex.GetOrAdd(
-            sheetName,
-            static (_, target) => new SheetStructuralIndex(target),
-            sheet
-        );
-
-    // Per-sheet "an open range has been read once this epoch" markers. Second-use admission for Layer 1:
-    // building the index (an O(N) pass + per-bucket allocation) pays off only when a sheet is read through an
-    // open range MORE than once per epoch. A sheet read exactly once (the "InvalidateCache + one whole-column
-    // read per epoch" shape) would pay the build it never reuses — the 2.6.2/2.6.4 index regression. So the
-    // FIRST open-range read of a sheet records a marker and stays on the NaiveScan path; the SECOND builds the
-    // index. Dropped by InvalidateCache() with the index; survives Recalculate() (structure is unchanged).
-    [MemoryPackIgnore]
-    private ConcurrentDictionary<string, bool>? _structuralIndexSeen;
-
-    private ConcurrentDictionary<string, bool> StructuralIndexSeen
-    {
-        get
-        {
-            var existing = _structuralIndexSeen;
-            if (existing is not null)
-            {
-                return existing;
-            }
-
-            var created = new ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-            return Interlocked.CompareExchange(ref _structuralIndexSeen, created, null) ?? created;
-        }
-    }
-
-    /// <summary>
-    /// Test/benchmark hook to force the structural-index admission policy: <see cref="StructuralIndexMode.Admission"/>
-    /// (production default — build on the 2nd read), <see cref="StructuralIndexMode.ForceNaive"/> (always
-    /// NaiveScan — the pre-index 2.6.1 baseline) or <see cref="StructuralIndexMode.ForceBuild"/> (build on
-    /// every read — the pre-Phase-5 tree). Not serialized.
-    /// </summary>
-    [MemoryPackIgnore]
-    internal StructuralIndexMode StructuralIndexMode { get; set; } = StructuralIndexMode.Admission;
-
-    /// <summary>
-    /// The structural index to use for an open-range read of a sheet, or <c>null</c> when the caller must
-    /// NaiveScan (the sheet's FIRST open-range read this epoch, or <see cref="StructuralIndexMode.ForceNaive"/>).
-    /// The SECOND read builds the index and every read after reuses it. Internal — evaluation contract.
-    /// </summary>
-    internal SheetStructuralIndex? TryGetStructuralIndex(string sheetName, Sheet sheet)
-    {
-        switch (StructuralIndexMode)
-        {
-            case StructuralIndexMode.ForceNaive:
-                return null;
-            case StructuralIndexMode.ForceBuild:
-                return GetStructuralIndex(sheetName, sheet);
-        }
-
-        // Already built this epoch (a prior second-or-later read): reuse it.
-        if (_structuralIndex is { } built && built.TryGetValue(sheetName, out var existing))
-        {
-            return existing;
-        }
-
-        // First read this epoch: record the marker and keep the caller on the NaiveScan path. (Race-benign:
-        // if two threads both see "first", one NaiveScans and the other builds — both yield the same ids.)
-        if (StructuralIndexSeen.TryAdd(sheetName, true))
-        {
-            return null;
-        }
-
-        // Second (or later) read: build the index (once) and reuse it thereafter.
-        return GetStructuralIndex(sheetName, sheet);
-    }
-
-    /// <summary>The already-built structural index for a sheet, or <c>null</c> when none has been built this
-    /// epoch — a side-effect-free peek (never admits a read, never bucketizes). Test/introspection only.</summary>
-    internal SheetStructuralIndex? PeekStructuralIndex(string sheetName) =>
-        _structuralIndex is { } built && built.TryGetValue(sheetName, out var existing)
-            ? existing
-            : null;
-
-    // The structural index to use for the cache-size ESTIMATE, WITHOUT admitting a read (the estimate must not
-    // count as one of the two admission reads, nor force the O(N) build on a range's first read). ForceBuild
-    // builds (to reproduce the pre-Phase-5 tree in the harness); otherwise it only peeks an already-built map.
-    private SheetStructuralIndex? StructuralIndexForEstimate(string sheetName, Sheet sheet)
-    {
-        if (StructuralIndexMode == StructuralIndexMode.ForceBuild)
-        {
-            return GetStructuralIndex(sheetName, sheet);
-        }
-
-        return _structuralIndex is { } built && built.TryGetValue(sheetName, out var existing)
-            ? existing
-            : null;
-    }
+    // The per-sheet "which cells exist in this column/row" index now lives ON the Sheet (see
+    // Sheet.GetStructuralIndex): it is write-maintained by the SetCell/Remove choke point and lifetime-scoped,
+    // so InvalidateCache() no longer drops it (only cell edits change structure, and those maintain it in
+    // place). The Workbook keeps no structural state of its own anymore.
 
     // === Layer-2 range value cache (whole-column scale) =================================================
     // Per-epoch snapshot (materialized ComputedValue[] + lazy derived accelerators) of a populated range,
@@ -328,15 +211,11 @@ public sealed partial class Workbook
                     return 0;
                 }
 
-                // First read of this range: the structural index is not built yet and the estimate must NOT
-                // force it (that is the Phase-5 regression). With no cheap count available, admit the range so
-                // its size is confirmed only when the snapshot is actually built on the second read.
-                var index = StructuralIndexForEstimate(open.SheetName, sheet);
-                if (index is null)
-                {
-                    return RangeCacheMinimumCells;
-                }
-
+                // The structural index is lifetime-scoped and write-maintained, so consulting it is cheap: it
+                // is built once per sheet life (never per epoch) and every read after is O(covered lists). The
+                // count it gives is exact, so a small open range read repeatedly is correctly kept off the
+                // value cache (below the threshold) instead of admitted on faith.
+                var index = sheet.GetStructuralIndex();
                 var total = 0;
 
                 // Whole-row shape (both column limits open, row axis bounded): sum the covered rows.
@@ -562,10 +441,9 @@ public sealed partial class Workbook
         _cache?.Clear();
         _volatileTainted?.Clear();
 
-        // Cells may have been added or removed, so the structural index is stale too. Recalculate() does
-        // NOT touch it: a volatile refresh changes values, never which cells exist.
-        _structuralIndex?.Clear();
-        _structuralIndexSeen?.Clear();
+        // The structural index is NO LONGER dropped here (3.0): it is write-maintained by the SetCell/Remove
+        // choke point and lifetime-scoped, so it already reflects every cell edit. InvalidateCache clears the
+        // VALUE caches (a cell's content/formula may have changed) but structure is untouched by that.
 
         // The value snapshots are stale once any cell changed.
         _rangeCache?.Clear();
@@ -1008,6 +886,36 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     [MemoryPackIgnore]
     public IReadOnlyDictionary<string, Expression> Cells => _cells;
 
+    // The write-maintained structural index (whole-column scale), owned per-Sheet because the write choke
+    // point lives here. Runtime-only: [MemoryPackIgnore] so it never touches the wire schema, and lazily
+    // created race-free via GetStructuralIndex (never `= new()` on the field — MemoryPack bypasses field
+    // initializers on deserialize, so a loaded sheet starts with a null index and rebuilds it once on its
+    // first open-range read). Built lazily, then kept up to date by SetCell/Remove; it SURVIVES
+    // Workbook.InvalidateCache (structure is orthogonal to the value caches).
+    [MemoryPackIgnore]
+    private SheetStructuralIndex? _structuralIndex;
+
+    /// <summary>
+    /// The sheet's structural index, created (empty, unbuilt) on first access and reused for the sheet's life.
+    /// The first read of a map on it triggers its one O(N) build; every <see cref="SetCell"/>/<see cref="Remove"/>
+    /// keeps it current thereafter. Internal — part of the evaluation contract, not host API.
+    /// </summary>
+    internal SheetStructuralIndex GetStructuralIndex()
+    {
+        var existing = _structuralIndex;
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var created = new SheetStructuralIndex(this);
+        return Interlocked.CompareExchange(ref _structuralIndex, created, null) ?? created;
+    }
+
+    /// <summary>The already-created structural index, or <c>null</c> when none has been created yet — a
+    /// side-effect-free peek (never creates or builds). Test/introspection only.</summary>
+    internal SheetStructuralIndex? PeekStructuralIndex() => _structuralIndex;
+
     [MemoryPackIgnore]
     public int Count => _cells.Count;
 
@@ -1020,24 +928,51 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
 
     /// <summary>
     /// The single write path into the cell store: the public indexer <c>set</c> delegates here, so every cell
-    /// insert or overwrite funnels through one method. Phase 1 keeps it a plain dictionary write; it is the
-    /// documented attach point for the 3.0 write-maintained structural index (built on the write, surviving
-    /// <see cref="Workbook.InvalidateCache"/>) and the future reverse dependency graph — both will hook their
-    /// incremental maintenance here, transparently to callers. Like the indexer it replaced, it does NOT
+    /// insert or overwrite funnels through one method. It maintains the write-maintained structural index in
+    /// place — an insert of a NEW id is recorded incrementally (an in-order append stays O(1); an out-of-order
+    /// insert dirties only its bucket), while OVERWRITING an existing id leaves the index untouched (the id is
+    /// already indexed). The index is only touched once it exists: before the sheet's first open-range read
+    /// there is nothing to maintain (the eventual lazy build captures every current cell). It is the documented
+    /// attach point for the future reverse dependency graph too. Like the indexer it replaced, it does NOT
     /// invalidate memoized values; the host calls <see cref="Workbook.InvalidateCache"/> after editing
     /// (see <see cref="Remove"/> for the symmetric delete).
     /// </summary>
-    internal void SetCell(string id, Expression expr) => _cells[id] = expr;
+    internal void SetCell(string id, Expression expr)
+    {
+        // One hash lookup: get (or add) the slot and learn whether the id already existed, so an overwrite
+        // skips index maintenance while a genuinely new cell updates it.
+        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(_cells, id, out var existed);
+        slot = expr;
+
+        if (!existed && _structuralIndex is { } index && CellAddress.TryGetColumnRow(id, out var column, out var row))
+        {
+            index.OnCellAdded(column, row, id);
+        }
+    }
 
     /// <summary>
     /// Removes a cell from the sheet, returning <c>true</c> when it existed (and <c>false</c> for a no-op).
-    /// The second mutation path alongside the <see cref="SetCell"/> write choke point, and — like a write — it
-    /// does NOT invalidate memoized values: removing a cell changes the result of every formula that read it,
-    /// so the host calls <see cref="Workbook.InvalidateCache"/> afterwards for the change to be observed,
-    /// exactly as after a write. It is the delete-side attach point for the same future write-maintained index
-    /// and dependency graph as <see cref="SetCell"/>.
+    /// The second mutation path alongside the <see cref="SetCell"/> write choke point: it removes the id from
+    /// the structural index (in place, O(bucket)) when the index exists, and — like a write — it does NOT
+    /// invalidate memoized values: removing a cell changes the result of every formula that read it, so the
+    /// host calls <see cref="Workbook.InvalidateCache"/> afterwards for the change to be observed, exactly as
+    /// after a write. It is the delete-side attach point for the same future dependency graph as
+    /// <see cref="SetCell"/>.
     /// </summary>
-    public bool Remove(string id) => _cells.Remove(id);
+    public bool Remove(string id)
+    {
+        if (!_cells.Remove(id))
+        {
+            return false;
+        }
+
+        if (_structuralIndex is { } index && CellAddress.TryGetColumnRow(id, out var column, out var row))
+        {
+            index.OnCellRemoved(column, row, id);
+        }
+
+        return true;
+    }
 
     [MemoryPackIgnore]
     public IEnumerable<string> Keys => _cells.Keys;

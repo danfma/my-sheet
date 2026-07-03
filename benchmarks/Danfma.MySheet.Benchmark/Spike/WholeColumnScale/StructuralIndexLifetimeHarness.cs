@@ -4,22 +4,21 @@ using Danfma.MySheet.Parsing;
 
 namespace Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 
-// Wall-clock harness for the STRUCTURAL-INDEX second-use admission (plans/whole-column-performance.md, Phase 5).
+// Wall-clock harness for the 3.0 LIFETIME structural index (plans/write-time-index-3.0.md, Phase 2).
 //
-//   dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --structural-index-admission
+//   dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --structural-index-lifetime
 //
 // Reproduces the EXACT shape of the user's own benchmark (MYSHEET-PERF-whole-column-scan.md): column A holds a
 // fixed 200 populated cells; the rest of the sheet is filled in OTHER columns (so they never touch A:A); each
-// iteration does InvalidateCache() then evaluates COUNTIF(A:A,">0"). Since Phase 1 made the open-range read
-// index-backed UNCONDITIONALLY, every epoch rebuilt the WHOLE-SHEET index (O(N) pass + per-column allocation)
-// just to serve 200 cells — ~5-6× slower than the pre-index NaiveScan of 2.6.1.
+// iteration does InvalidateCache() then evaluates COUNTIF(A:A,">0").
 //
-// Three modes measured per sheet size (via the Workbook.StructuralIndexMode lever):
-//   ForceNaive  — always NaiveScan: the pre-index (2.6.1) baseline.
-//   ForceBuild  — build the index on every read: the pre-Phase-5 tree (reproduces the regression).
-//   Admission   — Phase 5 default: NaiveScan the first read, build on the second. With one read per epoch this
-//                 never builds → parity with the pre-index baseline.
-public static class StructuralIndexAdmissionHarness
+// The Phase-5 (2.x) index was per-EPOCH: dropped by InvalidateCache, so this shape rebuilt it every iteration
+// (O(sheet) per epoch, ~5-6× the pre-index NaiveScan). The 3.0 index is write-maintained and LIFETIME-scoped:
+// InvalidateCache no longer drops it, so it is built ONCE (the first iteration) and every epoch after serves
+// the 200 cells of A:A directly. The mean-per-iteration time should therefore stay ~FLAT as the sheet total
+// grows (it tracks column A, ~200 cells — not the whole sheet). That flatness is the Phase-2 deliverable and
+// the calibration point for the Phase-3 target table (Aspose ~0.4ms constant).
+public static class StructuralIndexLifetimeHarness
 {
     private const string DataSheet = "Main";
     private const string CalcSheet = "Calc";
@@ -30,41 +29,41 @@ public static class StructuralIndexAdmissionHarness
 
     public static void Run()
     {
-        Console.WriteLine("== Structural-index second-use admission harness (user shape) ==");
+        Console.WriteLine("== 3.0 lifetime structural-index harness (user shape) ==");
         Console.WriteLine(
             $"Runtime: {Environment.Version}, cores {Environment.ProcessorCount}. "
                 + $"Column A fixed at {ColumnACells} cells; {Iterations} iterations of "
-                + "{{ InvalidateCache(); COUNTIF(A:A,\">0\") }}; mean ms per iteration."
+                + "{{ InvalidateCache(); COUNTIF(A:A,\">0\") }}; mean ms per iteration (best-of-5). "
+                + "Expected ~flat across sheet sizes (index built once, survives InvalidateCache)."
         );
         Console.WriteLine();
-        Console.WriteLine(
-            $"{"Sheet cells",12} {"ForceNaive",12} {"ForceBuild",12} {"Admission",12} "
-                + $"{"Build/Naive",12} {"Admit/Naive",12}"
-        );
+        Console.WriteLine($"{"Sheet cells",12} {"Mean ms/iter",14} {"First-read ms",14}");
 
         foreach (var size in SheetSizes)
         {
             var (workbook, calc) = Build(size);
+            var firstRead = FirstReadMs(workbook, calc);
 
-            var naive = MeanPerIteration(workbook, calc, StructuralIndexMode.ForceNaive);
-            var build = MeanPerIteration(workbook, calc, StructuralIndexMode.ForceBuild);
-            var admit = MeanPerIteration(workbook, calc, StructuralIndexMode.Admission);
+            // Rebuild a fresh workbook so the steady-state measurement is not skewed by the warm first read.
+            (workbook, calc) = Build(size);
+            var mean = MeanPerIteration(workbook, calc);
 
-            var buildRatio = naive > 0 ? build / naive : 0;
-            var admitRatio = naive > 0 ? admit / naive : 0;
-
-            Console.WriteLine(
-                $"{size,12:N0} {naive,12:N3} {build,12:N3} {admit,12:N3} "
-                    + $"{buildRatio,11:N2}x {admitRatio,11:N2}x"
-            );
+            Console.WriteLine($"{size,12:N0} {mean,14:N3} {firstRead,14:N3}");
         }
     }
 
-    // Best-of a few passes of (50 iterations of InvalidateCache + one COUNTIF), reported as mean ms/iteration.
-    private static double MeanPerIteration(Workbook workbook, string calcId, StructuralIndexMode mode)
+    // The one-shot cost of the FIRST open-range read (which builds the lifetime index once) on a cold workbook.
+    private static double FirstReadMs(Workbook workbook, string calcId)
     {
-        workbook.StructuralIndexMode = mode;
+        var stopwatch = Stopwatch.StartNew();
+        _ = workbook.GetCellValue(CalcSheet, calcId);
+        stopwatch.Stop();
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
 
+    // Best-of a few passes of (50 iterations of InvalidateCache + one COUNTIF), reported as mean ms/iteration.
+    private static double MeanPerIteration(Workbook workbook, string calcId)
+    {
         var best = double.MaxValue;
 
         for (var trial = 0; trial < 5; trial++)

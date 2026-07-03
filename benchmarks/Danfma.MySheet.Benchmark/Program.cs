@@ -25,10 +25,10 @@ if (args.Contains("--range-cache-admission"))
     return;
 }
 
-// Admissão do índice estrutural na 2ª leitura (Fase 5): `dotnet run -c Release -- --structural-index-admission`.
-if (args.Contains("--structural-index-admission"))
+// Índice estrutural vitalício do 3.0 (Fase 2): `dotnet run -c Release -- --structural-index-lifetime`.
+if (args.Contains("--structural-index-lifetime"))
 {
-    StructuralIndexAdmissionHarness.Run();
+    StructuralIndexLifetimeHarness.Run();
     return;
 }
 
