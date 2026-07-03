@@ -21,6 +21,8 @@ or writing back the results.
 8. [Function reference](function-reference.md) — every built-in function, plus the Excel coverage table.
 9. [Migrating to 2.0](migrating-to-2.0.md) — the 2.0 namespace reorganization: type → namespace map,
    before/after `using` examples, and the serialization-compatibility guarantee.
+10. [Migrating to 3.0](migrating-to-3.0.md) — the read-only `Sheet.Cells` view, the new `Remove`, and
+    the write-maintained structural index (serialization unchanged).
 
 ## Packages
 

@@ -22,6 +22,8 @@ com alocação mínima) e expor ou gravar de volta os resultados.
    Excel.
 9. [Migrando para a 2.0](migrating-to-2.0.md) — a reorganização de namespaces da 2.0: mapa tipo → namespace,
    exemplos de `using` antes/depois e a garantia de compatibilidade de serialização.
+10. [Migrando para a 3.0](migrating-to-3.0.md) — a visão somente leitura de `Sheet.Cells`, o novo `Remove`
+    e o índice estrutural mantido na escrita (serialização inalterada).
 
 ## Pacotes
 
