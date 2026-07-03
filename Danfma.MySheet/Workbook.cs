@@ -992,41 +992,76 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     // 0-based insertion order, used by the SHEET function.
     public int Index { get; init; }
 
-    public Dictionary<string, Expression> Cells { get; init; } = new();
+    // The cell store is a PRIVATE field carrying the serialized member, at the exact declaration position the
+    // public `Cells` property held before — MemoryPack orders members by declaration, so this keeps the wire
+    // schema (member #3, a Dictionary<string, Expression>) byte-identical (proven by the pre-namespaces
+    // fixture). The initializer runs only for a fresh `new Sheet`; MemoryPack bypasses field initializers on
+    // deserialize, but every serialized file carries this member, so the field is never left null.
+    [MemoryPackInclude]
+    private Dictionary<string, Expression> _cells = new();
+
+    /// <summary>
+    /// Read-only view of the sheet's populated cells. Mutation goes through the write choke point
+    /// (<see cref="SetCell"/>, reached via the indexer <c>set</c>) and <see cref="Remove"/> — the two, and only,
+    /// paths that change the cell store.
+    /// </summary>
+    [MemoryPackIgnore]
+    public IReadOnlyDictionary<string, Expression> Cells => _cells;
 
     [MemoryPackIgnore]
-    public int Count => Cells.Count;
+    public int Count => _cells.Count;
 
     [MemoryPackIgnore]
     public Expression this[string key]
     {
-        get => Cells.TryGetValue(key, out var cell) ? cell : BlankValue.Instance;
-        set => Cells[key] = value;
+        get => _cells.TryGetValue(key, out var cell) ? cell : BlankValue.Instance;
+        set => SetCell(key, value);
     }
 
-    [MemoryPackIgnore]
-    public IEnumerable<string> Keys => Cells.Keys;
+    /// <summary>
+    /// The single write path into the cell store: the public indexer <c>set</c> delegates here, so every cell
+    /// insert or overwrite funnels through one method. Phase 1 keeps it a plain dictionary write; it is the
+    /// documented attach point for the 3.0 write-maintained structural index (built on the write, surviving
+    /// <see cref="Workbook.InvalidateCache"/>) and the future reverse dependency graph — both will hook their
+    /// incremental maintenance here, transparently to callers. Like the indexer it replaced, it does NOT
+    /// invalidate memoized values; the host calls <see cref="Workbook.InvalidateCache"/> after editing
+    /// (see <see cref="Remove"/> for the symmetric delete).
+    /// </summary>
+    internal void SetCell(string id, Expression expr) => _cells[id] = expr;
+
+    /// <summary>
+    /// Removes a cell from the sheet, returning <c>true</c> when it existed (and <c>false</c> for a no-op).
+    /// The second mutation path alongside the <see cref="SetCell"/> write choke point, and — like a write — it
+    /// does NOT invalidate memoized values: removing a cell changes the result of every formula that read it,
+    /// so the host calls <see cref="Workbook.InvalidateCache"/> afterwards for the change to be observed,
+    /// exactly as after a write. It is the delete-side attach point for the same future write-maintained index
+    /// and dependency graph as <see cref="SetCell"/>.
+    /// </summary>
+    public bool Remove(string id) => _cells.Remove(id);
 
     [MemoryPackIgnore]
-    public IEnumerable<Expression> Values => Cells.Values;
+    public IEnumerable<string> Keys => _cells.Keys;
+
+    [MemoryPackIgnore]
+    public IEnumerable<Expression> Values => _cells.Values;
 
     public IEnumerator<KeyValuePair<string, Expression>> GetEnumerator()
     {
-        return Cells.GetEnumerator();
+        return _cells.GetEnumerator();
     }
 
     IEnumerator IEnumerable.GetEnumerator()
     {
-        return ((IEnumerable)Cells).GetEnumerator();
+        return ((IEnumerable)_cells).GetEnumerator();
     }
 
     public bool ContainsKey(string key)
     {
-        return Cells.ContainsKey(key);
+        return _cells.ContainsKey(key);
     }
 
     public bool TryGetValue(string key, [MaybeNullWhen(false)] out Expression value)
     {
-        return Cells.TryGetValue(key, out value);
+        return _cells.TryGetValue(key, out value);
     }
 }
