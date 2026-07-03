@@ -19,6 +19,10 @@ medição.
 core → Brotli direto. O pacote `ZstdSharp.Port` **não** foi adicionado ao csproj de benchmark; nada a
 reverter no repositório. (Reavaliar ZStd apenas numa futura migração ao .NET 11, quando o codec for BCL.)
 
+Nota honesta para o registro (medição parcial que rodou antes do aborto chegar): ZStd nível 3 apareceu
+MELHOR nos dois eixos no payload grande (~9,1% vs 13,7% de tamanho; ~15,5ms vs ~44,8ms comprimindo). Não
+muda a decisão (sem dep nova; ZStd nativo é .NET 11+), mas dá upside real à revisita no .NET 11.
+
 Gate original (travado, NÃO aplicado):
 - Se ZStd (níveis padrão e alto) ficar **dentro de ~±15% do Brotli em tamanho** sem vantagem dramática de
   velocidade → **implementar Brotli** (BCL, zero-dep), sem consultar de novo.
