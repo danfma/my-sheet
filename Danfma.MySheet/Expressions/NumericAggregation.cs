@@ -82,6 +82,24 @@ internal static class NumericAggregation
                     break;
 
                 default:
+                    // Mini-CSE: an array-eligible argument — IF(range=…,…), a range comparison, ROW(range)
+                    // — folds element-by-element with RANGE semantics (logicals/text ignored, so the FALSE
+                    // of a branch-less IF drops out; the first cell error propagates). The cheap syntactic
+                    // gate keeps the scalar hot path below at zero extra cost and avoids any double
+                    // evaluation (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
+                    if (
+                        ArrayEvaluation.IsArrayEligible(argument)
+                        && ArrayEvaluation.TryEvaluate(argument, context, out var array)
+                    )
+                    {
+                        foreach (var element in array.Values)
+                        {
+                            AddReferenced(element, ref fold, ref error);
+                        }
+
+                        break;
+                    }
+
                     var argumentValue = argument.Evaluate(context);
 
                     // A function (e.g. OFFSET) may yield a range value; expand it as referenced cells.

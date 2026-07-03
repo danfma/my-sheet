@@ -63,6 +63,88 @@ internal static class ArrayEvaluation
     }
 
     /// <summary>
+    /// A CHEAP syntactic pre-check — no evaluation — for whether <paramref name="expression"/> would
+    /// produce an array through the eligible structural set. Consumers gate on this BEFORE calling
+    /// <see cref="TryEvaluate"/>, so the scalar hot path pays only a shallow type-walk and never a double
+    /// evaluation: when this returns <c>false</c> the consumer keeps its existing scalar path untouched;
+    /// when it returns <c>true</c> the subsequent <see cref="TryEvaluate"/> is guaranteed to succeed and
+    /// is the SINGLE evaluation of the argument. It mirrors <see cref="Probe"/>/<see cref="TryBuild"/>
+    /// exactly (same array-producing cases, same open-range refusal), so it is true iff TryEvaluate is.
+    /// </summary>
+    public static bool IsArrayEligible(Expression expression) => Probe(expression).IsArray;
+
+    // The pure-shape twin of TryBuild: decides, WITHOUT evaluating any sub-expression, whether the build
+    // would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an
+    // array (IsArray). Must track TryBuild's structure exactly so IsArrayEligible == (TryEvaluate result).
+    private static (bool Succeeds, bool IsArray) Probe(Expression expression)
+    {
+        switch (expression)
+        {
+            case RangeReference:
+                return (true, true);
+
+            // An open/whole-column range in an array position is refused (the cost guard).
+            case OpenRangeReference:
+                return (false, false);
+
+            case Row { Arguments: [RangeReference] }:
+                return (true, true);
+
+            case Row { Arguments: [OpenRangeReference] }:
+                return (false, false);
+
+            case BinaryOperation binary:
+            {
+                var left = Probe(binary.Left);
+                if (!left.Succeeds)
+                {
+                    return (false, false);
+                }
+
+                var right = Probe(binary.Right);
+                if (!right.Succeeds)
+                {
+                    return (false, false);
+                }
+
+                return (true, left.IsArray || right.IsArray);
+            }
+
+            case If ifNode when ifNode.Arguments.Length is 2 or 3:
+            {
+                var condition = Probe(ifNode.Arguments[0]);
+                if (!condition.Succeeds)
+                {
+                    return (false, false);
+                }
+
+                // A scalar condition makes the IF an opaque scalar (its native short-circuit applies): it
+                // succeeds but is not an array, so the branches are never probed.
+                if (!condition.IsArray)
+                {
+                    return (true, false);
+                }
+
+                if (!Probe(ifNode.Arguments[1]).Succeeds)
+                {
+                    return (false, false);
+                }
+
+                if (ifNode.Arguments.Length == 3 && !Probe(ifNode.Arguments[2]).Succeeds)
+                {
+                    return (false, false);
+                }
+
+                return (true, true);
+            }
+
+            // Anything else is an opaque scalar: succeeds (evaluated once when actually built), not an array.
+            default:
+                return (true, false);
+        }
+    }
+
+    /// <summary>
     /// A recursively-built operand: either a scalar (to broadcast) or a rectangular array. Building FAILS
     /// (returns <c>false</c> from <see cref="TryBuild"/>) only when the sub-tree reaches an open/whole-column
     /// range in an array position — the cost guard — so the whole evaluation degrades to "not an array".

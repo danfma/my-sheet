@@ -7,6 +7,27 @@ public sealed partial record Index(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // Mini-CSE array-argument forms (the array is a computed vector, not a reference):
+        //   • ROW of a whole/one-sided-open column is the IDENTITY row vector [top, top+1, …]; INDEX(…,n)
+        //     returns its n-th worksheet row number WITHOUT materializing the grid-less column (the K1
+        //     "INDEX(ROW($A:$A), SMALL(…))" idiom). Documented special case for Row([OpenRangeReference]).
+        if (Arguments[0] is Row { Arguments: [OpenRangeReference openColumn] })
+        {
+            return IndexIntoOpenRowNumbers(openColumn, context);
+        }
+
+        //   • Any other array-eligible, non-reference first argument — ROW(B2:B5), IF(range=…,…) — is
+        //     materialized row-major and indexed. References fall through to the concrete-range path below,
+        //     so plain INDEX(A1:C10, r, c) is untouched.
+        if (
+            Arguments[0] is not Reference
+            && ArrayEvaluation.IsArrayEligible(Arguments[0])
+            && ArrayEvaluation.TryEvaluate(Arguments[0], context, out var array)
+        )
+        {
+            return IndexIntoArray(array, context);
+        }
+
         // The array may be a literal range or a defined name that stands for one.
         if (
             !NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
@@ -51,5 +72,82 @@ public sealed partial record Index(Expression[] Arguments) : Function
         }
 
         return range.CellComputedValueAt(context, (int)row, (int)column);
+    }
+
+    // Indexes a materialized element-wise vector row-major (the mini-CSE array form). Mirrors the
+    // concrete-range branch's row/column resolution: a 3-arg call takes (row, column); a 2-arg call maps
+    // the lone index to the array's only axis (column for a single row, row otherwise). Out of bounds → #REF!.
+    private ComputedValue IndexIntoArray(ArrayEvaluationResult array, EvaluationContext context)
+    {
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
+        {
+            return ComputedValue.Error(firstError);
+        }
+
+        double row;
+        double column;
+
+        if (Arguments.Length == 3)
+        {
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out column) is { } columnError)
+            {
+                return ComputedValue.Error(columnError);
+            }
+
+            row = first;
+        }
+        else if (array.Rows == 1)
+        {
+            row = 1;
+            column = first;
+        }
+        else
+        {
+            row = first;
+            column = 1;
+        }
+
+        if (row < 1 || column < 1 || row > array.Rows || column > array.Columns)
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        // Row-major layout (ArrayEvaluation fills row-then-column): (r,c) 1-based → (r-1)·Columns + (c-1).
+        return array.Values[((int)row - 1) * array.Columns + ((int)column - 1)];
+    }
+
+    // ROW of an open column is the identity vector [top, top+1, …] with top = RowMin (or 1 when the top is
+    // open). INDEX(ROW($A:$A), n) therefore returns top+n-1 directly — no column is materialized, honoring
+    // the grid-less model (an open bottom has no fixed 1,048,576 cap). n < 1, or n past a bounded bottom,
+    // is #REF!. A 3-arg form must select the single column (column 1).
+    private ComputedValue IndexIntoOpenRowNumbers(OpenRangeReference open, EvaluationContext context)
+    {
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
+        {
+            return ComputedValue.Error(firstError);
+        }
+
+        if (Arguments.Length == 3)
+        {
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out var column) is { } columnError)
+            {
+                return ComputedValue.Error(columnError);
+            }
+
+            if (column is < 1 or > 1)
+            {
+                return ComputedValue.Error(Error.Ref);
+            }
+        }
+
+        var n = (int)Math.Truncate(first);
+        var top = open.RowMin ?? 1;
+
+        if (n < 1 || (open.RowMax is { } bottom && top + n - 1 > bottom))
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        return ComputedValue.Number(top + n - 1);
     }
 }
