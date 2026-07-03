@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.7.0"></a>
+## [2.7.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.7.0) (2026-07-03)
+
+### Features
+
+* **core:** coerce empty formula results to zero at the cell boundary ([6ecf004](https://www.github.com/danfma/my-sheet/commit/6ecf00426932dc82e9b8ccd74da517725323f33d))
+
 <a name="2.6.4"></a>
 ## [2.6.4](https://www.github.com/danfma/my-sheet/releases/tag/v2.6.4) (2026-07-03)
 
