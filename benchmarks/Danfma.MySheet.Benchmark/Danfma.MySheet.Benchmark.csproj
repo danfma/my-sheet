@@ -9,6 +9,8 @@
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageReference Include="ClosedXML" Version="0.105.0" />
+    <!-- Spike-only: MessagePack format evaluation (Spike/MessagePackFormat). Not referenced by production. -->
+    <PackageReference Include="MessagePack" Version="3.1.7" NoWarn="NU1902;NU1903" />
   </ItemGroup>
 
   <ItemGroup>

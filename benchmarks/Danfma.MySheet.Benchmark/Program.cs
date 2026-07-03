@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Running;
 using Danfma.MySheet.Benchmark;
 using Danfma.MySheet.Benchmark.Spike;
+using Danfma.MySheet.Benchmark.Spike.MessagePackFormat;
 using Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 
 // Sanidade do spike CellValue (Fase 1): `dotnet run -- --check`.
@@ -28,6 +29,13 @@ if (args.Contains("--range-cache-admission"))
 if (args.Contains("--structural-index-admission"))
 {
     StructuralIndexAdmissionHarness.Run();
+    return;
+}
+
+// Spike MessagePack format — byte sizes: `dotnet run -c Release -- --messagepack-size`.
+if (args.Contains("--messagepack-size"))
+{
+    MessagePackSizeReport.Run();
     return;
 }
 
