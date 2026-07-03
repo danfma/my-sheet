@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="2.6.0"></a>
+## [2.6.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.6.0) (2026-07-03)
+
+### Features
+
+* **benchmark:** add whole-column reference storage spike ([055a1bb](https://www.github.com/danfma/my-sheet/commit/055a1bb85d5ca0936bb9b90cdd7233637b8ac0df))
+* **refs:** parse and aggregate whole-column/row references ([ca76882](https://www.github.com/danfma/my-sheet/commit/ca768827076324a825887b352f1cefb6b3c09c98))
+* **refs:** resolve whole-column references in reference consumers ([3b5d161](https://www.github.com/danfma/my-sheet/commit/3b5d1619bebd2a1601fd7139e9cdfcc98b68de14))
+* **refs:** un-parse and .xlsx interop for whole-column references ([72f932e](https://www.github.com/danfma/my-sheet/commit/72f932efc1977e4be879dfb4254546baab44b3da))
+
 <a name="2.5.0"></a>
 ## [2.5.0](https://www.github.com/danfma/my-sheet/releases/tag/v2.5.0) (2026-07-02)
 
