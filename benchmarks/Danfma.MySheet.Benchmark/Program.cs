@@ -1,11 +1,19 @@
 using BenchmarkDotNet.Running;
 using Danfma.MySheet.Benchmark;
 using Danfma.MySheet.Benchmark.Spike;
+using Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 
 // Sanidade do spike CellValue (Fase 1): `dotnet run -- --check`.
 if (args.Contains("--check"))
 {
     SpikeSelfCheck.Run();
+    return;
+}
+
+// Wall-clock harness da escala de coluna inteira (Fase 0): `dotnet run -c Release -- --whole-column-scale [--full]`.
+if (args.Contains("--whole-column-scale"))
+{
+    WholeColumnScaleHarness.Run(args);
     return;
 }
 
