@@ -26,13 +26,17 @@ arquivo é escolha sua — os exemplos usam `.mysheet` por convenção.
 
 ## O que é preservado no round-trip — e o que não é
 
-| | Persistido? | Observações |
-| --- | --- | --- |
-| Planilhas (nome, ordem das abas) | Sim | A busca de nomes case-insensitive é restaurada na desserialização. |
-| Células e árvores de expressão completas | Sim | Fórmulas continuam sendo fórmulas — um workbook carregado continua recalculando. |
-| **Chamadas** de funções personalizadas (nós `FunctionCall`) | Sim | O nome e as expressões dos argumentos são preservados. |
-| **Implementações** de funções personalizadas (delegates) | **Não** | Comportamento é código, não dados — registre de novo após carregar. |
-| Cache de memoização | **Não** | Os valores são recalculados de forma preguiçosa na primeira leitura após o carregamento. |
+A coluna **frio** é o `Save` padrão; a coluna **aquecido** é um save com
+[`IncludeComputedValues`](#warm-start-persistindo-valores-computados) (tudo o que um save frio persiste,
+mais os valores memoizados).
+
+| | Frio | Aquecido | Observações |
+| --- | --- | --- | --- |
+| Planilhas (nome, ordem das abas) | Sim | Sim | A busca de nomes case-insensitive é restaurada na desserialização. |
+| Células e árvores de expressão completas | Sim | Sim | Fórmulas continuam sendo fórmulas — um workbook carregado continua recalculando. |
+| **Chamadas** de funções personalizadas (nós `FunctionCall`) | Sim | Sim | O nome e as expressões dos argumentos são preservados. |
+| **Implementações** de funções personalizadas (delegates) | **Não** | **Não** | Comportamento é código, não dados — registre de novo após carregar. |
+| Cache de memoização | **Não** | **Parcial** | O frio recalcula de forma preguiçosa na primeira leitura. O aquecido restaura o cache — exceto células voláteis e do tipo referência (abaixo), que ainda são recalculadas. |
 
 A consequência prática: se o seu workbook usa [funções personalizadas](custom-functions.md), registre-as
 novamente após cada `Load`, ou essas chamadas serão avaliadas como `#NAME?`:
@@ -50,6 +54,55 @@ restored.RegisterFunction("CUSTOM", (arguments, wb) =>
 
 double value = restored.GetCellValue("Sheet1", "A1").ToDouble();
 ```
+
+## Warm-start: persistindo valores computados
+
+Por padrão, um arquivo salvo contém **apenas o modelo** — todo valor é recalculado de forma preguiçosa na
+primeira leitura após o carregamento. Passe `WorkbookSaveOptions { IncludeComputedValues = true }` para
+também persistir o cache de memoização, de modo que o carregamento comece **aquecido** — o **warm-start**
+(inicialização aquecida) — e sirva células já computadas sem reavaliá-las:
+
+```csharp
+workbook.Save("model.mysheet", new WorkbookSaveOptions { IncludeComputedValues = true });
+// await workbook.SaveAsync("model.mysheet", new WorkbookSaveOptions { IncludeComputedValues = true }, ct);
+
+var warm = Workbook.Load("model.mysheet"); // lida de volta com o cache já preenchido
+```
+
+`Load`/`LoadAsync` não precisam de nenhuma flag — eles detectam o formato a partir do cabeçalho do arquivo.
+
+### Formato do arquivo
+
+- **Frio** (`Save(path)`, ou `IncludeComputedValues = false`) — o MemoryPack bruto do modelo, byte a byte
+  idêntico a toda versão anterior. Este é um contrato permanente, garantido por um teste de regressão.
+- **Aquecido** — um pequeno container autodescritivo: o número mágico `MSWM`, 1 byte de versão do formato,
+  os **mesmos** bytes do modelo que um save frio escreveria, seguidos por um bloco de valores (o
+  MemoryPack dos valores em cache). O `Load` inspeciona os 4 bytes do número mágico: uma correspondência
+  indica um container aquecido; qualquer outra coisa é um modelo bruto (frio ou pré-existente), de modo
+  que arquivos antigos continuam carregando sem alteração.
+
+Como o modelo e seus valores viajam em um único arquivo, eles nunca podem dessincronizar no carregamento.
+
+### O que o warm-start *não* congela
+
+Dois tipos de valor em cache são deliberadamente **excluídos** do snapshot e são recalculados na primeira
+leitura, mesmo a partir de um arquivo aquecido:
+
+- **Células voláteis** — qualquer coisa que tenha envolvido `NOW`/`TODAY`/`RAND`/`RANDBETWEEN` (direta ou
+  transitivamente). Persisti-las "congelaria o relógio de ontem"; em vez disso, elas são reamostradas na
+  próxima leitura.
+- **Resultados do tipo referência** — raros como valor final de célula e baratos de reconstruir.
+
+### Contrato de desatualização
+
+O warm-start persiste valores que você já computou; ele não rastreia edições. O contrato pós-carregamento
+é o mesmo de sempre: **após editar células, chame `InvalidateCache()`** (ou `Recalculate()` para uma
+atualização apenas das voláteis) antes de ler, ou você lerá valores desatualizados. Um carregamento
+aquecido apenas pula a *primeira* recomputação das células inalteradas e não voláteis — isso não muda em
+nada como a invalidação funciona depois. E, assim como em um carregamento frio, as [funções
+personalizadas](custom-functions.md) ainda precisam ser registradas novamente: células que **não** estavam
+em cache no momento do save (ou que você invalidar) reavaliarão suas chamadas e precisarão da
+implementação presente.
 
 ## Compatibilidade
 
