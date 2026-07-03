@@ -139,3 +139,16 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   reforçada: o dispatch de release vive SEMPRE numa chamada separada, DEPOIS de eu ler a verificação da
   pré-condição (merge-base --is-ancestor do hash da feature). Blocos compostos param de valer para
   qualquer sequência que contenha uma ação irreversível.
+
+## MySheet — supervisão multi-worktree (2026-07-03, ciclo 3.0)
+
+- **A forma do breaking commit é `tipo(escopo)!:`, nunca `tipo!(escopo):`.** Meu briefing da Fase 1 do 3.0
+  pediu o literal `feat!(sheet):` — forma INVÁLIDA de conventional commit que o versionize não parseia
+  (o commit seria ignorado na derivação do major). O agente pegou e corrigiu para `feat(sheet)!:` + rodapé
+  `BREAKING CHANGE:`. Regra: o `!` vem DEPOIS do parêntese de escopo; conferir a forma no briefing antes
+  de despachar.
+- **Com várias worktrees ativas, comando git de integração/commit SEMPRE com `cd` absoluto explícito no
+  próprio bloco.** Um commit do plano quase caiu na worktree da Fase 1 porque o cwd do shell persiste
+  entre chamadas e eu tinha "sobrado" na worktree do agente (o `git add` de caminho relativo não achou
+  nada e o erro salvou). O cwd após verificação de entrega de agente é IMPREVISÍVEL — tratar todo bloco
+  git de supervisão como se o cwd estivesse errado.
