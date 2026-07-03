@@ -39,6 +39,13 @@ if (args.Contains("--write-cost"))
     return;
 }
 
+// Comparativo local MySheet × Aspose.Cells (mesma carga K1, tudo em memória): `dotnet run -c Release -- --aspose-compare`.
+if (args.Contains("--aspose-compare"))
+{
+    AsposeCompareHarness.Run();
+    return;
+}
+
 // Spike MessagePack format — byte sizes: `dotnet run -c Release -- --messagepack-size`.
 if (args.Contains("--messagepack-size"))
 {

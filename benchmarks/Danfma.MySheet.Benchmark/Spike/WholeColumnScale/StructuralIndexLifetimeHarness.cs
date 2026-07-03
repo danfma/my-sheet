@@ -23,12 +23,15 @@ public static class StructuralIndexLifetimeHarness
     private const string DataSheet = "Main";
     private const string CalcSheet = "Calc";
     private const int ColumnACells = 200;
-    private const int Iterations = 50;
+
+    // Reused by AsposeCompareHarness so both sides share the identical inner iteration count.
+    internal const int Iterations = 50;
 
     // Phase 3 target table: the sheet total sweeps 10k → 500k (the K1 report's axis). Column A stays fixed at
     // 200 cells; the rest fills OTHER columns, so COUNTIF(A:A) always scans only the 200 — the per-epoch time
     // must stay ~flat as the sheet grows (the lifetime index is built once and survives InvalidateCache).
-    private static readonly int[] SheetSizes =
+    // Reused by AsposeCompareHarness so both sides sweep the identical sizes.
+    internal static readonly int[] SheetSizes =
         [10_200, 20_200, 40_200, 100_200, 200_200, 500_200];
 
     public static void Run()
@@ -66,7 +69,8 @@ public static class StructuralIndexLifetimeHarness
     }
 
     // Best-of a few passes of (50 iterations of InvalidateCache + one COUNTIF), reported as mean ms/iteration.
-    private static double MeanPerIteration(Workbook workbook, string calcId)
+    // Reused by AsposeCompareHarness for the MySheet side of the side-by-side table.
+    internal static double MeanPerIteration(Workbook workbook, string calcId)
     {
         var best = double.MaxValue;
 
@@ -89,7 +93,8 @@ public static class StructuralIndexLifetimeHarness
 
     // Column A: 200 populated cells (the data COUNTIF actually scans). The remaining cells fill OTHER columns
     // (1000 rows each), exactly like the user's repro, so they are irrelevant to A:A but inflate the sheet.
-    private static (Workbook Workbook, string CalcId) Build(int totalCells)
+    // Reused by AsposeCompareHarness so the MySheet side is built with the exact same shape it compares.
+    internal static (Workbook Workbook, string CalcId) Build(int totalCells)
     {
         var workbook = new Workbook();
         var data = workbook.Sheets.Add(DataSheet);
