@@ -22,6 +22,10 @@ var same = workbook["Sheet1"];               // acesso por indexador
 
 - **Os nomes de planilha são case-insensitive**, como no Excel: `workbook["sheet1"]` e
   `workbook["SHEET1"]` chegam à mesma planilha.
+- O indexador `this[string]` **lança `KeyNotFoundException`** para um nome sem planilha correspondente —
+  é uma consulta direta ao host, como em um dicionário. Use `TryGetSheet(name, out sheet)` para sondar
+  sem `try`/`catch`. (Uma planilha ausente referenciada *dentro de uma fórmula* é outra história: ela
+  resolve para `#REF!` em vez de lançar exceção — veja [semântica de erros de avaliação](#parsing).)
 - `Sheets` é um `ConcurrentDictionary<string, Sheet>`, seguro para leitores concorrentes (o cenário
   pretendido de extração em segundo plano).
 - `Sheets.Add(name)` atribui à planilha um `Index` igual à sua ordem de inserção — é isso que a função
@@ -31,8 +35,9 @@ Principais membros de `Workbook`:
 
 | Membro | Propósito |
 | --- | --- |
-| `Sheets` / `this[string]` | Acessa planilhas pelo nome (case-insensitive). |
-| `GetCellValue(sheetName, id)` | Avaliação memoizada de uma célula → `ComputedValue`. |
+| `Sheets` / `this[string]` | Acessa planilhas pelo nome (case-insensitive); o indexador lança `KeyNotFoundException` para um nome sem planilha correspondente. |
+| `TryGetSheet(name, out sheet)` | Consulta de planilha sem lançar exceção (case-insensitive) → `bool`; a contraparte do indexador que lança exceção. |
+| `GetCellValue(sheetName, id)` | Avaliação memoizada de uma célula → `ComputedValue`; uma referência a uma planilha ausente resolve para `#REF!` (nunca lança exceção). |
 | `InvalidateCache()` | Esvazia explicitamente **todo** o cache de memoização (obrigatório após edições); também reinicia a época volátil. |
 | `Recalculate()` | Atualiza apenas as células voláteis (veja [Funções voláteis](#funções-voláteis)); mantém em cache toda célula estável. |
 | `TimeProvider` | Relógio injetável para `NOW`/`TODAY` (padrão `TimeProvider.System`, lido em horário local). |
@@ -99,7 +104,17 @@ Regras:
   problemático). Funções nativas também validam a quantidade de argumentos em tempo de parse —
   `=ROUND(1)` lança exceção, assim como o Excel rejeitaria a fórmula na digitação.
 - **Erros semânticos não lançam exceção** — uma função desconhecida é avaliada como `#NAME?`, uma
-  referência inválida como `#REF!`, e assim por diante, na forma de erros de `ComputedValue`.
+  referência inválida como `#REF!`, e assim por diante, na forma de erros de `ComputedValue`. Uma
+  **referência a uma planilha que não existe** (`=Ghost!A1`, `SUM(Ghost!A:A)`) é uma dessas referências
+  inválidas: ela resolve para `#REF!` — nunca uma `KeyNotFoundException` lançada — de forma que uma única
+  referência cruzada pendente não consegue abortar um lote de workbook inteiro. Uma planilha ausente é um
+  erro *estrutural*, então ele se propaga por **todas** as funções consumidoras — as agregações, a família
+  `COUNT` que ignora erros (`COUNT`/`COUNTA`/`COUNTIF` sobre uma planilha fantasma são `#REF!`, não `0`),
+  os lookups (`VLOOKUP`/`MATCH`/`XLOOKUP`/`INDEX`), `SUMPRODUCT` e os pares estatísticos, as funções
+  financeiras de fluxo de caixa (`NPV`/`IRR`/`XIRR`/`MIRR`), as junções de texto (`CONCAT`/`TEXTJOIN`) e as
+  demais. Um erro de valor *dentro* de uma célula de uma planilha existente mantém sua política habitual
+  por função (`COUNT` o ignora, `SUM` o propaga), e um intervalo vazio sobre uma planilha *existente*
+  continua sendo um resultado de valor (`MATCH` sobre ele é `#N/A`, não `#REF!`).
 
 ### Construindo árvores em código
 
