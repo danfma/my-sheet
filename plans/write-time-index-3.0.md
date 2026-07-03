@@ -111,16 +111,31 @@ verificação pós-rebase: core **854**, Excel 24, 0 warnings). **Merge à main 
 usuário** (classificador barrou push de quebra); a F2 forka desta branch rebaseada.
 
 ## Phase 2: Índice write-maintained
-Status: In progress
-- [ ] Índice vitalício: lazy build 1×/vida; manutenção incremental em `SetCell`/`Remove` (adaptativa,
+Status: Complete
+- [x] Índice vitalício: lazy build 1×/vida; manutenção incremental em `SetCell`/`Remove` (adaptativa,
       item 3); `InvalidateCache` deixa de derrubá-lo; deserialize → flag rebuild.
-- [ ] Remover a admissão estrutural da Fase 5 (`_structuralIndexSeen`, modo ForceNaive/etc. viram
+- [x] Remover a admissão estrutural da Fase 5 (`_structuralIndexSeen`, modo ForceNaive/etc. viram
       obsoletos — limpar harness/testes correspondentes com justificativa).
-- [ ] Testes: escrita em ordem (append O(1)); fora de ordem (dirty→resort na leitura); Remove; overwrite;
+- [x] Testes: escrita em ordem (append O(1)); fora de ordem (dirty→resort na leitura); Remove; overwrite;
       pós-Load rebuild 1×; **índice sobrevive a InvalidateCache** (contador de builds); valores continuam
       por época (não regride voláteis/snapshot).
 ### Verification Plan
 - Suítes verdes; equivalência intacta; contadores de build provam vitalício.
+### Phase Summary
+Entregue na branch **`feat/3.0-write-time-index`** (fork de `de80f97`), commit `b9d8dd0`. O índice migrou
+do `Workbook` (per-época) para o **próprio `Sheet`** (`[MemoryPackIgnore]`, criação race-free via
+`Interlocked` — o choke point vive no `Sheet` sem backref ao `Workbook`). Estados: não-construído (fresh/
+pós-Load) → construído com dirty POR bucket (insert fora de ordem re-sorta só aquela coluna/linha na
+próxima leitura). `SetCell` usa `GetValueRefOrAddDefault` (1 lookup; overwrite pula manutenção); `Remove`
+remove in-place O(bucket) (mantém ordenação; dirty reportaria célula-fantasma). Aposentados: admissão
+estrutural da Fase 5 (`_structuralIndexSeen`, `StructuralIndexMode`, NaiveScan do `OpenRangeReference`);
+mantidos: lazy per-bucket sort, `TryGetColumnRow` no-alloc, buscas binárias, e TODA a camada de valores
+por época. Verificação independente na worktree: core **862** (854 − 10 testes da admissão + 18 novos),
+Excel 24, fixture byte-intocada, build `--no-incremental` 0 warnings, e harness
+`--structural-index-lifetime` rodado por mim: **~flat 0,308→0,333 ms/época @ 2,2k→40,2k células**
+(Fase 5: 0,45→1,56ms; alvo Aspose ~0,4ms constante). Observações p/ F3: medir custo de append com índice
+vivo (durante Fill pré-1ª-leitura o índice nem existe → overhead ~nulo); first-read do harness é ruidoso
+(one-shot, JIT/GC).
 
 ## Phase 3: Validação + docs + release
 Status: Not started
