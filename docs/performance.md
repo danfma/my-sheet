@@ -17,9 +17,10 @@ Supporting choices in the same spirit:
 
 - `EvaluationContext` is a `readonly struct`, so threading the context through the recursive evaluation
   allocates nothing (only `LET` name bindings, when used, live on the heap).
-- The memoization cache stores the `ComputedValue` struct **inline** in the dictionary — no long-lived
-  per-cell box, which is what previously generated Gen1 GC pressure.
-- Range-consuming functions (`SUM(A1:A1000)`, lookups, …) enumerate cell values through the cache with
+- The memoization store keeps the `ComputedValue` struct **inline** in a dense per-sheet page (see
+  [the value store](#the-value-store-a-dense-paged-cache) below) — no long-lived per-cell box, no
+  per-entry hash node, which is what previously generated Gen1 GC pressure.
+- Range-consuming functions (`SUM(A1:A1000)`, lookups, …) enumerate cell values through the store with
   the same non-boxing type.
 
 ### Measured numbers
@@ -45,9 +46,10 @@ raw throughput.
 
 ## Memoization
 
-`Workbook.GetCellValue(sheetName, id)` caches each cell's `ComputedValue` under `(sheet, id)`. Every
-`CellReference` inside a formula resolves through the same cache, so a cell referenced by many formulas
-— or reached both directly and through a range expansion — is **computed exactly once**:
+`Workbook.GetCellValue(sheetName, id)` memoizes each cell's `ComputedValue` in the workbook's value
+store, addressed by a sheet handle plus the cell's `(column, row)`. Every `CellReference` inside a
+formula resolves through the same store, so a cell referenced by many formulas — or reached both
+directly and through a range expansion — is **computed exactly once**:
 
 ```csharp
 sheet["A1"] = ExpressionParser.Parse("=EXPENSIVE()", sheet);
@@ -78,8 +80,46 @@ Why this design (decided and documented in `plans/memoization.md`):
 - The known trade-off: each reference adds one dictionary lookup, a small cost on trivial cells that is
   repaid whenever cells are shared or expensive.
 
-The cache is a `ConcurrentDictionary`, safe for concurrent background readers. It is not serialized —
-a loaded workbook starts cold and fills lazily.
+### The value store: a dense paged cache
+
+The memoized values do not live in a hash map keyed by `(sheet, id)` strings. They live in a **dense,
+paged store addressed numerically** — the shape the compute-phase profiling pointed at. A string-keyed
+`ConcurrentDictionary` paid, on every miss, a bucket-lock insert, a string-tuple hash, and one heap node
+per entry (Gen1 pressure); the dense store removes all three from the hot path.
+
+**Numeric addressing, derived on the fly.** `GetCellValue` resolves the sheet name to a small integer
+handle once, then derives the cell's `(column, row)` straight from its canonical A1 id without allocating
+(`CellAddress.TryGetColumnRow` — no substring, no `int.Parse`). The public API and the on-disk format are
+untouched: cells are still addressed by A1 string on the surface, and the store is runtime-only, never
+serialized (a loaded workbook starts cold and fills lazily).
+
+**Two-level paging on both axes.** Per sheet, a slab holds a two-level column directory —
+`groups[col >> 6][col & 63]` (groups of 64 columns) → `column.pages[row >> 10]` → a page of 1,024
+`ComputedValue` slots plus a small presence bitmap. A lone high-index gridless column (e.g. `AAAA`) then
+costs one group, not a giant flat array, and the hot read is pure shift/mask plus a couple of array
+dereferences — no hashing. Directories start tiny and grow by doubling, publishing each new array with a
+`Volatile` write. The presence bitmap is explicit because a zeroed slot is ambiguous — "not computed
+yet" versus "computed to blank".
+
+**Lock-free reads via a per-page seqlock.** A `ComputedValue` is a multi-word struct, so a naive
+concurrent read could tear. Each page is a **seqlock**: readers are lock-free and simply re-read if a
+writer touched the page mid-read (an odd version number), while a single writer per page serialises on a
+CAS gate and bumps the version around its update. Because memoized cells are read far more than written,
+this keeps the read path free of the per-read monitor cost the old dictionary charged — evaluation stays
+safe to run concurrently (as the volatile/F1 paths require).
+
+**Sparsity guard.** A page is a fixed block, so cells scattered one-per-page over a huge row span would
+balloon the footprint. Each slab watches its pages-allocated versus cells-present ratio; once a slab is
+provably too sparse, it stops allocating **new** pages and diverts further scattered cells to a per-slab
+dictionary. Dense sheets never trip it; a pathological scatter degrades to the dictionary's footprint
+instead of the balloon. Nothing migrates and no page is torn down, so the concurrent read path is
+untouched.
+
+**Epoch semantics are preserved exactly.** `InvalidateCache()` drops every memoized value (the pages are
+cleared, the store and its handle map kept); `Recalculate()` drops only the volatile-tainted cells so
+they recompute lazily on the next read. The tainted set is a sparse keyed collection (only volatile cells
+land in it), and the value epoch is independent of the write-maintained structural index below, which
+survives both calls.
 
 ### Circular references
 
