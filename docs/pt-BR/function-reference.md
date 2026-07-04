@@ -19,7 +19,7 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
-| `AND` | `AND(logical1, [logical2], …)` | `TRUE` se todo argumento for considerado verdadeiro; células de texto/em branco alcançadas por meio de uma referência são ignoradas. |
+| `AND` | `AND(logical1, [logical2], …)` | `TRUE` se todo argumento for considerado verdadeiro; operandos de texto e em branco são ignorados (seja um literal ou alcançado por meio de uma referência); nenhum valor avaliável → `#VALUE!`. |
 | `FALSE` | `FALSE()` | O valor lógico `FALSE` (forma de função do literal). |
 | `IF` | `IF(condition, value_if_true, [value_if_false])` | Condicional; apenas o ramo escolhido é avaliado. |
 | `IFERROR` | `IFERROR(value, value_if_error)` | `value`, ou o valor de contingência quando `value` é qualquer erro. |
@@ -27,10 +27,10 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `IFS` | `IFS(test1, value1, [test2, value2], …)` | Primeiro valor cujo teste é `TRUE` (avaliação preguiçosa, como `IF`); nenhum teste `TRUE` → `#N/A`. |
 | `LET` | `LET(name1, value1, [name2, value2, …], calculation)` | Vincula nomes utilizáveis em `calculation` (ex.: `=LET(x, A1*2, x+x)`). Os nomes são locais à fórmula. |
 | `NOT` | `NOT(logical)` | Negação lógica. |
-| `OR` | `OR(logical1, [logical2], …)` | `TRUE` se algum argumento for considerado verdadeiro; células de texto/em branco alcançadas por meio de uma referência são ignoradas. |
+| `OR` | `OR(logical1, [logical2], …)` | `TRUE` se algum argumento for considerado verdadeiro; operandos de texto e em branco são ignorados (seja um literal ou alcançado por meio de uma referência); nenhum valor avaliável → `#VALUE!`. |
 | `SWITCH` | `SWITCH(expression, value1, result1, …, [default])` | Primeiro resultado cujo valor é igual a `expression` (avaliação preguiçosa; semântica de igualdade do `=`); sem correspondência → o padrão ou `#N/A`. |
 | `TRUE` | `TRUE()` | O valor lógico `TRUE` (forma de função do literal). |
-| `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` quando a quantidade de entradas `TRUE` é ímpar; células de texto/em branco alcançadas por meio de uma referência são ignoradas. |
+| `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` quando a quantidade de entradas `TRUE` é ímpar; operandos de texto e em branco são ignorados (seja um literal ou alcançado por meio de uma referência); nenhum valor avaliável → `#VALUE!`. |
 
 ## Matemática e trigonometria (74)
 
