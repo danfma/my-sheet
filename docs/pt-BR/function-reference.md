@@ -99,7 +99,7 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `SQRT` | `SQRT(number)` | Raiz quadrada; negativo → `#NUM!`. |
 | `SQRTPI` | `SQRTPI(number)` | Raiz quadrada de `number × π`. |
 | `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], …)` | Agregação selecionada por `function_num` (1-11: AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV.S/STDEV.P/SUM/VAR.S/VAR.P); células referenciadas cuja própria fórmula é um `SUBTOTAL` são ignoradas (evita contagem em duplicidade). 101-111 se comportam como 1-11 — o MySheet não tem modelo de linhas ocultas (limite documentado). Código inválido → `#VALUE!`. |
-| `SUM` | `SUM([number1], …)` | Soma de todos os valores numéricos; aceita intervalos. |
+| `SUM` | `SUM([number1], …)` | Soma de todos os valores numéricos; aceita intervalos. Também dobra um [argumento implícito de array](workbook-and-expressions.md#argumentos-implícitos-de-array) — `SUM(IF(B2:B5="Show",1,0))` = 2. |
 | `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Soma as células que atendem a um critério (ex.: `">10"`). |
 | `SUMIFS` | `SUMIFS(sum_range, criteria_range1, criteria1, …)` | Soma sob múltiplos pares de intervalo e critério. |
 | `SUMPRODUCT` | `SUMPRODUCT(array1, [array2], …)` | Soma dos produtos posição a posição; entradas não numéricas contam como 0; formatos diferentes → `#VALUE!`. |
@@ -119,6 +119,11 @@ séries (`CORREL`, `SLOPE`, …) descartam um par inteiro quando QUALQUER um dos
 retornam `#N/A` em caso de comprimentos diferentes e `#DIV/0!` quando a variância é zero. `GAUSS` fica
 para a fase das distribuições estatísticas (precisa da CDF normal/erf); `PHI` — a densidade simples —
 já está incluída.
+
+`AVERAGE`, `COUNT`, `MIN`, `MAX`, `SMALL` e `LARGE` também aceitam um
+[argumento implícito de array](workbook-and-expressions.md#argumentos-implícitos-de-array) — ex.:
+`SMALL(IF(B2:B5="Show",ROW(B2:B5)),1)` — dobrando-o elemento a elemento com a mesma regra de ignorar
+texto/lógicos (por isso o `FALSE` de um `IF` sem ramo é descartado).
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -239,7 +244,7 @@ defensivo de correspondência de 1 segundo.
 | `COLUMNS` | `COLUMNS(range)` | Número de colunas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de coluna limitado é exato (`COLUMNS(A:C)` = 3), um aberto usa a extensão populada. |
 | `FORMULATEXT` | `FORMULATEXT(reference)` | A fórmula da célula referenciada como TEXTO, com o `=` incluído (reescrita — *unparse* — no contexto de planilha da célula referenciada); uma célula literal ou vazia → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Pesquisa horizontal na primeira linha de uma tabela; exata ou aproximada; `row_index_num` < 1 → `#VALUE!`, além da tabela → `#REF!`. |
-| `INDEX` | `INDEX(range, row_num, [column_num])` | O valor em uma posição (base 1) dentro de um intervalo. |
+| `INDEX` | `INDEX(range, row_num, [column_num])` | O valor em uma posição (base 1) dentro de um intervalo. Aceita um [primeiro argumento implícito de array](workbook-and-expressions.md#argumentos-implícitos-de-array) (`INDEX(ROW(B2:B5),1)` = 2), incluindo a identidade `INDEX(ROW($A:$A), n)` que retorna `n` sem materializar a coluna; fora do intervalo → `#REF!`. |
 | `LOOKUP` | `LOOKUP(lookup_value, lookup_vector, [result_vector])` | Forma vetorial (sempre aproximada: o maior valor ≤ pesquisado); a forma matricial de 2 argumentos busca na primeira linha e retorna da última linha quando o intervalo é mais largo que alto; caso contrário, primeira/última coluna. |
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | Posição (base 1) de um valor em um intervalo (`match_type`: 1 aproximado crescente — padrão, 0 exato, -1 aproximado decrescente). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | Uma referência deslocada (e opcionalmente redimensionada) a partir de uma referência inicial; pode retornar uma referência multicélula para consumidores que aceitam intervalos. |

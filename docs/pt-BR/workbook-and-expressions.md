@@ -296,6 +296,45 @@ seus limites; `AREAS` conta como uma área e `ISREF` reporta `true`. Assim, `VLO
 
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 
+## Argumentos implícitos de array
+
+Algumas funções avaliam um **argumento com valor de array** elemento a elemento, reproduzindo a semântica
+implícita (CSE) do Excel — sem `Ctrl+Shift+Enter`, sem *spilling* e sem um valor de array público: o vetor
+vive apenas dentro da avaliação da função consumidora. Isso fecha os idiomas comuns `SUM(IF(range=…))` /
+`SMALL(IF(range=…, ROW(range)))`.
+
+```csharp
+ExpressionParser.Parse("=SUM(IF(B2:B5=\"Show\",1,0))", sheet);            // → 2 (contagem de correspondências)
+ExpressionParser.Parse("=SMALL(IF(B2:B5=\"Show\",ROW(B2:B5)),1)", sheet); // → 3 (primeira linha correspondente)
+ExpressionParser.Parse("=INDEX(ROW(B2:B5),1)", sheet);                    // → 2 (vetor de linhas, indexado)
+ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // → 4 (identidade: n-ésima linha)
+```
+
+**Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX` e —
+através da mesma dobra — `SMALL`, `LARGE`, os percentis) e `INDEX`. Um argumento é avaliado como um array
+quando é uma comparação de **intervalo fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim
+(com ou sem ramo `else`), ou `ROW(range)`; escalares são propagados (*broadcast*) por todo o vetor. Um `IF`
+sem ramo produz um lógico `FALSE` onde a condição é falsa, e os agregadores ignoram lógicos/texto
+(exatamente por isso `SMALL(IF(…))` pula as linhas sem correspondência). O primeiro erro por elemento
+prevalece, como no Excel.
+
+**Não suportado (por design).**
+
+- Uma **célula seca** cuja fórmula inteira é o array mantém `#VALUE!` — `=IF(B2:B5="Show",1,0)` sozinha
+  ainda é um erro. Arrays existem apenas como *argumentos* dentro dos consumidores acima, nunca como o
+  valor de uma célula (o cache por célula permanece estritamente escalar).
+- Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
+  caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
+  retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
+  não é avaliado como array.
+- Uma condição **escalar** mantém o curto-circuito nativo do `IF` — apenas uma condição de array conduz o
+  zip.
+
+Subexpressões voláteis dentro do array se comportam como qualquer outra volátil: um `RAND()` (propagado,
+ou em uma célula de intervalo que a comparação lê) contamina a célula consumidora, então
+[`Recalculate()`](#o-modelo-de-época) a atualiza enquanto uma fórmula de array não volátil permanece em
+cache.
+
 ## Intervalos nomeados
 
 Um workbook pode definir **nomes** que representam uma expressão — geralmente um intervalo ou célula
