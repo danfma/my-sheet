@@ -152,3 +152,9 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   entre chamadas e eu tinha "sobrado" na worktree do agente (o `git add` de caminho relativo não achou
   nada e o erro salvou). O cwd após verificação de entrega de agente é IMPREVISÍVEL — tratar todo bloco
   git de supervisão como se o cwd estivesse errado.
+- **`--no-build` imediatamente após um merge roda binários VELHOS.** Na integração do dense store, a
+  "sanidade na main" reportou 893 testes quando a branch mergeada tinha 901 — o `dotnet run --no-build`
+  reusou binários pré-merge e testou o código antigo (contagem menor foi o único aviso; podia ter
+  passado despercebido com contagem igual). Regra: sanidade pós-merge SEMPRE começa com
+  `dotnet build --no-incremental` no próprio bloco, ANTES de qualquer `--no-build`; e a contagem
+  esperada de testes é parte da verificação (anotar o esperado antes de rodar).
