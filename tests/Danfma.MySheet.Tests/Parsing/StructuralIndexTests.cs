@@ -302,6 +302,45 @@ public class StructuralIndexTests
     }
 
     [Test]
+    public async Task Read_OrdersRowsNumerically_NotLexicographically()
+    {
+        // Rows crossing the 9→10 boundary: numeric order is A2,A9,A10,A100; a lexicographic id sort would put
+        // A10/A100 before A2/A9. The numeric int buckets must yield the numeric order (both on the first lazy
+        // sort of a bucketized-out-of-order set and on the out-of-order incremental re-sort below).
+        var (workbook, sheet) = Sheet(
+            ("A100", Number(100)),
+            ("A9", Number(9)),
+            ("A2", Number(2)),
+            ("A10", Number(10))
+        );
+
+        var read = Read(workbook, WholeColumn(1));
+        await Assert.That(string.Join(",", read)).IsEqualTo("A2,A9,A10,A100");
+
+        // An out-of-order incremental insert (A1 below the current first row) dirties the bucket; the re-sort
+        // must again be numeric, not lexicographic.
+        sheet["A1"] = Number(1);
+        var reread = Read(workbook, WholeColumn(1));
+        await Assert.That(string.Join(",", reread)).IsEqualTo("A1,A2,A9,A10,A100");
+    }
+
+    [Test]
+    public async Task WholeRow_OrdersColumnsNumerically_AcrossTheZtoAABoundary()
+    {
+        // Columns crossing the Z(26)→AA(27) boundary: numeric column order is Z,AA,AB; a lexicographic id sort
+        // would place AA/AB before Z. The symmetric row buckets store the column as an int and must yield the
+        // numeric order.
+        var (workbook, _) = Sheet(
+            ("AB1", Number(28)),
+            ("Z1", Number(26)),
+            ("AA1", Number(27))
+        );
+
+        var read = Read(workbook, WholeRow(1));
+        await Assert.That(string.Join(",", read)).IsEqualTo("Z1,AA1,AB1");
+    }
+
+    [Test]
     public async Task ColumnSort_IsLazy_UnreadColumnStaysUnsorted()
     {
         // Two populated columns; only column A is ever read, so only its bucket is sorted.
