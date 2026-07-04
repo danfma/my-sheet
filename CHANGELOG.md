@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.1.1"></a>
+## [3.1.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.1.1) (2026-07-04)
+
+### Bug Fixes
+
+* **logical:** ignore literal text/blank operands in AND/OR/XOR ([4fdfe4a](https://www.github.com/danfma/my-sheet/commit/4fdfe4a76606e1105b72baa000be4bd9af3ac4c0))
+
 <a name="3.1.0"></a>
 ## [3.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.1.0) (2026-07-04)
 
