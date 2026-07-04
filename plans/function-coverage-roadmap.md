@@ -636,6 +636,10 @@ merge + aval do usuário; sem push.
   INALTERADA (`#VALUE!`) e pendente de oráculo: o doc do usuário espera TRUE (skip); prior meu diz que o
   Excel real dá `#VALUE!` p/ literal não-coercível — decidir com teste no Excel real antes de mudar
   (cobre também literal coercível `"TRUE"`).
+  **CRITÉRIO CONFIRMADO (2026-07-03, usuário reenviou o doc como spec)**: a seção Expected do
+  `MYSHEET-CALC-DIVERGENCES.md` é a especificação — literais de texto são IGNORADOS como os de
+  referência (`OR(TRUE,"x")=TRUE`, `OR(FALSE,"x")=FALSE`, `OR("x")=#VALUE!`), critério-Aspose/K1
+  assumido mesmo se divergir do Excel real. Fix 3.1.x despachado.
   **Comparativo JUSTO no 3.0.0 (Copilot do usuário, 2026-07-03, in-memory dos dois lados,
   BenchmarkDotNet)**: MySheet 3-fases c/ persistência 12,52s / 9,00GB; **MySheet in-memory 4,94s /
   4,63GB**; Aspose end-to-end 3,25s / 3,09GB → **gap de engine real = 1,5× tempo / 1,5× alocação** (a
