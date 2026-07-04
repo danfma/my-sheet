@@ -2,18 +2,21 @@ namespace Danfma.MySheet.Expressions.Logical;
 
 /// <summary>
 /// Shared argument reduction for the variadic logical functions AND / OR / XOR. Implements the Excel
-/// rule for their operands: text and empty cells reached THROUGH a reference or array argument (a single
-/// cell, a range, an open range, a union, or a cross-sheet reference) are IGNORED; only booleans and
-/// numbers count (a number ≠ 0 is TRUE). A call whose arguments contribute no evaluable logical value at
-/// all yields <see cref="Error.Value"/> (<c>#VALUE!</c>), matching the documented "no logical values ->
-/// #VALUE!" remark on the AND/OR/XOR support pages.
+/// rule for their operands: text and empty (blank) operands are IGNORED — whether reached THROUGH a
+/// reference or array argument (a single cell, a range, an open range, a union, or a cross-sheet
+/// reference) OR supplied as a direct scalar (a text literal, or text from a comparison / arithmetic /
+/// concatenation). Only booleans and numbers count (a number ≠ 0 is TRUE); an error operand propagates.
+/// A call whose arguments contribute no evaluable logical value at all yields <see cref="Error.Value"/>
+/// (<c>#VALUE!</c>), matching the documented "no logical values -> #VALUE!" remark on the AND/OR/XOR
+/// support pages. The text-literal branch was confirmed against the Aspose/K1 oracle doc (2026-07-03):
+/// <c>=OR(TRUE,"literal")</c> -> TRUE, <c>=OR(FALSE,"x")</c> -> FALSE, <c>=OR("x")</c> -> <c>#VALUE!</c>.
 /// </summary>
 internal static class LogicalReduction
 {
     /// <summary>
     /// Folds <paramref name="arguments"/> into the count of TRUE logical values (<paramref name="trueCount"/>)
     /// and the count of evaluable logical values (<paramref name="total"/>). Returns the <see cref="Error"/>
-    /// to propagate (an error operand, or a non-numeric literal), or <c>null</c> on success. When
+    /// to propagate (an error operand), or <c>null</c> on success. When
     /// <paramref name="total"/> is 0 the caller must return <c>#VALUE!</c>: nothing was evaluable.
     /// </summary>
     public static Error? Reduce(
@@ -55,11 +58,19 @@ internal static class LogicalReduction
                 continue;
             }
 
-            // A direct scalar argument (a literal or the result of a comparison/arithmetic) is coerced
-            // strictly: a non-numeric text LITERAL is #VALUE!, NOT ignored. This is a deliberately distinct
-            // path from the reference/array case above — whether a literal text arg should be ignored is an
-            // open oracle question (see plans/function-coverage-roadmap.md), so the literal keeps the 2.9.0
-            // behavior until validated against real Excel.
+            // A direct scalar argument (a literal, or the result of a comparison / arithmetic /
+            // concatenation). Text and blank follow the SAME rule as text/blank reached through a
+            // reference: they are IGNORED, not coerced — no #VALUE! for a text literal and no
+            // string->bool coercion of "TRUE"/"1". Criterion confirmed against the Aspose/K1 oracle doc
+            // (2026-07-03, see plans/function-coverage-roadmap.md): =OR(TRUE,"literal") -> TRUE,
+            // =OR(FALSE,"x") -> FALSE, =OR("x") -> #VALUE! (nothing evaluable survives). Numbers (≠0 ->
+            // TRUE) and booleans still evaluate; an ERROR argument still propagates (an error is not
+            // ignorable text) via CoerceToBool below.
+            if (computed.Kind is ComputedValueKind.Text or ComputedValueKind.Blank)
+            {
+                continue;
+            }
+
             if (computed.CoerceToBool(out var value) is { } scalarError)
             {
                 return scalarError;

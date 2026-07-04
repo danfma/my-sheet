@@ -162,12 +162,54 @@ public class LogicalFunctionTests
     }
 
     [Test]
-    public async Task Or_LiteralTextArgumentStaysValueError()
+    public async Task Or_LiteralTextArgumentIsIgnored()
     {
-        // Open-oracle guard: a LITERAL text argument is NOT ignored (distinct path from a reference).
-        // =OR(FALSE, "x") -> #VALUE!, unchanged from 2.9.0 pending real-Excel validation of literals.
-        await Assert.That(Calc("=OR(FALSE, \"x\")")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(Calc("=AND(TRUE, \"x\")")).IsEqualTo(ErrorValue.NotValue);
+        // Confirmed against the Aspose/K1 oracle doc (2026-07-03): a LITERAL text argument follows the
+        // SAME rule as text reached through a reference — it is IGNORED, not #VALUE!.
+        //   =OR(TRUE, "literal text") -> TRUE  (text ignored, TRUE survives)
+        //   =OR(FALSE, "x")           -> FALSE (text ignored, FALSE survives)
+        //   =OR("x")                  -> #VALUE! (nothing evaluable survives)
+        await Assert.That(Calc("=OR(TRUE, \"literal text\")") as bool?).IsTrue();
+        await Assert.That(Calc("=OR(FALSE, \"x\")") as bool?).IsFalse();
+        await Assert.That(Calc("=OR(\"x\")")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task And_LiteralTextArgumentIsIgnored()
+    {
+        // Same family, same reducer: AND ignores a literal text argument.
+        await Assert.That(Calc("=AND(TRUE, \"x\")") as bool?).IsTrue();
+        await Assert.That(Calc("=AND(FALSE, \"x\")") as bool?).IsFalse();
+        await Assert.That(Calc("=AND(\"x\")")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Xor_LiteralTextArgumentIsIgnored()
+    {
+        // Same family, same reducer: XOR ignores a literal text argument (odd-TRUE count over the rest).
+        await Assert.That(Calc("=XOR(TRUE, \"x\")") as bool?).IsTrue();
+        await Assert.That(Calc("=XOR(TRUE, TRUE, \"x\")") as bool?).IsFalse();
+        await Assert.That(Calc("=XOR(\"x\")")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Or_TextFromConcatenationIsIgnored()
+    {
+        // A scalar whose value is text produced by a comparison/arithmetic/CONCATENATION is text, hence
+        // ignored: =OR(FALSE, A1 & "x") with A1="p" yields the text "px" -> ignored -> only FALSE -> FALSE.
+        await Assert
+            .That(Calc("=OR(FALSE, A1 & \"x\")", ("A1", Expression.String("p"))) as bool?)
+            .IsFalse();
+    }
+
+    [Test]
+    public async Task Or_LiteralNumberAndBooleanStillEvaluate()
+    {
+        // Text is ignored WITHOUT coercion, but literal numbers (≠0 -> TRUE) and booleans still evaluate,
+        // and an ERROR argument still propagates (an error is not ignorable text).
+        await Assert.That(Calc("=OR(FALSE, 0, 3)") as bool?).IsTrue(); // 3 ≠ 0 -> TRUE
+        await Assert.That(Calc("=AND(TRUE, 0)") as bool?).IsFalse(); // 0 -> FALSE
+        await Assert.That(Calc("=OR(FALSE, \"x\", 1/0)")).IsEqualTo(ErrorValue.DivByZero);
     }
 
     [Test]
