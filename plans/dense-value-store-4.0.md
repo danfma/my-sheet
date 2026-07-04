@@ -60,15 +60,42 @@ INEGOCIÁVEL: memoização por época, voláteis/taint (F1), snapshots Layer-2, 
 atribuição a IA. Release dispatch em chamada separada pós merge-base (lição).
 
 ## Phase 0: Spike do store + decisão de concorrência
-Status: In progress
-- [ ] Probe (benchmarks) do GetCellValue-shape completo: derivação on-the-fly + store paginado, nas duas
+Status: Complete
+- [x] Probe (benchmarks) do GetCellValue-shape completo: derivação on-the-fly + store paginado, nas duas
       variantes de concorrência do item 2, contra o baseline — medir compute K1 e alocação.
-- [ ] Registrar: custo da derivação on-the-fly (decide o item 5); recomendação de concorrência com
+- [x] Registrar: custo da derivação on-the-fly (decide o item 5); recomendação de concorrência com
       números (decide o item 2 com o usuário).
 ### Verification Plan
 - Tabela probe vs baseline; decisão dos vetos registrada no plano antes da Fase 1.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `spike/dense-store` (`77e0ea0`, merged na main), harness `--dense-store-spike`, best-of-7,
+verificação independente (re-run + suítes 893/24 + 0 warnings). Tráfego GetCellValue-shape do K1
+(1,0M lookups, 600k inserts), equivalência de soma entre TODAS as variantes:
+
+| Variante | ms | MB churn |
+|---|---:|---:|
+| baseline `ConcurrentDictionary<(string,string)>` | 391,5–392,6 | 133,8 |
+| denso (a) seqlock por página + derivação | 25,4 | 13,9 |
+| denso (b) single-threaded + derivação | 20,6 | 14,0 |
+
+Derivação on-the-fly (DIRETRIZ DO DONO 2026-07-03: span + endereço bit-packed `(col<<32)|row` + página
+por shift/mask, zero alocação/split — `CellAddress.TryGetColumnRow` já satisfaz; variante span/packed
+escrita e conferida, ambas 0,00MB): **14,3ms sobre 1,0M acessos**.
+
+**[VETO i] RESOLVIDO PELO NÚMERO: derivação = 3,8–3,9% do ganho (≪15%) → o store sai ADITIVO
+(release 3.2.0), numerização da AST NÃO disparada, formato MemoryPack intocado.**
+**[VETO ii] recomendação registrada, decisão final do usuário na retomada**: manter avaliação
+concorrente via (a) seqlock por página custa ~5–6ms absolutos sobre o sweep inteiro (vs teto (b) 7,7ms
+pré-derivado) — recomendo (a); (b) só se o dono quiser declarar avaliação single-threaded por época.
+Visited-bit: 2,9ms vs 15,2ms do HashSet (5×, zero alloc) — aprovado para a Fase 1.
+
+**RISCO REAL para a Fase 1 — esparsidade patológica**: com páginas de 1024 linhas, 10k células
+espalhadas 1-por-página inflam o store a ~240MB (vs ~4MB do dict); clustered/colunas densas ficam em
+0,2–3,2MB (melhor que o dict). Fase 1 PRECISA de guarda: fallback híbrido para dict em sheets de
+densidade-por-página ultra-baixa (o índice estrutural do 3.0 já conhece bounds/ocupação para detectar)
+ou caso patológico documentado — decidir na Fase 1. Torn-write de `ComputedValue` (24B) é real: a
+variante (a) EXIGE o seqlock. `InvalidateCache`/snapshots/voláteis: equivalência de época é gate da
+Fase 1, não provada pelo spike (que cobre a fatia estrutura ~370ms; AST+coerção ~90ms ficam).
 
 ## Phase 1: Implementação no Workbook
 Status: Not started
