@@ -89,6 +89,14 @@ if (args.Contains("--dense-store-pagesize"))
     return;
 }
 
+// Range read strategies over the dense paged store (ReadOnlySequence / span visitor / IEnumerable), owner
+// question 2026-07-04: `dotnet run -c Release -- --range-sequence-probe`.
+if (args.Contains("--range-sequence-probe"))
+{
+    RangeSequenceProbeHarness.Run(args);
+    return;
+}
+
 // Custo do caminho mini-CSE array (Fase C): `dotnet run -c Release -- --mini-cse-cost`.
 if (args.Contains("--mini-cse-cost"))
 {
