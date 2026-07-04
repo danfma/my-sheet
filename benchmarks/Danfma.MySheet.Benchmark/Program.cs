@@ -46,6 +46,13 @@ if (args.Contains("--aspose-compare"))
     return;
 }
 
+// Decomposição por fase MySheet × Aspose na carga K1 (in-memory): `dotnet run -c Release -- --k1-endtoend`.
+if (args.Contains("--k1-endtoend"))
+{
+    K1EndToEndHarness.Run();
+    return;
+}
+
 // Custo do caminho mini-CSE array (Fase C): `dotnet run -c Release -- --mini-cse-cost`.
 if (args.Contains("--mini-cse-cost"))
 {
