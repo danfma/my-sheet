@@ -194,6 +194,14 @@ todos os consumidores de uma vez); **(2) `RangeSnapshot.Build` com block-copy de
 (88-93× no build, 10,1→0,11ms/−19,7MB, uma vez por época por range); **(3) `ReadOnlySequence` público:
 NÃO** — o container nunca foi o problema, o endereçamento por string era. `IEnumerable` fica.
 
+**PRINCÍPIO DO DONO (2026-07-04)**: o investimento no-boxing do `ComputedValue` não pode ser erodido
+pelo plumbing de enumeração/materialização. Três ralos, por tamanho: (grande) materializações
+intermediárias `List<ComputedValue>` com dobra+recópia — `RangeSnapshot.Build` 21,95MB/100k vs 2,29MB
+do array pré-dimensionado; `ArgumentFlattening`/SUMPRODUCT idem — atacar no follow-up imediato pós-B;
+(médio) dispatch virtual do enumerator por célula ~1-2,7ms/100k — adendo despachado (enumerator struct
+ou loop por bounds nos consumidores quentes); (nulo) `IEnumerable<ComputedValue>` genérico NÃO boxa o
+elemento (Current devolve a struct por valor).
+
 ## Final Recap
 _(write when all phases complete)_
 
