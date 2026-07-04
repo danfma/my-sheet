@@ -160,7 +160,7 @@ desperdiça ~1,0× em qualquer tamanho mas varre ~1,5× mais rápido a 1024 (K1 
 pequeno crescendo até cheio enquanto a página cobre o MESMO intervalo de 1024 linhas — shift/mask intactos).
 
 ## Phase 2: Validação + docs + release
-Status: Not started
+Status: In progress
 - [ ] `--k1-endtoend`: compute ≤ ~350ms e alocação de sweep ≤ ~20MB (gates); total vs Aspose registrado.
 - [ ] Harnesses do 3.0 (lifetime/write-cost) e SheetBenchmarks sem regressão.
 - [ ] Docs (`performance.md`) + release (3.2.0 aditivo OU 4.0 breaking conforme item 5) + refresh pt-BR.
