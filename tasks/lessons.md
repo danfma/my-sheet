@@ -157,6 +157,12 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   recebeu nada). Nuance: um `cd` para a worktree NO INÍCIO do bloco envenena o merge no FIM do mesmo
   bloco. Regra operacional: verificação (na worktree) e integração (na main) NUNCA no mesmo bloco Bash;
   o bloco de integração começa com `cd /Volumes/Work/Develop/MySheet`.
+- **O número do release nasce dos TIPOS de commit, não do plano.** O ciclo "3.3" saiu como **3.2.1**
+  porque tudo foi commitado como `perf:`/`test:`/`docs:` — e `perf` deriva PATCH no versionize; só
+  `feat` deriva minor. Havia um `feat` legítimo mal rotulado (`InitialPageSlots` é API pública nova,
+  commitado como `perf(store)`). Regra: o briefing de cada fase declara o TIPO exato do commit principal
+  em função da versão-alvo (`feat` p/ minor, `feat!`+BREAKING p/ major, `perf`/`fix` p/ patch), e o
+  supervisor confere o tipo ANTES do merge — o versionize não lê intenção.
 - **`--no-build` imediatamente após um merge roda binários VELHOS.** Na integração do dense store, a
   "sanidade na main" reportou 893 testes quando a branch mergeada tinha 901 — o `dotnet run --no-build`
   reusou binários pré-merge e testou o código antigo (contagem menor foi o único aviso; podia ter
