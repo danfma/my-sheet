@@ -38,18 +38,28 @@ commits `perf(...)`/`fix(...)` (patch — SEM api nova; se criar API, avisar o o
 commit define a versão, lição). SEM atribuição a IA. Verificação e integração em blocos separados.
 
 ## Phase 1: Interning de SheetName (parse + Load)
-Status: In progress
-- [ ] Parse: qualificador `Nome!` resolve para instância do pool (referência local já reusa `sheet.Name`
+Status: Complete
+- [x] Parse: qualificador `Nome!` resolve para instância do pool (referência local já reusa `sheet.Name`
       — estender a cortesia às cross-sheet; pool por parse/global pequeno, design justificado).
-- [ ] Load: formatter de leitura interna o `SheetName` dos nós de referência (wire inalterado);
+- [x] Load: formatter de leitura interna o `SheetName` dos nós de referência (wire inalterado);
       investigar `InternStringFormatter` nativo vs formatter próprio com pool (String.Intern é
       process-lifetime — aceitável para nomes de sheet, mas justifique a escolha).
-- [ ] Testes: pós-parse, N referências cross-sheet compartilham a MESMA instância (ReferenceEquals);
+- [x] Testes: pós-parse, N referências cross-sheet compartilham a MESMA instância (ReferenceEquals);
       pós-Load idem; fixture verde; probe `--v4-resident` re-rodado mostra o colapso (~24MB @ K1-shape).
 ### Verification Plan
 - ReferenceEquals nos dois caminhos; fixture byte-intocada; suítes verdes; probe antes/depois.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `perf/sheetname-interning` (`a92a39f`, merged; +21/−4 de produção). Parse: `string.Intern`
+no ponto único de entrada do qualificador (`ParseQualifiedReference`). Load: **`[InternStringFormatter]`
+NATIVO do MemoryPack por membro** nos três records de referência — decompilado pelo agente para provar:
+Serialize = `WriteString` idêntico ao default (wire byte-igual), Deserialize = `ReadString`+`Intern`;
+parse e Load convergem na MESMA instância (`ReferenceEquals` provado). Construtor rejeitado com razão
+(o ctor de `RangeReference` está no hot path do `ToBoundedRange`). **Caixa: exata/Ordinal, sem
+canonicalizar** — o `FormulaWriter` ecoa o texto verbatim; canonicalizar mudaria o round-trip textual
+(teste trava `data`≠`DATA` distintos + resolução case-insensitive intacta). **Colapso medido MAIOR que
+o previsto: ~56MB no modelo K1** (421→365MB; o probe subestimava 2× — string de 4 chars retém 64B, não
+32B; lever direto ~49MB). Golden de wire byte-idêntico (429 bytes) embutido como teste. Verificação
+independente: core **942** (934+8), Excel 24, fixture verde, 0 warnings, K1 agregado idêntico.
 
 ## Phase 2: `_cells` com chave `(int,int)` wire-preserving
 Status: Not started
