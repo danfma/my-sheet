@@ -91,16 +91,30 @@ independente: core **950** (942+8), Excel 24, fixture verde, 0 warnings, e o `--
 agente sinalizou foi rodado pelo orquestrador: agregado idêntico.
 
 ## Phase 3: Release (patch) + refresh pt-BR
-Status: Not started
-- [ ] Ritual completo (merge-base em chamada separada; versionize deriva patch dos `perf:`); nota curta
+Status: Complete
+- [x] Ritual completo (merge-base em chamada separada; versionize deriva patch dos `perf:`); nota curta
       em `performance.md`; refresh pt-BR.
 ### Verification Plan
 - Release publicado; espelho em paridade; re-run do dono quando quiser.
 ### Phase Summary
-_(write when phase completes)_
+**v3.2.2 publicado 2026-07-04** (versionize derivou patch dos `perf:` — tipo de commit conferido de
+propósito desta vez, lição aplicada). Nota "String hygiene in the model" no `performance.md` antes da
+tag; refresh pt-BR despachado e integrado na sequência.
 
 ## Final Recap
-_(write when all phases complete)_
+Ciclo fechado no mesmo dia, com os dois levers não-breaking do veredito do spike v4 entregues e um
+over-delivery de 2× sobre a projeção: **~115MB de colapso no modelo residente K1 (421→305MB, −28%)** —
+interning de `SheetName` (~56MB; parse via `string.Intern` no ponto único + `[InternStringFormatter]`
+nativo do MemoryPack na leitura, cobrindo o Load como o dono exigiu; caixa exata preservando o
+round-trip textual do FormulaWriter) e `CellStore` com chaves `(col,row)` (~59MB; roteamento
+canônico-only com overflow string para ids leniente/não-A1; formatter por membro delegando ao
+DictionaryFormatter original — bytes de member #3 idênticos, golden + fixture como juízes; bônus: o
+índice estrutural constrói de `(col,row)` direto). Wire format: ZERO mudança (goldens pré-mudança
+byte-idênticos nas duas fases). Suítes finais: core **950** / Excel **24** / 0 warnings / agregado K1
+idêntico. A AST numérica breaking segue refutada — este ciclo capturou em 3.x aditivo mais do que o
+major capturaria.
 
 ## Deployment Plan
-_(write when all phases complete)_
+Executado em 2026-07-04: verificação independente por fase → rebase+ff-merge → sanidade com rebuild
+`--no-incremental` primeiro → push → merge-base em chamada separada → `gh workflow run release.yml`
+(**v3.2.2**) → `git pull --tags` → refresh pt-BR via Sonnet. Ritual padrão para futuros releases.
