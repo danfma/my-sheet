@@ -53,6 +53,20 @@ if (args.Contains("--k1-endtoend"))
     return;
 }
 
+// Atribuição de custo do compute K1 (probes dirigidos): `dotnet run -c Release -- --k1-compute-attrib`.
+if (args.Contains("--k1-compute-attrib"))
+{
+    K1ComputeProfileHarness.RunAttribution();
+    return;
+}
+
+// Loop compute-only da carga K1 para profiler externo: `dotnet run -c Release -- --k1-compute-loop [N]`.
+if (args.Contains("--k1-compute-loop"))
+{
+    K1ComputeProfileHarness.RunLoop(args);
+    return;
+}
+
 // Custo do caminho mini-CSE array (Fase C): `dotnet run -c Release -- --mini-cse-cost`.
 if (args.Contains("--mini-cse-cost"))
 {
