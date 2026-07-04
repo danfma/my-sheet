@@ -62,7 +62,7 @@ o previsto: ~56MB no modelo K1** (421→365MB; o probe subestimava 2× — strin
 independente: core **942** (934+8), Excel 24, fixture verde, 0 warnings, K1 agregado idêntico.
 
 ## Phase 2: `_cells` com chave `(int,int)` wire-preserving
-Status: Not started
+Status: In progress
 - [ ] `Sheet._cells` int-keyed em memória + overflow não-A1; serialização wire-preserving (formatter/
       surrogate gravando o mapa string-keyed byte-idêntico — a fixture decide); superfície pública
       derivando strings (enumeração fria).
