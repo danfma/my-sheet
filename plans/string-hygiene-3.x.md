@@ -62,7 +62,7 @@ o previsto: ~56MB no modelo K1** (421→365MB; o probe subestimava 2× — strin
 independente: core **942** (934+8), Excel 24, fixture verde, 0 warnings, K1 agregado idêntico.
 
 ## Phase 2: `_cells` com chave `(int,int)` wire-preserving
-Status: In progress
+Status: Complete
 - [ ] `Sheet._cells` int-keyed em memória + overflow não-A1; serialização wire-preserving (formatter/
       surrogate gravando o mapa string-keyed byte-idêntico — a fixture decide); superfície pública
       derivando strings (enumeração fria).
@@ -71,12 +71,24 @@ Status: In progress
 - [ ] **GATE PARE-SE-INVASIVO**: se a serialização wire-preserving exigir gambiarra frágil OU o diff
       de produção passar de ~500 linhas, PARAR e reportar análise (o lever é 35MB de memória; não vale
       fragilidade de schema).
-- [ ] Testes: fixture byte-intocada e verde; round-trip salva bytes IDÊNTICOS aos de antes da mudança
+- [x] Testes: fixture byte-intocada e verde; round-trip salva bytes IDÊNTICOS aos de antes da mudança
       (workbook igual → arquivo igual); ids não-A1 round-trip; probe re-rodado (~35MB @ K1-shape).
 ### Verification Plan
 - Fixture + bytes de save idênticos; suítes verdes; k1 agregado idêntico; probe antes/depois.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `perf/numeric-cell-keys` (`cfed0b6`, merged; ~360 linhas de produção, gate de 500 não
+disparou). Novo `CellStore`: dense `Dictionary<(int,int),Expression>` + overflow string lazy, com
+**roteamento CANÔNICO-only** (achado crítico do agente: só ids com round-trip exato por `ToId` vão ao
+dense — `a1`/`A01` iriam ao dense pelo parse lenient e teriam a chave REESCRITA na enumeração; ficam no
+overflow com a string exata). Serialização: `[CellStoreFormatter]` por membro (padrão da F1) delegando
+ao MESMO `DictionaryFormatter<string,Expression>` — member #3 e header idênticos (decompilado). Ordem:
+o layout do Dictionary .NET segue a SEQUÊNCIA de operações, não as chaves → mesma sequência de SetCell
+= mesma ordem = bytes idênticos; golden pré-mudança (workbook multi-sheet/cross-sheet/AA100) embutido
+como teste. Os três gates (a)(b)(c) batidos sem relaxamento. Bônus: o build do índice estrutural
+consome `(col,row)` direto do `CellStore.DenseAddresses` (sem derivar+re-parsear id). **Colapso medido:
+mais 58,9MB (364,0→305,1MB no modelo K1)** — de novo acima da projeção (~35MB). Verificação
+independente: core **950** (942+8), Excel 24, fixture verde, 0 warnings, e o `--k1-endtoend` que o
+agente sinalizou foi rodado pelo orquestrador: agregado idêntico.
 
 ## Phase 3: Release (patch) + refresh pt-BR
 Status: Not started
