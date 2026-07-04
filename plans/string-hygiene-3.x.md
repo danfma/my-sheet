@@ -38,7 +38,7 @@ commits `perf(...)`/`fix(...)` (patch — SEM api nova; se criar API, avisar o o
 commit define a versão, lição). SEM atribuição a IA. Verificação e integração em blocos separados.
 
 ## Phase 1: Interning de SheetName (parse + Load)
-Status: Not started
+Status: In progress
 - [ ] Parse: qualificador `Nome!` resolve para instância do pool (referência local já reusa `sheet.Name`
       — estender a cortesia às cross-sheet; pool por parse/global pequeno, design justificado).
 - [ ] Load: formatter de leitura interna o `SheetName` dos nós de referência (wire inalterado);
