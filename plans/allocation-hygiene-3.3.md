@@ -56,7 +56,7 @@ parcial), Excel 24, fixture intocada, 0 warnings, k1 agregado idêntico, lifetim
 sem regressão.
 
 ## Phase 2: Promoção adaptativa da 1ª página
-Status: Not started
+Status: In progress
 - [ ] Página nasce com array de slots pequeno (ex.: 128; knob em `ValueStoreOptions`) cobrindo o MESMO
       intervalo lógico de `RowPageSize` linhas; escrita além do array atual → promoção por realocação
       (dobra até `RowPageSize`), sob o seqlock da página (leitores re-tentam pela versão).
