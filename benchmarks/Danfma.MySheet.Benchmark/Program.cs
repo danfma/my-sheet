@@ -67,6 +67,13 @@ if (args.Contains("--k1-compute-loop"))
     return;
 }
 
+// Spike do store denso paginado (Fase 0): `dotnet run -c Release -- --dense-store-spike`.
+if (args.Contains("--dense-store-spike"))
+{
+    DenseStoreSpikeHarness.Run(args);
+    return;
+}
+
 // Custo do caminho mini-CSE array (Fase C): `dotnet run -c Release -- --mini-cse-cost`.
 if (args.Contains("--mini-cse-cost"))
 {
