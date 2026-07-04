@@ -79,6 +79,17 @@ Status: Not started
 ### Phase Summary
 _(write when phase completes)_
 
+## Pós-3.3 (diretriz do dono, 2026-07-04): spike v4
+Ao concluir as fases e o release 3.3.0, despachar um **spike v4** cobrindo: (1) **persistência do índice
+estrutural** — comparar MSWM v3 com seção opcional/descartável (recomendação do orquestrador: preserva
+self-healing e não congela a representação no schema core) × membro appendado no schema, com medição do
+ganho real (load+primeiro-toque; teto medido hoje: ~0,7ms @ 10k → ~30-36ms @ 500k, 1×/vida) e do custo
+de save/tamanho; fazer DEPOIS da Fase 3 (linhas int encolhem a forma persistível ~10×); (2) **revisita
+da AST numérica** (`CellReference`/`RangeReference` com `(col,row)` + sheet handle — breaking de wire) —
+reavaliar com o codebase pós-3.3: o que resta de custo de string no hot path que só a AST numérica
+remove, e se o número justifica o major. Spike = probes/benchmarks + veredito, sem produção; plano v4
+próprio nasce do veredito.
+
 ## Final Recap
 _(write when all phases complete)_
 
