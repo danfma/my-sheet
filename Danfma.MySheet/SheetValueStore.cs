@@ -18,7 +18,11 @@ namespace Danfma.MySheet;
 /// by default, so a lone high-index gridless column — <c>AAAA</c> ≈ 475k — costs one group, not a 475k-pointer
 /// flat array) → <c>column.pages[row &gt;&gt; pageShift]</c> → a <see cref="Page"/> of <c>ComputedValue[1024]</c>
 /// by default plus its presence bitmap (a zeroed slot is ambiguous: "not computed" vs "computed blank", so
-/// presence is explicit). The page/group sizes are configurable per workbook via
+/// presence is explicit). A page's backing array actually STARTS smaller (<c>InitialPageSlots</c>, 128 by
+/// default) while still covering the whole <c>RowPageSize</c>-row interval, and is PROMOTED — reallocated by
+/// doubling up to <c>RowPageSize</c>, under the page seqlock — the first time a write lands past its current
+/// physical size (a read past it is simply absent). This keeps a small sheet from paying a full
+/// <c>ComputedValue[RowPageSize]</c> per touched column. The page/group sizes are configurable per workbook via
 /// <see cref="ValueStoreOptions"/> (always powers of two, so shift/mask come free); the shifts/masks are
 /// resolved once into <see cref="Geometry"/> and shared by reference with every slab/column. Group/page
 /// directories start tiny and grow by doubling, publishing the new array via <see cref="Volatile"/>.
@@ -50,6 +54,7 @@ internal sealed class SheetValueStore
         internal readonly int PageShift;
         internal readonly int PageRows;
         internal readonly int PageMask;
+        internal readonly int InitialPageSlots;
         internal readonly int GroupShift;
         internal readonly int GroupSize;
         internal readonly int GroupMask;
@@ -61,6 +66,7 @@ internal sealed class SheetValueStore
             PageRows = options.RowPageSize;
             PageShift = System.Numerics.BitOperations.Log2((uint)options.RowPageSize);
             PageMask = options.RowPageSize - 1;
+            InitialPageSlots = options.InitialPageSlots;
             GroupSize = options.ColumnGroupSize;
             GroupShift = System.Numerics.BitOperations.Log2((uint)options.ColumnGroupSize);
             GroupMask = options.ColumnGroupSize - 1;
@@ -348,6 +354,7 @@ internal sealed class SheetValueStore
     internal const int DiagnosticWarmupPages = ValueStoreOptions.DefaultSparsityWarmupPages;
     internal const int DiagnosticMinCellsPerPage = ValueStoreOptions.DefaultSparsityMinCellsPerPage;
     internal const int DiagnosticPageRows = ValueStoreOptions.DefaultRowPageSize;
+    internal const int DiagnosticInitialPageSlots = ValueStoreOptions.DefaultInitialPageSlots;
 
     // Test/diagnostics only: the geometry this store was actually built with, so a test can prove a configured
     // page/group size flowed through instead of being silently ignored.
@@ -355,11 +362,28 @@ internal sealed class SheetValueStore
     internal int ConfiguredColumnGroupSize => _geometry.GroupSize;
     internal int ConfiguredSparsityWarmupPages => _geometry.WarmupPages;
     internal int ConfiguredSparsityMinCellsPerPage => _geometry.MinCellsPerPage;
+    internal int ConfiguredInitialPageSlots => _geometry.InitialPageSlots;
 
     internal (int Pages, int SparseCells) Diagnostics(int handle)
     {
         var slab = PeekSlab(handle);
         return slab is null ? (0, 0) : slab.Diagnostics();
+    }
+
+    // Test/probe: the current physical slot count of the page covering (col, row) — 0 when no page is allocated
+    // yet — so a directed test can prove an adaptive page promoted (or stayed small).
+    internal int PagePhysicalSlots(int handle, int col, int row)
+    {
+        var slab = PeekSlab(handle);
+        return slab is null ? 0 : slab.PagePhysicalSlots(col, row);
+    }
+
+    // Test/probe: total backing bytes of a slab's dense pages (value arrays + presence bitmaps) plus its
+    // directory pointer arrays, for the adaptive-first-page footprint gate.
+    internal long FootprintBytes(int handle)
+    {
+        var slab = PeekSlab(handle);
+        return slab is null ? 0 : slab.FootprintBytes();
     }
 
     /// <summary>Repopulates one cell from the warm-start block (cold path; derives address internally).</summary>
@@ -559,6 +583,36 @@ internal sealed class SheetValueStore
         public (int Pages, int SparseCells) Diagnostics() =>
             (_pages, Volatile.Read(ref _sparse)?.Count ?? 0);
 
+        internal int PagePhysicalSlots(int col, int row)
+        {
+            var column = FindColumn(col);
+            return column?.PagePhysicalSlots(row) ?? 0;
+        }
+
+        internal long FootprintBytes()
+        {
+            var groups = Volatile.Read(ref _groups);
+            long bytes = (long)groups.Length * 8; // top-level group-pointer array
+            foreach (var group in groups)
+            {
+                if (group is null)
+                {
+                    continue;
+                }
+
+                bytes += (long)group.Length * 8; // per-group column-pointer array
+                foreach (var column in group)
+                {
+                    if (column is not null)
+                    {
+                        bytes += column.FootprintBytes();
+                    }
+                }
+            }
+
+            return bytes;
+        }
+
         /// <summary>Block-copy fill of one column's rows [minRow, maxRow] into <paramref name="dest"/> (see
         /// <see cref="Column.TryBlockCopy"/>). A column with any covered row diverted to the sparse dictionary
         /// (no page) fails the page pre-check and returns false, so the caller's per-cell fallback — which reads
@@ -672,11 +726,42 @@ internal sealed class SheetValueStore
             var page = pages[pi];
             if (page is null)
             {
-                page = new Page(_geo.PageRows);
+                page = new Page(_geo.InitialPageSlots, _geo.PageRows);
                 Volatile.Write(ref pages[pi], page);
             }
 
             return page;
+        }
+
+        // Test/diagnostics: the physical slot count of the page covering <paramref name="row"/> (0 when no page
+        // has been allocated for it yet), so a test can prove an adaptive page promoted (or did not).
+        internal int PagePhysicalSlots(int row)
+        {
+            var pages = Volatile.Read(ref _pages);
+            var pi = row >> _geo.PageShift;
+            if (pi < pages.Length && Volatile.Read(ref pages[pi]) is { } page)
+            {
+                return page.PhysicalSlots;
+            }
+
+            return 0;
+        }
+
+        // Test/diagnostics: total backing bytes of this column's allocated pages (physical value arrays +
+        // presence bitmaps) plus its page-pointer array, for the adaptive-first-page footprint probe.
+        internal long FootprintBytes()
+        {
+            var pages = Volatile.Read(ref _pages);
+            long bytes = (long)pages.Length * 8; // page-pointer array
+            foreach (var page in pages)
+            {
+                if (page is not null)
+                {
+                    bytes += page.BackingBytes;
+                }
+            }
+
+            return bytes;
         }
 
         public IEnumerable<(int Row, ComputedValue Value)> EnumeratePresent()
@@ -758,19 +843,49 @@ internal sealed class SheetValueStore
 
     private sealed class Page
     {
-        private readonly ComputedValue[] _values;
-        private readonly ulong[] _present; // one 64-bit word per 64 slots (page rows are a power of two ≥ 64)
+        // The value array and its presence bitmap start SMALL (InitialPageSlots) yet the page still addresses the
+        // full RowPageSize interval (slot = row & PageMask). A write to a slot beyond the current array PROMOTES
+        // the page: the backing arrays are reallocated (doubling until the slot fits, capped at _maxSlots =
+        // RowPageSize), copied, and republished — all inside a single seqlock write window, so a reader either
+        // retries (version denounced the swap) or observes a fully consistent generation. Both arrays are read
+        // through Volatile and every index is bounds-checked against the CAPTURED array length, so a racing read
+        // during a promotion can never touch a stale, shorter array out of bounds. A slot beyond the current
+        // array is, by construction, "absent" — it was never written — so reads there return false without
+        // promoting.
+        private ComputedValue[] _values;
+        private ulong[] _present; // one 64-bit word per 64 slots
+        private readonly int _maxSlots; // promotion ceiling = RowPageSize (a page never grows past its row span)
         private int _version;   // even = stable, odd = a writer is mid-update
         private int _writeLock; // 0 = free, 1 = held (single-writer gate)
 
-        internal Page(int pageRows)
+        internal Page(int initialSlots, int maxSlots)
         {
-            _values = new ComputedValue[pageRows];
-            _present = new ulong[pageRows / 64];
+            _maxSlots = maxSlots;
+            var slots = Math.Min(initialSlots, maxSlots);
+            _values = new ComputedValue[slots];
+            _present = new ulong[WordCount(slots)];
+        }
+
+        // Words needed to cover <paramref name="slots"/> presence bits. Ceil division so a sub-64 initial array
+        // (e.g. 16/32 slots) still gets one full word; a power-of-two slot count ≥ 64 gives exactly slots/64.
+        private static int WordCount(int slots) => (slots + 63) >> 6;
+
+        // Test/diagnostics: the current physical slot count and total backing bytes (value array + bitmap).
+        internal int PhysicalSlots => Volatile.Read(ref _values).Length;
+        internal long BackingBytes
+        {
+            get
+            {
+                var values = Volatile.Read(ref _values);
+                var present = Volatile.Read(ref _present);
+                return (long)values.Length * Unsafe.SizeOf<ComputedValue>() + (long)present.Length * 8;
+            }
         }
 
         // Lock-free seqlock read: retry while a writer is (or was) active, so the multi-word ComputedValue is
-        // never observed torn.
+        // never observed torn. The arrays are captured once and both indices are bounds-checked against the
+        // captured lengths, so a promotion racing this read (which the version re-check will catch) can never
+        // dereference out of bounds; a slot beyond the captured array is simply absent (never written yet).
         public bool TryReadSlot(int slot, out ComputedValue value)
         {
             var word = slot >> 6;
@@ -784,20 +899,28 @@ internal sealed class SheetValueStore
                     continue; // writer in progress
                 }
 
-                var present = (Volatile.Read(ref _present[word]) & bit) != 0;
-                var read = _values[slot];
+                var values = Volatile.Read(ref _values);
+                var present = Volatile.Read(ref _present);
+                var isPresent =
+                    slot < values.Length
+                    && word < present.Length
+                    && (Volatile.Read(ref present[word]) & bit) != 0;
+                var read = isPresent ? values[slot] : default;
 
                 Interlocked.MemoryBarrier();
                 if (v1 == Volatile.Read(ref _version))
                 {
-                    value = present ? read : default;
-                    return present;
+                    value = read;
+                    return isPresent;
                 }
                 // version moved under us -> possible torn read, retry
             }
         }
 
-        /// <summary>Writes a slot; returns true when it was newly present (0→1 transition), for cell counting.</summary>
+        /// <summary>Writes a slot; returns true when it was newly present (0→1 transition), for cell counting.
+        /// Promotes the backing arrays first when the slot lies beyond the current physical size — the promotion
+        /// happens inside the same odd→even version window as the write, so a reader never sees the array swapped
+        /// without the version denouncing it.</summary>
         public bool WriteSlot(int slot, ComputedValue value)
         {
             var word = slot >> 6;
@@ -809,9 +932,15 @@ internal sealed class SheetValueStore
 
             try
             {
-                var wasPresent = (_present[word] & bit) != 0;
                 var v = _version;
-                Volatile.Write(ref _version, v + 1); // odd: readers retry
+                Volatile.Write(ref _version, v + 1); // odd: readers retry (covers the array swap AND the write)
+
+                if (slot >= _values.Length)
+                {
+                    Grow(slot);
+                }
+
+                var wasPresent = (_present[word] & bit) != 0;
                 _values[slot] = value;
                 Volatile.Write(ref _present[word], _present[word] | bit);
                 Volatile.Write(ref _version, v + 2); // even: stable
@@ -823,7 +952,37 @@ internal sealed class SheetValueStore
             }
         }
 
-        /// <summary>Clears a slot's presence (drop for Recalculate) under the same seqlock protocol.</summary>
+        // Reallocates the backing arrays (doubling until <paramref name="slot"/> fits, capped at _maxSlots),
+        // copies the live values/bitmap, and republishes via Volatile. Called ONLY under the write lock inside an
+        // odd version window, so the swap is invisible to any reader that will not retry. slot < _maxSlots always
+        // (slot = row & PageMask ≤ RowPageSize-1), so the cap never leaves the slot out of bounds.
+        private void Grow(int slot)
+        {
+            var newLen = _values.Length;
+            while (slot >= newLen)
+            {
+                newLen <<= 1;
+            }
+
+            if (newLen > _maxSlots)
+            {
+                newLen = _maxSlots;
+            }
+
+            var newValues = new ComputedValue[newLen];
+            Array.Copy(_values, newValues, _values.Length);
+            var newPresent = new ulong[WordCount(newLen)];
+            Array.Copy(_present, newPresent, _present.Length);
+
+            // Publish the wider present bitmap BEFORE the wider value array so that any reader which observes the
+            // new (longer) _values also observes a _present at least as long — belt-and-suspenders alongside the
+            // reader's own per-array bounds checks and the seqlock retry.
+            Volatile.Write(ref _present, newPresent);
+            Volatile.Write(ref _values, newValues);
+        }
+
+        /// <summary>Clears a slot's presence (drop for Recalculate) under the same seqlock protocol. A slot beyond
+        /// the promoted region was never present, so there is nothing to clear (and no array to grow).</summary>
         public void ClearSlot(int slot)
         {
             var word = slot >> 6;
@@ -835,6 +994,11 @@ internal sealed class SheetValueStore
 
             try
             {
+                if (slot >= _values.Length)
+                {
+                    return; // never promoted this far -> never present
+                }
+
                 var v = _version;
                 Volatile.Write(ref _version, v + 1);
                 Volatile.Write(ref _present[word], _present[word] & ~bit);
@@ -848,25 +1012,35 @@ internal sealed class SheetValueStore
 
         public IEnumerable<(int Slot, ComputedValue Value)> EnumeratePresent()
         {
-            for (var word = 0; word < _present.Length; word++)
+            var values = Volatile.Read(ref _values);
+            var present = Volatile.Read(ref _present);
+            for (var word = 0; word < present.Length; word++)
             {
-                var bits = _present[word];
+                var bits = present[word];
                 while (bits != 0)
                 {
                     var bit = System.Numerics.BitOperations.TrailingZeroCount(bits);
                     var slot = (word << 6) + bit;
-                    yield return (slot, _values[slot]);
+                    yield return (slot, values[slot]);
                     bits &= bits - 1;
                 }
             }
         }
 
         /// <summary>Whether EVERY slot in the inclusive range [sLo, sHi] is present (the block-copy pre-check —
-        /// a hole would need on-demand evaluation, so the raw copy is only valid over a proven-full slice).</summary>
+        /// a hole would need on-demand evaluation, so the raw copy is only valid over a proven-full slice). A
+        /// slice extending beyond the current (un-promoted) array holds absent slots, so it is not fully
+        /// present — the block-copy caller then falls back to the per-cell path.</summary>
         public bool IsRangePresent(int sLo, int sHi)
         {
+            var present = Volatile.Read(ref _present);
             var loWord = sLo >> 6;
             var hiWord = sHi >> 6;
+
+            if (hiWord >= present.Length)
+            {
+                return false; // covered slots lie beyond the promoted region -> absent
+            }
 
             for (var word = loWord; word <= hiWord; word++)
             {
@@ -876,7 +1050,7 @@ internal sealed class SheetValueStore
                 var highBit = word == hiWord ? sHi & 63 : 63;
                 var required = highBit == 63 ? ~0UL << lowBit : ((1UL << (highBit + 1)) - 1) & (~0UL << lowBit);
 
-                if ((Volatile.Read(ref _present[word]) & required) != required)
+                if ((Volatile.Read(ref present[word]) & required) != required)
                 {
                     return false;
                 }
@@ -904,14 +1078,18 @@ internal sealed class SheetValueStore
                     continue; // writer in progress
                 }
 
-                // A concurrent drop (Recalculate) could have unset a slot after the caller's pre-check; re-verify
-                // inside the version-stable window so a torn/absent slot never reaches the snapshot.
-                if (!IsRangePresent(sLo, sHi))
+                var values = Volatile.Read(ref _values);
+
+                // A slice reaching beyond the current (un-promoted) array holds absent slots; and a concurrent
+                // drop (Recalculate) could have unset a covered slot after the caller's pre-check. Re-verify both
+                // inside the version-stable window so a torn/absent slot never reaches the snapshot, and so the
+                // raw copy below can never index the captured array out of bounds.
+                if (sHi >= values.Length || !IsRangePresent(sLo, sHi))
                 {
                     return false;
                 }
 
-                Array.Copy(_values, sLo, dest, destOffset, count);
+                Array.Copy(values, sLo, dest, destOffset, count);
 
                 Interlocked.MemoryBarrier();
                 if (v1 == Volatile.Read(ref _version))

@@ -33,6 +33,11 @@ public sealed class ValueStoreOptions
     /// <summary>Default column-group size (columns per group in the two-level column directory).</summary>
     public const int DefaultColumnGroupSize = 64;
 
+    /// <summary>Default initial page slots: a freshly touched page allocates <c>ComputedValue[128]</c> (plus its
+    /// presence bitmap) yet still covers the whole <see cref="RowPageSize"/>-row interval, growing by doubling up
+    /// to <see cref="RowPageSize"/> as higher rows are written.</summary>
+    public const int DefaultInitialPageSlots = 128;
+
     /// <summary>Default sparsity-guard warm-up: pages allocated before density is judged.</summary>
     public const int DefaultSparsityWarmupPages = 64;
 
@@ -44,6 +49,7 @@ public sealed class ValueStoreOptions
     // range keeps the group directory a small pointer array. Documented on each property below.
     internal const int MinRowPageSize = 64;
     internal const int MaxRowPageSize = 65_536;
+    internal const int MinInitialPageSlots = 16;
     internal const int MinColumnGroupSize = 8;
     internal const int MaxColumnGroupSize = 4_096;
     internal const int MaxSparsityWarmupPages = 1_000_000;
@@ -67,6 +73,18 @@ public sealed class ValueStoreOptions
     public int ColumnGroupSize { get; init; } = DefaultColumnGroupSize;
 
     /// <summary>
+    /// The physical slot count a freshly touched page is born with — its backing <c>ComputedValue[]</c> and
+    /// presence bitmap start this small even though the page still covers the full <see cref="RowPageSize"/>-row
+    /// interval (the shift/mask addressing is unchanged). Writing a row whose in-page slot lies beyond the
+    /// current array promotes the page by reallocating (doubling until it fits, capped at
+    /// <see cref="RowPageSize"/>); a read beyond the current array is simply absent and never promotes. This
+    /// keeps small sheets from paying a full <c>ComputedValue[RowPageSize]</c> per touched column. Must be a
+    /// power of two in <c>[16, RowPageSize]</c>; set it equal to <see cref="RowPageSize"/> to opt out of
+    /// promotion (pages born full-size). Default <see cref="DefaultInitialPageSlots"/> (128).
+    /// </summary>
+    public int InitialPageSlots { get; init; } = DefaultInitialPageSlots;
+
+    /// <summary>
     /// Sparsity guard: how many pages a sheet may allocate before its density is judged. Must be in
     /// <c>[1, 1000000]</c>. Below this the sheet is always allowed to grow dense. Default
     /// <see cref="DefaultSparsityWarmupPages"/> (64).
@@ -87,6 +105,10 @@ public sealed class ValueStoreOptions
     {
         ValidatePowerOfTwo(RowPageSize, MinRowPageSize, MaxRowPageSize, nameof(RowPageSize));
         ValidatePowerOfTwo(ColumnGroupSize, MinColumnGroupSize, MaxColumnGroupSize, nameof(ColumnGroupSize));
+
+        // InitialPageSlots is bounded above by RowPageSize (a page never grows past its logical row span) — a
+        // dynamic ceiling, so it is validated after RowPageSize is known to be valid.
+        ValidatePowerOfTwo(InitialPageSlots, MinInitialPageSlots, RowPageSize, nameof(InitialPageSlots));
 
         if (SparsityWarmupPages is < 1 or > MaxSparsityWarmupPages)
         {
