@@ -220,9 +220,14 @@ public static class RangeSequenceProbeHarness
         // Block-copy: pre-sized array, Array.Copy each page's contiguous slice (valid only fully-present).
         var blk = Measure(() => replica.CopyTo(rows).Length, out _);
 
+        // The REAL production RangeSnapshot.Build on the same warmed range — the definitive before/after of the
+        // shipped code (before Phase 1: List + ToArray ~= "cur"; after: pre-sized array + block-copy ~= "blk").
+        var real = Measure(() => RangeSnapshot.Build(range, ctx).Count, out _);
+
         Table(
             ("Build current (List + ExpandComputedValues + ToArray)", cur),
-            ("Build block-copy pages -> ComputedValue[] (full only)", blk));
+            ("Build block-copy pages -> ComputedValue[] (full only)", blk),
+            ("Build REAL RangeSnapshot.Build (shipped code)", real));
         Console.WriteLine($"   -> block-copy is {(blk.Ms > 0 ? cur.Ms / blk.Ms : 0):N1}x faster and {cur.Mb - blk.Mb:N1} MB less on a full range;");
         Console.WriteLine("      it is the single clearest win, but only when every slot in the covered pages is present.");
         Console.WriteLine();

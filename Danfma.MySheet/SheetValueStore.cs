@@ -193,6 +193,26 @@ internal sealed class SheetValueStore
         return false;
     }
 
+    /// <summary>
+    /// Fast-path materialization of a fully-present closed column slice into a pre-sized, column-major
+    /// destination array (the block-copy path of <see cref="RangeSnapshot.Build"/>). Returns true only when
+    /// EVERY covered cell of the column is present and the per-page seqlock verified the copy — the caller then
+    /// skips the per-cell reads for this column; false leaves <paramref name="dest"/> untouched for its
+    /// per-cell fallback. <paramref name="destBase"/> is the destination index of (col, minRow).
+    /// </summary>
+    public bool TryBlockCopyColumn(
+        int handle,
+        int col,
+        int minRow,
+        int maxRow,
+        ComputedValue[] dest,
+        int destBase
+    )
+    {
+        var slab = PeekSlab(handle);
+        return slab is not null && slab.TryBlockCopyColumn(col, minRow, maxRow, dest, destBase);
+    }
+
     /// <summary>Stores a memoized cell, marking it tainted when it touched a volatile this epoch.</summary>
     public void SetDense(int handle, int col, int row, ComputedValue value, bool tainted)
     {
@@ -539,6 +559,16 @@ internal sealed class SheetValueStore
         public (int Pages, int SparseCells) Diagnostics() =>
             (_pages, Volatile.Read(ref _sparse)?.Count ?? 0);
 
+        /// <summary>Block-copy fill of one column's rows [minRow, maxRow] into <paramref name="dest"/> (see
+        /// <see cref="Column.TryBlockCopy"/>). A column with any covered row diverted to the sparse dictionary
+        /// (no page) fails the page pre-check and returns false, so the caller's per-cell fallback — which reads
+        /// the sparse dictionary too — serves it.</summary>
+        public bool TryBlockCopyColumn(int col, int minRow, int maxRow, ComputedValue[] dest, int destBase)
+        {
+            var column = FindColumn(col);
+            return column is not null && column.TryBlockCopy(minRow, maxRow, dest, destBase);
+        }
+
         public IEnumerable<(int Col, int Row, ComputedValue Value)> EnumeratePresent()
         {
             var groups = _groups;
@@ -667,6 +697,61 @@ internal sealed class SheetValueStore
                 }
             }
         }
+
+        /// <summary>
+        /// Fast-path fill of <paramref name="dest"/> for this column's rows [minRow, maxRow], in column-major
+        /// order (row index advances by one, so <paramref name="destBase"/> is the index of minRow). Succeeds
+        /// ONLY when every covered page exists and every covered slot is present, so no on-demand miss is needed;
+        /// each page's slice is then block-copied under the seqlock (torn writes retried). Returns false — without
+        /// partially filling from a rejected page — when any covered slot is absent or a concurrent drop races the
+        /// copy, so the caller falls back to the per-cell numeric accessor (which evaluates holes on demand).
+        /// </summary>
+        public bool TryBlockCopy(int minRow, int maxRow, ComputedValue[] dest, int destBase)
+        {
+            var pages = Volatile.Read(ref _pages);
+            var firstPi = minRow >> _geo.PageShift;
+            var lastPi = maxRow >> _geo.PageShift;
+
+            if (lastPi >= pages.Length)
+            {
+                return false; // a covered page lies beyond the directory -> absent, needs on-demand fill
+            }
+
+            // Pre-pass: prove every covered page exists and is 100% present over its covered slice, BEFORE any
+            // write into dest (so a rejection leaves dest untouched for the caller's per-cell fallback).
+            for (var pi = firstPi; pi <= lastPi; pi++)
+            {
+                var page = Volatile.Read(ref pages[pi]);
+                if (page is null)
+                {
+                    return false;
+                }
+
+                var sLo = pi == firstPi ? minRow & _geo.PageMask : 0;
+                var sHi = pi == lastPi ? maxRow & _geo.PageMask : _geo.PageMask;
+                if (!page.IsRangePresent(sLo, sHi))
+                {
+                    return false;
+                }
+            }
+
+            // Copy pass: per page, a seqlock-verified block copy with per-page retry on a version change.
+            for (var pi = firstPi; pi <= lastPi; pi++)
+            {
+                var page = Volatile.Read(ref pages[pi])!; // proven non-null above; page slots are never nulled
+                var sLo = pi == firstPi ? minRow & _geo.PageMask : 0;
+                var sHi = pi == lastPi ? maxRow & _geo.PageMask : _geo.PageMask;
+                var baseRow = pi << _geo.PageShift;
+                var destOffset = destBase + baseRow + sLo - minRow;
+
+                if (!page.CopyPresentSlice(sLo, sHi, dest, destOffset))
+                {
+                    return false; // a slot was dropped mid-window -> bail; caller re-fills this column per cell
+                }
+            }
+
+            return true;
+        }
     }
 
     // === Page: ComputedValue[1024] + presence bitmap, guarded by a per-page seqlock =======================
@@ -773,6 +858,67 @@ internal sealed class SheetValueStore
                     yield return (slot, _values[slot]);
                     bits &= bits - 1;
                 }
+            }
+        }
+
+        /// <summary>Whether EVERY slot in the inclusive range [sLo, sHi] is present (the block-copy pre-check —
+        /// a hole would need on-demand evaluation, so the raw copy is only valid over a proven-full slice).</summary>
+        public bool IsRangePresent(int sLo, int sHi)
+        {
+            var loWord = sLo >> 6;
+            var hiWord = sHi >> 6;
+
+            for (var word = loWord; word <= hiWord; word++)
+            {
+                // Mask off the bits outside [sLo, sHi] within the first and last words; whole interior words
+                // must be fully set (~0UL). A word is "all covered slots present" when required == present&required.
+                var lowBit = word == loWord ? sLo & 63 : 0;
+                var highBit = word == hiWord ? sHi & 63 : 63;
+                var required = highBit == 63 ? ~0UL << lowBit : ((1UL << (highBit + 1)) - 1) & (~0UL << lowBit);
+
+                if ((Volatile.Read(ref _present[word]) & required) != required)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Block-copies the contiguous slice [sLo, sHi] into <paramref name="dest"/> at
+        /// <paramref name="destOffset"/> under the seqlock: the raw <see cref="Array.Copy"/> escapes the
+        /// per-slot protection, so the version is re-checked AFTER the copy and the copy is retried on a change
+        /// (odd version = a writer is mid-update). Returns false if a concurrent CLEAR removed a covered slot
+        /// during the stable window (the caller then falls back to the per-cell path, which evaluates the hole).
+        /// </summary>
+        public bool CopyPresentSlice(int sLo, int sHi, ComputedValue[] dest, int destOffset)
+        {
+            var count = sHi - sLo + 1;
+
+            while (true)
+            {
+                var v1 = Volatile.Read(ref _version);
+                if ((v1 & 1) != 0)
+                {
+                    continue; // writer in progress
+                }
+
+                // A concurrent drop (Recalculate) could have unset a slot after the caller's pre-check; re-verify
+                // inside the version-stable window so a torn/absent slot never reaches the snapshot.
+                if (!IsRangePresent(sLo, sHi))
+                {
+                    return false;
+                }
+
+                Array.Copy(_values, sLo, dest, destOffset, count);
+
+                Interlocked.MemoryBarrier();
+                if (v1 == Volatile.Read(ref _version))
+                {
+                    return true; // no writer ran across the copy -> the slice is internally consistent
+                }
+                // version moved under us -> a writer touched this page during the copy, retry
             }
         }
     }

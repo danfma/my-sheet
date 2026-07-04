@@ -127,28 +127,82 @@ internal sealed class RangeSnapshot
     /// memoized cell values the consuming functions already see (so the linear-fallback path is identical).</summary>
     public static RangeSnapshot Build(Reference range, EvaluationContext context)
     {
-        var values = new List<ComputedValue>();
-
         switch (range)
         {
             case RangeReference rectangle:
-                foreach (var value in rectangle.ExpandComputedValues(context))
-                {
-                    values.Add(value);
-                }
-
-                break;
+                // A closed rectangle has known bounds: materialize straight into a PRE-SIZED array (no List
+                // doubling + ToArray recopy), filled per column in column-major order — the block-copy fast path
+                // when the column is fully present, else the per-cell numeric accessor (which evaluates misses on
+                // demand). The element order is IDENTICAL to the old ExpandComputedValues path (column outer,
+                // row inner).
+                return new RangeSnapshot(BuildRectangle(rectangle, context));
 
             case OpenRangeReference open:
+                // Open ranges expose only their POPULATED cells (count unknown up front, order = the structural
+                // index's) — no pre-sizing/block-copy applies (Phase 3 territory), so the List path is kept.
+                var values = new List<ComputedValue>();
                 foreach (var value in open.ExpandComputedValues(context))
                 {
                     values.Add(value);
                 }
 
-                break;
+                return new RangeSnapshot(values.ToArray());
+
+            default:
+                return new RangeSnapshot(Array.Empty<ComputedValue>());
+        }
+    }
+
+    /// <summary>
+    /// Materializes a closed rectangle into a pre-sized column-major <see cref="ComputedValue"/>[] (one entry
+    /// per cell, blanks included). Each column is filled by a single seqlock-verified block copy of its pages
+    /// when every covered slot is present; otherwise the per-cell numeric accessor fills it, taking the hit path
+    /// (a lock-free store read) or the on-demand evaluation of a miss — the exact semantics, and the exact
+    /// column-major order, of the enumerator this replaced.
+    /// </summary>
+    private static ComputedValue[] BuildRectangle(RangeReference rectangle, EvaluationContext context)
+    {
+        var start = CellAddress.Parse(rectangle.StartId);
+        var end = CellAddress.Parse(rectangle.EndId);
+
+        var minColumn = Math.Min(start.Column, end.Column);
+        var maxColumn = Math.Max(start.Column, end.Column);
+        var minRow = Math.Min(start.Row, end.Row);
+        var maxRow = Math.Max(start.Row, end.Row);
+
+        var rowCount = maxRow - minRow + 1;
+        var columnCount = maxColumn - minColumn + 1;
+        var result = new ComputedValue[checked(rowCount * columnCount)];
+
+        var workbook = context.Workbook;
+        var store = workbook.DenseStore;
+        var sheetName = rectangle.SheetName;
+        var handle = store.HandleFor(sheetName);
+
+        for (var column = minColumn; column <= maxColumn; column++)
+        {
+            var destBase = (column - minColumn) * rowCount;
+
+            // Fast path: the whole column's covered rows are present -> block-copy its pages into dest.
+            if (store.TryBlockCopyColumn(handle, column, minRow, maxRow, result, destBase))
+            {
+                continue;
+            }
+
+            // Fallback: per-cell numeric accessor. A hit is a lock-free store read; a miss routes through the
+            // workbook for the cycle guard + on-demand evaluation + memoization (identical to the old path).
+            for (var row = minRow; row <= maxRow; row++)
+            {
+                if (!store.TryGetDense(handle, column, row, out var value))
+                {
+                    value = workbook.GetCellValueDense(handle, sheetName, column, row);
+                }
+
+                result[destBase + (row - minRow)] = value;
+            }
         }
 
-        return new RangeSnapshot(values.ToArray());
+        return result;
     }
 
     // === Aggregate memo (SUM/COUNT/COUNTA/MAX/MIN/AVERAGE of a pure range) ================================
