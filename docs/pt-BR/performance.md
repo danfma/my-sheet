@@ -19,10 +19,12 @@ Escolhas de apoio no mesmo espírito:
 
 - `EvaluationContext` é uma `readonly struct`, então propagar o contexto pela avaliação recursiva não
   aloca nada (apenas as vinculações de nome de `LET`, quando usadas, vivem no heap).
-- O cache de memoização armazena a struct `ComputedValue` **inline** no dicionário — sem uma caixa (box)
-  de vida longa por célula, que era o que antes gerava pressão de GC Gen1.
+- O repositório de memoização mantém a struct `ComputedValue` **inline** em uma página densa por
+  planilha (veja [o repositório de valores](#o-repositório-de-valores-um-cache-paginado-e-denso) abaixo)
+  — sem uma caixa (box) de vida longa por célula, sem nó de hash por entrada, que era o que antes gerava
+  pressão de GC Gen1.
 - Funções que consomem intervalos (`SUM(A1:A1000)`, lookups, …) enumeram os valores das células através
-  do cache com o mesmo tipo sem boxing.
+  do repositório com o mesmo tipo sem boxing.
 
 ### Números medidos
 
@@ -47,10 +49,11 @@ segundo plano — foi o argumento decisivo, mais do que a taxa de transferência
 
 ## Memoização
 
-`Workbook.GetCellValue(sheetName, id)` armazena em cache o `ComputedValue` de cada célula sob
-`(planilha, id)`. Toda `CellReference` dentro de uma fórmula resolve através do mesmo cache, então uma
-célula referenciada por muitas fórmulas — ou alcançada tanto diretamente quanto por uma expansão de
-intervalo — é **calculada exatamente uma vez**:
+`Workbook.GetCellValue(sheetName, id)` memoiza o `ComputedValue` de cada célula no repositório de
+valores do workbook, endereçado por um handle de planilha mais o `(coluna, linha)` da célula. Toda
+`CellReference` dentro de uma fórmula resolve através do mesmo repositório, então uma célula referenciada
+por muitas fórmulas — ou alcançada tanto diretamente quanto por uma expansão de intervalo — é **calculada
+exatamente uma vez**:
 
 ```csharp
 sheet["A1"] = ExpressionParser.Parse("=EXPENSIVE()", sheet);
@@ -81,8 +84,77 @@ Por que esse design (decidido e documentado em `plans/memoization.md`):
 - O trade-off conhecido: cada referência adiciona uma consulta de dicionário, um custo pequeno em células
   triviais que se paga sempre que há células compartilhadas ou caras.
 
-O cache é um `ConcurrentDictionary`, seguro para leitores concorrentes em segundo plano. Ele não é
-serializado — um workbook carregado começa frio e vai sendo preenchido de forma preguiçosa.
+### O repositório de valores: um cache paginado e denso
+
+Os valores memoizados não vivem em um mapa de hash indexado por strings `(planilha, id)`. Eles vivem em
+um **repositório denso e paginado, endereçado numericamente** — a forma que o profiling da fase de
+cálculo apontou. Um `ConcurrentDictionary` indexado por string pagava, a cada miss, uma inserção com
+bucket-lock, um hash de tupla de strings e um nó de heap por entrada (pressão de Gen1); o repositório
+denso remove os três do caminho crítico.
+
+**Endereçamento numérico, derivado sob demanda.** `GetCellValue` resolve o nome da planilha para um
+pequeno handle inteiro uma única vez e então deriva o `(coluna, linha)` da célula diretamente a partir do
+seu id A1 canônico, sem alocar (`CellAddress.TryGetColumnRow` — sem substring, sem `int.Parse`). A API
+pública e o formato em disco permanecem intocados: as células continuam endereçadas por string A1 na
+superfície, e o repositório existe apenas em tempo de execução, nunca é serializado (um workbook
+carregado começa frio e vai sendo preenchido de forma preguiçosa).
+
+**Paginação em dois níveis, nos dois eixos.** Por planilha, um slab mantém um diretório de colunas em
+dois níveis — `groups[col >> 6][col & 63]` (grupos de 64 colunas) → `column.pages[row >> 10]` → uma
+página de 1.024 slots de `ComputedValue` mais um pequeno bitmap de presença. Uma única coluna de índice
+alto e sem grade (por exemplo, `AAAA`) custa então um grupo, não um array plano gigante, e a leitura
+crítica é puro shift/mask mais algumas dereferências de array — sem hashing. Os diretórios começam
+pequenos e crescem dobrando de tamanho, publicando cada novo array com uma escrita `Volatile`. O bitmap de
+presença é explícito porque um slot zerado é ambíguo — "ainda não calculado" versus "calculado como
+branco".
+
+**Leituras lock-free via um seqlock por página.** Um `ComputedValue` é uma struct multi-word, então uma
+leitura concorrente ingênua poderia rasgar (tear). Cada página é um **seqlock**: os leitores são
+lock-free e simplesmente releem se um escritor tocou a página no meio da leitura (um número de versão
+ímpar), enquanto um único escritor por página se serializa em um gate de CAS e incrementa a versão em
+torno da sua atualização. Como as células memoizadas são lidas muito mais do que escritas, isso mantém o
+caminho de leitura livre do custo de monitor por leitura que o dicionário antigo cobrava — a avaliação
+permanece segura para rodar de forma concorrente (como exigem os caminhos voláteis/F1).
+
+**Guarda de esparsidade.** Uma página é um bloco de tamanho fixo, então células espalhadas uma por página
+ao longo de um intervalo enorme de linhas inflariam a pegada de memória. Cada slab observa sua razão de
+páginas alocadas versus células presentes; quando um slab é comprovadamente esparso demais, ele para de
+alocar **novas** páginas e desvia as células espalhadas restantes para um dicionário por slab. Planilhas
+densas nunca disparam essa guarda; um espalhamento patológico degrada para a pegada do dicionário, em vez
+do inchaço. Nada é migrado e nenhuma página é desmontada, então o caminho de leitura concorrente permanece
+intocado.
+
+**A semântica de época é preservada exatamente.** `InvalidateCache()` descarta todo valor memoizado (as
+páginas são limpas, o repositório e seu mapa de handles são mantidos); `Recalculate()` descarta apenas as
+células contaminadas por volatilidade, para que recalculem de forma preguiçosa na próxima leitura. O
+conjunto de contaminadas é uma coleção esparsa indexada (só as células voláteis entram nele), e a época de
+valores é independente do índice estrutural mantido pela escrita abaixo, que sobrevive a ambas as
+chamadas.
+
+**Geometria configurável (os padrões já vêm ajustados para a carga de trabalho K1).** O tamanho da página
+de linhas, o tamanho do grupo de colunas e os dois limiares da guarda de esparsidade são configuráveis
+por workbook através de `WorkbookOptions.ValueStore`. Os padrões (página de linhas 1.024, grupo de
+colunas 64, aquecimento de 64 páginas, piso de 4 células/página) reproduzem o comportamento já
+distribuído, então `new Workbook()` não muda. Uma página menor desperdiça menos em planilhas pequenas ou
+esparsas; uma maior varre mais rápido em planilhas densas. Ambos os tamanhos precisam ser potências de
+dois — o caminho crítico é shift/mask, e o shift é derivado do tamanho — então um valor que não seja
+potência de dois, ou fora do intervalo permitido, lança `ArgumentException` na construção. As opções são
+**configuração** em tempo de execução, não estado de documento: elas nunca são serializadas (o formato de
+arquivo permanece intocado), e um workbook carregado do disco recorre aos padrões.
+
+```csharp
+// Um workbook com muitas planilhas pequenas: reduza a página para que cada uma desperdice menos memória.
+var workbook = new Workbook(new WorkbookOptions
+{
+    ValueStore = new ValueStoreOptions
+    {
+        RowPageSize = 256,       // potência de dois em [64, 65536]  (padrão 1024)
+        ColumnGroupSize = 32,    // potência de dois em [8, 4096]    (padrão 64)
+        SparsityWarmupPages = 64,     // páginas antes de julgar a densidade  (padrão 64)
+        SparsityMinCellsPerPage = 4,  // piso de esparsidade, em [1, RowPageSize]  (padrão 4)
+    },
+});
+```
 
 ### Referências circulares
 
