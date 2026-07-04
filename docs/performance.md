@@ -101,6 +101,14 @@ dereferences — no hashing. Directories start tiny and grow by doubling, publis
 `Volatile` write. The presence bitmap is explicit because a zeroed slot is ambiguous — "not computed
 yet" versus "computed to blank".
 
+**Adaptive first page.** A full-size page allocated for a column that only ever holds a handful of cells
+is mostly waste. So a column's **first** page is born with a small slot array covering the same logical
+row span, and is promoted — reallocated toward the full page size — only when a write lands beyond its
+current length; the promotion happens inside the page's seqlock, so a reader either sees the old array or
+retries. A column that overflows its first page has proven it is dense, so its **later** pages are born
+full — the small birth trims tiny and sparse sheets without adding reallocation churn to the dense path.
+The initial size is the `InitialPageSlots` knob on `ValueStoreOptions` (a power of two, defaulting small).
+
 **Lock-free reads via a per-page seqlock.** A `ComputedValue` is a multi-word struct, so a naive
 concurrent read could tear. Each page is a **seqlock**: readers are lock-free and simply re-read if a
 writer touched the page mid-read (an odd version number), while a single writer per page serialises on a
@@ -162,10 +170,16 @@ tuning knobs to set — and the sparse model and the single-cell hot path are un
 
 ### Layer 1 — the structural index
 
-Per sheet, the index maps `column → cell ids ordered by row` (and the symmetric `row → ids` on demand).
-It answers "which cells does `A:A` cover, in order?" without re-scanning the cell dictionary. Range bound
-resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every evaluation) reads the bounding box
-straight from the ordered lists by binary search.
+Per sheet, the index maps `column → the rows populated in it, ordered` (and the symmetric
+`row → columns` on demand). It answers "which cells does `A:A` cover, in order?" without re-scanning the
+cell dictionary. Range bound resolution (the table lookup `VLOOKUP`/`INDEX`/`OFFSET` do on every
+evaluation) reads the bounding box straight from the ordered lists by binary search.
+
+The buckets hold the coordinate as a plain integer — a column keeps its row numbers, a row its column
+numbers — never the A1 id string. So the open-range value path expands straight from the stored
+`(column, row)` into the dense store with no id to parse, and the index itself carries only integers: it
+is markedly smaller in memory than an id-per-cell form, and far more compact still if it is ever
+persisted. An id is re-derived only on the cold enumeration that yields cell *expressions* (not values).
 
 This is what makes **small columns in a big sheet** cheap: before the index, a formula referencing a
 16-cell column still walked all ~1.5M keys of the sheet to find those 16; after it, only the 16 are
@@ -182,9 +196,11 @@ marks its one column dirty so that column re-sorts on its next read; a delete re
 bucket in O(bucket). The index is never serialized, so a workbook loaded from disk starts without one and
 rebuilds it once on its first open-range read for that instance's life.
 
-**Lazy per-bucket sort.** Building the index bucketizes the ids but does **not** sort them; each
+**Lazy per-bucket sort.** Building the index bucketizes the coordinates but does **not** sort them; each
 column's list is ordered (by row) only on its first access, so a read that touches one narrow column of
-a wide sheet sorts only that one list, not every column.
+a wide sheet sorts only that one list, not every column. The ordering is numeric by that secondary axis
+(a column by row number, a row by column number) — `A2` precedes `A10`, not the reverse a text sort of
+the ids would give.
 
 ### Layer 2 — epoch range caches
 
@@ -206,6 +222,13 @@ The overall cost drops from O(F·N) to **O(N + F·log N)**. Semantics are preser
 value does not fit an index cleanly (blank-equivalent lookups, wildcard/comparison criteria, the
 "closest" approximate `XLOOKUP`) the consumer falls back to a **linear scan over the cached snapshot** —
 still cache-served, so the O(N) re-read of cell values is gone even on the fallback path.
+
+**How the snapshot is materialized.** Because a closed range knows its bounds up front, the snapshot is
+written into a result array sized exactly once — no growing intermediate list, no final copy. When every
+page the range covers is fully present, the values are lifted a page at a time with a block copy straight
+out of the store rather than cell by cell, with the page's seqlock version re-checked after each copy so a
+concurrent write can never smuggle a torn value into the snapshot (a page that fails the re-check falls
+back to the on-demand cell path). The allocation then amounts to the result array alone.
 
 **Second-use admission.** Materializing a snapshot only pays off when a range is read repeatedly.
 A range read *exactly once* per epoch — a sliding window (`SUM(A$1:A500)`, `SUM(A$1:A501)`, …), a
