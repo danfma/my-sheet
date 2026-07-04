@@ -46,6 +46,13 @@ if (args.Contains("--aspose-compare"))
     return;
 }
 
+// Custo do caminho mini-CSE array (Fase C): `dotnet run -c Release -- --mini-cse-cost`.
+if (args.Contains("--mini-cse-cost"))
+{
+    MiniCseCostHarness.Run();
+    return;
+}
+
 // Spike MessagePack format — byte sizes: `dotnet run -c Release -- --messagepack-size`.
 if (args.Contains("--messagepack-size"))
 {
