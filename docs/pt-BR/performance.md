@@ -108,6 +108,16 @@ pequenos e crescem dobrando de tamanho, publicando cada novo array com uma escri
 presença é explícito porque um slot zerado é ambíguo — "ainda não calculado" versus "calculado como
 branco".
 
+**Primeira página adaptativa.** Uma página de tamanho pleno alocada para uma coluna que só chega a conter
+um punhado de células é, na maior parte, desperdício. Por isso, a **primeira** página de uma coluna nasce
+com um array de slots pequeno, cobrindo o mesmo intervalo lógico de linhas, e é promovida — realocada em
+direção ao tamanho pleno da página — apenas quando uma escrita cai além do seu comprimento atual; a
+promoção acontece dentro do seqlock da página, então um leitor ou vê o array antigo, ou tenta de novo. Uma
+coluna que transborda sua primeira página provou que é densa, então suas páginas **posteriores** já nascem
+no tamanho pleno — o nascimento pequeno reduz planilhas minúsculas e esparsas sem acrescentar atrito de
+realocação ao caminho denso. O tamanho inicial é o parâmetro `InitialPageSlots` de `ValueStoreOptions`
+(uma potência de dois, com um padrão pequeno).
+
 **Leituras lock-free via um seqlock por página.** Um `ComputedValue` é uma struct multi-word, então uma
 leitura concorrente ingênua poderia rasgar (tear). Cada página é um **seqlock**: os leitores são
 lock-free e simplesmente releem se um escritor tocou a página no meio da leitura (um número de versão
@@ -175,10 +185,17 @@ rápido de célula única permanecem intocados.
 
 ### Camada 1 — o índice estrutural
 
-Por planilha, o índice mapeia `coluna → ids de célula ordenados por linha` (e o simétrico `linha → ids`
-sob demanda). Ele responde "quais células `A:A` cobre, em ordem?" sem revarrer o dicionário de células. A
-resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET` fazem em toda avaliação)
-lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
+Por planilha, o índice mapeia `coluna → as linhas nela populadas, ordenadas` (e o simétrico
+`linha → colunas` sob demanda). Ele responde "quais células `A:A` cobre, em ordem?" sem revarrer o
+dicionário de células. A resolução de limites de range (a busca em tabela que `VLOOKUP`/`INDEX`/`OFFSET`
+fazem em toda avaliação) lê a caixa delimitadora diretamente das listas ordenadas por busca binária.
+
+Os buckets guardam a coordenada como um inteiro simples — uma coluna mantém seus números de linha, uma
+linha, seus números de coluna — nunca a string do id A1. Assim, o caminho de valor de range aberto se
+expande diretamente das coordenadas `(coluna, linha)` armazenadas para o repositório denso, sem id algum
+para analisar, e o próprio índice carrega apenas inteiros: ele é sensivelmente menor em memória do que uma
+forma com um id por célula, e ainda mais compacto se algum dia for persistido. Um id só é rederivado na
+enumeração fria que produz *expressões* de célula (não valores).
 
 É isso que torna **colunas pequenas em uma planilha grande** baratas: antes do índice, uma fórmula
 referenciando uma coluna de 16 células ainda percorria todas as ~1,5 milhão de chaves da planilha para
@@ -197,9 +214,11 @@ se reordene na próxima leitura; uma remoção retira o id do seu bucket em O(bu
 serializado, então um workbook carregado do disco começa sem um e o reconstrói uma vez, na primeira
 leitura de range aberto, durante a vida dessa instância.
 
-**Ordenação preguiçosa por bucket.** Construir o índice organiza os ids em buckets, mas **não** os
+**Ordenação preguiçosa por bucket.** Construir o índice organiza as coordenadas em buckets, mas **não** as
 ordena; a lista de cada coluna é ordenada (por linha) apenas no primeiro acesso, então uma leitura que
-toca apenas uma coluna estreita de uma planilha larga ordena somente essa lista, não toda coluna.
+toca apenas uma coluna estreita de uma planilha larga ordena somente essa lista, não toda coluna. A
+ordenação é numérica por esse eixo secundário (uma coluna por número de linha, uma linha por número de
+coluna) — `A2` precede `A10`, não o inverso que uma ordenação textual dos ids daria.
 
 ### Camada 2 — caches de range por época
 
@@ -225,6 +244,14 @@ não se encaixa de forma limpa num índice (buscas equivalentes a branco, crité
 o `XLOOKUP` aproximado "mais próximo"), o consumidor cai para uma **varredura linear sobre o snapshot em
 cache** — ainda servida pelo cache, então a releitura O(N) dos valores das células desaparece mesmo no
 caminho de fallback.
+
+**Como o snapshot é materializado.** Como um range fechado conhece seus limites de antemão, o snapshot é
+escrito em um array de resultado dimensionado exatamente uma vez — sem lista intermediária que cresce, sem
+cópia final. Quando toda página coberta pelo range está totalmente presente, os valores são retirados uma
+página por vez com uma cópia em bloco direto do repositório, em vez de célula por célula, com a versão do
+seqlock da página reverificada após cada cópia, de modo que uma escrita concorrente jamais consiga
+contrabandear um valor rasgado (torn) para dentro do snapshot (uma página que falha na reverificação recai
+para o caminho de célula sob demanda). A alocação então se resume apenas ao array de resultado.
 
 **Admissão na segunda leitura de uso.** Materializar um snapshot só compensa quando um range é lido
 repetidamente. Um range lido *exatamente uma vez* por época — uma janela deslizante (`SUM(A$1:A500)`,
