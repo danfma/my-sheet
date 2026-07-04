@@ -18,11 +18,13 @@ namespace Danfma.MySheet;
 /// by default, so a lone high-index gridless column — <c>AAAA</c> ≈ 475k — costs one group, not a 475k-pointer
 /// flat array) → <c>column.pages[row &gt;&gt; pageShift]</c> → a <see cref="Page"/> of <c>ComputedValue[1024]</c>
 /// by default plus its presence bitmap (a zeroed slot is ambiguous: "not computed" vs "computed blank", so
-/// presence is explicit). A page's backing array actually STARTS smaller (<c>InitialPageSlots</c>, 128 by
-/// default) while still covering the whole <c>RowPageSize</c>-row interval, and is PROMOTED — reallocated by
-/// doubling up to <c>RowPageSize</c>, under the page seqlock — the first time a write lands past its current
-/// physical size (a read past it is simply absent). This keeps a small sheet from paying a full
-/// <c>ComputedValue[RowPageSize]</c> per touched column. The page/group sizes are configurable per workbook via
+/// presence is explicit). A column's FIRST page (index 0) actually starts with a smaller backing array
+/// (<c>InitialPageSlots</c>, 128 by default) while still covering the whole <c>RowPageSize</c>-row interval,
+/// and is PROMOTED — reallocated by doubling up to <c>RowPageSize</c>, under the page seqlock — the first time
+/// a write lands past its current physical size (a read past it is simply absent). A column that overflows into
+/// page 1 has proven dense, so later pages are born full-size: a small sheet keeps the memory win (it never
+/// leaves page 0) and a dense sheet pays the doubling-reallocation churn at most once per column. The page/group
+/// sizes are configurable per workbook via
 /// <see cref="ValueStoreOptions"/> (always powers of two, so shift/mask come free); the shifts/masks are
 /// resolved once into <see cref="Geometry"/> and shared by reference with every slab/column. Group/page
 /// directories start tiny and grow by doubling, publishing the new array via <see cref="Volatile"/>.
@@ -726,7 +728,12 @@ internal sealed class SheetValueStore
             var page = pages[pi];
             if (page is null)
             {
-                page = new Page(_geo.InitialPageSlots, _geo.PageRows);
+                // Only a column's FIRST page (index 0) is born small: a column that overflows into page 1 has
+                // proven dense, so later pages are born full-size — this kills the promotion-reallocation churn
+                // on dense sheets (each column pays the doubling ladder at most once, on page 0) while a small
+                // sheet, which never leaves page 0, keeps the full memory win.
+                var initialSlots = pi == 0 ? _geo.InitialPageSlots : _geo.PageRows;
+                page = new Page(initialSlots, _geo.PageRows);
                 Volatile.Write(ref pages[pi], page);
             }
 

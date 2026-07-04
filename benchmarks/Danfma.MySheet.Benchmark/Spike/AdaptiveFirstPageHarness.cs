@@ -5,8 +5,11 @@ namespace Danfma.MySheet.Benchmark.Spike;
 
 // Phase 2 efficacy gate (plans/allocation-hygiene-3.3.md): the adaptive first-page promotion should collapse the
 // small-sheet page waste (a 10x100 sheet was paying a full ComputedValue[1024] per touched column) WITHOUT costing
-// the dense K1 path anything. This probe drives the REAL SheetValueStore (not a mirror) and reads its exact
-// backing footprint via the FootprintBytes diagnostic, comparing the adaptive default (InitialPageSlots=128)
+// the dense K1 path anything — neither retained footprint NOR promotion-reallocation churn (orchestrator gate:
+// populate churn over born-full <= ~1.5 MB on the K1 shape). Policy: only a column's FIRST page (index 0) is born
+// small (InitialPageSlots); a column that overflows into page 1 has proven dense, so later pages are born full.
+// This probe drives the REAL SheetValueStore (not a mirror): retained footprint via the FootprintBytes diagnostic,
+// churn via GC.GetTotalAllocatedBytes around the populate, comparing the adaptive default (InitialPageSlots=128)
 // against the opt-out (InitialPageSlots == RowPageSize, i.e. the pre-3.3 born-full behavior).
 //
 //   dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --adaptive-first-page
@@ -18,90 +21,86 @@ public static class AdaptiveFirstPageHarness
         Console.WriteLine(
             $"Runtime {Environment.Version}. sizeof(ComputedValue) = {Unsafe.SizeOf<ComputedValue>()} B. "
                 + "Store footprint is the REAL SheetValueStore.FootprintBytes (value arrays + presence bitmaps + "
-                + "directory pointers). RowPageSize fixed at 1024."
+                + "directory pointers); churn is GC.GetTotalAllocatedBytes(precise) around the populate. "
+                + "RowPageSize fixed at 1024."
         );
         Console.WriteLine();
 
-        SmallSheet();
+        Report(
+            "small 10col x 100row",
+            cells: 10 * 100,
+            "GATE: adaptive default waste x <= ~2 (was ~10x born-full).",
+            store => Populate(store, "Small", firstCol: 1, cols: 10, rows: 100)
+        );
         Console.WriteLine();
-        DenseK1();
-    }
 
-    private static void SmallSheet()
-    {
-        const int cols = 10;
-        const int rows = 100;
-        var usefulBytes = (long)cols * rows * Unsafe.SizeOf<ComputedValue>();
+        Report(
+            "medium 50col x 5000row",
+            cells: 50 * 5_000,
+            "INFO: last partial page per column may idle above the all-adaptive floor (first-page-only policy).",
+            store => Populate(store, "Medium", firstCol: 1, cols: 50, rows: 5_000)
+        );
+        Console.WriteLine();
 
-        Console.WriteLine($"-- small {cols}col x {rows}row ({cols * rows:N0} cells) --");
-        Console.WriteLine($"   {"initial slots",-16}{"store KB",12}{"useful KB",12}{"waste x",10}");
-        Console.WriteLine("   " + new string('-', 50));
-
-        // Opt-out (born full, pre-3.3) then the adaptive default.
-        foreach (var (label, initialSlots) in new[] { ("1024 (opt-out)", 1024), ("128 (default)", 128) })
-        {
-            var store = new SheetValueStore(
-                new ValueStoreOptions { RowPageSize = 1024, InitialPageSlots = initialSlots }
-            );
-            var handle = store.HandleFor("Small");
-            for (var c = 1; c <= cols; c++)
+        Report(
+            "K1 dense (~600k cells)",
+            cells: 100_000 * 2 + 200_000 * 2,
+            "GATE: adaptive default matches opt-out footprint AND churn delta <= ~1.5 MB (dense path pays ~nothing).",
+            store =>
             {
-                for (var r = 1; r <= rows; r++)
-                {
-                    store.SetDense(handle, c, r, ComputedValue.Number(c * 2_000_000d + r), tainted: false);
-                }
+                // K1 population shape: Data A,B over 100k rows + S C,D over 200k rows.
+                Populate(store, "Data", firstCol: 1, cols: 2, rows: 100_000);
+                Populate(store, "S", firstCol: 3, cols: 2, rows: 200_000);
             }
-
-            var storeBytes = store.FootprintBytes(handle);
-            Console.WriteLine(
-                $"   {label,-16}{storeBytes / 1024d,12:N1}{usefulBytes / 1024d,12:N1}"
-                    + $"{(double)storeBytes / usefulBytes,10:N1}"
-            );
-        }
-
-        Console.WriteLine("   GATE: adaptive default waste x <= ~2 (was ~10x born-full).");
+        );
     }
 
-    private static void DenseK1()
+    private static void Populate(SheetValueStore store, string sheet, int firstCol, int cols, int rows)
     {
-        // K1 population shape: Data A,B over 100k rows + S C,D over 200k rows (~600k cells). A dense sheet should
-        // promote every touched page all the way to full size, so the adaptive footprint matches the born-full
-        // one — the small page costs the dense path nothing.
-        const int dataRows = 100_000;
-        const int formulaRows = 200_000;
-        var cells = (long)dataRows * 2 + (long)formulaRows * 2;
+        var handle = store.HandleFor(sheet);
+        for (var c = firstCol; c < firstCol + cols; c++)
+        {
+            for (var r = 1; r <= rows; r++)
+            {
+                store.SetDense(handle, c, r, ComputedValue.Number(c * 2_000_000d + r), tainted: false);
+            }
+        }
+    }
+
+    private static void Report(string title, long cells, string gate, Action<SheetValueStore> populate)
+    {
         var usefulBytes = cells * Unsafe.SizeOf<ComputedValue>();
 
-        Console.WriteLine($"-- K1 dense ({cells:N0} cells) --");
-        Console.WriteLine($"   {"initial slots",-16}{"store KB",12}{"useful KB",12}{"waste x",10}");
-        Console.WriteLine("   " + new string('-', 50));
+        Console.WriteLine($"-- {title} ({cells:N0} cells) --");
+        Console.WriteLine($"   {"initial slots",-16}{"store KB",12}{"useful KB",12}{"waste x",10}{"churn MB",12}");
+        Console.WriteLine("   " + new string('-', 62));
 
         foreach (var (label, initialSlots) in new[] { ("1024 (opt-out)", 1024), ("128 (default)", 128) })
         {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
             var store = new SheetValueStore(
                 new ValueStoreOptions { RowPageSize = 1024, InitialPageSlots = initialSlots }
             );
-            var data = store.HandleFor("Data");
-            var s = store.HandleFor("S");
-            for (var r = 1; r <= dataRows; r++)
+
+            var before = GC.GetTotalAllocatedBytes(precise: true);
+            populate(store);
+            var churn = GC.GetTotalAllocatedBytes(precise: true) - before;
+
+            long storeBytes = 0;
+            foreach (var sheet in new[] { "Small", "Medium", "Data", "S" })
             {
-                store.SetDense(data, 1, r, ComputedValue.Number(r), tainted: false);
-                store.SetDense(data, 2, r, ComputedValue.Number(r * 2d), tainted: false);
+                storeBytes += store.FootprintBytes(store.HandleFor(sheet));
             }
 
-            for (var r = 1; r <= formulaRows; r++)
-            {
-                store.SetDense(s, 3, r, ComputedValue.Number(r * 3d), tainted: false);
-                store.SetDense(s, 4, r, ComputedValue.Number(r * 4d), tainted: false);
-            }
-
-            var storeBytes = store.FootprintBytes(data) + store.FootprintBytes(s);
             Console.WriteLine(
                 $"   {label,-16}{storeBytes / 1024d,12:N1}{usefulBytes / 1024d,12:N1}"
-                    + $"{(double)storeBytes / usefulBytes,10:N1}"
+                    + $"{(double)storeBytes / usefulBytes,10:N1}{churn / 1024d / 1024d,12:N2}"
             );
         }
 
-        Console.WriteLine("   GATE: adaptive default matches opt-out (dense sheet pays nothing for promotion).");
+        Console.WriteLine($"   {gate}");
     }
 }

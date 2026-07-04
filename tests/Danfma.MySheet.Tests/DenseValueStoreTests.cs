@@ -272,6 +272,39 @@ public class DenseValueStoreTests
     }
 
     [Test]
+    public async Task AdaptivePolicy_OnlyFirstPageBornSmall_LaterPagesBornFull()
+    {
+        // Policy (orchestrator refinement): only a column's FIRST page (index 0) is born small — a column that
+        // overflows into page 1 has proven dense, so later pages are born full-size and never pay the doubling
+        // ladder. Page 0 keeps its small birth (and its promotion path) regardless.
+        var store = new SheetValueStore();
+        var handle = store.HandleFor("S");
+        const int col = 9;
+
+        // One low write: page 0 born small.
+        store.SetDense(handle, col, 5, ComputedValue.Number(5d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, col, 5)).IsEqualTo(128);
+
+        // A single write into page 1 (row 1500 -> page index 1, slot 476): the page is born FULL even though it
+        // holds one cell — no doubling ladder on later pages.
+        store.SetDense(handle, col, 1500, ComputedValue.Number(1500d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, col, 1500)).IsEqualTo(1024);
+
+        // Page 0 was not touched by the page-1 birth: still small, and still promotes on its own schedule.
+        await Assert.That(store.PagePhysicalSlots(handle, col, 5)).IsEqualTo(128);
+        store.SetDense(handle, col, 700, ComputedValue.Number(700d), tainted: false); // slot 700 -> grow to 1024
+        await Assert.That(store.PagePhysicalSlots(handle, col, 5)).IsEqualTo(1024);
+
+        // Every value survives its page's birth/promotion.
+        await Assert.That(store.TryGetDense(handle, col, 5, out var low)).IsTrue();
+        await Assert.That(low.ToDouble()).IsEqualTo(5.0);
+        await Assert.That(store.TryGetDense(handle, col, 1500, out var high)).IsTrue();
+        await Assert.That(high.ToDouble()).IsEqualTo(1500.0);
+        await Assert.That(store.TryGetDense(handle, col, 700, out var mid)).IsTrue();
+        await Assert.That(mid.ToDouble()).IsEqualTo(700.0);
+    }
+
+    [Test]
     public async Task OptOut_InitialPageSlotsEqualsRowPageSize_PageBornFullSize_NeverPromotes()
     {
         // Setting InitialPageSlots == RowPageSize opts out of promotion: pages are born full-size (the pre-3.3

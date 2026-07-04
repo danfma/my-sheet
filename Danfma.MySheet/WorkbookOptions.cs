@@ -33,7 +33,7 @@ public sealed class ValueStoreOptions
     /// <summary>Default column-group size (columns per group in the two-level column directory).</summary>
     public const int DefaultColumnGroupSize = 64;
 
-    /// <summary>Default initial page slots: a freshly touched page allocates <c>ComputedValue[128]</c> (plus its
+    /// <summary>Default initial page slots: a column's FIRST page allocates <c>ComputedValue[128]</c> (plus its
     /// presence bitmap) yet still covers the whole <see cref="RowPageSize"/>-row interval, growing by doubling up
     /// to <see cref="RowPageSize"/> as higher rows are written.</summary>
     public const int DefaultInitialPageSlots = 128;
@@ -73,14 +73,16 @@ public sealed class ValueStoreOptions
     public int ColumnGroupSize { get; init; } = DefaultColumnGroupSize;
 
     /// <summary>
-    /// The physical slot count a freshly touched page is born with — its backing <c>ComputedValue[]</c> and
-    /// presence bitmap start this small even though the page still covers the full <see cref="RowPageSize"/>-row
-    /// interval (the shift/mask addressing is unchanged). Writing a row whose in-page slot lies beyond the
-    /// current array promotes the page by reallocating (doubling until it fits, capped at
-    /// <see cref="RowPageSize"/>); a read beyond the current array is simply absent and never promotes. This
-    /// keeps small sheets from paying a full <c>ComputedValue[RowPageSize]</c> per touched column. Must be a
+    /// The physical slot count a column's FIRST page (row-page index 0) is born with — its backing
+    /// <c>ComputedValue[]</c> and presence bitmap start this small even though the page still covers the full
+    /// <see cref="RowPageSize"/>-row interval (the shift/mask addressing is unchanged). Writing a row whose
+    /// in-page slot lies beyond the current array promotes the page by reallocating (doubling until it fits,
+    /// capped at <see cref="RowPageSize"/>); a read beyond the current array is simply absent and never
+    /// promotes. A column that overflows into its second page has proven dense, so pages past index 0 are born
+    /// full-size — dense sheets pay the reallocation churn at most once per column while small sheets (which
+    /// never leave page 0) avoid paying a full <c>ComputedValue[RowPageSize]</c> per touched column. Must be a
     /// power of two in <c>[16, RowPageSize]</c>; set it equal to <see cref="RowPageSize"/> to opt out of
-    /// promotion (pages born full-size). Default <see cref="DefaultInitialPageSlots"/> (128).
+    /// promotion (all pages born full-size). Default <see cref="DefaultInitialPageSlots"/> (128).
     /// </summary>
     public int InitialPageSlots { get; init; } = DefaultInitialPageSlots;
 
