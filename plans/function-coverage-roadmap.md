@@ -636,6 +636,16 @@ merge + aval do usuário; sem push.
   INALTERADA (`#VALUE!`) e pendente de oráculo: o doc do usuário espera TRUE (skip); prior meu diz que o
   Excel real dá `#VALUE!` p/ literal não-coercível — decidir com teste no Excel real antes de mudar
   (cobre também literal coercível `"TRUE"`).
+  **Comparativo JUSTO no 3.0.0 (Copilot do usuário, 2026-07-03, in-memory dos dois lados,
+  BenchmarkDotNet)**: MySheet 3-fases c/ persistência 12,52s / 9,00GB; **MySheet in-memory 4,94s /
+  4,63GB**; Aspose end-to-end 3,25s / 3,09GB → **gap de engine real = 1,5× tempo / 1,5× alocação** (a
+  persistência intermediária sozinha custava ~7,6s / ~4,4GB — pipeline, não engine). Correção 99,947%
+  (301 diffs, 15 erros), causas = CSE (fecha no 3.1.0) + OR/AND literal de texto (o workbook K1 TEM
+  literais; o Aspose-árbitro os avalia como skip/TRUE — a extensão do skip a literais vira candidata
+  3.1.x SE o usuário confirmar o critério-Aspose). Suspeito dos ~1,5GB extras do in-memory: boxing no
+  `AsObject()` na extração JSON do pipeline (lado do usuário; acessores sem boxing já existem). O 1,5×
+  restante de engine é o alvo do redesenho de endereçamento numérico (4.0, formato pode quebrar por
+  decisão do dono).
 - **F3 LAMBDA**: §A3 → `LAMBDA` `BYROW` `BYCOL` `MAP` `REDUCE` `SCAN` `MAKEARRAY` `ISOMITTED`.
 - **F4 Distribuições**: §A4 → NORM/T/CHISQ/F/GAMMA/BETA/BINOM/POISSON/WEIBULL/EXPON/LOGNORM/NEGBINOM/
   HYPGEOM + testes de hipótese + `CONFIDENCE.*` `CRITBINOM` + aliases compat correspondentes +
