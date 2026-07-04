@@ -74,6 +74,14 @@ if (args.Contains("--dense-store-spike"))
     return;
 }
 
+// Varredura de tamanho de página do store denso (Fase 1, diretriz do dono):
+// `dotnet run -c Release -- --dense-store-pagesize`.
+if (args.Contains("--dense-store-pagesize"))
+{
+    DenseStorePageSizeHarness.Run();
+    return;
+}
+
 // Custo do caminho mini-CSE array (Fase C): `dotnet run -c Release -- --mini-cse-cost`.
 if (args.Contains("--mini-cse-cost"))
 {
