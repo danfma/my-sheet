@@ -33,6 +33,33 @@ public sealed partial class Workbook
     [MemoryPackIgnore]
     private SheetValueStore? _valueStore;
 
+    // The value-store geometry this workbook was constructed with (page/group sizes, sparsity thresholds).
+    // Runtime CONFIG, not document state: [MemoryPackIgnore], so the wire schema is untouched and it comes back
+    // null after a Load — the ValueStore accessor falls back to ValueStoreOptions.Default in that case (the
+    // field-initializer bypass lesson: never rely on `= ...` here). Captured once at construction; immutable.
+    [MemoryPackIgnore]
+    private ValueStoreOptions? _valueStoreOptions;
+
+    /// <summary>Creates a workbook with the default runtime options. This is also the constructor MemoryPack
+    /// uses to materialize a deserialized workbook (which then falls back to the default value-store options,
+    /// since the options field is runtime config and is never serialized).</summary>
+    [MemoryPackConstructor]
+    public Workbook() { }
+
+    /// <summary>
+    /// Creates a workbook with explicit runtime <paramref name="options"/> (currently the dense value store's
+    /// page/group sizes and sparsity thresholds). The options are validated here — a non-power-of-two size or an
+    /// out-of-range value throws <see cref="ArgumentException"/> — and captured immutably; they apply to value
+    /// stores created after construction (i.e. from the first evaluation). Options are runtime configuration and
+    /// are never serialized, so the file format is unchanged.
+    /// </summary>
+    public Workbook(WorkbookOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.ValueStore.Validate();
+        _valueStoreOptions = options.ValueStore;
+    }
+
     private SheetValueStore ValueStore
     {
         get
@@ -43,10 +70,14 @@ public sealed partial class Workbook
                 return existing;
             }
 
-            var created = new SheetValueStore();
+            var created = new SheetValueStore(_valueStoreOptions ?? ValueStoreOptions.Default);
             return Interlocked.CompareExchange(ref _valueStore, created, null) ?? created;
         }
     }
+
+    // Test hook: the store instance (creating it if needed), so a test can assert a configured geometry flowed
+    // through. Not part of the public API.
+    internal SheetValueStore ValueStoreForTesting => ValueStore;
 
     // Cells currently being evaluated on the calling thread, to detect circular references. Thread-local so
     // concurrent (and benign) re-evaluation of the same cell on different threads is not a false cycle — the

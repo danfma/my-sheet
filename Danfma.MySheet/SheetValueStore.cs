@@ -14,11 +14,14 @@ namespace Danfma.MySheet;
 /// <see cref="EnumerateNonTainted"/>/<see cref="LoadEntry"/>.
 ///
 /// <para><b>Layout (design item 1 — two levels on BOTH axes).</b> Per sheet a <see cref="SheetSlab"/> holds a
-/// two-level column directory <c>groups[col &gt;&gt; 6][col &amp; 63]</c> (groups of 64 columns, so a lone
-/// high-index gridless column — <c>AAAA</c> ≈ 475k — costs one group, not a 475k-pointer flat array) →
-/// <c>column.pages[row &gt;&gt; 10]</c> → a <see cref="Page"/> of <c>ComputedValue[1024]</c> plus a 128-byte
-/// presence bitmap (a zeroed slot is ambiguous: "not computed" vs "computed blank", so presence is explicit).
-/// Group/page directories start tiny and grow by doubling, publishing the new array via <see cref="Volatile"/>.
+/// two-level column directory <c>groups[col &gt;&gt; groupShift][col &amp; groupMask]</c> (groups of 64 columns
+/// by default, so a lone high-index gridless column — <c>AAAA</c> ≈ 475k — costs one group, not a 475k-pointer
+/// flat array) → <c>column.pages[row &gt;&gt; pageShift]</c> → a <see cref="Page"/> of <c>ComputedValue[1024]</c>
+/// by default plus its presence bitmap (a zeroed slot is ambiguous: "not computed" vs "computed blank", so
+/// presence is explicit). The page/group sizes are configurable per workbook via
+/// <see cref="ValueStoreOptions"/> (always powers of two, so shift/mask come free); the shifts/masks are
+/// resolved once into <see cref="Geometry"/> and shared by reference with every slab/column. Group/page
+/// directories start tiny and grow by doubling, publishing the new array via <see cref="Volatile"/>.
 /// </para>
 ///
 /// <para><b>Concurrency (design item 2, variant a — evaluation stays concurrent).</b> A page is a SEQLOCK:
@@ -29,29 +32,57 @@ namespace Danfma.MySheet;
 ///
 /// <para><b>Sparsity guard (design item 4 — Phase 0 risk).</b> A page is ~24.6 KB; cells scattered one-per-page
 /// would balloon (10k cells over 1M rows ≈ 240 MB). Each slab tracks pages allocated vs present cells; once it
-/// has more than <see cref="WarmupPages"/> pages yet fewer than <see cref="MinCellsPerPage"/> cells per page
-/// (proven sparse), it stops allocating NEW pages and routes further scattered cells to a per-slab dictionary.
+/// has more than <see cref="ValueStoreOptions.SparsityWarmupPages"/> pages yet fewer than
+/// <see cref="ValueStoreOptions.SparsityMinCellsPerPage"/> cells per page (proven sparse), it stops allocating
+/// NEW pages and routes further scattered cells to a per-slab dictionary.
 /// Dense sheets never trip it; a pathological scatter degrades to the dictionary's footprint instead of the
 /// balloon. No migration and no page teardown — only NEW page allocation is diverted, so the concurrent read
 /// path is untouched.</para>
 /// </summary>
 internal sealed class SheetValueStore
 {
-    private const int PageShift = 10;
-    private const int PageRows = 1 << PageShift; // 1024
-    private const int PageMask = PageRows - 1;
-    private const int PresenceWords = PageRows / 64; // 16 ulongs = 128 bytes
+    // Resolved geometry (page/group sizes → shift/mask, sparsity thresholds) captured once at construction from
+    // the workbook's ValueStoreOptions. The sizes are validated powers of two; the shift is derived here so the
+    // hot path stays pure shift/mask. Shared by reference with every SheetSlab/Column (one pointer, negligible
+    // next to a 24.6 KB page), so a configured page/group size flows all the way to allocation.
+    private sealed class Geometry
+    {
+        internal readonly int PageShift;
+        internal readonly int PageRows;
+        internal readonly int PageMask;
+        internal readonly int GroupShift;
+        internal readonly int GroupSize;
+        internal readonly int GroupMask;
+        internal readonly int WarmupPages;
+        internal readonly int MinCellsPerPage;
 
-    private const int GroupShift = 6;
-    private const int GroupSize = 1 << GroupShift; // 64 columns per group
-    private const int GroupMask = GroupSize - 1;
+        internal Geometry(ValueStoreOptions options)
+        {
+            PageRows = options.RowPageSize;
+            PageShift = System.Numerics.BitOperations.Log2((uint)options.RowPageSize);
+            PageMask = options.RowPageSize - 1;
+            GroupSize = options.ColumnGroupSize;
+            GroupShift = System.Numerics.BitOperations.Log2((uint)options.ColumnGroupSize);
+            GroupMask = options.ColumnGroupSize - 1;
+            WarmupPages = options.SparsityWarmupPages;
+            MinCellsPerPage = options.SparsityMinCellsPerPage;
+        }
+    }
 
-    // Sparsity guard thresholds (design item 4). WarmupPages: don't judge density until a slab is big enough
-    // that the average is meaningful. MinCellsPerPage: below this average occupancy the slab is "sparse" and
-    // new pages are diverted to the dictionary. A dense column holds ~1000 cells/page; a clustered block ~100;
-    // uniform scatter ~1 — so the guard fires only for the scatter shape, exactly the ballooning case.
-    private const int WarmupPages = 64;
-    private const int MinCellsPerPage = 4;
+    private readonly Geometry _geometry;
+
+    /// <summary>Builds a store with the default geometry (row page 1024, column group 64).</summary>
+    public SheetValueStore()
+        : this(ValueStoreOptions.Default) { }
+
+    /// <summary>Builds a store with the given, validated geometry. The sizes must be powers of two (enforced by
+    /// <see cref="ValueStoreOptions.Validate"/>); the shift/mask are derived once here.</summary>
+    public SheetValueStore(ValueStoreOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+        _geometry = new Geometry(options);
+    }
 
     // Sheet name -> dense handle (case-insensitive, like Workbook.Sheets — the name's owner). A handle is a
     // stable index into _slabs/_names for this store's life; assigned once per name under _dirLock.
@@ -141,7 +172,7 @@ internal sealed class SheetValueStore
                 return current;
             }
 
-            var created = new SheetSlab();
+            var created = new SheetSlab(_geometry);
             Volatile.Write(ref slabs[handle], created);
             return created;
         }
@@ -292,11 +323,18 @@ internal sealed class SheetValueStore
         }
     }
 
-    // Test/diagnostics only: the sparsity-guard thresholds and the per-sheet (dense pages, diverted cells)
-    // counts, so a directed test can prove the scatter case caps pages instead of ballooning.
-    internal const int DiagnosticWarmupPages = WarmupPages;
-    internal const int DiagnosticMinCellsPerPage = MinCellsPerPage;
-    internal const int DiagnosticPageRows = PageRows;
+    // Test/diagnostics only: the DEFAULT sparsity-guard thresholds and page size, so a directed test on a
+    // default store can prove the scatter case caps pages instead of ballooning.
+    internal const int DiagnosticWarmupPages = ValueStoreOptions.DefaultSparsityWarmupPages;
+    internal const int DiagnosticMinCellsPerPage = ValueStoreOptions.DefaultSparsityMinCellsPerPage;
+    internal const int DiagnosticPageRows = ValueStoreOptions.DefaultRowPageSize;
+
+    // Test/diagnostics only: the geometry this store was actually built with, so a test can prove a configured
+    // page/group size flowed through instead of being silently ignored.
+    internal int ConfiguredPageRows => _geometry.PageRows;
+    internal int ConfiguredColumnGroupSize => _geometry.GroupSize;
+    internal int ConfiguredSparsityWarmupPages => _geometry.WarmupPages;
+    internal int ConfiguredSparsityMinCellsPerPage => _geometry.MinCellsPerPage;
 
     internal (int Pages, int SparseCells) Diagnostics(int handle)
     {
@@ -323,8 +361,11 @@ internal sealed class SheetValueStore
 
     private sealed class SheetSlab
     {
+        private readonly Geometry _geo;
         private Column?[]?[] _groups = new Column?[]?[4];
         private readonly object _grow = new();
+
+        internal SheetSlab(Geometry geo) => _geo = geo;
 
         // Sparsity accounting (design item 4). Pages is exact (mutated under _grow); cells is an approximate
         // running numerator (Interlocked on the 0->1 presence transition), used only to decide page allocation.
@@ -340,14 +381,14 @@ internal sealed class SheetValueStore
         private Column? FindColumn(int col)
         {
             var groups = Volatile.Read(ref _groups);
-            var gi = col >> GroupShift;
+            var gi = col >> _geo.GroupShift;
             if (gi >= groups.Length)
             {
                 return null;
             }
 
             var group = Volatile.Read(ref groups[gi]);
-            return group is null ? null : Volatile.Read(ref group[col & GroupMask]);
+            return group is null ? null : Volatile.Read(ref group[col & _geo.GroupMask]);
         }
 
         public bool TryGet(int col, int row, out ComputedValue value)
@@ -370,7 +411,7 @@ internal sealed class SheetValueStore
 
         public void Set(int col, int row, ComputedValue value)
         {
-            var slot = row & PageMask;
+            var slot = row & _geo.PageMask;
 
             // Fast path: the page already exists — a lock-free seqlock write, no directory growth.
             var column = FindColumn(col);
@@ -433,12 +474,12 @@ internal sealed class SheetValueStore
         // Density verdict, evaluated under _grow just before allocating a NEW page. Stay dense until enough
         // pages exist to judge, then require the average occupancy to clear the floor.
         private bool ShouldStayDense() =>
-            _pages < WarmupPages || Volatile.Read(ref _cells) >= (long)_pages * MinCellsPerPage;
+            _pages < _geo.WarmupPages || Volatile.Read(ref _cells) >= (long)_pages * _geo.MinCellsPerPage;
 
         private Column GetOrAddColumnLocked(int col)
         {
             var groups = _groups;
-            var gi = col >> GroupShift;
+            var gi = col >> _geo.GroupShift;
             if (gi >= groups.Length)
             {
                 var size = groups.Length;
@@ -456,15 +497,15 @@ internal sealed class SheetValueStore
             var group = groups[gi];
             if (group is null)
             {
-                group = new Column?[GroupSize];
+                group = new Column?[_geo.GroupSize];
                 Volatile.Write(ref groups[gi], group);
             }
 
-            var ci = col & GroupMask;
+            var ci = col & _geo.GroupMask;
             var column = group[ci];
             if (column is null)
             {
-                column = new Column();
+                column = new Column(_geo);
                 Volatile.Write(ref group[ci], column);
             }
 
@@ -476,7 +517,7 @@ internal sealed class SheetValueStore
             var column = FindColumn(col);
             if (column is not null && column.TryGetPage(row, out var page))
             {
-                page.ClearSlot(row & PageMask);
+                page.ClearSlot(row & _geo.PageMask);
                 return;
             }
 
@@ -517,7 +558,7 @@ internal sealed class SheetValueStore
                         continue;
                     }
 
-                    var col = (gi << GroupShift) | ci;
+                    var col = (gi << _geo.GroupShift) | ci;
                     foreach (var (row, value) in column.EnumeratePresent())
                     {
                         yield return (col, row, value);
@@ -539,20 +580,23 @@ internal sealed class SheetValueStore
 
     private sealed class Column
     {
+        private readonly Geometry _geo;
         private Page?[] _pages = new Page?[2];
         private readonly object _grow = new();
+
+        internal Column(Geometry geo) => _geo = geo;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGet(int row, out ComputedValue value)
         {
             var pages = Volatile.Read(ref _pages);
-            var pi = row >> PageShift;
+            var pi = row >> _geo.PageShift;
             if (pi < pages.Length)
             {
                 var page = Volatile.Read(ref pages[pi]);
                 if (page is not null)
                 {
-                    return page.TryReadSlot(row & PageMask, out value);
+                    return page.TryReadSlot(row & _geo.PageMask, out value);
                 }
             }
 
@@ -564,7 +608,7 @@ internal sealed class SheetValueStore
         public bool TryGetPage(int row, [MaybeNullWhen(false)] out Page page)
         {
             var pages = Volatile.Read(ref _pages);
-            var pi = row >> PageShift;
+            var pi = row >> _geo.PageShift;
             if (pi < pages.Length)
             {
                 page = Volatile.Read(ref pages[pi]);
@@ -580,7 +624,7 @@ internal sealed class SheetValueStore
         public Page GetOrAddPageLocked(int row)
         {
             var pages = _pages;
-            var pi = row >> PageShift;
+            var pi = row >> _geo.PageShift;
             if (pi >= pages.Length)
             {
                 var size = pages.Length;
@@ -598,7 +642,7 @@ internal sealed class SheetValueStore
             var page = pages[pi];
             if (page is null)
             {
-                page = new Page();
+                page = new Page(_geo.PageRows);
                 Volatile.Write(ref pages[pi], page);
             }
 
@@ -616,7 +660,7 @@ internal sealed class SheetValueStore
                     continue;
                 }
 
-                var baseRow = pi << PageShift;
+                var baseRow = pi << _geo.PageShift;
                 foreach (var (slot, value) in page.EnumeratePresent())
                 {
                     yield return (baseRow + slot, value);
@@ -629,10 +673,16 @@ internal sealed class SheetValueStore
 
     private sealed class Page
     {
-        private readonly ComputedValue[] _values = new ComputedValue[PageRows];
-        private readonly ulong[] _present = new ulong[PresenceWords];
+        private readonly ComputedValue[] _values;
+        private readonly ulong[] _present; // one 64-bit word per 64 slots (page rows are a power of two ≥ 64)
         private int _version;   // even = stable, odd = a writer is mid-update
         private int _writeLock; // 0 = free, 1 = held (single-writer gate)
+
+        internal Page(int pageRows)
+        {
+            _values = new ComputedValue[pageRows];
+            _present = new ulong[pageRows / 64];
+        }
 
         // Lock-free seqlock read: retry while a writer is (or was) active, so the multi-word ComputedValue is
         // never observed torn.
@@ -713,7 +763,7 @@ internal sealed class SheetValueStore
 
         public IEnumerable<(int Slot, ComputedValue Value)> EnumeratePresent()
         {
-            for (var word = 0; word < PresenceWords; word++)
+            for (var word = 0; word < _present.Length; word++)
             {
                 var bits = _present[word];
                 while (bits != 0)
