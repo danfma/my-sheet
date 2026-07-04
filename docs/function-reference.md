@@ -95,7 +95,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `SQRT` | `SQRT(number)` | Square root; negative → `#NUM!`. |
 | `SQRTPI` | `SQRTPI(number)` | Square root of `number × π`. |
 | `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], …)` | Aggregate selected by `function_num` (1-11: AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV.S/STDEV.P/SUM/VAR.S/VAR.P); referenced cells whose own formula is a `SUBTOTAL` are skipped (no double counting). 101-111 behave like 1-11 — MySheet has no hidden-row model (documented limit). Invalid code → `#VALUE!`. |
-| `SUM` | `SUM([number1], …)` | Sum of all numeric values; range-aware. |
+| `SUM` | `SUM([number1], …)` | Sum of all numeric values; range-aware. Also folds an [implicit array argument](workbook-and-expressions.md#implicit-array-arguments) — `SUM(IF(B2:B5="Show",1,0))` = 2. |
 | `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Sums the cells matching a criteria (e.g. `">10"`). |
 | `SUMIFS` | `SUMIFS(sum_range, criteria_range1, criteria1, …)` | Sum under multiple criteria-range pairs. |
 | `SUMPRODUCT` | `SUMPRODUCT(array1, [array2], …)` | Sum of the position-wise products; non-numeric entries count as 0; different shapes → `#VALUE!`. |
@@ -114,6 +114,11 @@ Conventions of this family: the plain aggregates ignore referenced text/logicals
 (`CORREL`, `SLOPE`, …) drop a pair entirely when EITHER side is non-numeric, return `#N/A` on a
 length mismatch and `#DIV/0!` on zero variance. `GAUSS` is deferred with the statistical
 distributions (it needs the normal CDF/erf); `PHI` — the plain density — is included.
+
+`AVERAGE`, `COUNT`, `MIN`, `MAX`, `SMALL`, and `LARGE` also accept an
+[implicit array argument](workbook-and-expressions.md#implicit-array-arguments) — e.g.
+`SMALL(IF(B2:B5="Show",ROW(B2:B5)),1)` — folding it element-by-element with the same ignore-text/logicals
+rule (so a branch-less `IF`'s `FALSE` drops out).
 
 | Function | Arguments | Description |
 | --- | --- | --- |
@@ -233,7 +238,7 @@ defensive 1-second match timeout.
 | `COLUMNS` | `COLUMNS(range)` | Number of columns in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) a bounded column axis is exact (`COLUMNS(A:C)` = 3), an open one uses the populated extent. |
 | `FORMULATEXT` | `FORMULATEXT(reference)` | The referenced cell's formula as TEXT, `=` included (un-parsed in the referenced cell's sheet context); a literal or empty cell → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Horizontal lookup in the first row of a table; exact or approximate; `row_index_num` < 1 → `#VALUE!`, beyond the table → `#REF!`. |
-| `INDEX` | `INDEX(range, row_num, [column_num])` | The value at a 1-based position inside a range. |
+| `INDEX` | `INDEX(range, row_num, [column_num])` | The value at a 1-based position inside a range. Accepts an [implicit array first argument](workbook-and-expressions.md#implicit-array-arguments) (`INDEX(ROW(B2:B5),1)` = 2), including the `INDEX(ROW($A:$A), n)` identity that returns `n` without materializing the column; out of range → `#REF!`. |
 | `LOOKUP` | `LOOKUP(lookup_value, lookup_vector, [result_vector])` | Vector form (always approximate: largest value ≤ lookup); the 2-argument array form searches the first row and returns from the last row when the range is wider than tall, otherwise first/last column. |
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | 1-based position of a value in a range (`match_type`: 1 approximate ascending — default, 0 exact, -1 approximate descending). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | A reference displaced (and optionally resized) from a starting reference; may return a multi-cell reference for range-aware consumers. |

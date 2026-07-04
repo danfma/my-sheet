@@ -280,6 +280,42 @@ counts it as one area and `ISREF` reports `true`. So `VLOOKUP(2, A:B, 2)` and `I
 
 **Out of scope.** Spatial intersection of two open ranges is not modeled.
 
+## Implicit array arguments
+
+A few functions evaluate an **array-valued argument element-by-element**, reproducing Excel's implicit
+(CSE) semantics — no `Ctrl+Shift+Enter`, no spilling, and no public array value: the vector lives only
+inside the consuming function's evaluation. This closes the common `SUM(IF(range=…))` /
+`SMALL(IF(range=…, ROW(range)))` idioms.
+
+```csharp
+ExpressionParser.Parse("=SUM(IF(B2:B5=\"Show\",1,0))", sheet);            // → 2 (count of matches)
+ExpressionParser.Parse("=SMALL(IF(B2:B5=\"Show\",ROW(B2:B5)),1)", sheet); // → 3 (first matching row)
+ExpressionParser.Parse("=INDEX(ROW(B2:B5),1)", sheet);                    // → 2 (row vector, indexed)
+ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // → 4 (identity: nth row)
+```
+
+**Supported.** The consumers are the numeric aggregators (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, and —
+through the same fold — `SMALL`, `LARGE`, the percentiles) and `INDEX`. An argument is evaluated as an
+array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is such an array
+(with or without an else branch), or `ROW(range)`; scalars broadcast across the vector. A branch-less `IF`
+yields a logical `FALSE` where the condition is false, and the aggregators ignore logicals/text (exactly
+why `SMALL(IF(…))` skips the non-matching rows). The first per-element error wins, as in Excel.
+
+**Not supported (by design).**
+
+- A **dry cell** whose whole formula is the array keeps `#VALUE!` — `=IF(B2:B5="Show",1,0)` on its own is
+  still an error. Arrays exist only as *arguments* inside the consumers above, never as a cell's value
+  (the per-cell cache stays strictly scalar).
+- An **open/whole-column** range in an array position is refused and the consumer stays on its ordinary
+  scalar/range path — the one exception is the `INDEX(ROW($A:$A), n)` identity above, which returns `n`
+  without materializing the column. `SMALL(IF(A:A=…, ROW(A:A)), k)` over an *open* column is therefore
+  not array-evaluated.
+- A **scalar** condition keeps `IF`'s native short-circuit — only an array condition drives the zip.
+
+Volatile sub-expressions inside the array behave like any other volatile: a `RAND()` (broadcast, or in a
+range cell the comparison reads) taints the consuming cell, so [`Recalculate()`](#the-epoch-model)
+refreshes it while a non-volatile array formula stays cached.
+
 ## Named ranges
 
 A workbook can define **names** that stand for an expression — usually a sheet-qualified range or cell,
