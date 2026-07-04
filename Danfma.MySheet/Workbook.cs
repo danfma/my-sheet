@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 using MemoryPack;
@@ -992,17 +991,23 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     public int Index { get; init; }
 
     // The cell store is a PRIVATE field carrying the serialized member, at the exact declaration position the
-    // public `Cells` property held before — MemoryPack orders members by declaration, so this keeps the wire
-    // schema (member #3, a Dictionary<string, Expression>) byte-identical (proven by the pre-namespaces
-    // fixture). The initializer runs only for a fresh `new Sheet`; MemoryPack bypasses field initializers on
-    // deserialize, but every serialized file carries this member, so the field is never left null.
+    // public `Cells` property held before — MemoryPack orders members by declaration, so this keeps member #3
+    // in place. In memory it is now numeric-keyed (CellStore: an (int,int) dense map + a non-A1 overflow) to
+    // shed the ~35MB of duplicate id strings the old Dictionary<string,Expression> retained at K1 scale, but
+    // the wire schema is UNCHANGED: CellStoreFormatter serializes/deserializes the historical
+    // Dictionary<string, Expression> byte-identically (proven by the pre-namespaces fixture + the golden wire
+    // test). The initializer runs only for a fresh `new Sheet`; MemoryPack bypasses field initializers on
+    // deserialize, but every serialized file carries this member (the formatter builds the store), so it is
+    // never left null.
     [MemoryPackInclude]
-    private Dictionary<string, Expression> _cells = new();
+    [CellStoreFormatter]
+    private CellStore _cells = new();
 
     /// <summary>
     /// Read-only view of the sheet's populated cells. Mutation goes through the write choke point
     /// (<see cref="SetCell"/>, reached via the indexer <c>set</c>) and <see cref="Remove"/> — the two, and only,
-    /// paths that change the cell store.
+    /// paths that change the cell store. Ids are exposed as their A1 strings (derived on demand for the
+    /// numerically-keyed cells — a cold enumeration path).
     /// </summary>
     [MemoryPackIgnore]
     public IReadOnlyDictionary<string, Expression> Cells => _cells;
@@ -1060,12 +1065,12 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     /// </summary>
     internal void SetCell(string id, Expression expr)
     {
-        // One hash lookup: get (or add) the slot and learn whether the id already existed, so an overwrite
-        // skips index maintenance while a genuinely new cell updates it.
-        ref var slot = ref CollectionsMarshal.GetValueRefOrAddDefault(_cells, id, out var existed);
-        slot = expr;
+        // The store routes the id (canonical A1 → numeric dense map, else → overflow) and reports whether a
+        // genuinely NEW A1 cell was inserted, so an overwrite skips index maintenance while a new cell updates
+        // it. Only A1 cells carry column/row structure the index tracks (overflow ids are not addresses).
+        _cells.Set(id, expr, out var addedDenseCell, out var column, out var row);
 
-        if (!existed && _structuralIndex is { } index && CellAddress.TryGetColumnRow(id, out var column, out var row))
+        if (addedDenseCell && _structuralIndex is { } index)
         {
             index.OnCellAdded(column, row);
         }
@@ -1082,18 +1087,23 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     /// </summary>
     public bool Remove(string id)
     {
-        if (!_cells.Remove(id))
+        if (!_cells.Remove(id, out var wasDenseCell, out var column, out var row))
         {
             return false;
         }
 
-        if (_structuralIndex is { } index && CellAddress.TryGetColumnRow(id, out var column, out var row))
+        if (wasDenseCell && _structuralIndex is { } index)
         {
             index.OnCellRemoved(column, row);
         }
 
         return true;
     }
+
+    // The numeric (column,row) addresses of the A1 cells, for the structural-index build — it consumes the
+    // coordinates directly instead of enumerating id strings only to re-parse them. Internal, not host API.
+    [MemoryPackIgnore]
+    internal IEnumerable<(int Column, int Row)> CellAddresses => _cells.DenseAddresses;
 
     [MemoryPackIgnore]
     public IEnumerable<string> Keys => _cells.Keys;

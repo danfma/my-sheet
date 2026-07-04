@@ -291,20 +291,17 @@ internal sealed class SheetStructuralIndex
         }
     }
 
-    // One O(N) pass over the sheet keys, bucketed by the primary axis (column or row). No sort here — each
-    // bucket is ordered on first access (see SortBucket). The stored lists hold the secondary axis as an int
-    // (memory-frugal: no id string, no reference).
+    // One O(N) pass over the sheet's A1 cell addresses, bucketed by the primary axis (column or row). No sort
+    // here — each bucket is ordered on first access (see SortBucket). The stored lists hold the secondary axis
+    // as an int (memory-frugal: no id string, no reference). The cell store hands the numeric (column,row)
+    // coordinates directly, so the build no longer re-derives an id string per cell only to re-parse it (the
+    // non-A1 overflow cells carry no address and are structurally invisible, exactly as before).
     private Dictionary<int, List<int>> Bucketize(bool byColumn)
     {
         var buckets = new Dictionary<int, List<int>>();
 
-        foreach (var id in _sheet.Keys)
+        foreach (var (column, row) in _sheet.CellAddresses)
         {
-            if (!CellAddress.TryGetColumnRow(id, out var column, out var row))
-            {
-                continue;
-            }
-
             var primary = byColumn ? column : row;
             var secondary = byColumn ? row : column;
 
