@@ -24,6 +24,7 @@ public class ValueStoreOptionsTests
         await Assert.That(store.ConfiguredColumnGroupSize).IsEqualTo(64);
         await Assert.That(store.ConfiguredSparsityWarmupPages).IsEqualTo(64);
         await Assert.That(store.ConfiguredSparsityMinCellsPerPage).IsEqualTo(4);
+        await Assert.That(store.ConfiguredInitialPageSlots).IsEqualTo(128);
     }
 
     [Test]
@@ -100,6 +101,39 @@ public class ValueStoreOptionsTests
         await Assert.That(mismatches).IsEqualTo(0);
     }
 
+    [Test]
+    public async Task CustomInitialPageSlots_FlowsToStore_AndPromotesOnDemand()
+    {
+        // A small initial page (16 slots) still covers the full 1024-row interval and grows by doubling as higher
+        // rows are written — the sheet computes correctly across the promotions.
+        var workbook = new Workbook(
+            new WorkbookOptions { ValueStore = new ValueStoreOptions { InitialPageSlots = 16 } }
+        );
+
+        await Assert.That(workbook.ValueStoreForTesting.ConfiguredInitialPageSlots).IsEqualTo(16);
+
+        var sheet = workbook.Sheets.Add("S");
+        for (var row = 1; row <= 500; row++) // forces the page from 16 up toward 512 within a single 1024-row page
+        {
+            sheet["A" + row] = new NumberValue(row);
+        }
+
+        sheet["B1"] = ExpressionParser.Parse("=SUM(A1:A500)", sheet); // 500*501/2 = 125250
+
+        await Assert.That(workbook.GetCellValue("S", "B1").ToDouble()).IsEqualTo(125250.0);
+
+        var mismatches = 0;
+        for (var row = 1; row <= 500; row++)
+        {
+            if (workbook.GetCellValue("S", "A" + row).ToDouble() != row)
+            {
+                mismatches++;
+            }
+        }
+
+        await Assert.That(mismatches).IsEqualTo(0);
+    }
+
     // === Validation: bad sizes/ranges rejected at construction ===========================================
 
     [Test]
@@ -160,6 +194,36 @@ public class ValueStoreOptionsTests
     }
 
     [Test]
+    public async Task NonPowerOfTwoInitialPageSlots_Throws()
+    {
+        await Assert
+            .That(() => new Workbook(Options(new ValueStoreOptions { InitialPageSlots = 100 })))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task InitialPageSlotsBelowMinimum_Throws()
+    {
+        // 8 is below the 16-slot floor.
+        await Assert
+            .That(() => new Workbook(Options(new ValueStoreOptions { InitialPageSlots = 8 })))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task InitialPageSlotsAboveRowPageSize_Throws()
+    {
+        // A page never grows past its row span, so InitialPageSlots > RowPageSize is out of range.
+        await Assert
+            .That(() =>
+                new Workbook(
+                    Options(new ValueStoreOptions { RowPageSize = 256, InitialPageSlots = 512 })
+                )
+            )
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task ValidCustomGeometry_DoesNotThrow_AndFlowsThrough()
     {
         var workbook = new Workbook(
@@ -168,6 +232,7 @@ public class ValueStoreOptionsTests
                 {
                     RowPageSize = 512,
                     ColumnGroupSize = 32,
+                    InitialPageSlots = 64,
                     SparsityWarmupPages = 8,
                     SparsityMinCellsPerPage = 2,
                 }
@@ -177,6 +242,7 @@ public class ValueStoreOptionsTests
         var store = workbook.ValueStoreForTesting;
         await Assert.That(store.ConfiguredPageRows).IsEqualTo(512);
         await Assert.That(store.ConfiguredColumnGroupSize).IsEqualTo(32);
+        await Assert.That(store.ConfiguredInitialPageSlots).IsEqualTo(64);
         await Assert.That(store.ConfiguredSparsityWarmupPages).IsEqualTo(8);
         await Assert.That(store.ConfiguredSparsityMinCellsPerPage).IsEqualTo(2);
     }

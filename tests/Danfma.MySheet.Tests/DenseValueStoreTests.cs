@@ -107,6 +107,189 @@ public class DenseValueStoreTests
         await Assert.That(mismatches).IsEqualTo(0);
     }
 
+    // === Adaptive first-page promotion (plans/allocation-hygiene-3.3.md, Phase 2) =======================
+
+    [Test]
+    public async Task AdaptivePage_WriteBeyondInitialArray_PromotesAndPreservesValuesAndBitmap()
+    {
+        // A page is born with InitialPageSlots (128) physical slots but still covers the full 1024-row interval.
+        // Writing a low row leaves it small; writing a row beyond the array promotes it by reallocation, and the
+        // already-present low slots (values AND presence bitmap) must survive the copy.
+        var store = new SheetValueStore();
+        var handle = store.HandleFor("S");
+        const int col = 5;
+
+        store.SetDense(handle, col, 50, ComputedValue.Number(50d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, col, 50)).IsEqualTo(128); // still the initial size
+
+        // Row 300 (slot 300) is beyond the 128-slot array -> promote (128 -> 256 -> 512 to fit slot 300).
+        store.SetDense(handle, col, 300, ComputedValue.Number(300d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, col, 300)).IsEqualTo(512);
+
+        // The pre-promotion value survived the reallocation (its bitmap bit too).
+        await Assert.That(store.TryGetDense(handle, col, 50, out var kept)).IsTrue();
+        await Assert.That(kept.ToDouble()).IsEqualTo(50.0);
+        await Assert.That(store.TryGetDense(handle, col, 300, out var grown)).IsTrue();
+        await Assert.That(grown.ToDouble()).IsEqualTo(300.0);
+
+        // A slot inside the promoted array but never written is still absent (presence, not size, is the truth).
+        await Assert.That(store.TryGetDense(handle, col, 400, out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task AdaptivePage_ReadBeyondCurrentArray_IsAbsent_WithoutPromoting()
+    {
+        // A read of a slot beyond the current physical array is simply absent — it must NOT trigger a promotion
+        // (only writes grow the page).
+        var store = new SheetValueStore();
+        var handle = store.HandleFor("S");
+        const int col = 2;
+
+        store.SetDense(handle, col, 10, ComputedValue.Number(10d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, col, 10)).IsEqualTo(128);
+
+        await Assert.That(store.TryGetDense(handle, col, 900, out _)).IsFalse(); // slot 900 >> 128 -> absent
+        await Assert.That(store.PagePhysicalSlots(handle, col, 10)).IsEqualTo(128); // read did not promote
+    }
+
+    [Test]
+    public async Task AdaptivePromotion_UnderConcurrentReads_NeverTearsAndPreservesLowSlots()
+    {
+        // Readers hammer an already-present low cell while a writer walks a page's rows upward, forcing repeated
+        // promotions of that page's backing arrays. The seqlock must make every array swap invisible to a reader
+        // except via a version bump -> readers never tear and never lose the low cell.
+        var store = new SheetValueStore();
+        var handle = store.HandleFor("S");
+        const int col = 7;
+
+        store.SetDense(handle, col, 1, ComputedValue.Number(111d), tainted: false); // the stable low cell
+
+        var done = 0;
+        var torn = 0;
+
+        var writer = Task.Run(() =>
+        {
+            // 40 sweeps of rows 2..1023 in the SAME page: each sweep re-drives promotions from 128 up to 1024.
+            for (var pass = 0; pass < 40; pass++)
+            {
+                for (var row = 2; row <= 1023; row++)
+                {
+                    store.SetDense(handle, col, row, ComputedValue.Number(row), tainted: false);
+                }
+            }
+
+            Volatile.Write(ref done, 1);
+        });
+
+        var readers = new Task[4];
+        for (var t = 0; t < readers.Length; t++)
+        {
+            readers[t] = Task.Run(() =>
+            {
+                while (Volatile.Read(ref done) == 0)
+                {
+                    if (store.TryGetDense(handle, col, 1, out var value)
+                        && (!value.TryGetNumber(out var n) || n != 111d))
+                    {
+                        Interlocked.Exchange(ref torn, 1);
+                        return;
+                    }
+                }
+            });
+        }
+
+        await Task.WhenAll(readers.Append(writer));
+        await Assert.That(torn).IsEqualTo(0);
+
+        // After all promotions the page is full-size and every row reads back its value.
+        await Assert.That(store.PagePhysicalSlots(handle, col, 1)).IsEqualTo(1024);
+        var mismatches = 0;
+        for (var row = 2; row <= 1023; row++)
+        {
+            if (!store.TryGetDense(handle, col, row, out var v) || !v.TryGetNumber(out var x) || x != row)
+            {
+                mismatches++;
+            }
+        }
+
+        await Assert.That(mismatches).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task BlockCopy_OverUnpromotedPage_FallsBackWhenSliceExceedsArray_ButCopiesFullSubSlice()
+    {
+        // The Phase 1 block-copy must coexist with un-promoted pages. A slice reaching beyond the current small
+        // array holds absent slots -> TryBlockCopyColumn returns false (per-cell fallback). A fully-present slice
+        // that fits inside the small array still block-copies with correct values.
+        var store = new SheetValueStore();
+        var handle = store.HandleFor("S");
+        const int col = 4;
+
+        for (var row = 1; row <= 100; row++) // rows 1..100 -> slots 1..100, all inside the 128-slot initial array
+        {
+            store.SetDense(handle, col, row, ComputedValue.Number(row * 10d), tainted: false);
+        }
+
+        await Assert.That(store.PagePhysicalSlots(handle, col, 1)).IsEqualTo(128); // never promoted
+
+        // (a) Slice 1..200 reaches slot 200, beyond the 128-slot array -> not fully present -> fallback (false).
+        var destBig = new ComputedValue[200];
+        await Assert.That(store.TryBlockCopyColumn(handle, col, 1, 200, destBig, 0)).IsFalse();
+
+        // (b) Slice 1..100 is fully present inside the small array -> block-copies with the right values.
+        var dest = new ComputedValue[100];
+        await Assert.That(store.TryBlockCopyColumn(handle, col, 1, 100, dest, 0)).IsTrue();
+        var mismatches = 0;
+        for (var i = 0; i < 100; i++)
+        {
+            if (!dest[i].TryGetNumber(out var n) || n != (i + 1) * 10d)
+            {
+                mismatches++;
+            }
+        }
+
+        await Assert.That(mismatches).IsEqualTo(0);
+
+        // (c) After promoting the page to cover rows up to 200, the full slice now block-copies.
+        for (var row = 101; row <= 200; row++)
+        {
+            store.SetDense(handle, col, row, ComputedValue.Number(row * 10d), tainted: false);
+        }
+
+        await Assert.That(store.PagePhysicalSlots(handle, col, 1)).IsEqualTo(256);
+        var destFull = new ComputedValue[200];
+        await Assert.That(store.TryBlockCopyColumn(handle, col, 1, 200, destFull, 0)).IsTrue();
+        var fullMismatches = 0;
+        for (var i = 0; i < 200; i++)
+        {
+            if (!destFull[i].TryGetNumber(out var n) || n != (i + 1) * 10d)
+            {
+                fullMismatches++;
+            }
+        }
+
+        await Assert.That(fullMismatches).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task OptOut_InitialPageSlotsEqualsRowPageSize_PageBornFullSize_NeverPromotes()
+    {
+        // Setting InitialPageSlots == RowPageSize opts out of promotion: pages are born full-size (the pre-3.3
+        // behavior), so a high-row write never reallocates.
+        var store = new SheetValueStore(
+            new ValueStoreOptions { RowPageSize = 1024, InitialPageSlots = 1024 }
+        );
+        var handle = store.HandleFor("S");
+
+        store.SetDense(handle, 1, 5, ComputedValue.Number(5d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, 1, 5)).IsEqualTo(1024); // born full
+
+        store.SetDense(handle, 1, 1000, ComputedValue.Number(1000d), tainted: false);
+        await Assert.That(store.PagePhysicalSlots(handle, 1, 1000)).IsEqualTo(1024); // unchanged
+        await Assert.That(store.TryGetDense(handle, 1, 5, out var v)).IsTrue();
+        await Assert.That(v.ToDouble()).IsEqualTo(5.0);
+    }
+
     // === Cycle guard: preserved semantics ===============================================================
 
     [Test]
