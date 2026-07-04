@@ -151,7 +151,12 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   próprio bloco.** Um commit do plano quase caiu na worktree da Fase 1 porque o cwd do shell persiste
   entre chamadas e eu tinha "sobrado" na worktree do agente (o `git add` de caminho relativo não achou
   nada e o erro salvou). O cwd após verificação de entrega de agente é IMPREVISÍVEL — tratar todo bloco
-  git de supervisão como se o cwd estivesse errado.
+  git de supervisão como se o cwd estivesse errado. REINCIDÊNCIA (2026-07-04, 2×): (a) probe rodou na
+  main em vez da worktree (flag "desconhecida" do BDN foi o sintoma); (b) o `merge --ff-only` da branch
+  de docs rodou DENTRO da worktree (na própria branch → "Already up to date" e push vazio — a main não
+  recebeu nada). Nuance: um `cd` para a worktree NO INÍCIO do bloco envenena o merge no FIM do mesmo
+  bloco. Regra operacional: verificação (na worktree) e integração (na main) NUNCA no mesmo bloco Bash;
+  o bloco de integração começa com `cd /Volumes/Work/Develop/MySheet`.
 - **`--no-build` imediatamente após um merge roda binários VELHOS.** Na integração do dense store, a
   "sanidade na main" reportou 893 testes quando a branch mergeada tinha 901 — o `dotnet run --no-build`
   reusou binários pré-merge e testou o código antigo (contagem menor foi o único aviso; podia ter
