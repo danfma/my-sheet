@@ -121,6 +121,29 @@ they recompute lazily on the next read. The tainted set is a sparse keyed collec
 land in it), and the value epoch is independent of the write-maintained structural index below, which
 survives both calls.
 
+**Tunable geometry (defaults ship tuned for the K1 workload).** The row-page size, the column-group size,
+and the two sparsity-guard thresholds are configurable per workbook through `WorkbookOptions.ValueStore`.
+The defaults (row page 1,024, column group 64, warm-up 64 pages, floor 4 cells/page) reproduce the shipped
+behavior, so `new Workbook()` is unchanged. A smaller page wastes less on tiny or sparse sheets; a larger
+one scans faster on dense ones. Both sizes must be powers of two — the hot path is shift/mask, and the
+shift is derived from the size — so a non-power-of-two or out-of-range value throws `ArgumentException` at
+construction. The options are runtime **configuration**, not document state: they are never serialized (the
+file format is untouched), and a workbook loaded from disk falls back to the defaults.
+
+```csharp
+// A workbook of many small sheets: shrink the page so each one wastes less memory.
+var workbook = new Workbook(new WorkbookOptions
+{
+    ValueStore = new ValueStoreOptions
+    {
+        RowPageSize = 256,       // power of two in [64, 65536]  (default 1024)
+        ColumnGroupSize = 32,    // power of two in [8, 4096]    (default 64)
+        SparsityWarmupPages = 64,     // pages before density is judged  (default 64)
+        SparsityMinCellsPerPage = 4,  // sparsity floor, in [1, RowPageSize]  (default 4)
+    },
+});
+```
+
 ### Circular references
 
 The memoization layer tracks the cells being evaluated on the current thread. A cycle (`A1=B1`,
