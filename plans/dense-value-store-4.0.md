@@ -31,10 +31,19 @@ numerização da AST (breaking) entra em pauta. O usuário já autorizou quebrar
 ordem correta é provar que não é.
 
 ## Design (defaults meus; [VETO] = decisão do usuário)
-1. **Store**: por sheet, páginas densas de `ComputedValue[]` indexadas por coluna→bloco de linhas (ex.:
-   páginas de 1024 linhas por coluna; sheets esparsos não explodem — só páginas tocadas alocam). Flag
-   de presença por slot (bit ou `ComputedValueKind` sentinela). `InvalidateCache` = descartar/limpar
-   páginas (época de VALORES preservada; índice estrutural vitalício do 3.0 intocado).
+1. **Store**: por sheet, **duplo nível de páginas nas DUAS dimensões** (revisão do dono, 2026-07-04 —
+   o array plano de colunas exigiria grow+copy a cada coluna nova E explodiria com colunas gridless de
+   índice alto, ex. `AAAA` ≈ 475k):
+   `colGroups[col >> 6][col & 63]` (grupos de 64 colunas) → `column.pages[row >> 10]` →
+   `ComputedValue[1024]` (slot = `row & 1023`). Hot path só shift/mask + derefs — ZERO hash (Dictionary
+   no diretório seria tolerável mas é 17× pior no nível de célula, medido; e o resize dele re-hasheia
+   buckets — pior que copiar ponteiros de grupo). Arrays de grupos/páginas crescem por dobra e são
+   publicados via `Interlocked`. Flag de presença por slot (bitmap 128B/página — slot zerado é ambíguo:
+   "não computado" × "blank computado"). **Layout medido (2026-07-04)**: `Unsafe.SizeOf<ComputedValue>`
+   = 24B (payload real 17B: double 8 + object 8 + kind 1, padding de alinhamento 7); página de 1024 =
+   24.600B exatos. SoA (arrays paralelos, 17B/slot) anotado como opção futura, NÃO default (complica o
+   seqlock). `InvalidateCache` = descartar/limpar páginas (época de VALORES preservada; índice
+   estrutural vitalício do 3.0 intocado).
 2. **[VETO] Contrato de concorrência da avaliação** — a decisão que define o teto do ganho:
    (a) *manter avaliação concorrente*: páginas publicadas via `Interlocked`, escrita de `ComputedValue`
    (struct multi-word, torn-write possível) protegida por versão/seqlock por página ou lock striped —
@@ -98,7 +107,7 @@ variante (a) EXIGE o seqlock. `InvalidateCache`/snapshots/voláteis: equivalênc
 Fase 1, não provada pelo spike (que cobre a fatia estrutura ~370ms; AST+coerção ~90ms ficam).
 
 ## Phase 1: Implementação no Workbook
-Status: Not started
+Status: In progress
 - [ ] Store paginado substituindo `_cache`; visited-bit substituindo `_evaluating`; tainted por página;
       `InvalidateCache`/`Recalculate` preservando semântica de época e voláteis.
 - [ ] Testes: equivalência total das suítes SEM mudança de comportamento; testes dirigidos de
