@@ -67,6 +67,13 @@ if (args.Contains("--k1-compute-loop"))
     return;
 }
 
+// Atribuição de ALOCAÇÃO do compute K1 (probes dirigidos): `dotnet run -c Release -- --k1-compute-alloc`.
+if (args.Contains("--k1-compute-alloc"))
+{
+    K1ComputeProfileHarness.RunAllocAttribution();
+    return;
+}
+
 // Spike do store denso paginado (Fase 0): `dotnet run -c Release -- --dense-store-spike`.
 if (args.Contains("--dense-store-spike"))
 {

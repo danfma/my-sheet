@@ -79,6 +79,155 @@ public static class K1ComputeProfileHarness
         Console.WriteLine($"best sweep: {best:N1} ms (agg {lastAgg:R})");
     }
 
+    // ============================================================ allocation attribution (Phase 2)
+
+    // Attributes the ~42.7 MB the K1EndToEndHarness reports for the compute phase, isolating the ENGINE's
+    // transient allocation from two things that ride inside that phase's measured region but are NOT the eval
+    // path: (1) the harness building the id strings "C"+r / "D"+r (an int.ToString temp + the concat result per
+    // call), and (2) the dense value store's own retained page backing (ComputedValue[1024] + a 128-byte
+    // presence bitmap per page). Each probe is best-of-N (min) with GcQuiesce between trials.
+    //
+    //   dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --k1-compute-alloc
+    public static void RunAllocAttribution()
+    {
+        Console.WriteLine("== K1 compute allocation attribution — directed probes ==");
+        Console.WriteLine(
+            $"Runtime {Environment.Version}, cores {Environment.ProcessorCount}. "
+                + $"Shape: Data {DataRows:N0}x2, S {FormulaRows * 2:N0} formulas. "
+                + "Each probe best-of-5 (min); GC.Collect between trials; alloc via GetTotalAllocatedBytes(true).");
+        Console.WriteLine();
+
+        // Pre-build the id strings ONCE, outside every measured region, so a probe can sweep the engine without
+        // the "C"+r / "D"+r building landing in its allocation reading.
+        var cIds = new string[FormulaRows];
+        var dIds = new string[FormulaRows];
+        for (var r = 1; r <= FormulaRows; r++)
+        {
+            cIds[r - 1] = "C" + r;
+            dIds[r - 1] = "D" + r;
+        }
+
+        var wb = BuildFull();
+        _ = SweepCompute(wb); // warm JIT + first population
+
+        // Probe A — live compute sweep, harness building "C"+r inline (the SAME shape K1EndToEndHarness measures).
+        var allocA = BestAlloc(() =>
+        {
+            wb.InvalidateCache();
+            GcQuiesce();
+            var before = GC.GetTotalAllocatedBytes(true);
+            _ = SweepCompute(wb);
+            return GC.GetTotalAllocatedBytes(true) - before;
+        });
+
+        // Probe B — id-string building ONLY, no engine touch: the harness measurement artifact per sweep.
+        var allocB = BestAlloc(() =>
+        {
+            GcQuiesce();
+            var before = GC.GetTotalAllocatedBytes(true);
+            long sink = 0;
+            for (var r = 1; r <= FormulaRows; r++)
+            {
+                sink += ("C" + r).Length;
+                sink += ("D" + r).Length;
+            }
+
+            GC.KeepAlive(sink);
+            return GC.GetTotalAllocatedBytes(true) - before;
+        });
+
+        // Probe C — compute sweep over PRE-BUILT ids (measured region = pure engine: store page backing that a
+        // cold sweep must allocate + any eval-path transient).
+        var allocC = BestAlloc(() =>
+        {
+            wb.InvalidateCache();
+            GcQuiesce();
+            var before = GC.GetTotalAllocatedBytes(true);
+            _ = SweepPrebuilt(wb, cIds, dIds);
+            return GC.GetTotalAllocatedBytes(true) - before;
+        });
+
+        // Probe D — warm re-sweep over PRE-BUILT ids (every cell already memoized: all cache HITS). This is the
+        // pure read path; it allocates nothing if the memoized-read path is alloc-free.
+        _ = SweepPrebuilt(wb, cIds, dIds); // ensure warm
+        var allocD = BestAlloc(() =>
+        {
+            GcQuiesce();
+            var before = GC.GetTotalAllocatedBytes(true);
+            _ = SweepPrebuilt(wb, cIds, dIds);
+            return GC.GetTotalAllocatedBytes(true) - before;
+        });
+
+        double Mb(long b) => b / 1048576d;
+
+        Console.WriteLine("-- raw probe numbers (per one compute sweep) --");
+        Console.WriteLine($"A  live sweep, harness builds \"C\"+r inline   : {Mb(allocA), 8:N1} MB");
+        Console.WriteLine($"B  id-string building only (no engine)        : {Mb(allocB), 8:N1} MB");
+        Console.WriteLine($"C  cold sweep, PRE-BUILT ids (pure engine)    : {Mb(allocC), 8:N1} MB");
+        Console.WriteLine($"D  warm re-sweep, PRE-BUILT ids (all hits)    : {Mb(allocD), 8:N1} MB");
+        Console.WriteLine();
+
+        // The cold engine sweep (C) that is NOT read-path transient (D) is the store's page backing a first
+        // population must allocate — dense arrays that REPLACED the old 1-heap-Node-per-entry dictionary.
+        var storePages = allocC - allocD;
+        var evalTransient = allocD;
+        var harnessStrings = allocB;
+
+        Console.WriteLine(new string('=', 72));
+        Console.WriteLine($"{"Compute allocation attribution", -44}{"MB", 10}{"% of A", 14}");
+        Console.WriteLine(new string('-', 72));
+        AllocRow("harness id-string building (\"C\"+r)", harnessStrings, allocA);
+        AllocRow("dense store page backing (cold populate)", storePages, allocA);
+        AllocRow("engine read/eval transient (warm sweep)", evalTransient, allocA);
+        Console.WriteLine(new string('-', 72));
+        AllocRow("= accounted (B + C)", allocB + allocC, allocA);
+        AllocRow("live compute sweep (A, endtoend figure)", allocA, allocA);
+        Console.WriteLine(new string('=', 72));
+        Console.WriteLine();
+        Console.WriteLine(
+            $"ENGINE compute allocation (excluding the harness's \"C\"+r artifact) = C = {Mb(allocC):N1} MB, "
+                + $"of which read/eval transient = {Mb(evalTransient):N1} MB and dense-store page backing = "
+                + $"{Mb(storePages):N1} MB (retained, intrinsic to a dense store).");
+    }
+
+    private static long BestAlloc(Func<long> probe)
+    {
+        var best = long.MaxValue;
+        for (var t = 0; t < 5; t++)
+        {
+            best = Math.Min(best, probe());
+        }
+
+        return best;
+    }
+
+    private static void AllocRow(string label, long bytes, long total)
+    {
+        var mb = bytes / 1048576d;
+        Console.WriteLine($"{label, -44}{mb, 10:N1}{(double)bytes / total * 100, 13:N1}%");
+    }
+
+    private static SweepResult SweepPrebuilt(MySheetWorkbook wb, string[] cIds, string[] dIds)
+    {
+        var sw = Stopwatch.StartNew();
+        double sum = 0;
+        for (var i = 0; i < cIds.Length; i++)
+        {
+            if (wb.GetCellValue(FormulaSheet, cIds[i]).TryGetNumber(out var c))
+            {
+                sum += c;
+            }
+
+            if (wb.GetCellValue(FormulaSheet, dIds[i]).TryGetNumber(out var d))
+            {
+                sum += d;
+            }
+        }
+
+        sw.Stop();
+        return new SweepResult(sw.Elapsed.TotalMilliseconds, sum);
+    }
+
     // ============================================================ attribution
 
     public static void RunAttribution()
