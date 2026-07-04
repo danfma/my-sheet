@@ -113,13 +113,14 @@ ACEITA: não duplicar no `OrderSelection`, seria caminho morto); `Index` com for
 Verificação independente: core **885** (873+12) / Excel 24 / fixture intocada / 0 warnings.
 
 ## Phase C: Validação K1 + docs + release
-Status: In progress (só o release pendente de gate do usuário)
+Status: Complete
 - [x] Taint volátil: `SUM(IF(range=RAND()>0.5,...))`-like marca a época (teste com contador).
 - [x] Custo: micro-benchmark do BH25-like @ 194 e @ 10k linhas — sem regressão nas suítes de perf.
 - [x] Docs: `function-reference` (notas de array-context nas funções cobertas) + parágrafo em
       `workbook-and-expressions.md`; NÃO tocar `docs/pt-BR/`.
-- [ ] Release minor (`feat(eval): ...`) — ritual completo (merge-base em chamada separada; refresh pt-BR).
-- [ ] Pós-release: pedir ao usuário o re-run K1 — critério de sucesso: os 305 diffs → ~0.
+- [x] Release minor (`feat(eval): ...`) — ritual completo (merge-base em chamada separada; refresh pt-BR).
+- [ ] Pós-release: re-run K1 do usuário no 3.1.0 — critério de sucesso: os diffs de CSE → ~0 (dos 301
+      diffs no 3.0.0, sobra só o OR/AND com literal de texto, thread separada pendente do critério-Aspose).
 ### Verification Plan
 - Suítes/fixture verdes; benchmark sem regressão; versionize propõe minor; re-run K1 do usuário confirma.
 ### Phase Summary
@@ -134,7 +135,19 @@ SheetBenchmarks nas bandas registradas (produção byte-idêntica à Fase B). Do
 testes verdes. Verificação independente: core **889** (885+4) / Excel 24 / fixture intocada / 0 warnings.
 
 ## Final Recap
-_(write when all phases complete)_
+Mini-CSE entregue e publicado como **v3.1.0** em 2026-07-03, no mesmo dia do 3.0.0. Três fases: **A**
+núcleo `ArrayEvaluation` interno (row-major, broadcast, zip de BinaryOperation/IF, ROW-vetor, recusa de
+open-range; 11 testes); **B** consumidores via portão sintático `IsArrayEligible` (família SUM pelo
+`Fold`, SMALL/LARGE transitivos, INDEX com forma-array + identidade `INDEX(ROW($A:$A),n)` sem
+materializar; 12 repros K1 verdes incluindo o BH25 cross-sheet completo); **C** validação (taint volátil
+provado nos dois caminhos; custo O(range) sem blow-up; hot paths escalares byte-idênticos) + docs.
+Nenhum nó AST novo → schema MemoryPack intocado (fixture verde do início ao fim). Suítes finais: core
+**889** / Excel **24** / 0 warnings. Fecha a causa dominante dos 301 diffs do K1 (Excel: 2/3/5/2 nos
+repros); o resíduo esperado é só o OR/AND literal (decisão de oráculo separada).
 
 ## Deployment Plan
-_(write when all phases complete)_
+Executado em 2026-07-03: verificação independente por fase → rebase de `feat/mini-cse-validation`
+(cadeia A→B→C) sobre a main (1 conflito trivial em `Program.cs`, flags de harness coexistem) → ff-merge
+→ sanidade na main (889/24, 0 warnings) → push → `merge-base --is-ancestor` em chamada separada →
+`gh workflow run release.yml` (versionize derivou **3.1.0** do `feat(eval):`) → `git pull --tags` →
+refresh `docs/pt-BR/` via Sonnet. Futuras releases: mesmo ritual, dispatch sempre isolado.
