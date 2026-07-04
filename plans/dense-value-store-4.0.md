@@ -160,14 +160,26 @@ desperdiça ~1,0× em qualquer tamanho mas varre ~1,5× mais rápido a 1024 (K1 
 pequeno crescendo até cheio enquanto a página cobre o MESMO intervalo de 1024 linhas — shift/mask intactos).
 
 ## Phase 2: Validação + docs + release
-Status: In progress
-- [ ] `--k1-endtoend`: compute ≤ ~350ms e alocação de sweep ≤ ~20MB (gates); total vs Aspose registrado.
-- [ ] Harnesses do 3.0 (lifetime/write-cost) e SheetBenchmarks sem regressão.
-- [ ] Docs (`performance.md`) + release (3.2.0 aditivo OU 4.0 breaking conforme item 5) + refresh pt-BR.
+Status: In progress (só o release pendente de gate do usuário)
+- [x] `--k1-endtoend`: compute ≤ ~350ms e alocação de sweep ≤ ~20MB (gates); total vs Aspose registrado.
+- [x] Harnesses do 3.0 (lifetime/write-cost) e SheetBenchmarks sem regressão.
+- [x] Docs (`performance.md`); release (3.2.0 aditivo conforme item 5 resolvido) + refresh pt-BR pendentes.
 ### Verification Plan
 - Gates batidos; suítes/fixture verdes; versionize propõe a versão correta ao ramo.
 ### Phase Summary
-_(write when phase completes)_
+Validação entregue em `feat/dense-store-validation` (`f1bafae` probe `--k1-compute-alloc`, `c7513c6`
+docs; merged na main). **AMBOS os gates batidos**: compute 127-183ms ≤ 350ms; alocação — o headline de
+42,7MB do sweep decomposto byte-exato (probe reproduz 100%): **28,8MB (67%) são artefato do harness**
+(montagem `"C"+r` das strings de id no loop de medição), **13,9MB (33%) são o backing intrínseco das
+páginas do store** (≤ 20MB ✓) e o **transiente de leitura/avaliação do engine é 0,0MB** — a premissa
+"resíduo é AST/coerção" foi REFUTADA (o hot path escalar não aloca nada; verificação independente do
+orquestrador confirmou byte-exato). Nenhuma correção cirúrgica necessária. Regressões: lifetime flat
+0,049-0,156ms/época; write-cost Fill puro inalterado e live-index +20% (dentro da banda +23-27% aceita
+no 3.0); mini-cse O(range) (array vence escalar @ 10k); aspose-compare consistente; SheetBenchmarks
+hot path de leitura idêntico (24B/144B — resíduo é o AsObject do próprio benchmark). `performance.md`
+descreve o dense paged store (endereçamento derivado, diretórios em 2 níveis, seqlock, guarda de
+esparsidade, época preservada). Nota de processo: o agente pegou e corrigiu (reset local pré-branch,
+permitido) um rodapé de atribuição acidental — commits finais limpos, conferido por grep.
 
 ## Final Recap
 _(write when all phases complete)_
