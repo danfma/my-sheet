@@ -26,33 +26,52 @@ public sealed partial class Workbook
     [MemoryPackIgnore]
     private Dictionary<string, CustomFunction>? _functions;
 
-    // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache). Stores the
-    // ComputedValue struct inline — no long-lived per-cell box (the source of the Gen1 pressure the
-    // ComputedValue migration removes).
+    // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache). The dense paged
+    // store addresses cells numerically (sheet handle + col/row derived on the fly from the A1 id), replacing
+    // the old ConcurrentDictionary<(string,string), ComputedValue> — no per-cell box and no per-lookup string
+    // tuple hash. Lazily created race-free (never `= new()` on the field: MemoryPack bypasses initializers).
     [MemoryPackIgnore]
-    private ConcurrentDictionary<(string Sheet, string Id), ComputedValue>? _cache;
+    private SheetValueStore? _valueStore;
 
-    // Cells currently being evaluated on the calling thread, to detect circular references. Thread-local
-    // so concurrent (and benign) re-evaluation of the same cell on different threads is not a false cycle.
+    private SheetValueStore ValueStore
+    {
+        get
+        {
+            var existing = _valueStore;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new SheetValueStore();
+            return Interlocked.CompareExchange(ref _valueStore, created, null) ?? created;
+        }
+    }
+
+    // Cells currently being evaluated on the calling thread, to detect circular references. Thread-local so
+    // concurrent (and benign) re-evaluation of the same cell on different threads is not a false cycle — the
+    // reason this stays a per-thread set and NOT a shared per-slot bit (a shared bit would let one thread's
+    // in-flight mark spuriously trip another's read as a cycle). The key is the numeric address (handle, col,
+    // row), which drops the old string-tuple hashing; the rare non-A1 id falls back to _evaluatingOverflow.
     [ThreadStatic]
-    private static HashSet<(string Sheet, string Id)>? _evaluating;
+    private static HashSet<(int Handle, int Col, int Row)>? _evaluating;
+
+    // Cycle guard for the non-A1 overflow path (a host reading a cell under a non-address key). Dormant in
+    // normal use; keeps the exact enter/exit semantics for that path too.
+    [ThreadStatic]
+    private static HashSet<(string Sheet, string Id)>? _evaluatingOverflow;
 
     // === Volatile-function epoch model (F1) ===============================================================
-    // A volatile cell (NOW/TODAY/RAND/RANDBETWEEN, directly or transitively) is cached WITHIN an epoch and
-    // its key is recorded in _volatileTainted. Recalculate() drops just those cells and re-samples the clock
-    // (epoch++); InvalidateCache() drops everything. This keeps NOW()/RAND() coherent within a pass (sampled
-    // once) while staying cheap to refresh, all without a dependency graph.
+    // A volatile cell (NOW/TODAY/RAND/RANDBETWEEN, directly or transitively) is cached WITHIN an epoch and its
+    // address is recorded as tainted inside the value store. Recalculate() drops just those cells and re-samples
+    // the clock (epoch++); InvalidateCache() drops everything. This keeps NOW()/RAND() coherent within a pass
+    // (sampled once) while staying cheap to refresh, all without a dependency graph.
 
     // "The cell currently being evaluated on this thread touched a volatile." Same thread-local save/reset/
     // propagate pattern as _evaluating: GetCellValue zeroes it before a cell, reads it after (to mark the
     // cell), and ORs it back into the caller's value so volatility propagates up the evaluation stack.
     [ThreadStatic]
     private static bool _volatileTouched;
-
-    // Keys of cells that touched a volatile this epoch — a set (the byte value is unused). Concurrent because
-    // evaluation can run on many threads. Lazily created race-free via the VolatileTainted accessor.
-    [MemoryPackIgnore]
-    private ConcurrentDictionary<(string Sheet, string Id), byte>? _volatileTainted;
 
     // The clock sampled once per epoch (lazily, on the first volatile read), as an Excel serial (local time).
     // null means "not yet sampled this epoch". Guarded by VolatileLock so it is sampled exactly once.
@@ -81,21 +100,6 @@ public sealed partial class Workbook
 
             var created = new object();
             return Interlocked.CompareExchange(ref _volatileLock, created, null) ?? created;
-        }
-    }
-
-    private ConcurrentDictionary<(string Sheet, string Id), byte> VolatileTainted
-    {
-        get
-        {
-            var existing = _volatileTainted;
-            if (existing is not null)
-            {
-                return existing;
-            }
-
-            var created = new ConcurrentDictionary<(string Sheet, string Id), byte>();
-            return Interlocked.CompareExchange(ref _volatileTainted, created, null) ?? created;
         }
     }
 
@@ -360,15 +364,25 @@ public sealed partial class Workbook
     /// </summary>
     public ComputedValue GetCellValue(string sheetName, string id)
     {
-        var cache = _cache ??= new();
-        var key = (sheetName, id);
+        var store = ValueStore;
 
-        if (cache.TryGetValue(key, out var cached))
+        // Derive the numeric address once (no-alloc). Only a direct host call can produce a non-A1 id — every
+        // formula reference is normalized to A1 by the parser — so that rare case takes the overflow path,
+        // which preserves the old string-keyed dictionary behavior exactly.
+        if (!CellAddress.TryGetColumnRow(id, out var column, out var row))
+        {
+            return GetCellValueOverflow(store, sheetName, id);
+        }
+
+        var handle = store.HandleFor(sheetName);
+
+        if (store.TryGetDense(handle, column, row, out var cached))
         {
             return cached;
         }
 
         var evaluating = _evaluating ??= new();
+        var key = (handle, column, row);
 
         if (!evaluating.Add(key))
         {
@@ -376,59 +390,91 @@ public sealed partial class Workbook
             return ComputedValue.Error(Error.Ref);
         }
 
-        // Volatility taint (mirror of the _evaluating pattern): zero the thread-local flag for THIS cell,
-        // evaluate, then see whether the cell — directly or transitively — touched a volatile. If so, cache
-        // it (per-epoch cache) but record its key so Recalculate() can drop exactly those cells. Restore the
-        // caller's flag OR'd with ours so volatility propagates up the evaluation stack (contagion) without a
-        // reverse dependency graph.
-        var outerTouched = _volatileTouched;
-        _volatileTouched = false;
-
         try
         {
-            // A reference to a sheet that does not exist is a STRUCTURAL failure (#REF!), fiel ao Excel — not
-            // a thrown KeyNotFoundException that would abort a whole batch. Detected here (before indexing) it
-            // covers the per-cell paths: CellReference.Evaluate and the cell-by-cell range enumerators, which
-            // all funnel through GetCellValue.
-            if (!Sheets.TryGetValue(sheetName, out var sheet))
-            {
-                var missing = ComputedValue.Error(Error.Ref);
-                cache[key] = missing;
-                _volatileTouched = outerTouched;
-
-                return missing;
-            }
-
-            // Compute outside the dictionary (the formula recurses back in), then store.
-            var expression = sheet[id];
-            var value = expression.Evaluate(new EvaluationContext(this, sheetName, id));
-
-            // Excel parity — a formula result is NEVER blank at the CELL boundary: when a cell that HAS
-            // content (its expression is not the empty BlankValue) evaluates to blank (e.g. =Sheet2!F10 with
-            // F10 empty, or =IF(TRUE, F10)), Excel displays 0, so the coerced 0 is what enters the cache. A
-            // truly empty cell (BlankValue expression) stays blank. The coercion is the CELL's, not the
-            // expression's: Expression.Evaluate keeps blank INTERNALLY (blank still compares as ""/0/FALSE
-            // inside an expression), so it is intentionally NOT touched here.
-            if (expression is not BlankValue && value.Kind == ComputedValueKind.Blank)
-            {
-                value = ComputedValue.Number(0);
-            }
-
-            var cellTouched = _volatileTouched;
-            if (cellTouched)
-            {
-                VolatileTainted[key] = 0;
-            }
-
-            cache[key] = value;
-            _volatileTouched = outerTouched || cellTouched;
-
+            var value = EvaluateCell(sheetName, id, out var touched);
+            store.SetDense(handle, column, row, value, touched);
             return value;
         }
         finally
         {
             evaluating.Remove(key);
         }
+    }
+
+    // The non-A1 overflow path: a host may store/read a cell under a key that is not an A1 address, which the
+    // dense store cannot address. It behaves exactly like the old dictionary cache (memoize, cycle-guard, taint).
+    private ComputedValue GetCellValueOverflow(SheetValueStore store, string sheetName, string id)
+    {
+        if (store.TryGetOverflow(sheetName, id, out var cached))
+        {
+            return cached;
+        }
+
+        var evaluating = _evaluatingOverflow ??= new();
+        var key = (sheetName, id);
+
+        if (!evaluating.Add(key))
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        try
+        {
+            var value = EvaluateCell(sheetName, id, out var touched);
+            store.SetOverflow(sheetName, id, value, touched);
+            return value;
+        }
+        finally
+        {
+            evaluating.Remove(key);
+        }
+    }
+
+    // Evaluates one cell's expression with the cell-boundary coercion and the missing-sheet → #REF! rule,
+    // reporting whether it (directly or transitively) touched a volatile. It owns ONLY the thread-local
+    // volatile-taint save/reset/propagate (mirror of the _evaluating pattern): zero the flag for THIS cell,
+    // evaluate, read whether a volatile was touched, then restore the caller's flag OR'd with ours so
+    // volatility propagates up the evaluation stack (contagion) without a reverse dependency graph. It does NOT
+    // memoize or guard cycles — the caller owns the store write and the cycle guard, addressed either densely
+    // or through the overflow path.
+    private ComputedValue EvaluateCell(string sheetName, string id, out bool touched)
+    {
+        var outerTouched = _volatileTouched;
+        _volatileTouched = false;
+
+        ComputedValue value;
+
+        // A reference to a sheet that does not exist is a STRUCTURAL failure (#REF!), fiel ao Excel — not a
+        // thrown KeyNotFoundException that would abort a whole batch. Detected here (before indexing) it covers
+        // the per-cell paths: CellReference.Evaluate and the cell-by-cell range enumerators, which all funnel
+        // through GetCellValue.
+        if (!Sheets.TryGetValue(sheetName, out var sheet))
+        {
+            value = ComputedValue.Error(Error.Ref);
+        }
+        else
+        {
+            // Compute outside the store (the formula recurses back in), then the caller stores it.
+            var expression = sheet[id];
+            value = expression.Evaluate(new EvaluationContext(this, sheetName, id));
+
+            // Excel parity — a formula result is NEVER blank at the CELL boundary: when a cell that HAS content
+            // (its expression is not the empty BlankValue) evaluates to blank (e.g. =Sheet2!F10 with F10 empty,
+            // or =IF(TRUE, F10)), Excel displays 0, so the coerced 0 is what enters the cache. A truly empty
+            // cell (BlankValue expression) stays blank. The coercion is the CELL's, not the expression's:
+            // Expression.Evaluate keeps blank INTERNALLY (blank still compares as ""/0/FALSE inside an
+            // expression), so it is intentionally NOT touched here.
+            if (expression is not BlankValue && value.Kind == ComputedValueKind.Blank)
+            {
+                value = ComputedValue.Number(0);
+            }
+        }
+
+        touched = _volatileTouched;
+        _volatileTouched = outerTouched || touched;
+
+        return value;
     }
 
     /// <summary>
@@ -438,8 +484,7 @@ public sealed partial class Workbook
     /// </summary>
     public void InvalidateCache()
     {
-        _cache?.Clear();
-        _volatileTainted?.Clear();
+        _valueStore?.Clear();
 
         // The structural index is NO LONGER dropped here (3.0): it is write-maintained by the SetCell/Remove
         // choke point and lifetime-scoped, so it already reflects every cell edit. InvalidateCache clears the
@@ -465,18 +510,9 @@ public sealed partial class Workbook
     /// </summary>
     public void Recalculate()
     {
-        if (_volatileTainted is { } tainted)
-        {
-            if (_cache is { } cache)
-            {
-                foreach (var key in tainted.Keys)
-                {
-                    cache.TryRemove(key, out _);
-                }
-            }
-
-            tainted.Clear();
-        }
+        // Drop from the store exactly the cells that touched a volatile this epoch; they recompute lazily on
+        // the next read while every stable cell stays memoized.
+        _valueStore?.DropTainted();
 
         // The value snapshots may hold volatile-tainted values, so they are dropped on a volatile refresh too
         // (the structural index — pure structure — survives).
@@ -654,21 +690,16 @@ public sealed partial class Workbook
     {
         var list = new List<CachedCellValue>();
 
-        if (_cache is not { } cache)
+        if (_valueStore is not { } store)
         {
             return list;
         }
 
-        var tainted = _volatileTainted;
-
-        foreach (var (key, value) in cache)
+        // The store already excludes volatile-tainted cells; the surrogate factory drops the unrepresentable
+        // Reference kind. Present blank cells ARE carried (an explicitly-empty cached cell round-trips).
+        foreach (var (sheetName, id, value) in store.EnumerateNonTainted())
         {
-            if (tainted is not null && tainted.ContainsKey(key))
-            {
-                continue;
-            }
-
-            if (CachedCellValue.TryFrom(key.Sheet, key.Id, value) is { } surrogate)
+            if (CachedCellValue.TryFrom(sheetName, id, value) is { } surrogate)
             {
                 list.Add(surrogate);
             }
@@ -677,7 +708,7 @@ public sealed partial class Workbook
         return list;
     }
 
-    // Repopulates the memoized cache from a warm value block, reusing the same lazy _cache creation path as
+    // Repopulates the memoized store from a warm value block, reusing the same lazy store creation path as
     // GetCellValue so the field survives MemoryPack's field-initializer bypass and stays consistent.
     private void LoadComputedValues(List<CachedCellValue> values)
     {
@@ -686,11 +717,11 @@ public sealed partial class Workbook
             return;
         }
 
-        var cache = _cache ??= new();
+        var store = ValueStore;
 
         foreach (var entry in values)
         {
-            cache[(entry.SheetName, entry.CellId)] = entry.ToComputedValue();
+            store.LoadEntry(entry.SheetName, entry.CellId, entry.ToComputedValue());
         }
     }
 
