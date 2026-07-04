@@ -570,6 +570,15 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
     private Expression ParseQualifiedReference(string sheet)
     {
+        // The qualifier is a fresh tokenizer substring per formula, so N cross-sheet references to the same
+        // sheet would otherwise each hold their own copy of the name (~24MB of duplicate "Data" strings at
+        // K1 scale). Intern it here — the single point where a qualified SheetName enters the AST — so every
+        // reference to a sheet shares ONE instance. string.Intern is exact (Ordinal), so the token's casing
+        // is preserved verbatim (FormulaWriter echoes it, resolution is OrdinalIgnoreCase either way), and it
+        // is the SAME pool MemoryPack's InternStringFormatter uses on Load, so a parsed name and a loaded name
+        // converge on one instance. Sheet names are a tiny, bounded set, so process-lifetime interning is cheap.
+        sheet = string.Intern(sheet);
+
         Expect(TokenType.Bang);
         var first = Advance();
 

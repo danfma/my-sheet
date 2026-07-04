@@ -15,13 +15,14 @@ namespace Danfma.MySheet.Expressions;
 /// keeps the cells whose (column,row) fall inside the non-null bounds (a null bound always passes). Blank
 /// cells contribute 0, so <c>SUM(A:A)</c> matches Excel while never materializing the empty grid.</para>
 /// </summary>
+// SheetName carries the same read-side interning as CellReference (wire byte-identical; see that file).
 [MemoryPackable]
 public sealed partial record OpenRangeReference(
     int? ColMin,
     int? ColMax,
     int? RowMin,
     int? RowMax,
-    string SheetName
+    [property: InternStringFormatter] string SheetName
 ) : Reference
 {
     /// <summary>

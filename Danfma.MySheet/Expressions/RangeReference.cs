@@ -2,9 +2,13 @@ using MemoryPack;
 
 namespace Danfma.MySheet.Expressions;
 
+// SheetName carries the same read-side interning as CellReference (wire byte-identical; see that file).
 [MemoryPackable]
-public sealed partial record RangeReference(string StartId, string EndId, string SheetName)
-    : Reference
+public sealed partial record RangeReference(
+    string StartId,
+    string EndId,
+    [property: InternStringFormatter] string SheetName
+) : Reference
 {
     // A range has no scalar value: used outside a function that accepts ranges it is a #VALUE! error.
     public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
