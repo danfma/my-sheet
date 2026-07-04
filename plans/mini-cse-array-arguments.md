@@ -113,17 +113,25 @@ ACEITA: não duplicar no `OrderSelection`, seria caminho morto); `Index` com for
 Verificação independente: core **885** (873+12) / Excel 24 / fixture intocada / 0 warnings.
 
 ## Phase C: Validação K1 + docs + release
-Status: In progress
-- [ ] Taint volátil: `SUM(IF(range=RAND()>0.5,...))`-like marca a época (teste com contador).
-- [ ] Custo: micro-benchmark do BH25-like @ 194 e @ 10k linhas — sem regressão nas suítes de perf.
-- [ ] Docs: `function-reference` (notas de array-context nas funções cobertas) + parágrafo em
+Status: In progress (só o release pendente de gate do usuário)
+- [x] Taint volátil: `SUM(IF(range=RAND()>0.5,...))`-like marca a época (teste com contador).
+- [x] Custo: micro-benchmark do BH25-like @ 194 e @ 10k linhas — sem regressão nas suítes de perf.
+- [x] Docs: `function-reference` (notas de array-context nas funções cobertas) + parágrafo em
       `workbook-and-expressions.md`; NÃO tocar `docs/pt-BR/`.
 - [ ] Release minor (`feat(eval): ...`) — ritual completo (merge-base em chamada separada; refresh pt-BR).
 - [ ] Pós-release: pedir ao usuário o re-run K1 — critério de sucesso: os 305 diffs → ~0.
 ### Verification Plan
 - Suítes/fixture verdes; benchmark sem regressão; versionize propõe minor; re-run K1 do usuário confirma.
 ### Phase Summary
-_(write when phase completes)_
+Validação entregue em **`feat/mini-cse-validation`** (fork de `dfa8cdb`; commits `fb7b74a` taint,
+`1a0cdcf` harness de custo, `f9ab4b9` docs) — ZERO mudança de produção na fase. **Taint volátil PASSA**:
+o flag thread-local `_volatileTouched` sobe pelos dois caminhos do avaliador (células de range via
+`GetCellValue`; broadcast escalar via `Evaluate` no frame da célula), provado por 4 testes não-vácuos
+(refresh pós-`Recalculate` das voláteis + controle não-volátil permanece cacheado = taint preciso).
+**Custo O(range)**: `SUM(IF)` array 1,59× o COUNTIF escalar @194 linhas e 0,76× @10k (sub-linear, sem
+blow-up); BH25 64× de 194→10k (fator O(n log n) do SMALL, não da maquinaria). Harness lifetime e
+SheetBenchmarks nas bandas registradas (produção byte-idêntica à Fase B). Docs com exemplos cobertos por
+testes verdes. Verificação independente: core **889** (885+4) / Excel 24 / fixture intocada / 0 warnings.
 
 ## Final Recap
 _(write when all phases complete)_
