@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.1.0"></a>
+## [3.1.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.1.0) (2026-07-04)
+
+### Features
+
+* **eval:** add internal ArrayEvaluation element-wise evaluator (mini-CSE Phase A) ([2ee7deb](https://www.github.com/danfma/my-sheet/commit/2ee7deb3f380234324378ddb4b57cd4b9fc4b566))
+* **eval:** wire mini-CSE consumers to the element-wise evaluator ([f66161d](https://www.github.com/danfma/my-sheet/commit/f66161d79643c769a68ad4425793604ed14c5c27))
+
 <a name="3.0.0"></a>
 ## [3.0.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.0.0) (2026-07-03)
 
