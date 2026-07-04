@@ -152,6 +152,15 @@ var workbook = new Workbook(new WorkbookOptions
 });
 ```
 
+### String hygiene in the model
+
+Two internal refinements keep the resident model lean without touching the file format. Sheet
+qualifiers in references (`Data!B2`) are interned — every reference to the same sheet shares one
+string instance, both when parsed and when loaded from a file. And the cell store keys its canonical
+A1 cells by numeric `(column, row)` internally, keeping non-canonical ids (anything that does not
+round-trip through the A1 writer) in a string overflow so the public string surface and the
+serialized bytes stay exactly as before.
+
 ### Circular references
 
 The memoization layer tracks the cells being evaluated on the current thread. A cycle (`A1=B1`,
