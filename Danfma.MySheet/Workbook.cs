@@ -79,6 +79,12 @@ public sealed partial class Workbook
     // through. Not part of the public API.
     internal SheetValueStore ValueStoreForTesting => ValueStore;
 
+    // The dense value store, exposed to the range enumerator (RangeValueSequence) so a hot fold takes the HIT
+    // path — a lock-free dense read — inline, without re-entering GetCellValueDense (and its ValueStore getter)
+    // per cell. A MISS still routes back through GetCellValueDense for the cycle guard + on-demand evaluation,
+    // so the semantics are identical; only the already-memoized read is shortened. Internal fast path.
+    internal SheetValueStore DenseStore => ValueStore;
+
     // Cells currently being evaluated on the calling thread, to detect circular references. Thread-local so
     // concurrent (and benign) re-evaluation of the same cell on different threads is not a false cycle — the
     // reason this stays a per-thread set and NOT a shared per-slot bit (a shared bit would let one thread's
