@@ -56,16 +56,28 @@ parcial), Excel 24, fixture intocada, 0 warnings, k1 agregado idêntico, lifetim
 sem regressão.
 
 ## Phase 2: Promoção adaptativa da 1ª página
-Status: In progress
-- [ ] Página nasce com array de slots pequeno (ex.: 128; knob em `ValueStoreOptions`) cobrindo o MESMO
+Status: Complete
+- [x] Página nasce com array de slots pequeno (ex.: 128; knob em `ValueStoreOptions`) cobrindo o MESMO
       intervalo lógico de `RowPageSize` linhas; escrita além do array atual → promoção por realocação
       (dobra até `RowPageSize`), sob o seqlock da página (leitores re-tentam pela versão).
-- [ ] Gate: sweep `--dense-store-pagesize` re-rodado — sheet pequeno (10×100) cai de ~10× para ≤ ~2×
+- [x] Gate: sweep `--dense-store-pagesize` re-rodado — sheet pequeno (10×100) cai de ~10× para ≤ ~2×
       de desperdício SEM regressão no K1 denso (≤5% no compute); knob default documentado.
 ### Verification Plan
 - Sweep antes/depois; suítes/fixture verdes; k1-endtoend na banda.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `perf/adaptive-first-page` (4 commits, merged). Knob `InitialPageSlots` (default 128,
+potência de 2 em [16, RowPageSize]). Promoção inteira numa janela ímpar→par do seqlock (Grow com UMA
+alocação no tamanho final; leitor valida índices contra o comprimento CAPTURADO e re-checa a versão —
+swap de array nunca visível sem retry; stress 0 torn-reads). Convive com o block-copy da F1 (fatia além
+do array = não-presente → fallback, teste dirigido). **Refinamento do orquestrador após o flag do
+agente** (+12,2MB de churn transiente na dobra do populate denso — vetado pelo princípio do dono):
+**página 0 da coluna nasce pequena; páginas seguintes nascem CHEIAS** (coluna que transbordou provou
+densidade) — churn K1 26,08→**14,00MB vs 13,92 born-full (+0,08MB ≪ gate 1,5MB)**. Números finais
+(verificação independente): sheet pequeno 10×100 **241,9→30,8KB (1,3×)**; médio 50×5k idêntico nos três
+regimes (waste 1,0×; ressalva honesta: coluna que termina logo após fronteira de página paga página
+cheia — trade aceito); K1 compute +2,9% tempo / +0,1MB, agregado idêntico, e o run do orquestrador
+registrou o total K1 batendo o Aspose (923,7 vs 955,2ms). Core **932** (922+10) / Excel 24 / fixture
+intocada / 0 warnings / lifetime e Build da F1 nas bandas.
 
 ## Phase 3: Índice estrutural numérico (linhas como int) + release
 Status: Not started
