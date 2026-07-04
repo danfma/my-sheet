@@ -181,6 +181,19 @@ descreve o dense paged store (endereçamento derivado, diretórios em 2 níveis,
 esparsidade, época preservada). Nota de processo: o agente pegou e corrigiu (reset local pré-branch,
 permitido) um rodapé de atribuição acidental — commits finais limpos, conferido por grep.
 
+## Investigação ReadOnlySequence em ranges (pergunta do dono, 2026-07-04 — VEREDITO MEDIDO)
+Probe `--range-sequence-probe` (merged, `3285813`), verificação independente. `SUM(A1:A100000)` denso
+já computado: caminho atual (`ExpandComputedValues` com `ToId()` StringBuilder + re-parse + `HandleFor`
+POR CÉLULA) 5,6-18,3ms/13,7MB → **acessador numérico por célula (hoist do handle + `TryGetDense(h,c,r)`)
+1,14-1,16ms / 0,00MB (−79% tempo, −100% alocação, risco semântico ZERO** — on-demand/cycle-guard/taint/
+seqlock intactos) → page-span/`ReadOnlySequence` 0,14ms (+1ms marginal sobre B, zero alocação a mais,
+e ativa os 4 obstáculos: slots não-computados, escape do seqlock, fallback de esparsidade, retângulo
+multi-segmento por coluna). **Recomendação: (1) acessador numérico nas expansões de range**
+(`RangeReference`/`OpenRangeReference`/`CellComputedValueAt`/`ArrayEvaluation.ExpandRange` — alimenta
+todos os consumidores de uma vez); **(2) `RangeSnapshot.Build` com block-copy de páginas 100% presentes**
+(88-93× no build, 10,1→0,11ms/−19,7MB, uma vez por época por range); **(3) `ReadOnlySequence` público:
+NÃO** — o container nunca foi o problema, o endereçamento por string era. `IEnumerable` fica.
+
 ## Final Recap
 _(write when all phases complete)_
 
