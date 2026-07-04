@@ -66,7 +66,12 @@ internal static class ArgumentFlattening
     /// </summary>
     public static List<ComputedValue> ExpandComputedValues(Expression argument, EvaluationContext context)
     {
-        var values = new List<ComputedValue>();
+        // A closed rectangle has known bounds: size the buffer to its exact cell count so the hot per-cell fill
+        // never pays a List doubling + recopy. Open ranges/unions/scalars have no known count up front — keep the
+        // default-capacity List (no heroics where the bound is unknown).
+        var values = argument is RangeReference closed
+            ? new List<ComputedValue>(closed.RowCount * closed.ColumnCount)
+            : new List<ComputedValue>();
 
         switch (argument)
         {

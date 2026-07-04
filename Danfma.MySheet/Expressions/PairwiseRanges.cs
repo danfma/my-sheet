@@ -50,6 +50,9 @@ internal static class PairwiseRanges
             return shapeMismatchError;
         }
 
+        // The pair count is bounded by the (now known) range length, so size the buffer exactly — no doubling.
+        pairs = new List<(double X, double Y)>(xs.Count);
+
         for (var i = 0; i < xs.Count; i++)
         {
             if (xs[i].TryGetError(out var error) || ys[i].TryGetError(out error))
