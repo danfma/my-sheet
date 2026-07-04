@@ -43,7 +43,13 @@ ordem correta é provar que não é.
    = 24B (payload real 17B: double 8 + object 8 + kind 1, padding de alinhamento 7); página de 1024 =
    24.600B exatos. SoA (arrays paralelos, 17B/slot) anotado como opção futura, NÃO default (complica o
    seqlock). `InvalidateCache` = descartar/limpar páginas (época de VALORES preservada; índice
-   estrutural vitalício do 3.0 intocado).
+   estrutural vitalício do 3.0 intocado). **Tamanhos parametrizados e a explorar (dono, 2026-07-04)**:
+   shifts centralizados (`GroupShift`/`PageShift`), sempre potência de 2 (26/alinhamento alfabético
+   descartado — custaria div/mod no hot path); a Fase 1 entrega varredura medida de row-page
+   128/256/512/1024 em 3 formas (pequena 10×100, média 50×5k, K1) e recomenda o default — desperdício
+   de página cheia em sheet pequeno é a preocupação (ex.: 10 col × 100 linhas = 246KB p/ 24KB úteis).
+   Alternativa adaptativa a avaliar: página inicial pequena cobrindo o MESMO intervalo de linhas
+   (shift/mask intacto) com promoção por realocação quando a coluna crescer.
 2. **[VETO] Contrato de concorrência da avaliação** — a decisão que define o teto do ganho:
    (a) *manter avaliação concorrente*: páginas publicadas via `Interlocked`, escrita de `ComputedValue`
    (struct multi-word, torn-write possível) protegida por versão/seqlock por página ou lock striped —
