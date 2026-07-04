@@ -221,22 +221,34 @@ internal static class ArrayEvaluation
         }
     }
 
-    // Row-major expansion of a closed range's per-cell memoized values. CellComputedValueAt goes through the
-    // same Workbook.GetCellValue choke point as ExpandComputedValues, so per-cell memoization and the
-    // volatile taint are preserved; iterating (row, column) keeps the documented row-major layout for every
-    // shape (for the single-column/single-row K1 cases this equals ExpandComputedValues' order).
+    // Row-major expansion of a closed range's per-cell memoized values. Resolves the range origin and the sheet
+    // handle ONCE (rather than re-parsing StartId/EndId and re-resolving the sheet per cell, as a per-cell
+    // CellComputedValueAt would), then addresses each cell numerically through the dense accessor — identical
+    // per-cell memoization, cycle guard and volatile taint. Iterating (row, column) keeps the documented
+    // row-major layout for every shape (for the single-column/single-row K1 cases this equals
+    // ExpandComputedValues' order).
     private static Operand ExpandRange(RangeReference range, EvaluationContext context)
     {
         var rows = range.RowCount;
         var columns = range.ColumnCount;
         var values = new ComputedValue[rows * columns];
 
+        var originColumn = range.LeftColumn;
+        var originRow = range.TopRow;
+        var workbook = context.Workbook;
+        var handle = workbook.ResolveDenseHandle(range.SheetName);
+
         var index = 0;
         for (var row = 1; row <= rows; row++)
         {
             for (var column = 1; column <= columns; column++)
             {
-                values[index++] = range.CellComputedValueAt(context, row, column);
+                values[index++] = workbook.GetCellValueDense(
+                    handle,
+                    range.SheetName,
+                    originColumn + column - 1,
+                    originRow + row - 1
+                );
             }
         }
 

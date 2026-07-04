@@ -170,9 +170,20 @@ public sealed partial record OpenRangeReference(
     /// </summary>
     internal IEnumerable<ComputedValue> ExpandComputedValues(EvaluationContext context)
     {
+        // The populated ids come from the structural index as STRINGS (the index buckets ids, not (col,row)
+        // pairs — see the note in ExpandComputedValues' caller reports). So unlike the closed RangeReference,
+        // this path cannot address cells purely numerically without re-parsing: it derives (col,row) from each
+        // id ONCE here and feeds the dense accessor with a hoisted handle, which still removes the per-cell
+        // sheet-handle lookup and GetCellValue's own redundant re-parse. A well-formed index never yields a
+        // non-A1 id (Bucketize filters them), but the fallback keeps the exact old behavior if one appears.
+        var workbook = context.Workbook;
+        var handle = workbook.ResolveDenseHandle(SheetName);
+
         foreach (var id in PopulatedIds(context))
         {
-            yield return context.Workbook.GetCellValue(SheetName, id);
+            yield return CellAddress.TryGetColumnRow(id, out var column, out var row)
+                ? workbook.GetCellValueDense(handle, SheetName, column, row)
+                : workbook.GetCellValue(SheetName, id);
         }
     }
 

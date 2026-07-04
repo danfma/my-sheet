@@ -433,6 +433,59 @@ public sealed partial class Workbook
         }
     }
 
+    /// <summary>
+    /// Resolves the dense sheet <em>handle</em> once so a range expansion can address many cells numerically
+    /// without re-resolving the sheet per cell. Pass the result to <see cref="GetCellValueDense"/>. The handle
+    /// is a stable index for the value store's life (it is assigned on first sight, exactly as
+    /// <see cref="GetCellValue"/> does per call). Internal — part of the range-read fast path, not host API.
+    /// </summary>
+    internal int ResolveDenseHandle(string sheetName) => ValueStore.HandleFor(sheetName);
+
+    /// <summary>
+    /// The numeric-address twin of <see cref="GetCellValue(string,string)"/> for range expansion: given a
+    /// pre-resolved sheet <paramref name="handle"/> (from <see cref="ResolveDenseHandle"/>) and a 1-based
+    /// <paramref name="column"/>/<paramref name="row"/>, returns the memoized value with IDENTICAL semantics to
+    /// the string path — on-demand evaluation of a miss, the per-thread cycle guard, volatile-taint propagation
+    /// and the blank-at-boundary coercion. The point is the HIT: a cache hit touches no string at all (no
+    /// <see cref="CellAddress.ToId"/> build, no re-parse, no per-cell sheet-handle lookup — the whole cost the
+    /// range enumerators used to pay per cell). Only a MISS materializes the A1 id ONCE, purely so the cell's
+    /// expression can be found and evaluated exactly as the string path does. <paramref name="sheetName"/> is
+    /// still needed for that miss path (the id lookup and the evaluation context); it MUST be the same name the
+    /// handle was resolved from.
+    /// </summary>
+    internal ComputedValue GetCellValueDense(int handle, string sheetName, int column, int row)
+    {
+        var store = ValueStore;
+
+        if (store.TryGetDense(handle, column, row, out var cached))
+        {
+            return cached;
+        }
+
+        var evaluating = _evaluating ??= new();
+        var key = (handle, column, row);
+
+        if (!evaluating.Add(key))
+        {
+            // The cell is already on this thread's evaluation stack: a circular reference.
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        try
+        {
+            // Miss only: materialize the A1 id once so the expression can be located and evaluated — the same
+            // work GetCellValue does, minus the per-cell string round trip a hit would have paid.
+            var id = new CellAddress(column, row).ToId();
+            var value = EvaluateCell(sheetName, id, out var touched);
+            store.SetDense(handle, column, row, value, touched);
+            return value;
+        }
+        finally
+        {
+            evaluating.Remove(key);
+        }
+    }
+
     // The non-A1 overflow path: a host may store/read a cell under a key that is not an A1 address, which the
     // dense store cannot address. It behaves exactly like the old dictionary cache (memoize, cycle-guard, taint).
     private ComputedValue GetCellValueOverflow(SheetValueStore store, string sheetName, string id)

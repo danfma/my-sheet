@@ -57,14 +57,17 @@ public sealed partial record RangeReference(string StartId, string EndId, string
         var minRow = Math.Min(start.Row, end.Row);
         var maxRow = Math.Max(start.Row, end.Row);
 
+        // Resolve the sheet handle ONCE and address every cell numerically: a hit no longer builds an A1 id
+        // (StringBuilder), re-parses it and re-resolves the sheet per cell — the memoization, cycle guard,
+        // volatile taint and on-demand miss evaluation are unchanged (they live behind GetCellValueDense).
+        var workbook = context.Workbook;
+        var handle = workbook.ResolveDenseHandle(SheetName);
+
         for (var column = minColumn; column <= maxColumn; column++)
         {
             for (var row = minRow; row <= maxRow; row++)
             {
-                yield return context.Workbook.GetCellValue(
-                    SheetName,
-                    new CellAddress(column, row).ToId()
-                );
+                yield return workbook.GetCellValueDense(handle, SheetName, column, row);
             }
         }
     }
@@ -85,11 +88,16 @@ public sealed partial record RangeReference(string StartId, string EndId, string
     {
         var start = CellAddress.Parse(StartId);
         var end = CellAddress.Parse(EndId);
-        var id = new CellAddress(
-            Math.Min(start.Column, end.Column) + column - 1,
-            Math.Min(start.Row, end.Row) + row - 1
-        ).ToId();
+        var absoluteColumn = Math.Min(start.Column, end.Column) + column - 1;
+        var absoluteRow = Math.Min(start.Row, end.Row) + row - 1;
 
-        return context.Workbook.GetCellValue(SheetName, id);
+        // Numeric address (no ToId round trip on a hit); same GetCellValue semantics via the dense twin.
+        var workbook = context.Workbook;
+        return workbook.GetCellValueDense(
+            workbook.ResolveDenseHandle(SheetName),
+            SheetName,
+            absoluteColumn,
+            absoluteRow
+        );
     }
 }
