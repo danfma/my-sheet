@@ -58,11 +58,12 @@ public sealed partial record OpenRangeReference(
     public IEnumerable<Expression> Expand(Workbook workbook) => Expand(new EvaluationContext(workbook));
 
     /// <summary>
-    /// Yields the id of every POPULATED cell within the limits, in column-then-row order, using the
-    /// Layer-1 <see cref="SheetStructuralIndex"/> so a narrow reference in a big sheet no longer scans
-    /// every key — it visits only the columns (or, for a whole row, the rows) the reference covers.
+    /// Yields the <c>(column, row)</c> of every POPULATED cell within the limits, in column-then-row order,
+    /// using the Layer-1 <see cref="SheetStructuralIndex"/> so a narrow reference in a big sheet no longer scans
+    /// every key — it visits only the columns (or, for a whole row, the rows) the reference covers. The index
+    /// stores the coordinates numerically, so this path parses no id at all.
     /// </summary>
-    internal IEnumerable<string> PopulatedIds(EvaluationContext context)
+    internal IEnumerable<(int Column, int Row)> PopulatedCells(EvaluationContext context)
     {
         // Two layers guard a missing sheet. LOCAL guarantee: this scan never throws — a missing sheet yields
         // nothing (yield break) instead of a KeyNotFoundException. STRUCTURAL resolution: every reference-
@@ -79,16 +80,16 @@ public sealed partial record OpenRangeReference(
 
         // Whole-row reference (column axis fully open, row axis bounded): drive the symmetric ROW index so
         // a whole-row read touches only its rows, never the big columns. Yields row-then-column order; with
-        // no column bound to apply, every id in the row's (column-sorted) list qualifies.
+        // no column bound to apply, every column in the row's (column-sorted) list qualifies.
         if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
         {
             for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
-                if (index.TryGetRow(row, out var rowIds))
+                if (index.TryGetRow(row, out var rowColumns))
                 {
-                    foreach (var id in rowIds)
+                    foreach (var column in rowColumns)
                     {
-                        yield return id;
+                        yield return (column, row);
                     }
                 }
             }
@@ -101,18 +102,31 @@ public sealed partial record OpenRangeReference(
         // parsing, and a pure whole column (A:A) yields its list verbatim.
         foreach (var column in ColumnsToVisit(index))
         {
-            if (!index.TryGetColumn(column, out var columnIds))
+            if (!index.TryGetColumn(column, out var columnRows))
             {
                 continue;
             }
 
-            var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnIds, rowMin) : 0;
-            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnIds, rowMax) : columnIds.Count - 1;
+            var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnRows, rowMin) : 0;
+            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnRows, rowMax) : columnRows.Count - 1;
 
             for (var i = first; i <= last; i++)
             {
-                yield return columnIds[i];
+                yield return (column, columnRows[i]);
             }
+        }
+    }
+
+    /// <summary>
+    /// The id of every POPULATED cell within the limits, in column-then-row order. A COLD-path convenience over
+    /// <see cref="PopulatedCells"/>: it re-derives each A1 id from the numeric coordinates. The hot value path
+    /// (<see cref="ExpandComputedValues"/>) consumes the numeric pairs directly and never materializes an id.
+    /// </summary>
+    internal IEnumerable<string> PopulatedIds(EvaluationContext context)
+    {
+        foreach (var (column, row) in PopulatedCells(context))
+        {
+            yield return new CellAddress(column, row).ToId();
         }
     }
 
@@ -150,7 +164,8 @@ public sealed partial record OpenRangeReference(
         }
     }
 
-    /// <summary>Enumerates the stored expression of every POPULATED cell within the limits.</summary>
+    /// <summary>Enumerates the stored expression of every POPULATED cell within the limits. A COLD path: it
+    /// re-derives each id to look the expression up by key.</summary>
     public IEnumerable<Expression> Expand(EvaluationContext context)
     {
         if (!context.Workbook.Sheets.TryGetValue(SheetName, out var sheet))
@@ -158,9 +173,9 @@ public sealed partial record OpenRangeReference(
             yield break;
         }
 
-        foreach (var id in PopulatedIds(context))
+        foreach (var (column, row) in PopulatedCells(context))
         {
-            yield return sheet[id];
+            yield return sheet[new CellAddress(column, row).ToId()];
         }
     }
 
@@ -170,20 +185,16 @@ public sealed partial record OpenRangeReference(
     /// </summary>
     internal IEnumerable<ComputedValue> ExpandComputedValues(EvaluationContext context)
     {
-        // The populated ids come from the structural index as STRINGS (the index buckets ids, not (col,row)
-        // pairs — see the note in ExpandComputedValues' caller reports). So unlike the closed RangeReference,
-        // this path cannot address cells purely numerically without re-parsing: it derives (col,row) from each
-        // id ONCE here and feeds the dense accessor with a hoisted handle, which still removes the per-cell
-        // sheet-handle lookup and GetCellValue's own redundant re-parse. A well-formed index never yields a
-        // non-A1 id (Bucketize filters them), but the fallback keeps the exact old behavior if one appears.
+        // The structural index yields (column, row) pairs directly (3.3: it stores coordinates numerically, not
+        // id strings), so this hot path is fully parse-free: it feeds the dense accessor the numeric address with
+        // a hoisted sheet handle — no per-cell id materialization, no re-parse, no per-cell sheet-handle lookup.
+        // GetCellValueDense re-derives an id ONLY on a cache MISS, purely to locate the expression to evaluate.
         var workbook = context.Workbook;
         var handle = workbook.ResolveDenseHandle(SheetName);
 
-        foreach (var id in PopulatedIds(context))
+        foreach (var (column, row) in PopulatedCells(context))
         {
-            yield return CellAddress.TryGetColumnRow(id, out var column, out var row)
-                ? workbook.GetCellValueDense(handle, SheetName, column, row)
-                : workbook.GetCellValue(SheetName, id);
+            yield return workbook.GetCellValueDense(handle, SheetName, column, row);
         }
     }
 
@@ -223,7 +234,7 @@ public sealed partial record OpenRangeReference(
         {
             for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
-                if (!index.TryGetRow(row, out var rowIds) || rowIds.Count == 0)
+                if (!index.TryGetRow(row, out var rowColumns) || rowColumns.Count == 0)
                 {
                     continue;
                 }
@@ -232,8 +243,9 @@ public sealed partial record OpenRangeReference(
                 if (row < minRow) minRow = row;
                 if (row > maxRow) maxRow = row;
 
-                CellAddress.TryGetColumnRow(rowIds[0], out var firstColumn, out _);
-                CellAddress.TryGetColumnRow(rowIds[^1], out var lastColumn, out _);
+                // The list is column-sorted, so its ends ARE the column extremes.
+                var firstColumn = rowColumns[0];
+                var lastColumn = rowColumns[^1];
                 if (firstColumn < minColumn) minColumn = firstColumn;
                 if (lastColumn > maxColumn) maxColumn = lastColumn;
             }
@@ -245,13 +257,13 @@ public sealed partial record OpenRangeReference(
         // row bounds are found by binary search at both ends.
         foreach (var column in ColumnsToVisit(index))
         {
-            if (!index.TryGetColumn(column, out var columnIds) || columnIds.Count == 0)
+            if (!index.TryGetColumn(column, out var columnRows) || columnRows.Count == 0)
             {
                 continue;
             }
 
-            var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnIds, rowMin) : 0;
-            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnIds, rowMax) : columnIds.Count - 1;
+            var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnRows, rowMin) : 0;
+            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnRows, rowMax) : columnRows.Count - 1;
 
             if (first > last)
             {
@@ -262,8 +274,8 @@ public sealed partial record OpenRangeReference(
             if (column < minColumn) minColumn = column;
             if (column > maxColumn) maxColumn = column;
 
-            CellAddress.TryGetColumnRow(columnIds[first], out _, out var lowRow);
-            CellAddress.TryGetColumnRow(columnIds[last], out _, out var highRow);
+            var lowRow = columnRows[first];
+            var highRow = columnRows[last];
             if (lowRow < minRow) minRow = lowRow;
             if (highRow > maxRow) maxRow = highRow;
         }
@@ -271,19 +283,18 @@ public sealed partial record OpenRangeReference(
         return any;
     }
 
-    // Binary search over a row-sorted id list: the index of the first id whose row is >= target
-    // (list.Count when none). The parse never fails — malformed ids are filtered out at index build.
-    private static int FirstAtOrAboveRow(List<string> rowSortedIds, int target)
+    // Binary search over a row-sorted list: the index of the first entry whose row is >= target
+    // (list.Count when none).
+    private static int FirstAtOrAboveRow(List<int> sortedRows, int target)
     {
         var low = 0;
-        var high = rowSortedIds.Count;
+        var high = sortedRows.Count;
 
         while (low < high)
         {
             var mid = (low + high) >> 1;
-            CellAddress.TryGetColumnRow(rowSortedIds[mid], out _, out var row);
 
-            if (row < target)
+            if (sortedRows[mid] < target)
             {
                 low = mid + 1;
             }
@@ -296,9 +307,9 @@ public sealed partial record OpenRangeReference(
         return low;
     }
 
-    // The index of the last id whose row is <= target (-1 when none).
-    private static int LastAtOrBelowRow(List<string> rowSortedIds, int target) =>
-        FirstAtOrAboveRow(rowSortedIds, target + 1) - 1;
+    // The index of the last entry whose row is <= target (-1 when none).
+    private static int LastAtOrBelowRow(List<int> sortedRows, int target) =>
+        FirstAtOrAboveRow(sortedRows, target + 1) - 1;
 
     /// <summary>
     /// Resolves this open range to the concrete <see cref="RangeReference"/> of its POPULATED bounding box,

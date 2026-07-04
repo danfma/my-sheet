@@ -3,10 +3,18 @@ using Danfma.MySheet.Expressions;
 namespace Danfma.MySheet;
 
 /// <summary>
-/// The write-maintained structural index for a single sheet: <c>column → ids</c> and the symmetric
-/// <c>row → ids</c>, each bucketized lazily and independently in one O(N) pass. It answers "which populated
+/// The write-maintained structural index for a single sheet: <c>column → rows</c> and the symmetric
+/// <c>row → columns</c>, each bucketized lazily and independently in one O(N) pass. It answers "which populated
 /// cells live in this column/row" WITHOUT scanning every key, so a whole-column formula in a big sheet no
 /// longer pays an O(N) scan per read once the index exists.
+///
+/// <para><b>Numeric buckets (3.3).</b> Each bucket stores the SECONDARY axis as a plain <see cref="int"/> — a
+/// column keeps its populated ROWS, a row keeps its populated COLUMNS — never the id string. The id is only ever
+/// re-derived on a cold path (<see cref="OpenRangeReference.PopulatedIds"/> / <see cref="OpenRangeReference.Expand"/>)
+/// via <see cref="CellAddress.ToId"/>; the hot open-range value path
+/// (<see cref="OpenRangeReference.ExpandComputedValues"/>) reads the <c>(column, row)</c> pair straight out of the
+/// index and addresses the dense store numerically, so it never parses an id. This also shrinks the index ~10× on a
+/// big sheet (a 4-byte int per cell instead of a ~38-byte "C123456" string reference plus its array slot).</para>
 ///
 /// <para><b>Lifetime, not epoch (3.0).</b> The index is built LAZILY on the first open-range read of the
 /// OWNING <see cref="Sheet"/>'s life and then kept up to date by every <see cref="Sheet.SetCell"/> and
@@ -21,8 +29,8 @@ namespace Danfma.MySheet;
 /// already sorted. A new cell whose secondary axis is beyond the bucket's current last (the typical Fill /
 /// append case) is an O(1) append that keeps the bucket sorted; an out-of-order insert appends and marks ONLY
 /// that bucket dirty, so the next read of that ONE bucket re-sorts it (no other bucket is touched). Overwriting
-/// an existing cell never reaches here (the id is already indexed). A delete removes the id from the affected
-/// bucket in O(bucket) — rare next to appends, and it keeps the bucket sorted, so no re-sort is needed.</para>
+/// an existing cell never reaches here (the id is already indexed). A delete removes the secondary from the
+/// affected bucket in O(bucket) — rare next to appends, and it keeps the bucket sorted, so no re-sort is needed.</para>
 ///
 /// <para>Thread-safety: each map is published once under its own lock with a double-checked read, and each
 /// bucket's one-time sort and every incremental mutation run under that same lock, so concurrent readers of a
@@ -34,13 +42,13 @@ namespace Danfma.MySheet;
 /// </summary>
 internal sealed class SheetStructuralIndex
 {
-    private static readonly List<string> Empty = [];
+    private static readonly List<int> Empty = [];
 
     private readonly Sheet _sheet;
     private readonly object _columnsLock = new();
     private readonly object _rowsLock = new();
-    private Dictionary<int, List<string>>? _columns;
-    private Dictionary<int, List<string>>? _rows;
+    private Dictionary<int, List<int>>? _columns;
+    private Dictionary<int, List<int>>? _rows;
     private HashSet<int>? _sortedColumns;
     private HashSet<int>? _sortedRows;
 
@@ -56,8 +64,8 @@ internal sealed class SheetStructuralIndex
 
     public SheetStructuralIndex(Sheet sheet) => _sheet = sheet;
 
-    // The column buckets (1-based column → ids in key-enumeration order), bucketized lazily under the lock.
-    private Dictionary<int, List<string>> ColumnBuckets
+    // The column buckets (1-based column → rows in key-enumeration order), bucketized lazily under the lock.
+    private Dictionary<int, List<int>> ColumnBuckets
     {
         get
         {
@@ -81,8 +89,8 @@ internal sealed class SheetStructuralIndex
         }
     }
 
-    // The symmetric row buckets (1-based row → ids), bucketized lazily and independently of the column map.
-    private Dictionary<int, List<string>> RowBuckets
+    // The symmetric row buckets (1-based row → columns), bucketized lazily and independently of the column map.
+    private Dictionary<int, List<int>> RowBuckets
     {
         get
         {
@@ -113,37 +121,37 @@ internal sealed class SheetStructuralIndex
     /// <summary>The 1-based rows that have at least one populated cell.</summary>
     public IReadOnlyCollection<int> RowKeys => RowBuckets.Keys;
 
-    /// <summary>The row-sorted ids of a column (sorted lazily on first access), or <c>false</c> when the
+    /// <summary>The sorted ROWS populated in a column (sorted lazily on first access), or <c>false</c> when the
     /// column is empty.</summary>
-    public bool TryGetColumn(int column, out List<string> ids)
+    public bool TryGetColumn(int column, out List<int> rows)
     {
         var buckets = ColumnBuckets;
 
         if (!buckets.TryGetValue(column, out var list))
         {
-            ids = Empty;
+            rows = Empty;
             return false;
         }
 
         SortBucket(list, _columnsLock, _sortedColumns!, column, byColumn: true);
-        ids = list;
+        rows = list;
         return true;
     }
 
-    /// <summary>The column-sorted ids of a row (sorted lazily on first access), or <c>false</c> when the row
-    /// is empty.</summary>
-    public bool TryGetRow(int row, out List<string> ids)
+    /// <summary>The sorted COLUMNS populated in a row (sorted lazily on first access), or <c>false</c> when the
+    /// row is empty.</summary>
+    public bool TryGetRow(int row, out List<int> columns)
     {
         var buckets = RowBuckets;
 
         if (!buckets.TryGetValue(row, out var list))
         {
-            ids = Empty;
+            columns = Empty;
             return false;
         }
 
         SortBucket(list, _rowsLock, _sortedRows!, row, byColumn: false);
-        ids = list;
+        columns = list;
         return true;
     }
 
@@ -166,14 +174,14 @@ internal sealed class SheetStructuralIndex
     /// map that has not been built yet — its eventual lazy build captures every current cell in one pass. See
     /// the class remarks for the adaptive append-vs-dirty rule.
     /// </summary>
-    public void OnCellAdded(int column, int row, string id)
+    public void OnCellAdded(int column, int row)
     {
         if (_columns is not null)
         {
             lock (_columnsLock)
             {
                 if (_columns is { } columns
-                    && AddToBucket(columns, _sortedColumns!, column, row, id, byColumn: true))
+                    && AddToBucket(columns, _sortedColumns!, primary: column, secondary: row))
                 {
                     ColumnAppendCount++;
                 }
@@ -185,7 +193,7 @@ internal sealed class SheetStructuralIndex
             lock (_rowsLock)
             {
                 if (_rows is { } rows
-                    && AddToBucket(rows, _sortedRows!, row, column, id, byColumn: false))
+                    && AddToBucket(rows, _sortedRows!, primary: row, secondary: column))
                 {
                     RowAppendCount++;
                 }
@@ -195,10 +203,10 @@ internal sealed class SheetStructuralIndex
 
     /// <summary>
     /// Incrementally records a cell that was just REMOVED from the sheet. No-op for a map not yet built. Removes
-    /// the id from its bucket in O(bucket), preserving the bucket's sort order (so no re-sort is needed), and
-    /// drops a bucket that becomes empty so <see cref="ColumnKeys"/>/<see cref="RowKeys"/> stay accurate.
+    /// the secondary from its bucket in O(bucket), preserving the bucket's sort order (so no re-sort is needed),
+    /// and drops a bucket that becomes empty so <see cref="ColumnKeys"/>/<see cref="RowKeys"/> stay accurate.
     /// </summary>
-    public void OnCellRemoved(int column, int row, string id)
+    public void OnCellRemoved(int column, int row)
     {
         if (_columns is not null)
         {
@@ -206,7 +214,7 @@ internal sealed class SheetStructuralIndex
             {
                 if (_columns is { } columns)
                 {
-                    RemoveFromBucket(columns, _sortedColumns!, column, id);
+                    RemoveFromBucket(columns, _sortedColumns!, primary: column, secondary: row);
                 }
             }
         }
@@ -217,42 +225,39 @@ internal sealed class SheetStructuralIndex
             {
                 if (_rows is { } rows)
                 {
-                    RemoveFromBucket(rows, _sortedRows!, row, id);
+                    RemoveFromBucket(rows, _sortedRows!, primary: row, secondary: column);
                 }
             }
         }
     }
 
-    // Adds an id to its primary bucket (the caller holds the map's lock). Returns true only for an in-order
-    // O(1) append onto an already-sorted bucket (the Fill case), so the caller can count it; a brand-new bucket
-    // or an unsorted bucket just appends (false), and an out-of-order insert onto a sorted bucket appends and
-    // drops the bucket from the sorted set (false) so its next read re-sorts it.
+    // Adds a secondary axis to its primary bucket (the caller holds the map's lock). Returns true only for an
+    // in-order O(1) append onto an already-sorted bucket (the Fill case), so the caller can count it; a brand-new
+    // bucket or an unsorted bucket just appends (false), and an out-of-order insert onto a sorted bucket appends
+    // and drops the bucket from the sorted set (false) so its next read re-sorts it.
     private static bool AddToBucket(
-        Dictionary<int, List<string>> map,
+        Dictionary<int, List<int>> map,
         HashSet<int> sorted,
         int primary,
-        int secondary,
-        string id,
-        bool byColumn
+        int secondary
     )
     {
         if (!map.TryGetValue(primary, out var list))
         {
-            map[primary] = [id];
+            map[primary] = [secondary];
             sorted.Add(primary); // a singleton bucket is trivially sorted
             return false;
         }
 
         if (!sorted.Contains(primary))
         {
-            list.Add(id); // bucket not yet sorted → append; it sorts on next read regardless
+            list.Add(secondary); // bucket not yet sorted → append; it sorts on next read regardless
             return false;
         }
 
-        CellAddress.TryGetColumnRow(list[^1], out var lastColumn, out var lastRow);
-        var lastSecondary = byColumn ? lastRow : lastColumn;
+        var lastSecondary = list[^1];
 
-        list.Add(id);
+        list.Add(secondary);
 
         if (secondary > lastSecondary)
         {
@@ -263,13 +268,13 @@ internal sealed class SheetStructuralIndex
         return false;
     }
 
-    // Removes an id from its bucket (the caller holds the map's lock). Preserves sort order; drops an emptied
-    // bucket and its sorted flag.
+    // Removes a secondary axis from its bucket (the caller holds the map's lock). Preserves sort order; drops an
+    // emptied bucket and its sorted flag.
     private static void RemoveFromBucket(
-        Dictionary<int, List<string>> map,
+        Dictionary<int, List<int>> map,
         HashSet<int> sorted,
         int primary,
-        string id
+        int secondary
     )
     {
         if (!map.TryGetValue(primary, out var list))
@@ -277,7 +282,7 @@ internal sealed class SheetStructuralIndex
             return;
         }
 
-        list.Remove(id);
+        list.Remove(secondary);
 
         if (list.Count == 0)
         {
@@ -287,10 +292,11 @@ internal sealed class SheetStructuralIndex
     }
 
     // One O(N) pass over the sheet keys, bucketed by the primary axis (column or row). No sort here — each
-    // bucket is ordered on first access (see SortBucket). The stored lists hold ids alone (memory-frugal).
-    private Dictionary<int, List<string>> Bucketize(bool byColumn)
+    // bucket is ordered on first access (see SortBucket). The stored lists hold the secondary axis as an int
+    // (memory-frugal: no id string, no reference).
+    private Dictionary<int, List<int>> Bucketize(bool byColumn)
     {
-        var buckets = new Dictionary<int, List<string>>();
+        var buckets = new Dictionary<int, List<int>>();
 
         foreach (var id in _sheet.Keys)
         {
@@ -300,24 +306,25 @@ internal sealed class SheetStructuralIndex
             }
 
             var primary = byColumn ? column : row;
+            var secondary = byColumn ? row : column;
 
             if (!buckets.TryGetValue(primary, out var list))
             {
                 buckets[primary] = list = [];
             }
 
-            list.Add(id);
+            list.Add(secondary);
         }
 
         return buckets;
     }
 
     // Sorts one bucket in place the first time it is accessed, by its SECONDARY axis (a column by row, a row
-    // by column). Decorate-sort: the secondary axis is re-derived once per id into a scratch array so the
-    // comparison never re-parses. Idempotent and guarded by the bucket lock, so concurrent first-accessors of
-    // the same bucket serialize and only one sorts. A dirtied bucket (dropped from the sorted set by an
+    // by column). The secondary axis is stored as an int, so this is a plain ascending int sort — no decorate
+    // step and no re-parse. Idempotent and guarded by the bucket lock, so concurrent first-accessors of the
+    // same bucket serialize and only one sorts. A dirtied bucket (dropped from the sorted set by an
     // out-of-order insert) is re-sorted here on its next read, exactly as a first sort.
-    private void SortBucket(List<string> list, object gate, HashSet<int> sorted, int key, bool byColumn)
+    private void SortBucket(List<int> list, object gate, HashSet<int> sorted, int key, bool byColumn)
     {
         lock (gate)
         {
@@ -326,21 +333,7 @@ internal sealed class SheetStructuralIndex
                 return;
             }
 
-            var count = list.Count;
-            var keyed = new (int Secondary, string Id)[count];
-
-            for (var i = 0; i < count; i++)
-            {
-                CellAddress.TryGetColumnRow(list[i], out var column, out var row);
-                keyed[i] = (byColumn ? row : column, list[i]);
-            }
-
-            Array.Sort(keyed, static (a, b) => a.Secondary.CompareTo(b.Secondary));
-
-            for (var i = 0; i < count; i++)
-            {
-                list[i] = keyed[i].Id;
-            }
+            list.Sort();
 
             if (byColumn)
             {

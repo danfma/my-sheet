@@ -1067,7 +1067,7 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
 
         if (!existed && _structuralIndex is { } index && CellAddress.TryGetColumnRow(id, out var column, out var row))
         {
-            index.OnCellAdded(column, row, id);
+            index.OnCellAdded(column, row);
         }
     }
 
@@ -1089,7 +1089,7 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
 
         if (_structuralIndex is { } index && CellAddress.TryGetColumnRow(id, out var column, out var row))
         {
-            index.OnCellRemoved(column, row, id);
+            index.OnCellRemoved(column, row);
         }
 
         return true;
