@@ -4,9 +4,10 @@ Substituir a `ConcurrentDictionary<(string,string), ComputedValue>` do cache de 
 denso paginado por sheet**, endereçado numericamente — o alvo que o profiling do compute K1 revelou.
 Meta: compute 687ms → ~250–350ms (paridade com o eval do Aspose), alocação do sweep 162MB → ~10–20MB.
 
-> **STATUS: PLANEJADO, NÃO AUTORIZADO PARA EXECUÇÃO.** Aguarda aprovação do usuário do design (em
-> especial os dois vetos abaixo). Batizado "4.0" pela possibilidade de quebra, mas a Fase 0 pode
-> rebaixá-lo a um 3.x NÃO-breaking — ver "Insight central".
+> **STATUS: EXECUÇÃO AUTORIZADA pelo usuário em 2026-07-03 ("prossiga").** Fases uma a uma com
+> verificação independente. Os dois [VETO] serão decididos com os números da Fase 0 (defaults do plano
+> valem até lá). Batizado "4.0" pela possibilidade de quebra, mas a Fase 0 pode rebaixá-lo a um 3.x
+> NÃO-breaking — ver "Insight central".
 
 ## Evidência (medida 2026-07-03, harness `--k1-compute-attrib` + dotnet-trace, verificação independente)
 - Compute K1 (400k fórmulas cross-sheet): ~687–780ms. Atribuição: **estrutura do cache domina** —
@@ -59,7 +60,7 @@ INEGOCIÁVEL: memoização por época, voláteis/taint (F1), snapshots Layer-2, 
 atribuição a IA. Release dispatch em chamada separada pós merge-base (lição).
 
 ## Phase 0: Spike do store + decisão de concorrência
-Status: Not started
+Status: In progress
 - [ ] Probe (benchmarks) do GetCellValue-shape completo: derivação on-the-fly + store paginado, nas duas
       variantes de concorrência do item 2, contra o baseline — medir compute K1 e alocação.
 - [ ] Registrar: custo da derivação on-the-fly (decide o item 5); recomendação de concorrência com
