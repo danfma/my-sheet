@@ -650,6 +650,17 @@ merge + aval do usuário; sem push.
   `AsObject()` na extração JSON do pipeline (lado do usuário; acessores sem boxing já existem). O 1,5×
   restante de engine é o alvo do redesenho de endereçamento numérico (4.0, formato pode quebrar por
   decisão do dono).
+  **Decomposição LOCAL por fase (harness `--k1-endtoend`, 2026-07-03, Aspose 26.6 in-memory, equivalência
+  exata 27143285713 nos dois motores)**: build+fill MySheet 760ms/673MB × Aspose 764ms/1.028MB (paridade
+  de tempo — mas o MySheet parseia EAGER no build e o Aspose LAZY dentro do CalculateFormula); compute
+  MySheet 687ms/163MB × Aspose 415ms/364MB (**~1,65× — e o eval puro do Aspose é < 415ms porque carrega o
+  parse dele, logo o gap de avaliação pura é PIOR que 1,65×; é AQUI que o 4.0 ataca**); extract 124ms ×
+  34ms (8% do total, irrelevante). TOTAL: **1,29× tempo (1,27–1,49× entre runs) / 0,58× ALOCAÇÃO — o
+  MySheet GANHA em alocação de engine (0,86GB × 1,48GB)**; os 4,63GB do comparativo do Copilot são
+  pipeline acima do engine, não engine. `AsObject()` medido: **24B + ~11ns/célula** (+5ms/+9,2MB @ 400k)
+  — hipótese do boxing como alavanca de engine REFUTADA (só escala se o pipeline boxar em volume muito
+  maior). Próximo passo: perfilar o compute (hash de chave string × dispatch da AST × coerção × lookup
+  cross-sheet) para calibrar o 4.0.
 - **F3 LAMBDA**: §A3 → `LAMBDA` `BYROW` `BYCOL` `MAP` `REDUCE` `SCAN` `MAKEARRAY` `ISOMITTED`.
 - **F4 Distribuições**: §A4 → NORM/T/CHISQ/F/GAMMA/BETA/BINOM/POISSON/WEIBULL/EXPON/LOGNORM/NEGBINOM/
   HYPGEOM + testes de hipótese + `CONFIDENCE.*` `CRITBINOM` + aliases compat correspondentes +
