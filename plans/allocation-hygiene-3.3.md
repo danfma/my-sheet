@@ -128,6 +128,45 @@ reavaliar com o codebase pós-3.3: o que resta de custo de string no hot path qu
 remove, e se o número justifica o major. Spike = probes/benchmarks + veredito, sem produção; plano v4
 próprio nasce do veredito.
 
+### Spike v4 — VEREDITO MEDIDO (2026-07-04, branch `spike/v4-index-ast`, `6261097`)
+Probes em `benchmarks/.../V4IndexAstHarness.cs` (`--v4-index-rebuild/-persist/-resident/-parse/-hotpath`),
+best-of-7/3, M1 Pro net10.0. Suítes intocadas verdes (core 934 / Excel 24), 0 warnings. NENHUMA produção tocada.
+
+**Tema 1 — persistência do índice.** Rebuild puro (Bucketize + sort de todos os buckets, sem eval): 2,9ms
+@ 100k · 24,9ms @ 600k · 40,2ms @ 1M. Seção numérica persistida (col → int[] linhas ordenadas): raw 4 B/cell
+(390KB/2,3MB/3,9MB), Brotli ~8× menor (47/315/590KB — linhas quase sequenciais comprimem muito), serialize
+0,1–0,7ms, **deser+validação (contagem vs Sheet.Count) 0,15/0,68/1,17ms** — ou seja a seção carrega **~20–25×
+mais rápido que o rebuild** (17ms poupados @ 600k). **VEREDITO: o ganho é REAL mas ESTREITO** — só existe num
+fluxo save→load onde o workbook carregado FAZ leitura open-range logo em seguida (o K1 justo é single-cell,
+não constrói índice nenhum; nada a persistir). Arquitetura: **confirmo (a) seção OPCIONAL/descartável no MSWM
+(v3)** — preserva self-healing (seção ausente/inválida → rebuild lazy), não congela a forma no schema core, e o
+custo (2,3MB raw ou 315KB Brotli + ~0,5ms save) só recai em quem opta. Refuto (b) membro no schema do Sheet:
+congela a representação por ~17ms 1×/vida de ganho condicional. **Recomendação: adiar** — o ganho absoluto
+(17ms 1×/vida, só no fluxo warm-load+open-range) não paga a superfície de manutenção agora; se entrar, entra
+como seção MSWM v3 ortogonal ao warm-start/Brotli existentes.
+
+**Tema 2 — AST numérica (o breaking).** Modelo K1 residente (400k fórmulas, 800k nós CellReference): **426MB**.
+Superfícies de string (medidas):
+| superfície | tamanho | quebra? |
+|---|---:|---|
+| `_cells` chaves string → `(int,int)` | **34,9MB medido** (dict 52,9→18,0MB, 2,94×) | **NÃO** (dict interno) |
+| `CellReference.SheetName` (800k × "Data", 1 distinto) | ~24,4MB | **NÃO** (interning no parse/load) |
+| `CellReference.Id` string → `(col,row)` | ~24,4MB | **SIM** (wire tags 4/5) |
+| parse churn atribuível a id/sheet strings | 24,4MB = **5%** dos 542MB de churn do parse | — |
+| SetCell string-keyed → (int,int) | **mais lento** (17,6 vs 20,4ms @ 600k) | zero ganho de tempo |
+| `ToId` no miss (range-expansion) | 22ms/82MB @ 600k, mas **1×/cell/época e só em range** | marginal |
+
+O hot path de compute já é **zero-alloc** (provado no 3.2). O que SÓ a AST numérica (breaking) remove é a
+`CellReference.Id` (~24MB = **~6% do modelo**); os dois maiores levers residentes (`_cells` int-key 35MB +
+interning de SheetName 24MB ≈ 59MB) são **NÃO-breaking**. Parse: a AST numérica corta só 5% do churn, e o
+warm-start já pula o parse inteiro. **VEREDITO: major 4.0 NÃO justificado** (repete o desfecho da Fase 0 do
+dense-store). O breaking (wire tags 4/5, fixture, migração/resave, semântica de rename sheet nome×handle, API
+pública de parse) captura ~6% da RAM residente e ~5% do churn de parse — desproporcional. **Escopo mínimo
+recomendado, TODO não-breaking (release 3.x aditivo):** (1) `_cells` com chave `(int,int)` interna — 35MB/model
+(maior lever, medido); (2) interning do SheetName no parse e no `[MemoryPackOnDeserialized]` — 24MB, colapsa
+800k→1 instância. A AST numérica completa fica REFUTADA pelos números até um workload que prove o CellReference.Id
+como gargalo dominante (não é o caso no K1 nem no modelo residente medido).
+
 ## Final Recap
 _(write when all phases complete)_
 
