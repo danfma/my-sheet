@@ -80,16 +80,42 @@ registrou o total K1 batendo o Aspose (923,7 vs 955,2ms). Core **932** (922+10) 
 intocada / 0 warnings / lifetime e Build da F1 nas bandas.
 
 ## Phase 3: Índice estrutural numérico (linhas como int) + release
-Status: In progress
-- [ ] `SheetStructuralIndex`: buckets de coluna guardam linhas `int` (id derivado só quando um consumidor
+Status: Complete
+- [x] `SheetStructuralIndex`: buckets de coluna guardam linhas `int` (id derivado só quando um consumidor
       exigir string); `OpenRangeReference.ExpandComputedValues` vira 100% parse-free; medir memória do
       índice antes/depois e o lifetime harness.
-- [ ] Docs (`performance.md` — nota curta das três melhorias) + release **3.3.0** (ritual completo;
+- [x] Docs (`performance.md` — nota curta das três melhorias) + release **3.3.0** (ritual completo;
       dispatch do orquestrador) + refresh pt-BR.
 ### Verification Plan
 - Lifetime harness igual/melhor; suítes/fixture verdes; versionize propõe minor; re-run K1 3.2×3.3 do dono.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `perf/numeric-structural-index` (4 commits, merged). Buckets `List<string>`→`List<int>`
+(`SortBucket` vira `Sort()` puro — o decorate-sort morreu); `OpenRangeReference.ExpandComputedValues`
+100% parse-free via `PopulatedCells` numérico + acessador denso; `PopulatedIds`/`Expand` derivam id só
+no caminho frio (Subtotal). **Achado da auditoria de ordenação: NÃO havia bug latente** — o decorate já
+ordenava pelo eixo secundário como int; dois testes novos travam a ordem numérica (9→10→100; Z→AA).
+**Calibração honesta vs plano**: RAM retida do índice **1,94× menor** (14,00→7,23 B/célula; o "~10×" do
+plano era a forma SERIALIZÁVEL — 22,1→2,3MB = 9,7×, a alavanca do spike v4 de persistência); open-range
+quente só ~2% (o parse era barato no hit; o ganho é estrutural: parse-free + alloc-free + forma
+compacta). Verificação independente: core **934** (932+2), Excel 24, fixture intocada, 0 warnings, K1
+agregado idêntico (TOTAL 0,83× Aspose no run do agente), lifetime/probes F1-F2 nas bandas.
+
+## Final Recap
+Ciclo 3.3 completo em 2026-07-04, mesmo dia do 3.2.0. Três fases: **F1** materializações
+(`RangeSnapshot.Build` 1,94→0,15ms / 8,29→2,29MB via block-copy com re-checagem de seqlock; flattening
+pré-dimensionado); **F2** página adaptativa (`InitialPageSlots` 128; sheet pequeno 241,9→30,8KB = 1,3×;
+refinamento first-page-only cortou o churn de promoção de +12,2MB para +0,08MB após veto do orquestrador
+ao flag do agente); **F3** índice estrutural numérico (RAM 1,94×; forma persistível 9,7× menor;
+open-range parse-free; sem bug de ordenação). Zero mudança de schema/API além dos knobs aditivos em
+`ValueStoreOptions`. Suítes finais: core **934** / Excel **24** / fixture intocada / 0 warnings. K1:
+agregado idêntico em toda mudança; total 0,83-0,96× vs Aspose nos runs de verificação. Aceitação
+externa: re-run K1 3.2×3.3 do dono. Próximo: spike v4 (persistência do índice + AST numérica).
+
+## Deployment Plan
+Executado em 2026-07-04: verificação independente por fase → rebase+ff-merge → sanidade na main com
+rebuild `--no-incremental` primeiro → push → `merge-base --is-ancestor` em chamada separada →
+`gh workflow run release.yml` (versionize deriva **3.3.0**) → `git pull --tags` → refresh `docs/pt-BR/`
+via Sonnet → spike v4 (diretriz do dono).
 
 ## Pós-3.3 (diretriz do dono, 2026-07-04): spike v4
 Ao concluir as fases e o release 3.3.0, despachar um **spike v4** cobrindo: (1) **persistência do índice
