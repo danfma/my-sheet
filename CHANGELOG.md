@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.2.0"></a>
+## [3.2.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.2.0) (2026-07-04)
+
+### Features
+
+* **store:** make the dense value store geometry configurable ([4f84a2d](https://www.github.com/danfma/my-sheet/commit/4f84a2df0bc525b59606a92b7f22a7f431925a3f))
+
 <a name="3.1.1"></a>
 ## [3.1.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.1.1) (2026-07-04)
 
