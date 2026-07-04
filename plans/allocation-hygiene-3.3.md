@@ -84,7 +84,7 @@ Status: Complete
 - [x] `SheetStructuralIndex`: buckets de coluna guardam linhas `int` (id derivado só quando um consumidor
       exigir string); `OpenRangeReference.ExpandComputedValues` vira 100% parse-free; medir memória do
       índice antes/depois e o lifetime harness.
-- [x] Docs (`performance.md` — nota curta das três melhorias) + release **3.3.0** (ritual completo;
+- [x] Docs (`performance.md` — nota curta das três melhorias) + release (saiu como **v3.2.1**, ritual completo;
       dispatch do orquestrador) + refresh pt-BR.
 ### Verification Plan
 - Lifetime harness igual/melhor; suítes/fixture verdes; versionize propõe minor; re-run K1 3.2×3.3 do dono.
@@ -114,7 +114,7 @@ externa: re-run K1 3.2×3.3 do dono. Próximo: spike v4 (persistência do índic
 ## Deployment Plan
 Executado em 2026-07-04: verificação independente por fase → rebase+ff-merge → sanidade na main com
 rebuild `--no-incremental` primeiro → push → `merge-base --is-ancestor` em chamada separada →
-`gh workflow run release.yml` (versionize deriva **3.3.0**) → `git pull --tags` → refresh `docs/pt-BR/`
+`gh workflow run release.yml` (versionize derivou **3.2.1** — todos os commits perf/test/docs; ver lição) → `git pull --tags` → refresh `docs/pt-BR/`
 via Sonnet → spike v4 (diretriz do dono).
 
 ## Pós-3.3 (diretriz do dono, 2026-07-04): spike v4
