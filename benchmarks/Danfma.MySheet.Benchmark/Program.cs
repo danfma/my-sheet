@@ -97,6 +97,14 @@ if (args.Contains("--adaptive-first-page"))
     return;
 }
 
+// Numeric structural-index memory + open-range parse probe (3.3 Phase 3):
+// `dotnet run -c Release -- --structural-index-memory`.
+if (args.Contains("--structural-index-memory"))
+{
+    StructuralIndexMemoryHarness.Run();
+    return;
+}
+
 // Range read strategies over the dense paged store (ReadOnlySequence / span visitor / IEnumerable), owner
 // question 2026-07-04: `dotnet run -c Release -- --range-sequence-probe`.
 if (args.Contains("--range-sequence-probe"))
