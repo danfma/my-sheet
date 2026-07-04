@@ -80,7 +80,7 @@ registrou o total K1 batendo o Aspose (923,7 vs 955,2ms). Core **932** (922+10) 
 intocada / 0 warnings / lifetime e Build da F1 nas bandas.
 
 ## Phase 3: Índice estrutural numérico (linhas como int) + release
-Status: Not started
+Status: In progress
 - [ ] `SheetStructuralIndex`: buckets de coluna guardam linhas `int` (id derivado só quando um consumidor
       exigir string); `OpenRangeReference.ExpandComputedValues` vira 100% parse-free; medir memória do
       índice antes/depois e o lifetime harness.
