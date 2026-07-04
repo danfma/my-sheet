@@ -166,6 +166,16 @@ var workbook = new Workbook(new WorkbookOptions
 });
 ```
 
+### Higiene de strings no modelo
+
+Dois refinamentos internos mantêm o modelo residente enxuto sem tocar no formato de arquivo. Os
+qualificadores de planilha em referências (`Data!B2`) são internados — toda referência à mesma
+planilha compartilha uma única instância de string, tanto quando analisada (parse) quanto quando
+carregada de um arquivo. E o cell store passa a chavear internamente suas células A1 canônicas por
+`(column, row)` numérico, mantendo ids não canônicos (qualquer coisa que não faça o round-trip pelo
+escritor A1) em um overflow de string, de modo que a superfície pública de strings e os bytes
+serializados permanecem exatamente como antes.
+
 ### Referências circulares
 
 A camada de memoização rastreia as células em avaliação na thread atual. Um ciclo (`A1=B1`, `B1=A1`) é
