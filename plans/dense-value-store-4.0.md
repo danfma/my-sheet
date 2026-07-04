@@ -160,10 +160,10 @@ desperdiça ~1,0× em qualquer tamanho mas varre ~1,5× mais rápido a 1024 (K1 
 pequeno crescendo até cheio enquanto a página cobre o MESMO intervalo de 1024 linhas — shift/mask intactos).
 
 ## Phase 2: Validação + docs + release
-Status: In progress (só o release pendente de gate do usuário)
+Status: Complete
 - [x] `--k1-endtoend`: compute ≤ ~350ms e alocação de sweep ≤ ~20MB (gates); total vs Aspose registrado.
 - [x] Harnesses do 3.0 (lifetime/write-cost) e SheetBenchmarks sem regressão.
-- [x] Docs (`performance.md`); release (3.2.0 aditivo conforme item 5 resolvido) + refresh pt-BR pendentes.
+- [x] Docs (`performance.md`); release **v3.2.0 publicado 2026-07-04** + refresh pt-BR despachado.
 ### Verification Plan
 - Gates batidos; suítes/fixture verdes; versionize propõe a versão correta ao ramo.
 ### Phase Summary
@@ -203,7 +203,22 @@ ou loop por bounds nos consumidores quentes); (nulo) `IEnumerable<ComputedValue>
 elemento (Current devolve a struct por valor).
 
 ## Final Recap
-_(write when all phases complete)_
+Publicado como **v3.2.0 aditivo** em 2026-07-04 — o desfecho não-breaking que a Fase 0 provou possível.
+O cache de valores virou o `SheetValueStore`: páginas densas com diretórios em dois níveis nas duas
+dimensões (revisão do dono), seqlock por página, guarda de esparsidade com fallback, endereçamento
+derivado on-the-fly (span/bits, diretriz do dono) — compute K1 **747→~127ms** (2× mais rápido que o
+calc do Aspose; total 0,65-1,04× com METADE da alocação), transiente de avaliação **zero**, backing
+13,9MB. Extras do ciclo: geometria configurável via `WorkbookOptions` (config runtime-only, bytes de
+serialização idênticos provados); leituras de range numéricas + enumerator struct (pergunta do
+`ReadOnlySequence` do dono → veredito medido: container não era o problema; expansão 9,0→1,29ms e
+13,7MB→0 por 100k, piso on-demand-safe). Suítes finais: core **915** / Excel **24** / fixture intocada /
+0 warnings. Fila 3.3 medida e ranqueada: materializações `List<ComputedValue>` (Build 88× via
+block-copy/prealloc + flattening), promoção adaptativa de página, refactor do índice estrutural para
+(col,row) numérico no open-range.
 
 ## Deployment Plan
-_(write when all phases complete)_
+Executado em 2026-07-04: verificação independente por entrega (spike F0 → store F1 → validação F2 →
+options → numeric-range-reads) → rebase+ff-merge de cada branch → sanidade na main SEMPRE com rebuild
+`--no-incremental` antes das suítes (lição dos binários velhos) → push → `merge-base --is-ancestor` dos
+commits de feature em chamada separada → `gh workflow run release.yml` (versionize derivou **3.2.0**) →
+`git pull --tags` → refresh `docs/pt-BR/` via Sonnet. Futuras releases: mesmo ritual.
