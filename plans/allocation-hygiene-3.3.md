@@ -31,19 +31,29 @@ sem push, branch nomeada, commits conventional inglês SEM `!` e SEM atribuiçã
 integração nunca no mesmo bloco Bash (lição do cwd).
 
 ## Phase 1: Materializações — Build block-copy + flattening pré-dimensionado
-Status: Not started
-- [ ] `RangeSnapshot.Build`: array pré-dimensionado preenchido via acessador numérico; fast path
+Status: Complete
+- [x] `RangeSnapshot.Build`: array pré-dimensionado preenchido via acessador numérico; fast path
       block-copy (`Array.Copy` por página) quando TODAS as páginas cobertas estão 100% presentes
       (bitmap all-set no intervalo), com re-checagem de versão do seqlock pós-cópia (retry por página).
-- [ ] `ArgumentFlattening`/SUMPRODUCT/criteria: pré-dimensionar pelas bounds quando o argumento é range
+- [x] `ArgumentFlattening`/SUMPRODUCT/criteria: pré-dimensionar pelas bounds quando o argumento é range
       fechado; sem `List` com dobra no caminho quente.
-- [ ] Gate: probe do Build ≤ ~1,2ms (fallback numérico) e ≤ ~0,2ms (block-copy full) @ 100k; alocação
+- [x] Gate: probe do Build ≤ ~1,2ms (fallback numérico) e ≤ ~0,2ms (block-copy full) @ 100k; alocação
       do Build ≈ tamanho do resultado (~2,3MB @ 100k); teste dirigido do block-copy com página
       parcialmente presente (usa fallback) e com escrita concorrente (retry do seqlock).
 ### Verification Plan
 - Probe antes/depois; suítes 915+/24 verdes; fixture; k1-endtoend agregado idêntico; harnesses sem regressão.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `perf/snapshot-materialization` (`80ba67d` Build + `4aa3893` flattening; merged na main).
+Achado de layout: snapshot é **column-major** — as páginas verticais por coluna mapeiam 1:1 em fatias
+contíguas do destino, `Array.Copy` por página com pré-passe de presença (bitmap all-set do trecho) e
+**re-checagem da versão do seqlock pós-cópia** (mudou/ímpar → retry; drop concorrente falha a
+re-verificação → fallback célula-a-célula on-demand). `Build` REAL medido pelo orquestrador:
+**1,94→0,15ms e 8,29→2,29MB @ 100k** (a alocação virou exatamente o array-resultado; o headline 10,1ms
+do plano era pré-numeric-reads). Flattening pré-dimensionado só onde bounds são conhecidas
+(`RangeReference` fechado, `PairwiseRanges`); open-range/unions/mistos deliberadamente intocados.
+Verificação independente: core **922** (915+7 dirigidos, incluindo concorrência do block-copy e página
+parcial), Excel 24, fixture intocada, 0 warnings, k1 agregado idêntico, lifetime/whole-column/mini-cse
+sem regressão.
 
 ## Phase 2: Promoção adaptativa da 1ª página
 Status: Not started
