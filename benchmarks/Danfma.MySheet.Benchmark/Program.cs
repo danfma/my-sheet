@@ -89,6 +89,14 @@ if (args.Contains("--dense-store-pagesize"))
     return;
 }
 
+// Adaptive first-page promotion efficacy gate (3.3 Phase 2), driving the REAL store:
+// `dotnet run -c Release -- --adaptive-first-page`.
+if (args.Contains("--adaptive-first-page"))
+{
+    AdaptiveFirstPageHarness.Run();
+    return;
+}
+
 // Range read strategies over the dense paged store (ReadOnlySequence / span visitor / IEnumerable), owner
 // question 2026-07-04: `dotnet run -c Release -- --range-sequence-probe`.
 if (args.Contains("--range-sequence-probe"))
