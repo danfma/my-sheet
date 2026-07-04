@@ -113,15 +113,51 @@ variante (a) EXIGE o seqlock. `InvalidateCache`/snapshots/voláteis: equivalênc
 Fase 1, não provada pelo spike (que cobre a fatia estrutura ~370ms; AST+coerção ~90ms ficam).
 
 ## Phase 1: Implementação no Workbook
-Status: In progress
-- [ ] Store paginado substituindo `_cache`; visited-bit substituindo `_evaluating`; tainted por página;
-      `InvalidateCache`/`Recalculate` preservando semântica de época e voláteis.
-- [ ] Testes: equivalência total das suítes SEM mudança de comportamento; testes dirigidos de
-      concorrência conforme o contrato escolhido; fixture verde.
+Status: Complete
+- [x] Store paginado (`SheetValueStore`) substituindo `_cache`; cycle-guard numérico substituindo o
+      `HashSet<(string,string)>`; tainted no store; `InvalidateCache`/`Recalculate` preservando época e voláteis.
+- [x] Testes: equivalência total das suítes SEM mudança de comportamento; dirigidos de concorrência
+      (seqlock stress, mesma-célula-sem-falso-ciclo), Recalculate/taint, esparsidade com teto; fixture verde.
 ### Verification Plan
 - Core 893+/Excel 24 verdes; fixture verde; 0 warnings; `--k1-endtoend` com agregado idêntico.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `feat/dense-value-store` (`92a26b4` store+wiring+testes, `f77bb70` sweep de page-size).
+`SheetValueStore` (runtime-only, `[MemoryPackIgnore]` — schema INTOCADO, fixture + MemoryPackCompat verdes):
+por sheet um slab com diretório de colunas em dois níveis `groups[col>>6][col&63]` → `column.pages[row>>10]`
+→ página `ComputedValue[1024]` + bitmap de presença (128B) + seqlock (versão par/ímpar + CAS de escritor).
+Endereço derivado on-the-fly do id A1 (`CellAddress.TryGetColumnRow`, no-alloc); handle de sheet por nome
+(OrdinalIgnoreCase). Diretórios crescem por dobra, publicam via `Volatile`.
+
+**Desvios justificados do design:** (1) **cycle-guard fica thread-local** (não bit-por-slot compartilhado):
+`_evaluating` é `[ThreadStatic]` e o contrato documentado é "re-avaliação concorrente benigna da MESMA célula
+em threads diferentes NÃO é falso ciclo" — um bit compartilhado quebraria isso. Capturei o ganho da chave
+(string,string → tripla `(handle,col,row)`) mantendo a thread-locality; a página NÃO precisa de bitmap de
+visited. Teste `SameCell_EvaluatedConcurrentlyAcrossThreads_IsNotAFalseCycle` protege o contrato. (2) **tainted
+vira `ConcurrentDictionary<(int,int,int),byte>`** (não bitmap por página): o conjunto tainted é esparso (só
+células voláteis), então um dicionário é O(tainted) para marcar E para o drop do Recalculate, enquanto um
+bitmap forçaria varredura de todas as páginas tocadas. (3) **fallback overflow** para ids não-A1 (só chamada
+direta do host produz um; fórmulas normalizam pra A1) — dicionário `(string,string)` dormante que preserva o
+comportamento antigo EXATO. (4) **guarda de esparsidade por contadores de runtime** (páginas alocadas vs
+células presentes por slab), não pelo índice estrutural do 3.0: o store precisa funcionar antes do índice
+existir e sem acoplar ao Sheet. Limiar `WarmupPages=64`/`MinCellsPerPage=4` — abaixo disso o slab desvia
+células novas-de-página para um dicionário por-slab. Cenário patológico (10k espalhadas até 1M) fica em ≤64
+páginas (~1.6MB) + dict, provado por `SparseScatter_CapsPagesInsteadOfBallooning` (assertiva de teto).
+
+**Números (`--k1-endtoend`, best-of-3, agregado IDÊNTICO 27143285713):**
+
+| Fase | baseline | dense store |
+|---|---:|---:|
+| compute | 746,7 ms / 160,3 MB | **127,1 ms / 42,7 MB** |
+| extract (a) | 104,7 ms / 28,8 MB | **21,1 ms / 28,8 MB** |
+| TOTAL vs Aspose | 1,67× tempo | **0,65× tempo, 0,50× alloc** |
+
+Compute já bate o gate da Fase 2 (≤350ms) com folga (127ms); a alocação do compute (42,7MB) é 3,75× melhor que
+o baseline mas ainda acima do alvo ≤20MB da Fase 2 — o resíduo é AST-eval/coerção (que o spike não cobria), não
+o store. **Page-size sweep (`--dense-store-pagesize`, diretriz do dono):** nenhum tamanho fixo é ótimo nos dois
+extremos — planilha pequena (10×100) desperdiça 10,3× a 1024 vs 1,3× a 128 (sem custo de tempo), planilha densa
+desperdiça ~1,0× em qualquer tamanho mas varre ~1,5× mais rápido a 1024 (K1 7,3 vs 11,6 ms). O alvo K1 favorece
+1024 → default `PageShift=10` mantido e validado. Fase 2: promoção adaptativa da 1ª página (array de slots
+pequeno crescendo até cheio enquanto a página cobre o MESMO intervalo de 1024 linhas — shift/mask intactos).
 
 ## Phase 2: Validação + docs + release
 Status: Not started
