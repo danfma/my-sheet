@@ -764,7 +764,7 @@ public sealed partial class Workbook
         );
 
         return compress
-            ? BuildContainer(ContainerVersionBrotli, model, BrotliCompress(model, values))
+            ? BuildContainer(ContainerVersionBrotli, model, BrotliCompress(model, values, options.CompressionLevel))
             : BuildContainer(ContainerVersionUncompressed, model, Concat(model, values));
     }
 
@@ -791,12 +791,13 @@ public sealed partial class Workbook
         return buffer;
     }
 
-    // Compresses model||values as a single Brotli stream (Optimal). One stream compresses better than two
-    // independently-compressed blocks because the coder shares context across the whole payload.
-    private static byte[] BrotliCompress(byte[] model, byte[] values)
+    // Compresses model||values as a single Brotli stream at the chosen level. One stream compresses better
+    // than two independently-compressed blocks because the coder shares context across the whole payload. The
+    // level affects only write time and size — Load decompresses any level, so the container is unversioned by it.
+    private static byte[] BrotliCompress(byte[] model, byte[] values, CompressionLevel level)
     {
         using var output = new MemoryStream();
-        using (var brotli = new BrotliStream(output, CompressionLevel.Optimal, leaveOpen: true))
+        using (var brotli = new BrotliStream(output, level, leaveOpen: true))
         {
             brotli.Write(model);
             brotli.Write(values);

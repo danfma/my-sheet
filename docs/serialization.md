@@ -29,9 +29,10 @@ no matching flag — it detects the format (raw vs. container, uncompressed vs. 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
 | [`IncludeComputedValues`](#warm-start-persisting-computed-values) | `bool` | `false` | Persist the memoization cache alongside the model so a load starts **warm** (skips recomputation). |
-| [`Compression`](#compression) | `WorkbookCompression` | `None` | `Brotli` shrinks the file with BCL Brotli at `Optimal` level. |
+| [`Compression`](#compression) | `WorkbookCompression` | `None` | `Brotli` shrinks the file with BCL Brotli. |
+| [`CompressionLevel`](#compression) | `CompressionLevel` | `Optimal` | Brotli quality when compressing. `Fastest` cuts save time markedly on large workbooks for a larger file; a write-time knob only — `Load` reads any level. |
 
-With both at their defaults, `Save(path, options)` is byte-identical to `Save(path)`.
+With the first two at their defaults, `Save(path, options)` is byte-identical to `Save(path)`.
 
 ## What round-trips — and what does not
 

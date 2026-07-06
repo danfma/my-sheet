@@ -1,3 +1,5 @@
+using System.IO.Compression;
+
 namespace Danfma.MySheet;
 
 /// <summary>
@@ -26,4 +28,15 @@ public sealed class WorkbookSaveOptions
     /// for compressed files).
     /// </summary>
     public WorkbookCompression Compression { get; init; } = WorkbookCompression.None;
+
+    /// <summary>
+    /// The Brotli quality level used when <see cref="Compression"/> is
+    /// <see cref="WorkbookCompression.Brotli"/>; ignored otherwise. Defaults to
+    /// <see cref="CompressionLevel.Optimal"/> (smallest file for a reasonable time). Choose
+    /// <see cref="CompressionLevel.Fastest"/> to cut save time substantially on large workbooks at the cost
+    /// of a larger file — useful when a workbook is written far more often than its size matters. This is a
+    /// write-time knob only: <see cref="Workbook.Load(string)"/> decompresses any level transparently, so the
+    /// file stays fully backward- and forward-compatible regardless of the level chosen.
+    /// </summary>
+    public CompressionLevel CompressionLevel { get; init; } = CompressionLevel.Optimal;
 }

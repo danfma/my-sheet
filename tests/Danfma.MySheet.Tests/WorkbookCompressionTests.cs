@@ -337,6 +337,65 @@ public class WorkbookCompressionTests
         }
     }
 
+    // === Compression level is a write-time knob; any level round-trips through Load =====================
+
+    [Test]
+    [Arguments(System.IO.Compression.CompressionLevel.Fastest)]
+    [Arguments(System.IO.Compression.CompressionLevel.Optimal)]
+    [Arguments(System.IO.Compression.CompressionLevel.SmallestSize)]
+    [Arguments(System.IO.Compression.CompressionLevel.NoCompression)]
+    public async Task Save_BrotliAtAnyLevel_RoundTripsThroughLoad(
+        System.IO.Compression.CompressionLevel level
+    )
+    {
+        var workbook = LargeSample();
+        workbook.ComputeAll();
+        var path = TempPath();
+        try
+        {
+            workbook.Save(
+                path,
+                new WorkbookSaveOptions
+                {
+                    IncludeComputedValues = true,
+                    Compression = WorkbookCompression.Brotli,
+                    CompressionLevel = level,
+                }
+            );
+
+            var loaded = Workbook.Load(path);
+            await Assert
+                .That(loaded.GetCellValue("Data", "B5000").AsObject())
+                .IsEqualTo(workbook.GetCellValue("Data", "B5000").AsObject());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task Save_Fastest_IsLargerThanOptimal_ProvingTheLevelIsHonored()
+    {
+        var workbook = LargeSample();
+        var fastest = TempPath();
+        var optimal = TempPath();
+        try
+        {
+            workbook.Save(fastest, new WorkbookSaveOptions { Compression = WorkbookCompression.Brotli, CompressionLevel = System.IO.Compression.CompressionLevel.Fastest });
+            workbook.Save(optimal, new WorkbookSaveOptions { Compression = WorkbookCompression.Brotli, CompressionLevel = System.IO.Compression.CompressionLevel.Optimal });
+
+            await Assert
+                .That(new FileInfo(fastest).Length)
+                .IsGreaterThan(new FileInfo(optimal).Length);
+        }
+        finally
+        {
+            File.Delete(fastest);
+            File.Delete(optimal);
+        }
+    }
+
     private sealed class FixedLocalClock(DateTime localNow) : TimeProvider
     {
         private readonly DateTimeOffset _now = new(
