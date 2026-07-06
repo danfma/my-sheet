@@ -136,6 +136,9 @@ if (args.Contains("--messagepack-size"))
     return;
 }
 
+// Suíte A/B de pesca de alocação por função (plans/function-allocation-fishing.md, Fase 1):
+//   `dotnet run -c Release -- --filter *FunctionBenchmarks* --job short`.
+//
 // Spike CellValue (Fase 2): `dotnet run -c Release -- --filter *Spike*`.
-// Sem filtro cai no menu do BenchmarkSwitcher; SheetBenchmarks continua disponível.
+// Sem filtro cai no menu do BenchmarkSwitcher; SheetBenchmarks/FunctionBenchmarks continuam disponíveis.
 BenchmarkSwitcher.FromAssembly(typeof(SheetBenchmarks).Assembly).Run(args);
