@@ -101,7 +101,14 @@ Status: In progress
       COUNTIF 120→96B); trio pescado confirmado (SUMIFS 5.488B / Array 1.056B / SUMPRODUCT 336B).
       Core **967** (966+1), Excel 24, 0 warnings, fixture intocada. Limiar de admissão do cache
       INTOCADO (decisão autônoma: mudança de comportamento global ficaria para o dono — e o streaming
-      tornou-a desnecessária).
+      tornou-a desnecessária). **Atribuição (relatório final do agente)**: 100% do custo era o
+      `ArgumentFlattening.ExpandComputedValues` materializando vetor por argumento no fallback
+      não-admitido (24B/célula + doubling no open-range + cadeias de iteradores yield). **Residual
+      irredutível nesta via (candidatos futuros)**: (a) os ~300-950B restantes são as cadeias de
+      iteradores BOXED do open-range — eliminar exigiria enumerator struct para `OpenRangeReference`;
+      (b) XLOOKUP aproximado/wildcard/reverso não-admitido segue materializando (precisa de acesso
+      indexado no `LookupMatching`; sem par de benchmark e fora da forma da carga real). Juiz de
+      semântica: `RangeValueCacheEquivalenceTests` (301 casos diferenciais) verde.
 ### Verification Plan
 - Por iteração: alocação ↓, tempo ±5%, suítes/fixture verdes; MODO EXPLORATÓRIO: proposta → liberação
   do dono → integração.
