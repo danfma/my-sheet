@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.4.1"></a>
+## [3.4.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.4.1) (2026-07-06)
+
 <a name="3.4.0"></a>
 ## [3.4.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.4.0) (2026-07-06)
 
