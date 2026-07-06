@@ -74,10 +74,20 @@ Status: In progress
       zerado** (Aspose: 42,5ms/15,0MB — alocamos 0,04% dele). Core **963** (957+6 bordas de criteria),
       Excel 24, fixture intocada, suíte de 40 sem regressão cruzada. SUMPRODUCT NÃO compartilha a
       maquinaria (confirmado) — segue como alvo próprio.
-- [ ] **Iteração 2 — fórmula-array (EM VOO, proposta pendente)**: streaming nos consumidores agregadores
-      + heap-k no SMALL/LARGE + ArrayPool residual (design aprovado; LinkedArraySegment do dono fica
-      aprovado-em-princípio para F2/spill).
-- [ ] Iteração 3 — SUMPRODUCT (3,6MB). Depois: ranges pequenos não-admitidos (XLOOKUP/COUNTIF/MATCH @200).
+- [x] **Iteração 2 — fórmula-array (LIBERADA pelo dono e integrada, `e6a639a`+`0c22de2`)**: árvore lazy
+      de operandos + `ArrayStream` (enumerator struct); SUM-família agrega sem vetor; `INDEX(array,n)`
+      anda até o n-ésimo sem buffer (e deixou de avaliar posições não-selecionadas — mais lazy, taint
+      espúrio removido); `SMALL/LARGE` com heap-k sobre `ArrayPool` de k slots. Borda de erro-após-k
+      provada no código ANTIGO antes do refactor (teste novo). Resultado (verificação independente,
+      rebased): Array50k **10,5→1,83ms (~6×)** e **14,2MB→1,03KB (÷14.000), LOH/Gen2 ZERADOS** (Aspose:
+      24ms/10,6MB). Micro-divergências documentadas e aceitas: k avaliado antes da varredura (inerte);
+      INDEX não avalia não-selecionados. Core **964** (963+1), Excel 24, sem regressão cruzada na suíte.
+      Iterações 1+2 somadas: os dois maiores alocadores da carga real de ~29MB → ~6,4KB/avaliação.
+- [ ] **Iteração 3 — SUMPRODUCT (3,6MB; EM VOO)**: mesmo padrão aprovado da iteração 1 — cursores
+      posicionais pelos ranges pareados (`SumProducts`/`PairwiseRanges`), snapshot zero-cópia quando
+      admitido, sem listas materializadas.
+- [ ] Depois: ranges pequenos não-admitidos (XLOOKUP 25,7KB/COUNTIF 12,9KB/MATCH 5,2KB @200) — decisão
+      de design com o dono (limiar de admissão × via streaming).
 ### Verification Plan
 - Por iteração: alocação ↓, tempo ±5%, suítes/fixture verdes; MODO EXPLORATÓRIO: proposta → liberação
   do dono → integração.
