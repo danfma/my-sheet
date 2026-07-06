@@ -84,11 +84,18 @@ Status: In progress
       24ms/10,6MB). Micro-divergências documentadas e aceitas: k avaliado antes da varredura (inerte);
       INDEX não avalia não-selecionados. Core **964** (963+1), Excel 24, sem regressão cruzada na suíte.
       Iterações 1+2 somadas: os dois maiores alocadores da carga real de ~29MB → ~6,4KB/avaliação.
-- [ ] **Iteração 3 — SUMPRODUCT (3,6MB; EM VOO)**: mesmo padrão aprovado da iteração 1 — cursores
-      posicionais pelos ranges pareados (`SumProducts`/`PairwiseRanges`), snapshot zero-cópia quando
-      admitido, sem listas materializadas.
-- [ ] Depois: ranges pequenos não-admitidos (XLOOKUP 25,7KB/COUNTIF 12,9KB/MATCH 5,2KB @200) — decisão
-      de design com o dono (limiar de admissão × via streaming).
+- [x] **Iteração 3 — SUMPRODUCT (integrada em modo autônomo, `fc249ac`+`b5ffb19`)**: reusa o
+      `PositionalRange` da iteração 1 SEM generalização (um cursor por argumento, N em paralelo);
+      bordas de precedência (dims antes de erro de célula; erro antes da regra do zero) provadas no
+      código antigo primeiro. Resultado (verificação independente): Sumproduct50k **3,06ms→294µs** e
+      **3,5MB→336B (÷10.700), Gen2 zerado** (Aspose: 11ms/10,8MB — 0,003%). `SUMX*`/`PairwiseRanges`
+      deliberadamente fora: compartilham lista com as estatísticas bivariadas (CORREL/SLOPE, que
+      precisam de dois passes) e não têm par de benchmark (regra 1). Diff: 1 arquivo de produção.
+      Core **966** (964+2), Excel 24, suíte de 40 sem regressão cruzada.
+- [ ] **Iteração 4 — ranges pequenos não-admitidos (EM VOO)**: XLOOKUP 25,7KB/COUNTIF-open 12,9KB/
+      MATCH 5,2KB @200. DECISÃO AUTÔNOMA (a justificar no resumo): via streaming no caminho
+      não-admitido (mesma infra posicional/densa), SEM mexer no limiar de admissão do cache (trade-off
+      de memória residente global — mudança de comportamento que ficaria para o dono).
 ### Verification Plan
 - Por iteração: alocação ↓, tempo ±5%, suítes/fixture verdes; MODO EXPLORATÓRIO: proposta → liberação
   do dono → integração.
