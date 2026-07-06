@@ -92,18 +92,29 @@ Status: In progress
       deliberadamente fora: compartilham lista com as estatísticas bivariadas (CORREL/SLOPE, que
       precisam de dois passes) e não têm par de benchmark (regra 1). Diff: 1 arquivo de produção.
       Core **966** (964+2), Excel 24, suíte de 40 sem regressão cruzada.
-- [ ] **Iteração 4 — ranges pequenos não-admitidos (EM VOO)**: XLOOKUP 25,7KB/COUNTIF-open 12,9KB/
-      MATCH 5,2KB @200. DECISÃO AUTÔNOMA (a justificar no resumo): via streaming no caminho
-      não-admitido (mesma infra posicional/densa), SEM mexer no limiar de admissão do cache (trade-off
-      de memória residente global — mudança de comportamento que ficaria para o dono).
+- [x] **Iteração 4 — ranges pequenos não-admitidos (integrada em modo autônomo, `10ff799`+`c74de65`)**:
+      novo `RangeValueCursor` (streaming do caminho não-admitido) em XLOOKUP/MATCH/COUNTIF; borda de
+      XLOOKUP com arrays de tamanhos distintos pinada no código antigo primeiro. Resultado (números
+      colhidos pelo orquestrador — o agente estagnou 2× no padrão background e foi dispensado do
+      relatório): XLOOKUP@200 **25,7KB→944B**, COUNTIF-open@200 **12,9KB→576B**, closed **5,2KB→376B**,
+      MATCH@200 **5,2KB→304B**; tempos 2-4× melhores. Warm @50k SEM regressão (alguns melhoraram:
+      COUNTIF 120→96B); trio pescado confirmado (SUMIFS 5.488B / Array 1.056B / SUMPRODUCT 336B).
+      Core **967** (966+1), Excel 24, 0 warnings, fixture intocada. Limiar de admissão do cache
+      INTOCADO (decisão autônoma: mudança de comportamento global ficaria para o dono — e o streaming
+      tornou-a desnecessária).
 ### Verification Plan
 - Por iteração: alocação ↓, tempo ±5%, suítes/fixture verdes; MODO EXPLORATÓRIO: proposta → liberação
   do dono → integração.
 ### Phase Summary
-_(write when phase completes)_
+Quatro pescas integradas (1-2 com liberação do dono; 3-4 em modo autônomo com gates verdes). Placar de
+alocação por avaliação: SUMIFS 14,2MB→5,4KB; Array 14,2MB→1,03KB (LOH extinta); SUMPRODUCT 3,5MB→336B;
+ranges pequenos 5-26KB→304-944B. Todos com tempo 2-6× MELHOR (gate era ±5%). Infra criada e reusada:
+`CriteriaScan`/`PositionalRange` (it.1) → reusada it.3; `ArrayStream`+heap-k (it.2); `RangeValueCursor`
+(it.4). Suítes finais: core **967** (957+10 bordas novas), Excel 24. Fora deliberadamente: `SUMX*`
+(maquinaria bivariada de 2 passes, sem par de benchmark), texto (marginal), limiar de admissão.
 
 ## Final: efeito agregado + release
-Status: Not started
+Status: In progress
 - [ ] Pipeline real re-medido (fases + fundido); release perf patch; refresh pt-BR se docs mudarem.
 ### Phase Summary
 _(write when phase completes)_
