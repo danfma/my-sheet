@@ -30,19 +30,34 @@ buffers reusáveis) → re-medir, "pescando cada ponto".
    perf (patch) com o ritual completo.
 
 ## Phase 1: Suíte FunctionBenchmarks (A/B por função)
-Status: In progress
-- [ ] Nova classe em `benchmarks/Danfma.MySheet.Benchmark`: pares `{Função}_MySheet` × `{Função}_Aspose`
+Status: Complete
+- [x] Nova classe em `benchmarks/Danfma.MySheet.Benchmark`: pares `{Função}_MySheet` × `{Função}_Aspose`
       (baseline) por categoria, `[MemoryDiagnoser]`, formas sintéticas pequenas E grandes inspiradas
       nas famílias reais: SUMIFS multi-criteria, SUMPRODUCT, COUNTIF coluna aberta, fórmula-array
       INDEX/SMALL/IF/ROW, IF-passthrough, OR com muitos disjuntos, XLOOKUP em colunas, texto
       (UPPER/TRIM/LEFT/FIND/concat), MATCH/INT, controle escalar (aritmética).
-- [ ] Rodar baseline completa e registrar a tabela (tempo + Allocated por função, razões vs Aspose) no
+- [x] Rodar baseline completa e registrar a tabela (tempo + Allocated por função, razões vs Aspose) no
       plano — a ORDEM DA PESCA nasce dela (pior alocador primeiro).
 ### Verification Plan
 - Suíte compila/roda nos dois motores; valores conferem entre motores em cada par (asserção de sanidade);
   tabela baseline registrada.
 ### Phase Summary
-_(write when phase completes)_
+Entregue em `bench/function-fishing` (`8f3ba32`, merged): `FunctionBenchmarks.cs` com 40 benchmarks
+(10 famílias × 2 formas × 2 motores), equivalência assertada por par no GlobalSetup. **Correção
+metodológica do agente (aprovada)**: medir via `Evaluate` direto da expressão-alvo com inputs quentes
+(não `InvalidateCache`+read, que re-materializaria o store inteiro por iteração) — âncora escalar em
+**24B** (só o boxing do harness) prova o isolamento. Aspose: `ForceFullCalculation`+chain off.
+**Baseline (ShortRun; verificação independente bateu o par SUMIFS)** — tempo: MySheet vence TODAS as
+famílias (0,008×–0,69×). Alocação, os alvos da pesca:
+| # | Família | MySheet | Aspose | nota |
+|---|---|---:|---:|---|
+| 1 | SUMIFS @50k | **14,9MB (Gen2!)** | 15,4MB | ~299 B/linha; criteria lists |
+| 2 | Array INDEX/SMALL @50k | **14,5MB (Gen2/LOH!)** | 10,9MB | ÚNICA família onde alocamos MAIS (1,33×); vetores mini-CSE 50k×24B > limiar LOH |
+| 3 | SUMPRODUCT @50k | 3,6MB | 10,8MB | listas pareadas |
+| 4 | Ranges PEQUENOS (XLOOKUP 25,7KB / COUNTIF 12,9KB / MATCH 5,2KB @200) | — | — | inversão: abaixo da admissão do cache, aloca por avaliação |
+| 5 | Texto | 272B | 6,4KB | marginal |
+| — | Zero-alloc (nada a pescar) | IF-passthrough, OR, escalar, COUNTIF@50k, XLOOKUP/MATCH warm | | |
+Sanidade: core 957 / Excel 24 / 0 warnings / produção intocada.
 
 ## Phase 2+: Iterações de pesca (uma função/família por vez)
 Status: Not started
