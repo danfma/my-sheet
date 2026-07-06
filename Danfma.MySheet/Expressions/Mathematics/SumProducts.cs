@@ -19,18 +19,20 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var arrays = new List<List<ComputedValue>>(Arguments.Length);
+        // Walk the arrays as parallel positional cursors (PositionalRange: snapshot zero-copy → dense
+        // rectangle stream → materialized fallback) instead of materializing one List per argument. The
+        // only allocation is this tiny per-argument cursor array; the O(cells) range data is never copied.
+        var ranges = new PositionalRange[Arguments.Length];
+        ranges[0] = PositionalRange.Open(Arguments[0], context);
+        var length = ranges[0].Count;
 
-        foreach (var argument in Arguments)
+        // Every argument's cell count is known up front, so validate all dimensions before scanning any
+        // value — a length mismatch is #VALUE! ahead of any cell error, exactly like the pre-refactor code.
+        for (var a = 1; a < ranges.Length; a++)
         {
-            arrays.Add(ArgumentFlattening.ExpandComputedValues(argument, context));
-        }
+            ranges[a] = PositionalRange.Open(Arguments[a], context);
 
-        var length = arrays[0].Count;
-
-        foreach (var array in arrays)
-        {
-            if (array.Count != length)
+            if (ranges[a].Count != length)
             {
                 return ComputedValue.Error(Error.Value);
             }
@@ -42,15 +44,19 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
         {
             var product = 1.0;
 
-            foreach (var array in arrays)
+            // Position-major, then array-major: the first cell error in that order wins, matching the old
+            // scan order bit for bit.
+            for (var a = 0; a < ranges.Length; a++)
             {
-                if (array[i].TryGetError(out var cellError))
+                var cell = ranges[a].Next();
+
+                if (cell.TryGetError(out var cellError))
                 {
                     return ComputedValue.Error(cellError);
                 }
 
                 // Documented rule: array entries that are not numeric are treated as zero.
-                product *= array[i].TryGetNumber(out var number) ? number : 0;
+                product *= cell.TryGetNumber(out var number) ? number : 0;
             }
 
             total += product;
