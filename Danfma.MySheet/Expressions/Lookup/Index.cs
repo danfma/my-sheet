@@ -22,7 +22,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
         if (
             Arguments[0] is not Reference
             && ArrayEvaluation.IsArrayEligible(Arguments[0])
-            && ArrayEvaluation.TryEvaluate(Arguments[0], context, out var array)
+            && ArrayEvaluation.TryEvaluateStream(Arguments[0], context, out var array)
         )
         {
             return IndexIntoArray(array, context);
@@ -74,10 +74,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
         return range.CellComputedValueAt(context, (int)row, (int)column);
     }
 
-    // Indexes a materialized element-wise vector row-major (the mini-CSE array form). Mirrors the
-    // concrete-range branch's row/column resolution: a 3-arg call takes (row, column); a 2-arg call maps
-    // the lone index to the array's only axis (column for a single row, row otherwise). Out of bounds → #REF!.
-    private ComputedValue IndexIntoArray(ArrayEvaluationResult array, EvaluationContext context)
+    // Indexes an element-wise vector row-major (the mini-CSE array form) through the LAZY stream: only the
+    // selected element is computed (no ComputedValue[] materialized). Mirrors the concrete-range branch's
+    // row/column resolution: a 3-arg call takes (row, column); a 2-arg call maps the lone index to the array's
+    // only axis (column for a single row, row otherwise). Out of bounds → #REF!.
+    private ComputedValue IndexIntoArray(ArrayEvaluation.ArrayStream array, EvaluationContext context)
     {
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
         {
@@ -112,8 +113,8 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Ref);
         }
 
-        // Row-major layout (ArrayEvaluation fills row-then-column): (r,c) 1-based → (r-1)·Columns + (c-1).
-        return array.Values[((int)row - 1) * array.Columns + ((int)column - 1)];
+        // Row-major layout (ArrayEvaluation lays out row-then-column): (r,c) 1-based → (r-1)·Columns + (c-1).
+        return array.ElementAt(((int)row - 1) * array.Columns + ((int)column - 1));
     }
 
     // ROW of an open column is the identity vector [top, top+1, …] with top = RowMin (or 1 when the top is

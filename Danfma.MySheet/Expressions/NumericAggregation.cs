@@ -89,10 +89,14 @@ internal static class NumericAggregation
                     // evaluation (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
                     if (
                         ArrayEvaluation.IsArrayEligible(argument)
-                        && ArrayEvaluation.TryEvaluate(argument, context, out var array)
+                        && ArrayEvaluation.TryEvaluateStream(argument, context, out var array)
                     )
                     {
-                        foreach (var element in array.Values)
+                        // Stream the element-wise vector: aggregate straight from the lazy view, allocating no
+                        // ComputedValue[] (a 50k-row idiom drops from ~14MB to the handful of tree nodes). The
+                        // row-major order is the materialized order, so the first cell error (scan order) still
+                        // wins.
+                        foreach (var element in array)
                         {
                             AddReferenced(element, ref fold, ref error);
                         }
