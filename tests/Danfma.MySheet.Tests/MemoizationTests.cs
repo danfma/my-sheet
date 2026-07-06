@@ -111,4 +111,57 @@ public class MemoizationTests
 
         await Assert.That(result).IsEqualTo((double)depth);
     }
+
+    [Test]
+    public async Task ComputeAll_EvaluatesEveryCellEagerlyAndMemoizes()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        var calls = 0;
+        workbook.RegisterFunction(
+            "TICK",
+            (_, _) =>
+            {
+                calls++;
+                return 5.0;
+            }
+        );
+
+        sheet["A1"] = ExpressionParser.Parse("=TICK()", sheet);
+        sheet["B1"] = ExpressionParser.Parse("=A1+A1", sheet);
+        sheet["C1"] = ExpressionParser.Parse("=B1*2", sheet);
+
+        // Nothing evaluated yet.
+        await Assert.That(calls).IsEqualTo(0);
+
+        workbook.ComputeAll();
+
+        // Every cell computed exactly once (memoized), regardless of sweep order.
+        await Assert.That(calls).IsEqualTo(1);
+        await Assert.That(workbook.GetCellValue("Sheet1", "C1").AsObject()).IsEqualTo(20.0);
+
+        // A second ComputeAll is all cache hits — no recomputation.
+        workbook.ComputeAll();
+        await Assert.That(calls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task ComputeAll_HandlesDeepChainViaLargeStack()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        const int depth = 20000;
+        sheet["A1"] = new NumberValue(1);
+        for (var i = 2; i <= depth; i++)
+        {
+            sheet[$"A{i}"] = ExpressionParser.Parse($"=A{i - 1}+1", sheet);
+        }
+
+        // A plain sweep on the calling thread would overflow; ComputeAll runs on a large stack.
+        workbook.ComputeAll();
+
+        await Assert.That(workbook.GetCellValue("Sheet1", $"A{depth}").AsObject()).IsEqualTo((double)depth);
+    }
 }

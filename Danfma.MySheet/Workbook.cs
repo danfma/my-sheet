@@ -615,6 +615,38 @@ public sealed partial class Workbook
     }
 
     /// <summary>
+    /// Eagerly evaluates every cell in the workbook, filling the memoization cache so later reads (and a
+    /// warm <see cref="Save(string, WorkbookSaveOptions)"/>) hit already-computed values instead of
+    /// evaluating lazily. This is the eager counterpart to on-demand <see cref="GetCellValue"/> — the
+    /// analogue of a spreadsheet engine's "calculate now". The sweep runs on a large-stack thread (via
+    /// <see cref="RunWithLargeStack{T}"/>) so deep dependency chains do not overflow; the thread cost is
+    /// paid once for the whole workbook, not per cell.
+    /// <para>
+    /// Values are memoized, so calling this on an already-warm workbook is cheap (every read is a hit).
+    /// After changing inputs, call <see cref="InvalidateCache"/> first, then this, to recompute from
+    /// scratch. Evaluation is on-demand recursive, so cell order does not matter — each cell is computed
+    /// exactly once regardless of the sweep order.
+    /// </para>
+    /// </summary>
+    public void ComputeAll(int stackSizeBytes = 256 * 1024 * 1024) =>
+        RunWithLargeStack(
+            () =>
+            {
+                foreach (var sheet in Sheets.Values)
+                {
+                    var sheetName = sheet.Name;
+                    foreach (var id in sheet.Keys)
+                    {
+                        GetCellValue(sheetName, id);
+                    }
+                }
+
+                return 0;
+            },
+            stackSizeBytes
+        );
+
+    /// <summary>
     /// Runs an evaluation on a thread with a large stack so very deep dependency chains (e.g. a long
     /// cumulative column) do not overflow. Wrap a whole extraction batch in one call — the thread cost
     /// is paid once, not per cell. The large stack size is a reservation; physical memory grows only
