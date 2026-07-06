@@ -38,6 +38,7 @@ Principais membros de `Workbook`:
 | `Sheets` / `this[string]` | Acessa planilhas pelo nome (case-insensitive); o indexador lança `KeyNotFoundException` para um nome sem planilha correspondente. |
 | `TryGetSheet(name, out sheet)` | Consulta de planilha sem lançar exceção (case-insensitive) → `bool`; a contraparte do indexador que lança exceção. |
 | `GetCellValue(sheetName, id)` | Avaliação memoizada de uma célula → `ComputedValue`; uma referência a uma planilha ausente resolve para `#REF!` (nunca lança exceção). |
+| `ComputeAll()` | Avalia avidamente (eagerly) todas as células (a contraparte "calcular agora" do `GetCellValue` preguiçoso), preenchendo o cache para que um salvamento subsequente a quente carregue os valores computados. Roda em uma large stack para cadeias profundas; uma segunda chamada é toda hits. Após edições, chame `InvalidateCache()` primeiro. |
 | `InvalidateCache()` | Esvazia explicitamente **todo** o cache de memoização (obrigatório após edições); também reinicia a época volátil. |
 | `Recalculate()` | Atualiza apenas as células voláteis (veja [Funções voláteis](#funções-voláteis)); mantém em cache toda célula estável. |
 | `TimeProvider` | Relógio injetável para `NOW`/`TODAY` (padrão `TimeProvider.System`, lido em horário local). |
