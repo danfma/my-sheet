@@ -33,9 +33,10 @@ descomprimido vs. Brotli) a partir do cabeçalho do arquivo.
 | Opção | Tipo | Padrão | Efeito |
 | --- | --- | --- | --- |
 | [`IncludeComputedValues`](#warm-start-persistindo-valores-computados) | `bool` | `false` | Persiste o cache de memoização junto com o modelo, de modo que um carregamento comece **aquecido** (pula a recomputação). |
-| [`Compression`](#compressão) | `WorkbookCompression` | `None` | `Brotli` reduz o arquivo usando o Brotli da BCL no nível `Optimal`. |
+| [`Compression`](#compressão) | `WorkbookCompression` | `None` | `Brotli` reduz o arquivo usando o Brotli da BCL. |
+| [`CompressionLevel`](#compressão) | `CompressionLevel` | `Optimal` | Qualidade do Brotli ao comprimir. `Fastest` reduz sensivelmente o tempo de salvamento em workbooks grandes em troca de um arquivo maior; é um knob só de escrita — `Load` lê qualquer nível. |
 
-Com ambos em seus padrões, `Save(path, options)` é byte a byte idêntico a `Save(path)`.
+Com os dois primeiros em seus padrões, `Save(path, options)` é byte a byte idêntico a `Save(path)`.
 
 ## O que é preservado no round-trip — e o que não é
 
