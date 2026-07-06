@@ -60,7 +60,7 @@ public sealed partial record AverageIfs(Expression[] Arguments) : Function
     // AVERAGEIFS(average_range, criteria_range1, criteria1, …) — averages where every pair matches.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (CriteriaPairs.Expand(Arguments, context, out var valueRange, out var pairs) is { } error)
+        if (CriteriaScan.CreateWithValue(Arguments, context, out var scan) is { } error)
         {
             return ComputedValue.Error(error);
         }
@@ -68,9 +68,9 @@ public sealed partial record AverageIfs(Expression[] Arguments) : Function
         var total = 0.0;
         var count = 0;
 
-        for (var i = 0; i < valueRange.Count; i++)
+        while (scan.MoveNext(out var matched, out var value))
         {
-            if (CriteriaPairs.AllMatch(pairs, i) && valueRange[i].TryGetNumber(out var number))
+            if (matched && value.TryGetNumber(out var number))
             {
                 total += number;
                 count++;
@@ -98,66 +98,18 @@ public sealed partial record MinIfs(Expression[] Arguments) : Function
 }
 
 /// <summary>
-/// The shared (criteria_range, criteria) plumbing of the *IFS statistical aggregates: expands the
-/// value range plus every pair, enforcing equal lengths (<c>#VALUE!</c> on mismatch, like SUMIFS).
+/// The shared MAXIFS/MINIFS reducer: scans the value/criteria ranges as parallel positional cursors
+/// (<see cref="CriteriaScan"/>) and tracks the extreme matching numeric cell — no per-range list.
 /// </summary>
 file static class CriteriaPairs
 {
-    public static Error? Expand(
-        Expression[] arguments,
-        EvaluationContext context,
-        out List<ComputedValue> valueRange,
-        out List<(List<ComputedValue> Range, Criteria Criteria)> pairs
-    )
-    {
-        // A value_range or criteria range over a missing sheet is a structural #REF! (AVERAGEIFS/MAXIFS/
-        // MINIFS all route here).
-        if (ReferenceGuard.MissingSheet(arguments, context) is { } missing)
-        {
-            valueRange = [];
-            pairs = [];
-
-            return missing;
-        }
-
-        valueRange = ArgumentFlattening.ExpandComputedValues(arguments[0], context);
-        pairs = [];
-
-        for (var i = 1; i + 1 < arguments.Length; i += 2)
-        {
-            var range = ArgumentFlattening.ExpandComputedValues(arguments[i], context);
-
-            if (range.Count != valueRange.Count)
-            {
-                return Error.Value;
-            }
-
-            pairs.Add((range, Criteria.Parse(arguments[i + 1].Evaluate(context))));
-        }
-
-        return null;
-    }
-
-    public static bool AllMatch(List<(List<ComputedValue> Range, Criteria Criteria)> pairs, int index)
-    {
-        foreach (var (range, criteria) in pairs)
-        {
-            if (!criteria.Matches(range[index]))
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     public static ComputedValue Extreme(
         Expression[] arguments,
         EvaluationContext context,
         bool larger
     )
     {
-        if (Expand(arguments, context, out var valueRange, out var pairs) is { } error)
+        if (CriteriaScan.CreateWithValue(arguments, context, out var scan) is { } error)
         {
             return ComputedValue.Error(error);
         }
@@ -165,9 +117,9 @@ file static class CriteriaPairs
         var found = false;
         var extreme = 0.0;
 
-        for (var i = 0; i < valueRange.Count; i++)
+        while (scan.MoveNext(out var matched, out var value))
         {
-            if (!AllMatch(pairs, i) || !valueRange[i].TryGetNumber(out var number))
+            if (!matched || !value.TryGetNumber(out var number))
             {
                 continue;
             }

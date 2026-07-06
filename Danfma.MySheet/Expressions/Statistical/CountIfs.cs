@@ -5,56 +5,26 @@ namespace Danfma.MySheet.Expressions.Statistical;
 [MemoryPackable]
 public sealed partial record CountIfs(Expression[] Arguments) : Function
 {
+    // COUNTIFS(range1, criteria1, …) — counts positions where every (range, criteria) pair matches. The
+    // criteria ranges are walked as parallel positional cursors (snapshot zero-copy when admitted, else a
+    // dense stream) so no per-range List is materialized per evaluation.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        // A criteria range over a missing sheet is a structural #REF!.
-        if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
+        if (CriteriaScan.CreateCountOnly(Arguments, context, out var scan) is { } error)
         {
-            return ComputedValue.Error(missing);
-        }
-
-        var ranges = new List<List<ComputedValue>>();
-        var criterias = new List<Criteria>();
-
-        for (var i = 0; i + 1 < Arguments.Length; i += 2)
-        {
-            ranges.Add(ArgumentFlattening.ExpandComputedValues(Arguments[i], context));
-            criterias.Add(Criteria.Parse(Arguments[i + 1].Evaluate(context)));
-        }
-
-        var length = ranges[0].Count;
-
-        foreach (var range in ranges)
-        {
-            if (range.Count != length)
-            {
-                return ComputedValue.Error(Error.Value);
-            }
+            return ComputedValue.Error(error);
         }
 
         var count = 0;
 
-        for (var i = 0; i < length; i++)
+        while (scan.MoveNext(out var matched, out _))
         {
-            if (AllMatch(ranges, criterias, i))
+            if (matched)
             {
                 count++;
             }
         }
 
         return ComputedValue.Number(count);
-    }
-
-    private static bool AllMatch(List<List<ComputedValue>> ranges, List<Criteria> criterias, int index)
-    {
-        for (var j = 0; j < criterias.Count; j++)
-        {
-            if (!criterias[j].Matches(ranges[j][index]))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }
