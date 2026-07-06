@@ -64,11 +64,23 @@ famílias (0,008×–0,69×). Alocação, os alvos da pesca:
 Sanidade: core 957 / Excel 24 / 0 warnings / produção intocada.
 
 ## Phase 2+: Iterações de pesca (uma função/família por vez)
-Status: Not started
-- [ ] Iteração N: pegar o pior alocador da tabela → otimizar pontualmente → antes/depois no par →
-      suítes → registrar no plano → próximo. Alvos iniciais do dono: SUMIFS, SUMPRODUCT.
+Status: In progress
+- [x] **Iteração 1 — SUMIFS/família *IFS (LIBERADA pelo dono e integrada, `bba5cd5`+`ed7514d`)**:
+      via híbrida — snapshot admitido = zero-cópia; sem snapshot = cursores posicionais via enumerator
+      denso (`CriteriaScan` novo); open-range/union mantém lista. **Achado do 2º alocador escondido:
+      `Criteria.Matches` reconstruía o regex de wildcard POR CÉLULA (~10MB @50k×2 critérios)** — regex
+      compilado 1× no construtor; SUMIF/COUNTIF/AVERAGEIF de texto ganham de graça. Resultado
+      (verificação independente): Sumifs50k **17,2ms→3,3ms (5×)** e **14,2MB→5,36KB (÷2.700), GC
+      zerado** (Aspose: 42,5ms/15,0MB — alocamos 0,04% dele). Core **963** (957+6 bordas de criteria),
+      Excel 24, fixture intocada, suíte de 40 sem regressão cruzada. SUMPRODUCT NÃO compartilha a
+      maquinaria (confirmado) — segue como alvo próprio.
+- [ ] **Iteração 2 — fórmula-array (EM VOO, proposta pendente)**: streaming nos consumidores agregadores
+      + heap-k no SMALL/LARGE + ArrayPool residual (design aprovado; LinkedArraySegment do dono fica
+      aprovado-em-princípio para F2/spill).
+- [ ] Iteração 3 — SUMPRODUCT (3,6MB). Depois: ranges pequenos não-admitidos (XLOOKUP/COUNTIF/MATCH @200).
 ### Verification Plan
-- Por iteração: alocação ↓, tempo ±5%, suítes/fixture verdes.
+- Por iteração: alocação ↓, tempo ±5%, suítes/fixture verdes; MODO EXPLORATÓRIO: proposta → liberação
+  do dono → integração.
 ### Phase Summary
 _(write when phase completes)_
 
