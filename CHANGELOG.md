@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.4.0"></a>
+## [3.4.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.4.0) (2026-07-06)
+
+### Features
+
+* **save:** expose Brotli CompressionLevel on WorkbookSaveOptions ([e7421e1](https://www.github.com/danfma/my-sheet/commit/e7421e1bf8f2af74b88e7b4df9999909d63a24be))
+
 <a name="3.3.0"></a>
 ## [3.3.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.3.0) (2026-07-06)
 
