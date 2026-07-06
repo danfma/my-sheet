@@ -18,6 +18,10 @@ buffers reusáveis) → re-medir, "pescando cada ponto".
 - Pré-dimensionamento (3.2.1) removeu a DOBRA das listas, não a alocação por avaliação.
 
 ## Regras do ciclo
+0. **MODO EXPLORATÓRIO (regra do dono, 2026-07-06)**: nenhuma decisão direta sem avaliar com o dono.
+   Fluxo por iteração: achados + proposta de ataque apresentados → dono LIBERA → só então executa,
+   integra e pusha. Entregas de agentes ficam na worktree como PROPOSTA até a liberação; nada de merge
+   na main sem o gate.
 1. **Nada de otimização sem par de benchmark antes/depois** — o A/B com Aspose ancora o alvo (paridade
    ou melhor por função) e o MemoryDiagnoser é o juiz de alocação.
 2. Gates por iteração: alocação da função ↓ SEM regressão de tempo (±5%); suítes completas verdes
