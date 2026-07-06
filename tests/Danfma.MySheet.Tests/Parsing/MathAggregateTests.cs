@@ -78,6 +78,39 @@ public class MathAggregateTests
             .IsEqualTo(ErrorValue.NotValue);
     }
 
+    [Test]
+    public async Task SumProduct_PropagatesACellError()
+    {
+        // A cell error inside any array propagates as the function result (before it could be
+        // treated as a non-numeric zero). The scan is position-major then array-major, so the
+        // first error in that order wins.
+        (string, object)[] cells =
+        [
+            ("A1", 2), ("A2", "=1/0"), ("A3", 4),
+            ("B1", 10), ("B2", 20), ("B3", 30),
+        ];
+
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:A3,B1:B3)", cells))
+            .IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
+    public async Task SumProduct_ShapeMismatchIsReportedBeforeACellError()
+    {
+        // Dimension validation runs ahead of the value scan: a length mismatch is #VALUE! even when
+        // a cell error is also present in one of the arrays.
+        (string, object)[] cells =
+        [
+            ("A1", 1), ("A2", "=1/0"),
+            ("B1", 3), ("B2", 4), ("B3", 5),
+        ];
+
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:A2,B1:B3)", cells))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
     // --- SUMX2MY2 / SUMX2PY2 / SUMXMY2 — golden: páginas oficiais (9e599cc5, 826b60b4,
     // 9d144ac1): array_x {2,3,9,1,8,7,5}, array_y {6,5,11,7,5,4,4}. ---
 
