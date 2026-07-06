@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 # Agent-Native Plans local bridge token
 .plan-url
 **/.plan-url
+
+# Dev-secret benchmark data (never commit)
+external/
