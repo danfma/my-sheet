@@ -169,3 +169,8 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   passado despercebido com contagem igual). Regra: sanidade pós-merge SEMPRE começa com
   `dotnet build --no-incremental` no próprio bloco, ANTES de qualquer `--no-build`; e a contagem
   esperada de testes é parte da verificação (anotar o esperado antes de rodar).
+- **Agente que roda benchmark DEVE rodar em foreground — dois agentes seguidos encerraram o turno
+  "aguardando" o próprio run em background, e o watcher morre com a sessão do agente (a entrega fica
+  pela metade e o orquestrador paga um resume).** Regra de briefing para qualquer missão com
+  benchmark/harness: "rode em foreground e espere; NUNCA termine o turno com trabalho pendente em
+  background". O orquestrador, ao retomar um agente nesse estado, instrui re-rodar em foreground.
