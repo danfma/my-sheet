@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.3.0"></a>
+## [3.3.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.3.0) (2026-07-06)
+
+### Features
+
+* **workbook:** add public ComputeAll for eager full evaluation ([f29e1c6](https://www.github.com/danfma/my-sheet/commit/f29e1c68dbc07e6e646a6546f3c7a180ee6c39e9))
+
 <a name="3.2.2"></a>
 ## [3.2.2](https://www.github.com/danfma/my-sheet/releases/tag/v3.2.2) (2026-07-04)
 
