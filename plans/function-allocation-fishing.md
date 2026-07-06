@@ -114,7 +114,21 @@ ranges pequenos 5-26KB→304-944B. Todos com tempo 2-6× MELHOR (gate era ±5%).
 (maquinaria bivariada de 2 passes, sem par de benchmark), texto (marginal), limiar de admissão.
 
 ## Final: efeito agregado + release
-Status: In progress
-- [ ] Pipeline real re-medido (fases + fundido); release perf patch; refresh pt-BR se docs mudarem.
+Status: Complete
+- [x] Pipeline real re-medido (fases + fundido); release perf patch; refresh pt-BR se docs mudarem.
 ### Phase Summary
-_(write when phase completes)_
+**Efeito agregado (fundido preciso, 12 iter, dados reais, GC default)**: alocação **4,1GB → 1,98GB**
+(menos da METADE; agora 0,77× do Aspose — era 1,59×), Gen0 696k→334k/1000 ops; tempo ratio 1,56×→
+**1,11×±0,19** (sessão ruidosa; a razão é o dado confiável). **Release v3.4.1 publicado** (patch dos
+`perf:`, pré-condição das 4 pescas em chamada separada). Docs não mudaram no ciclo → sem refresh pt-BR.
+
+## Final Recap
+Ciclo completo em 2026-07-06, método do dono (A/B por função + pesca pontual) validado ponta a ponta:
+suíte de 40 benchmarks com equivalência assertada (Fase 1) → 4 iterações de pesca (SUMIFS ÷2.700;
+array ÷14.000 com LOH extinta; SUMPRODUCT ÷10.700; ranges pequenos ÷14-27) → efeito agregado no
+pipeline real: alocação do fundido pela metade, abaixo do Aspose. Todas as famílias ficaram 2-6× mais
+RÁPIDAS (o gate era só não regredir). Achados de bônus: regex de wildcard reconstruído por célula
+(it.1); INDEX avaliava posições não-selecionadas (it.2, taint espúrio removido). Fora por decisão
+documentada: SUMX* (sem par de benchmark), limiar de admissão (comportamento global), texto (marginal),
+LinkedArraySegment do dono (aprovado-em-princípio para F2/spill). Próximo da fila: multi-targeting
+net8.0 (`plans/net8-multitargeting.md`).
