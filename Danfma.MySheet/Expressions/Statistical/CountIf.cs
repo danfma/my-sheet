@@ -14,18 +14,41 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
         }
 
         var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
-        var range = ArgumentFlattening.ExpandCached(Arguments[0], context, out var snapshot);
 
-        // Numeric `=k` criterion over a cached range → O(1) via the numeric-equality map; anything else
-        // (text/wildcard/comparison) scans the cached snapshot linearly (no cell re-read).
-        if (snapshot is not null && criteria.TryGetNumericEquality(out var key))
+        var snapshot = Arguments[0] is Reference reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            : null;
+
+        // Admitted range (big, populated) → serve the shared snapshot: a numeric `=k` criterion is O(1) via
+        // the numeric-equality map; anything else (text/wildcard/comparison) scans the snapshot's array
+        // linearly (zero-copy, no cell re-read).
+        if (snapshot is not null)
         {
-            return ComputedValue.Number(snapshot.NumericEquality(key).Count);
+            if (criteria.TryGetNumericEquality(out var key))
+            {
+                return ComputedValue.Number(snapshot.NumericEquality(key).Count);
+            }
+
+            var matches = 0;
+
+            foreach (var value in snapshot.Values)
+            {
+                if (criteria.Matches(value))
+                {
+                    matches++;
+                }
+            }
+
+            return ComputedValue.Number(matches);
         }
 
+        // Non-admitted range → stream the memoized cells positionally (dense struct cursor for a closed
+        // rectangle, one small boxed iterator for an open range/union) instead of materializing the whole
+        // vector just to count it.
         var count = 0;
+        var cursor = RangeValueCursor.Open(Arguments[0], context);
 
-        foreach (var value in range)
+        while (cursor.MoveNext(out var value))
         {
             if (criteria.Matches(value))
             {

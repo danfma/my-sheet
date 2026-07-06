@@ -19,8 +19,10 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
-        var lookupArray = ArgumentFlattening.ExpandCached(Arguments[1], context, out var lookupSnapshot);
-        var returnArray = ArgumentFlattening.ExpandCached(Arguments[2], context, out _);
+
+        var lookupSnapshot = Arguments[1] is Reference lookupReference
+            ? context.Workbook.TryGetRangeSnapshot(lookupReference, context)
+            : null;
 
         var matchMode = 0.0;
         if (
@@ -40,6 +42,31 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(searchError);
         }
 
+        // Non-admitted forward exact (the default, and by far the most common shape): stream the lookup and
+        // return arrays as parallel cursors, advancing in lockstep and stopping at the shorter. This
+        // reproduces the linear engine's [0, min(count)) bound and its returnArray[match] pairing bit for bit
+        // — the matched position's return cell IS the cursor's parallel value — while materializing neither
+        // vector. The admitted lookup keeps the O(1) hash path below.
+        if ((int)matchMode == 0 && searchMode >= 0 && lookupSnapshot is null)
+        {
+            var lookupCursor = RangeValueCursor.Open(Arguments[1], context);
+            var returnCursor = RangeValueCursor.Open(Arguments[2], context);
+
+            while (lookupCursor.MoveNext(out var candidate) && returnCursor.MoveNext(out var result))
+            {
+                if (ValueCoercion.AreEqual(candidate, lookup))
+                {
+                    return result;
+                }
+            }
+
+            return NotFound(context);
+        }
+
+        var lookupArray = lookupSnapshot?.Values
+            ?? (IReadOnlyList<ComputedValue>)ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
+        var returnArray = ArgumentFlattening.ExpandCached(Arguments[2], context, out _);
+
         var count = Math.Min(lookupArray.Count, returnArray.Count);
 
         // Forward exact (the default) → O(1) via the value→first-position hash, but only when the whole
@@ -57,9 +84,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
                 case ExactMatchOutcome.Found:
                     return returnArray[hashPosition - 1];
                 case ExactMatchOutcome.NotFound:
-                    return Arguments.Length >= 4 && Arguments[3] is not BlankValue
-                        ? Arguments[3].Evaluate(context)
-                        : ComputedValue.Error(Error.NA);
+                    return NotFound(context);
             }
         }
 
@@ -76,8 +101,12 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return returnArray[match];
         }
 
-        return Arguments.Length >= 4 && Arguments[3] is not BlankValue
+        return NotFound(context);
+    }
+
+    // The not-found result: the caller-supplied [if_not_found] when present and not omitted, else #N/A.
+    private ComputedValue NotFound(EvaluationContext context) =>
+        Arguments.Length >= 4 && Arguments[3] is not BlankValue
             ? Arguments[3].Evaluate(context)
             : ComputedValue.Error(Error.NA);
-    }
 }

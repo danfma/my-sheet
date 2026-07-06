@@ -18,14 +18,11 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         // Serve the lookup array from the Layer-2 range cache when the argument is a big populated range:
         // the snapshot is materialized once and every derived accelerator (exact hash, sorted prefix/suffix)
-        // reproduces this scan's result bit for bit. A small range (or a non-range argument) keeps the
-        // original linear enumeration.
+        // reproduces this scan's result bit for bit. A small range (or a non-range argument) streams the
+        // memoized cells positionally (no materialized vector) via RangeValueCursor.
         var snapshot = Arguments[1] is Reference reference
             ? context.Workbook.TryGetRangeSnapshot(reference, context)
             : null;
-        IReadOnlyList<ComputedValue> array =
-            snapshot?.Values
-            ?? (IReadOnlyList<ComputedValue>)ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
 
         var matchType = 1.0;
 
@@ -52,11 +49,16 @@ public sealed partial record Match(Expression[] Arguments) : Function
                 }
             }
 
-            for (var i = 0; i < array.Count; i++)
+            var exactPosition = 0;
+            var exactCursor = RangeValueCursor.Open(Arguments[1], context);
+
+            while (exactCursor.MoveNext(out var value))
             {
-                if (ValueCoercion.AreEqual(array[i], lookup))
+                exactPosition++;
+
+                if (ValueCoercion.AreEqual(value, lookup))
                 {
-                    return ComputedValue.Number(i + 1);
+                    return ComputedValue.Number(exactPosition);
                 }
             }
 
@@ -83,10 +85,13 @@ public sealed partial record Match(Expression[] Arguments) : Function
         }
 
         var position = -1;
+        var index = 0;
+        var approxCursor = RangeValueCursor.Open(Arguments[1], context);
 
-        for (var i = 0; i < array.Count; i++)
+        while (approxCursor.MoveNext(out var value))
         {
-            var value = array[i];
+            index++;
+
             if (value.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
             {
                 continue;
@@ -96,11 +101,11 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
             if (matchType > 0 && comparison <= 0)
             {
-                position = i + 1;
+                position = index;
             }
             else if (matchType < 0 && comparison >= 0)
             {
-                position = i + 1;
+                position = index;
             }
         }
 
