@@ -108,6 +108,37 @@ public class ReferenceFunctionTests
     }
 
     [Test]
+    public async Task XLookup_MismatchedArrayLengths_BoundToShorter()
+    {
+        // lookup_array (A1:A5) is longer than return_array (B1:B3). The non-admitted streaming path advances
+        // both cursors in lockstep and stops at the shorter — reproducing the pre-refactor Math.Min(count)
+        // bound exactly: a match WITHIN the shared prefix pairs with its return cell; a match only in the
+        // uncovered tail is dropped (→ #N/A), never returning past the end of the return array.
+        var (workbook, sheet) = Grid(
+            ("A1", N(1)),
+            ("A2", N(2)),
+            ("A3", N(3)),
+            ("A4", N(4)),
+            ("A5", N(5)),
+            ("B1", T("a")),
+            ("B2", T("b")),
+            ("B3", T("c"))
+        );
+
+        // Match at position 2 (within the [0,3) shared prefix) → the paired return cell.
+        await Assert
+            .That(
+                ExpressionParser.Parse("=XLOOKUP(2,A1:A5,B1:B3)", sheet).Evaluate(workbook).AsObject() as string
+            )
+            .IsEqualTo("b");
+
+        // Match only in the uncovered tail (position 4 > return length) → dropped by the shorter bound.
+        await Assert
+            .That(ExpressionParser.Parse("=XLOOKUP(4,A1:A5,B1:B3)", sheet).Evaluate(workbook).AsObject())
+            .IsEqualTo(ErrorValue.NotAvailable);
+    }
+
+    [Test]
     public async Task Offset_ScalarCell()
     {
         var (workbook, sheet) = Grid(("A1", N(10)), ("A2", N(20)), ("A3", N(30)), ("B1", N(5)));
