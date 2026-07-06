@@ -75,6 +75,33 @@ public class MiniCseConsumerTests
         await Assert.That(Num(OnShowHide("=LARGE(IF(B2:B5=\"Show\",ROW(B2:B5)),1)"))).IsEqualTo(5.0);
     }
 
+    [Test]
+    public async Task Small_OfIfArray_ErrorAfterKthElement_StillPropagates()
+    {
+        // Border (previously untested): a cell error sitting BEYOND the k-th selected value must still
+        // propagate — the gather scans the whole array, and the first error (scan order) wins even when k is
+        // already satisfiable. Here A2:A5 = [1, 2, 3, #DIV/0!]; SMALL(…,1) could "see" the min (1) at the
+        // first position, yet the trailing #DIV/0! propagates (Excel parity). The heap-k streaming path must
+        // preserve this exactly (scan every element; array error precedes any k/bounds outcome).
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A2"] = new NumberValue(1);
+        sheet["A3"] = new NumberValue(2);
+        sheet["A4"] = new NumberValue(3);
+        sheet["A5"] = ExpressionParser.Parse("=1/0", sheet); // #DIV/0! at the LAST position
+        sheet["B2"] = new StringValue("Show");
+        sheet["B3"] = new StringValue("Show");
+        sheet["B4"] = new StringValue("Show");
+        sheet["B5"] = new StringValue("Show");
+
+        object? Calc(string formula) =>
+            ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+        await Assert.That(Calc("=SMALL(IF(B2:B5=\"Show\",A2:A5),1)")).IsEqualTo(ErrorValue.DivByZero);
+        // LARGE takes the same path (min-heap); the trailing error propagates identically.
+        await Assert.That(Calc("=LARGE(IF(B2:B5=\"Show\",A2:A5),1)")).IsEqualTo(ErrorValue.DivByZero);
+    }
+
     // --- INDEX over a materialized array first argument ---
 
     [Test]
