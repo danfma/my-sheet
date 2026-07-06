@@ -25,12 +25,19 @@ internal sealed class Criteria
     private readonly double _number;
     private readonly string _text;
 
+    // A text criterion's wildcard pattern compiled ONCE per criterion (null for numeric criteria). The old
+    // code rebuilt the "^…$" pattern string and re-parsed the regex on EVERY cell — for a *IFS scan over a
+    // 50k range that was a per-cell StringBuilder + pattern string, the dominant transient once the range
+    // lists were gone. Compiling here (once per Parse, i.e. once per evaluation) makes Matches allocation-free.
+    private readonly Regex? _regex;
+
     private Criteria(Op op, bool numeric, double number, string text)
     {
         _op = op;
         _numeric = numeric;
         _number = number;
         _text = text;
+        _regex = numeric ? null : new Regex(BuildWildcardPattern(text), RegexOptions.IgnoreCase);
     }
 
     public static Criteria Parse(in ComputedValue value)
@@ -95,8 +102,8 @@ internal sealed class Criteria
 
         return _op switch
         {
-            Op.Equal => WildcardMatch(_text, text),
-            Op.NotEqual => !WildcardMatch(_text, text),
+            Op.Equal => _regex!.IsMatch(text),
+            Op.NotEqual => !_regex!.IsMatch(text),
             _ => false,
         };
     }
@@ -138,13 +145,18 @@ internal sealed class Criteria
         return (Op.Equal, s);
     }
 
-    internal static bool WildcardMatch(string pattern, string text)
+    internal static bool WildcardMatch(string pattern, string text) =>
+        Regex.IsMatch(text, BuildWildcardPattern(pattern), RegexOptions.IgnoreCase);
+
+    // Translates an Excel wildcard pattern (* → any run, ? → any single char, everything else literal) into
+    // an anchored .NET regex pattern. Called ONCE per text criterion (see <see cref="_regex"/>), not per cell.
+    private static string BuildWildcardPattern(string pattern)
     {
-        var regex = new StringBuilder("^");
+        var builder = new StringBuilder("^");
 
         foreach (var c in pattern)
         {
-            regex.Append(
+            builder.Append(
                 c switch
                 {
                     '*' => ".*",
@@ -154,8 +166,8 @@ internal sealed class Criteria
             );
         }
 
-        regex.Append('$');
+        builder.Append('$');
 
-        return Regex.IsMatch(text, regex.ToString(), RegexOptions.IgnoreCase);
+        return builder.ToString();
     }
 }
