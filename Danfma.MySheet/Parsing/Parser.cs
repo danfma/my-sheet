@@ -592,6 +592,30 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             Advance();
             var second = Advance();
 
+            // The right endpoint may itself be sheet-qualified: Sheet1!A1:Sheet2!B2 (or Sheet1!A1:Sheet1!B2).
+            // `second` was then the sheet name and a '!' follows. Parse it as its own qualified reference,
+            // then span: same sheet → a plain RangeReference; different sheets → a DynamicRange, which the
+            // cross-sheet guard resolves to #REF! (Excel parity) instead of silently using one sheet.
+            if (Current.Type == TokenType.Bang)
+            {
+                if (
+                    !TryEndpointToken(first, sheet, out var leftEndpoint)
+                    || leftEndpoint is not CellReference leftCell
+                    || ParseQualifiedReference(second.Text) is not CellReference rightCell
+                )
+                {
+                    throw new ParseException("Expected a cell reference after '!'", first.Position);
+                }
+
+                return string.Equals(
+                    leftCell.SheetName,
+                    rightCell.SheetName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+                    ? new RangeReference(leftCell.Id, rightCell.Id, leftCell.SheetName)
+                    : new DynamicRange(leftCell, rightCell);
+            }
+
             if (
                 TryEndpointToken(first, sheet, out var left)
                 && TryEndpointToken(second, sheet, out var right)
