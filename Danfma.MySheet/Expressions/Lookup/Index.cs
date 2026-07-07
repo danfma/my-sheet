@@ -209,12 +209,8 @@ public sealed partial record Index(Expression[] Arguments) : Function
         }
 
         // Mirrors RangeReference.CellComputedValueAt's normalization: StartId is not guaranteed to be the
-        // top-left corner (e.g. A3:A1 has StartId="A3"), so the origin is the min of both corners.
-        var start = CellAddress.Parse(range.StartId);
-        var end = CellAddress.Parse(range.EndId);
-        var originColumn = Math.Min(start.Column, end.Column);
-        var originRow = Math.Min(start.Row, end.Row);
-        var target = new CellAddress(originColumn + (int)column - 1, originRow + (int)row - 1);
+        // top-left corner (e.g. A3:A1 has StartId="A3"), so the origin is the range's normalized top-left.
+        var target = new CellAddress(range.LeftColumn + (int)column - 1, range.TopRow + (int)row - 1);
         reference = new CellReference(target.ToId(), range.SheetName);
         return true;
     }
