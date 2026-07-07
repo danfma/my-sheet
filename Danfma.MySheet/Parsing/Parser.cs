@@ -79,6 +79,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         ["VLOOKUP"] = new(3, 4, arguments => new VLookup(arguments)),
         ["XLOOKUP"] = new(3, 6, arguments => new XLookup(arguments)),
         ["OFFSET"] = new(3, 5, arguments => new Offset(arguments)),
+        ["INDIRECT"] = new(1, 2, arguments => new MySheet.Expressions.Lookup.Indirect(arguments)),
         ["LET"] = new(3, int.MaxValue, arguments => new Let(arguments)),
         ["TEXT"] = new(2, 2, arguments => new Text(arguments)),
         ["SHEET"] = new(0, 1, arguments => new SheetNumber(arguments)),

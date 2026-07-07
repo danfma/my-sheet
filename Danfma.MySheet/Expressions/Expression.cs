@@ -339,6 +339,7 @@ namespace Danfma.MySheet.Expressions;
 // Whole-column / whole-row / one-sided open references (A:A, 1:1, A2:A, A:A10, A1:C).
 [MemoryPackUnion(316, typeof(OpenRangeReference))]
 [MemoryPackUnion(317, typeof(DynamicRange))]
+[MemoryPackUnion(318, typeof(Lookup.Indirect))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a
