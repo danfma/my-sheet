@@ -151,4 +151,66 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         return ComputedValue.Number(top + n - 1);
     }
+
+    // Mirrors the concrete-range branch of Evaluate, but yields the target CELL ADDRESS as a Reference
+    // instead of reading its value. Array forms (the mini-CSE vector and the open-column ROW identity) have
+    // no cell address to hand back, so they return false and fall through to normal evaluation elsewhere.
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
+    {
+        reference = null;
+
+        // Array forms (mini-CSE vector, open-column ROW identity) have no cell address.
+        if (
+            Arguments[0] is Row { Arguments: [OpenRangeReference] }
+            || (Arguments[0] is not Reference && ArrayEvaluation.IsArrayEligible(Arguments[0]))
+        )
+        {
+            return false;
+        }
+
+        if (
+            !NamedReferences.TryResolveReference(Arguments[0], context, out var resolved)
+            || resolved is not RangeReference range
+        )
+        {
+            return false;
+        }
+
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is not null)
+        {
+            return false;
+        }
+
+        double row;
+        double column;
+        if (Arguments.Length == 3)
+        {
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out column) is not null)
+            {
+                return false;
+            }
+
+            row = first;
+        }
+        else if (range.RowCount == 1)
+        {
+            row = 1;
+            column = first;
+        }
+        else
+        {
+            row = first;
+            column = 1;
+        }
+
+        if (row < 1 || column < 1 || row > range.RowCount || column > range.ColumnCount)
+        {
+            return false;
+        }
+
+        var start = CellAddress.Parse(range.StartId);
+        var target = new CellAddress(start.Column + (int)column - 1, start.Row + (int)row - 1);
+        reference = new CellReference(target.ToId(), range.SheetName);
+        return true;
+    }
 }
