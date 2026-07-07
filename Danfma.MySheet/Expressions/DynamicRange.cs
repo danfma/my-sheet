@@ -22,10 +22,7 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
             return false;
         }
 
-        var sheet = start is CellReference sc ? sc.SheetName
-            : start is RangeReference sr ? sr.SheetName
-            : end is CellReference ec ? ec.SheetName
-            : ((RangeReference)end!).SheetName;
+        var sheet = start is CellReference sc ? sc.SheetName : ((RangeReference)start!).SheetName;
 
         var minColumn = Math.Min(startBox.MinColumn, endBox.MinColumn);
         var minRow = Math.Min(startBox.MinRow, endBox.MinRow);
@@ -39,8 +36,9 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
         return true;
     }
 
-    // A ':' endpoint evaluated as a scalar mirrors a bare RangeReference: #VALUE! unless a consumer expands
-    // it. Delegating to the resolved range inherits that behaviour.
+    // A DynamicRange evaluated as a scalar mirrors OFFSET/CHOOSE's range convention: it yields
+    // ComputedValue.Reference(...) so a consumer that expects a reference (SUM, COUNT, ...) can still expand
+    // it, degrading to #REF! only when the endpoints fail to resolve to a concrete range.
     public override ComputedValue Evaluate(EvaluationContext context) =>
         TryResolveReference(context, out var reference)
             ? ComputedValue.Reference(reference!)
