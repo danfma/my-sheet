@@ -140,7 +140,7 @@ R1C1→#REF!, round-trip); full core suite 997/997 (990 + 7). Values self-eviden
 ---
 
 ## Phase 2: OFFSET truncates height/width (Excel parity)
-Status: Not started
+Status: Complete
 
 `Offset.cs` already truncates `rows`/`columns` via `(int)`, but the single-cell decision
 `height == 1 && width == 1` (`Offset.cs:26` and `:52`) compares the raw doubles, so
@@ -156,7 +156,12 @@ Status: Not started
 - Full core suite green.
 
 ### Phase Summary
-_(write when phase completes)_
+Done. Aspose oracle confirmed Excel truncates OFFSET height/width toward zero: `=SUM(OFFSET(A1,0,0,1.9,1))`
+over A1=10,A2=20 returns **10** (single cell), not 30. Changed `Offset.TryComputeTarget` to output
+`int height, int width` (coerced to double then `(int)`-truncated, matching `(int)rows`/`(int)columns`);
+`Evaluate`/`TryResolveReference` now test `height == 1 && width == 1` on the truncated ints and `BuildRange`
+takes ints. **Verification:** new `Offset_FractionalHeightWidth_TruncatesLikeExcel` (SUM==10, Aspose-verified);
+existing OFFSET tests unchanged (integer args → identical); full core suite 998/998.
 
 ---
 

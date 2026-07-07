@@ -89,4 +89,13 @@ public class DynamicRangeEvaluationTests
         var (wb, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
         await Assert.That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):A5)")).IsEqualTo(ErrorValue.Reference);
     }
+
+    // Aspose oracle: Excel truncates OFFSET height/width toward zero, so OFFSET(A1,0,0,1.9,1) is a
+    // SINGLE cell (A1), not a 2-row range. SUM == A1 == 10, NOT A1+A2 == 30.
+    [Test]
+    public async Task Offset_FractionalHeightWidth_TruncatesLikeExcel()
+    {
+        var (wb, sheet) = Grid(("A1", 10), ("A2", 20));
+        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,1.9,1))") as double?).IsEqualTo(10.0);
+    }
 }

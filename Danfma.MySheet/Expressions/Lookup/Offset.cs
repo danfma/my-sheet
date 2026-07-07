@@ -64,8 +64,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         out string sheetName,
         out int startColumn,
         out int startRow,
-        out double height,
-        out double width
+        out int height,
+        out int width
     )
     {
         sheetName = string.Empty;
@@ -93,14 +93,26 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return columnsError;
         }
 
-        if (Arguments.Length >= 4 && Arguments[3].Evaluate(context).CoerceToNumber(out height) is { } e1)
+        // Excel truncates height/width toward zero (like rows/columns), so OFFSET(A1,0,0,1.9) is a
+        // single row, not two. (int) truncates toward zero, matching (int)rows / (int)columns above.
+        if (Arguments.Length >= 4)
         {
-            return e1;
+            if (Arguments[3].Evaluate(context).CoerceToNumber(out var h) is { } e1)
+            {
+                return e1;
+            }
+
+            height = (int)h;
         }
 
-        if (Arguments.Length >= 5 && Arguments[4].Evaluate(context).CoerceToNumber(out width) is { } e2)
+        if (Arguments.Length >= 5)
         {
-            return e2;
+            if (Arguments[4].Evaluate(context).CoerceToNumber(out var w) is { } e2)
+            {
+                return e2;
+            }
+
+            width = (int)w;
         }
 
         startColumn = baseColumn + (int)columns;
@@ -114,10 +126,10 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         return null;
     }
 
-    private static RangeReference BuildRange(string sheetName, int startColumn, int startRow, double height, double width) =>
+    private static RangeReference BuildRange(string sheetName, int startColumn, int startRow, int height, int width) =>
         new(
             new CellAddress(startColumn, startRow).ToId(),
-            new CellAddress(startColumn + (int)width - 1, startRow + (int)height - 1).ToId(),
+            new CellAddress(startColumn + width - 1, startRow + height - 1).ToId(),
             sheetName
         );
 
