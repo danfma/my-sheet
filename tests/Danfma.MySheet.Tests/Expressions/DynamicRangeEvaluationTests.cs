@@ -77,4 +77,16 @@ public class DynamicRangeEvaluationTests
         var (wb, sheet) = Grid();
         await Assert.That(Calc(wb, sheet, "=INDEX(ROW($A:$A),3)") as double?).IsEqualTo(3.0);
     }
+
+    // Regression: ReferenceGuard.MissingSheet must guard a DynamicRange too, same as it does a plain
+    // reference/NameReference argument. Sheet2 does not exist in this workbook (only "Sheet1" is added by
+    // Grid()) — the dynamic range INDEX(Sheet2!A1:A3,2):A5 resolves structurally (INDEX/DynamicRange don't
+    // themselves check sheet existence) to a range on the missing sheet. Before the fix, COUNT's
+    // error-ignoring fold silently enumerated zero cells and returned 0; it must short-circuit to #REF!.
+    [Test]
+    public async Task CountFamily_DynamicRangeOverMissingSheet_IsRefError()
+    {
+        var (wb, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
+        await Assert.That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):A5)")).IsEqualTo(ErrorValue.Reference);
+    }
 }
