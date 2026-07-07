@@ -64,8 +64,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         out string sheetName,
         out int startColumn,
         out int startRow,
-        out int height,
-        out int width
+        out double height,
+        out double width
     )
     {
         sheetName = string.Empty;
@@ -93,15 +93,12 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return columnsError;
         }
 
-        var h = 1.0;
-        var w = 1.0;
-
-        if (Arguments.Length >= 4 && Arguments[3].Evaluate(context).CoerceToNumber(out h) is { } e1)
+        if (Arguments.Length >= 4 && Arguments[3].Evaluate(context).CoerceToNumber(out height) is { } e1)
         {
             return e1;
         }
 
-        if (Arguments.Length >= 5 && Arguments[4].Evaluate(context).CoerceToNumber(out w) is { } e2)
+        if (Arguments.Length >= 5 && Arguments[4].Evaluate(context).CoerceToNumber(out width) is { } e2)
         {
             return e2;
         }
@@ -114,16 +111,13 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return Error.Ref;
         }
 
-        height = (int)h;
-        width = (int)w;
-
         return null;
     }
 
-    private static RangeReference BuildRange(string sheetName, int startColumn, int startRow, int height, int width) =>
+    private static RangeReference BuildRange(string sheetName, int startColumn, int startRow, double height, double width) =>
         new(
             new CellAddress(startColumn, startRow).ToId(),
-            new CellAddress(startColumn + width - 1, startRow + height - 1).ToId(),
+            new CellAddress(startColumn + (int)width - 1, startRow + (int)height - 1).ToId(),
             sheetName
         );
 
