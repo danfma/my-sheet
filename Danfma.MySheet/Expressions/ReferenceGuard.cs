@@ -70,6 +70,13 @@ internal static class ReferenceGuard
                     ? MissingSheet(resolved, context)
                     : null;
 
+            case DynamicRange dynamic:
+                // A ':' range with reference-returning endpoints (INDEX(...):A5) may resolve to a range on a
+                // missing sheet. Resolve it and re-check the resolved reference's sheet, same as NameReference.
+                return dynamic.TryResolveReference(context, out var resolvedRange)
+                    ? MissingSheet(resolvedRange!, context)
+                    : null;
+
             default:
                 return null;
         }
