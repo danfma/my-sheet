@@ -37,4 +37,33 @@ public class TryResolveReferenceTests
         await Assert.That(ok).IsFalse();
         await Assert.That(reference).IsNull();
     }
+
+    [Test]
+    public async Task IndexIntoConcreteRange_ResolvesToTargetCell()
+    {
+        var (workbook, sheet) = Grid();
+        sheet["A1"] = new NumberValue(10);
+        sheet["A2"] = new NumberValue(20);
+        sheet["A3"] = new NumberValue(30);
+        var expr = ExpressionParser.Parse("=INDEX(A1:A3,2)", sheet);
+
+        var ok = expr.TryResolveReference(new EvaluationContext(workbook), out var reference);
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(reference).IsTypeOf<CellReference>();
+        await Assert.That(((CellReference)reference!).Id).IsEqualTo("A2");
+    }
+
+    [Test]
+    public async Task IndexIntoComputedArray_DoesNotResolve()
+    {
+        var (workbook, sheet) = Grid();
+        // INDEX(ROW($A:$A), 2) indexes a computed vector, not cells: no address, must not resolve.
+        var expr = ExpressionParser.Parse("=INDEX(ROW($A:$A),2)", sheet);
+
+        var ok = expr.TryResolveReference(new EvaluationContext(workbook), out var reference);
+
+        await Assert.That(ok).IsFalse();
+        await Assert.That(reference).IsNull();
+    }
 }
