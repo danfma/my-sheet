@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.5.0"></a>
+## [3.5.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.5.0) (2026-07-07)
+
+### Features
+
+* **choose:** resolve CHOOSE to the chosen argument's reference ([6cfeee2](https://www.github.com/danfma/my-sheet/commit/6cfeee2196e680f9d564ee57b9f461f4b841fa1c))
+* **expr:** add DynamicRange node spanning reference-expression endpoints ([c829941](https://www.github.com/danfma/my-sheet/commit/c8299414972f286c97213204076a1ee1b33b8958))
+* **expr:** add TryResolveReference resolution path on Expression and references ([45b327d](https://www.github.com/danfma/my-sheet/commit/45b327d4153e368074e7f4e44d0021badc12e8a6))
+* **index:** resolve INDEX to a target reference in reference context ([78f18d3](https://www.github.com/danfma/my-sheet/commit/78f18d3cc006e0810aba4eec06dc77050b4f92f7))
+* **offset:** resolve OFFSET to a target reference; share compute with Evaluate ([e11fedc](https://www.github.com/danfma/my-sheet/commit/e11fedc89b93f01895f76a95d022c943f6cf1910))
+* **parser:** build DynamicRange for non-static ':' endpoints instead of throwing ([1f7df5f](https://www.github.com/danfma/my-sheet/commit/1f7df5f9eb737a5481231e7f6ff881bdffb2bdc9))
+
+### Bug Fixes
+
+* **formula-writer:** render DynamicRange endpoints ([4d5eadf](https://www.github.com/danfma/my-sheet/commit/4d5eadf9697d4070b46061af07be914c3599c385))
+* **index:** normalize range corners when resolving INDEX to a reference ([3de0336](https://www.github.com/danfma/my-sheet/commit/3de0336bcaa1d3aebff97bc5ca0c455f4b2b8dfe))
+* **offset:** compare height/width as doubles to preserve original Evaluate ([aa0d2e3](https://www.github.com/danfma/my-sheet/commit/aa0d2e33169bf64d6205bbf2731ade4db0d1e312))
+* **offset:** preserve specific argument errors when resolving OFFSET ([11ac0ab](https://www.github.com/danfma/my-sheet/commit/11ac0ab3699df068895be7b194d0c66adfb4aefb))
+* **reference-guard:** guard DynamicRange over a missing sheet ([29995f5](https://www.github.com/danfma/my-sheet/commit/29995f51fa6abf4784ca2f96e2b52921c07b0674))
+
 <a name="3.4.1"></a>
 ## [3.4.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.4.1) (2026-07-06)
 
