@@ -463,7 +463,9 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             return open;
         }
 
-        throw new ParseException("The ':' range operator requires cell references", colon.Position);
+        // Endpoints that are not statically resolvable (a reference-returning function like INDEX/OFFSET,
+        // a parenthesised reference) become a DynamicRange, resolved at evaluation time.
+        return new DynamicRange(left, right);
     }
 
     // The sheet a range lives on: the left endpoint's sheet when it carries one, else the right's, else
