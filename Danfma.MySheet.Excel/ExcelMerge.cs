@@ -24,57 +24,51 @@ public static class ExcelMerge
     {
         var orderedSheets = workbook.Sheets.Values.OrderBy(sheet => sheet.Index).ToArray();
 
-        // Evaluate everything up front on one large-stack thread (see ExcelExport for the rationale).
-        var values = Workbook.RunWithLargeStack(() =>
+        // The whole merge runs on one large-stack thread: deep formula chains evaluate safely (see
+        // ExcelExport for the rationale) AND the OpenXML write runs together, so each cell is computed
+        // ON DEMAND at write time — no up-front dictionary duplicating every value (the workbook already
+        // memoizes each value in its own store).
+        Workbook.RunWithLargeStack(() =>
         {
-            var computed = new Dictionary<(string Sheet, string Id), ComputedValue>();
+            using var document = SpreadsheetDocument.Open(path, isEditable: true);
+
+            var workbookPart =
+                document.WorkbookPart
+                ?? throw new InvalidDataException("The document does not contain a workbook part.");
 
             foreach (var sheet in orderedSheets)
             {
-                foreach (var id in sheet.Keys)
+                if (FindWorksheet(workbookPart, sheet.Name) is not { } worksheetPart)
                 {
-                    computed[(sheet.Name, id)] = workbook.GetCellValue(sheet.Name, id);
+                    continue; // the target has no sheet with this name: skipped by design
+                }
+
+                var worksheet = worksheetPart.Worksheet ??= new Worksheet();
+                var sheetData =
+                    worksheet.GetFirstChild<SheetData>() ?? worksheet.AppendChild(new SheetData());
+
+                var orderedCells = sheet
+                    .Select(entry => (entry.Key, Position: CellId.Parse(entry.Key)))
+                    .OrderBy(cell => cell.Position.Row)
+                    .ThenBy(cell => cell.Position.Column);
+
+                foreach (var (id, position) in orderedCells)
+                {
+                    var value = workbook.GetCellValue(sheet.Name, id); // computed on demand, not prebuilt
+
+                    if (value.Kind == ComputedValueKind.Blank)
+                    {
+                        continue; // blanks are not written, leaving the target cell as it was
+                    }
+
+                    var cell = GetOrCreateCell(GetOrCreateRow(sheetData, position.Row), id, position.Column);
+
+                    WriteLiteral(cell, value);
                 }
             }
 
-            return computed;
+            return 0; // RunWithLargeStack exposes only a Func<T> overload; the result is unused
         });
-
-        using var document = SpreadsheetDocument.Open(path, isEditable: true);
-
-        var workbookPart =
-            document.WorkbookPart
-            ?? throw new InvalidDataException("The document does not contain a workbook part.");
-
-        foreach (var sheet in orderedSheets)
-        {
-            if (FindWorksheet(workbookPart, sheet.Name) is not { } worksheetPart)
-            {
-                continue; // the target has no sheet with this name: skipped by design
-            }
-
-            var worksheet = worksheetPart.Worksheet ??= new Worksheet();
-            var sheetData = worksheet.GetFirstChild<SheetData>() ?? worksheet.AppendChild(new SheetData());
-
-            var orderedCells = sheet
-                .Select(entry => (entry.Key, Position: CellId.Parse(entry.Key)))
-                .OrderBy(cell => cell.Position.Row)
-                .ThenBy(cell => cell.Position.Column);
-
-            foreach (var (id, position) in orderedCells)
-            {
-                var value = values[(sheet.Name, id)];
-
-                if (value.Kind == ComputedValueKind.Blank)
-                {
-                    continue; // blanks are not written, leaving the target cell as it was
-                }
-
-                var cell = GetOrCreateCell(GetOrCreateRow(sheetData, position.Row), id, position.Column);
-
-                WriteLiteral(cell, value);
-            }
-        }
     }
 
     private static WorksheetPart? FindWorksheet(WorkbookPart workbookPart, string sheetName)
