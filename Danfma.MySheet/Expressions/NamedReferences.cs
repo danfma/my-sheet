@@ -89,16 +89,12 @@ internal static class NamedReferences
         [NotNullWhen(true)] out Reference? reference
     )
     {
-        if (expression is Reference direct)
-        {
-            reference = direct;
-            return true;
-        }
-
+        // Names resolve through LET scope / defined names below. Everything else — a plain reference
+        // (resolves to itself), a DynamicRange (resolves to its span), a reference-returning function
+        // (INDEX/OFFSET/CHOOSE, resolves to its target) — goes through the virtual.
         if (expression is not NameReference name)
         {
-            reference = null;
-            return false;
+            return expression.TryResolveReference(context, out reference);
         }
 
         // A LET binding shadows a defined name completely: if the name is bound in scope, only a

@@ -345,6 +345,17 @@ public abstract partial record Expression
     public abstract ComputedValue Evaluate(EvaluationContext context);
 
     /// <summary>
+    /// Resolves this expression to its target <see cref="Reference"/> WITHOUT dereferencing a single cell
+    /// to its value (unlike <see cref="Evaluate"/>). Used by the ':' range operator and reference-context
+    /// consumers. Default: not a reference-producing expression.
+    /// </summary>
+    public virtual bool TryResolveReference(EvaluationContext context, out Reference? reference)
+    {
+        reference = null;
+        return false;
+    }
+
+    /// <summary>
     /// Whether this node is intrinsically volatile — a clock or random source (<c>NOW</c>, <c>TODAY</c>,
     /// <c>RAND</c>, <c>RANDBETWEEN</c>) whose value can change between epochs. Pure introspection: the actual
     /// cache/refresh contagion is driven at evaluation time by <see cref="Workbook.MarkVolatileTouched"/>,

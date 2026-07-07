@@ -25,4 +25,7 @@ public sealed partial record NameReference(string Name) : Expression
 
         return ComputedValue.Error(Error.Name);
     }
+
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference) =>
+        NamedReferences.TryResolveReference(this, context, out reference);
 }
