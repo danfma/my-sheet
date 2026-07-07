@@ -8,9 +8,9 @@ public sealed partial record Offset(Expression[] Arguments) : Function
     // OFFSET(reference, rows, cols, [height], [width]) — scalar (single-cell) result only for now.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (!TryComputeTarget(context, out var target))
+        if (TryComputeTarget(context, out var target) is { } error)
         {
-            return ComputedValue.Error(Error.Ref);
+            return ComputedValue.Error(error);
         }
 
         return target is CellReference cell
@@ -19,11 +19,12 @@ public sealed partial record Offset(Expression[] Arguments) : Function
     }
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
-        => TryComputeTarget(context, out reference);
+        => TryComputeTarget(context, out reference) is null;
 
     // Computes OFFSET's target reference (a CellReference for 1x1, else a RangeReference) without
-    // dereferencing. Returns false on any argument/bounds error.
-    private bool TryComputeTarget(EvaluationContext context, out Reference? reference)
+    // dereferencing. Returns null on success (reference set to the target); otherwise the exact
+    // error that should propagate to the caller (reference left null).
+    private Error? TryComputeTarget(EvaluationContext context, out Reference? reference)
     {
         reference = null;
 
@@ -33,30 +34,30 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             || !TryBase(baseReference, out var sheetName, out var baseColumn, out var baseRow)
         )
         {
-            return false;
+            return Error.Ref;
         }
 
-        if (Arguments[1].Evaluate(context).CoerceToNumber(out var rows) is not null)
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var rows) is { } rowsError)
         {
-            return false;
+            return rowsError;
         }
 
-        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columns) is not null)
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columns) is { } columnsError)
         {
-            return false;
+            return columnsError;
         }
 
         var height = 1.0;
         var width = 1.0;
 
-        if (Arguments.Length >= 4 && Arguments[3].Evaluate(context).CoerceToNumber(out height) is not null)
+        if (Arguments.Length >= 4 && Arguments[3].Evaluate(context).CoerceToNumber(out height) is { } e1)
         {
-            return false;
+            return e1;
         }
 
-        if (Arguments.Length >= 5 && Arguments[4].Evaluate(context).CoerceToNumber(out width) is not null)
+        if (Arguments.Length >= 5 && Arguments[4].Evaluate(context).CoerceToNumber(out width) is { } e2)
         {
-            return false;
+            return e2;
         }
 
         var startColumn = baseColumn + (int)columns;
@@ -64,7 +65,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
 
         if (startColumn < 1 || startRow < 1)
         {
-            return false;
+            return Error.Ref;
         }
 
         reference =
@@ -76,7 +77,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                     sheetName
                 );
 
-        return true;
+        return null;
     }
 
     private static bool TryBase(

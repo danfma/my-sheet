@@ -84,6 +84,45 @@ public class TryResolveReferenceTests
     }
 
     [Test]
+    public async Task Offset_MultiCell_ResolvesToRangeReference()
+    {
+        var (workbook, sheet) = Grid();
+        var expr = ExpressionParser.Parse("=OFFSET(A1,0,0,2,2)", sheet);
+
+        var ok = expr.TryResolveReference(new EvaluationContext(workbook), out var reference);
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(reference).IsTypeOf<RangeReference>();
+        var range = (RangeReference)reference!;
+        await Assert.That(range.StartId).IsEqualTo("A1");
+        await Assert.That(range.EndId).IsEqualTo("B2");
+    }
+
+    [Test]
+    public async Task Offset_DivZeroInRowsArgument_EvaluatesToSpecificError()
+    {
+        var (workbook, sheet) = Grid();
+        var expr = ExpressionParser.Parse("=OFFSET(A1,1/0,0)", sheet);
+
+        var result = expr.Evaluate(new EvaluationContext(workbook));
+
+        await Assert.That(result.TryGetError(out var error)).IsTrue();
+        await Assert.That(error).IsEqualTo(Error.DivZero);
+    }
+
+    [Test]
+    public async Task Offset_NonNumericRowsArgument_EvaluatesToSpecificError()
+    {
+        var (workbook, sheet) = Grid();
+        var expr = ExpressionParser.Parse("=OFFSET(A1,\"x\",0)", sheet);
+
+        var result = expr.Evaluate(new EvaluationContext(workbook));
+
+        await Assert.That(result.TryGetError(out var error)).IsTrue();
+        await Assert.That(error).IsEqualTo(Error.Value);
+    }
+
+    [Test]
     public async Task IndexIntoComputedArray_DoesNotResolve()
     {
         var (workbook, sheet) = Grid();
