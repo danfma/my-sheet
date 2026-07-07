@@ -132,4 +132,15 @@ public class DynamicRangeEvaluationTests
         var (wb, sheet) = Grid(("A1", 10), ("A2", 20));
         await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,1.9,1))") as double?).IsEqualTo(10.0);
     }
+
+    // Aspose oracle: a non-positive OFFSET size is #REF! in Excel (height/width of 0, or a fraction that
+    // truncates to 0). Guards against building an invalid "A0" cell id from a zero-size range.
+    [Test]
+    public async Task Offset_NonPositiveHeightWidth_IsRefError()
+    {
+        var (wb, sheet) = Grid(("A1", 10), ("A2", 20));
+        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,0,1))")).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,0.9,1))")).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,1,0))")).IsEqualTo(ErrorValue.Reference);
+    }
 }

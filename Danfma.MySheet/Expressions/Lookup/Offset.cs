@@ -123,6 +123,15 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return Error.Ref;
         }
 
+        // A non-positive size is #REF! in Excel (height/width of 0, or a fraction that truncates to 0).
+        // This also prevents building an invalid cell id like "A0" from a zero-height/width range. (Excel's
+        // negative height/width extends in the opposite direction; that abs+direction case is not modeled
+        // here — a rare form left as #REF! rather than a wrong value.)
+        if (height < 1 || width < 1)
+        {
+            return Error.Ref;
+        }
+
         return null;
     }
 
