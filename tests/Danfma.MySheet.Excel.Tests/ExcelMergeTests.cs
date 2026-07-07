@@ -168,4 +168,32 @@ public class ExcelMergeTests
             File.Delete(path);
         }
     }
+
+    // A target authored with formulas carries a calcChain (xl/calcChain.xml). Merging overrides/drops
+    // formula cells, leaving that calcChain stale — Excel then reports "Removed records: Formula from
+    // calcChain.xml" and shows a repair dialog. The merge must remove the stale calcChain so Excel
+    // rebuilds it silently on open.
+    [Test]
+    public async Task Merge_RemovesStaleCalcChain()
+    {
+        var path = CreateTargetFile(); // Data!A2 is a formula → the authored file has a calcChain
+
+        try
+        {
+            using (var pre = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(path, false))
+            {
+                // Precondition: the authored file really carries a calcChain (else the test is vacuous).
+                await Assert.That(pre.WorkbookPart!.CalculationChainPart).IsNotNull();
+            }
+
+            BuildWorkbook().MergeIntoExcel(path); // overrides Data!A2, dropping its formula
+
+            using var merged = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(path, false);
+            await Assert.That(merged.WorkbookPart!.CalculationChainPart).IsNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

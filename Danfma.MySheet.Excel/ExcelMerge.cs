@@ -58,6 +58,14 @@ public static class ExcelMerge
                 document.WorkbookPart
                 ?? throw new InvalidDataException("The document does not contain a workbook part.");
 
+            // Merging overrides/drops formula cells, so any calcChain the target carried is now stale.
+            // Left in place, Excel reports "Removed records: Formula from /xl/calcChain.xml" and forces a
+            // repair on open. Dropping the part lets Excel rebuild the calc chain cleanly and silently.
+            if (workbookPart.CalculationChainPart is { } calcChain)
+            {
+                workbookPart.DeletePart(calcChain);
+            }
+
             foreach (var sheet in orderedSheets)
             {
                 if (ignored is not null && ignored.Contains(sheet.Name))
