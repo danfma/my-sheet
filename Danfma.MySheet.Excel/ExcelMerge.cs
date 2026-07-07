@@ -19,9 +19,31 @@ namespace Danfma.MySheet.Excel;
 /// </summary>
 public static class ExcelMerge
 {
+    // Shared empty set so the no-argument overload delegates without allocating per call.
+    private static readonly IReadOnlySet<string> NoIgnoredSheets = new HashSet<string>();
+
     /// <summary>Merges in place, editing <paramref name="path"/> directly.</summary>
-    public static void MergeIntoExcel(this Workbook workbook, string path)
+    public static void MergeIntoExcel(this Workbook workbook, string path) =>
+        workbook.MergeIntoExcel(path, NoIgnoredSheets);
+
+    /// <summary>
+    /// Merges in place, skipping any sheet whose name is in <paramref name="ignoredSheets"/>
+    /// (case-insensitive). A skipped sheet is neither evaluated nor written, so the target's copy of
+    /// that sheet is left exactly as it was.
+    /// </summary>
+    public static void MergeIntoExcel(
+        this Workbook workbook,
+        string path,
+        IReadOnlySet<string> ignoredSheets
+    )
     {
+        // Normalize to a case-insensitive lookup regardless of the caller's set comparer, matching the
+        // case-insensitive sheet-name matching used elsewhere in this file. Bounded by sheet count.
+        var ignored =
+            ignoredSheets.Count == 0
+                ? null
+                : new HashSet<string>(ignoredSheets, StringComparer.OrdinalIgnoreCase);
+
         var orderedSheets = workbook.Sheets.Values.OrderBy(sheet => sheet.Index).ToArray();
 
         // The whole merge runs on one large-stack thread: deep formula chains evaluate safely (see
@@ -38,6 +60,11 @@ public static class ExcelMerge
 
             foreach (var sheet in orderedSheets)
             {
+                if (ignored is not null && ignored.Contains(sheet.Name))
+                {
+                    continue; // caller asked to skip this sheet: not evaluated, not written
+                }
+
                 if (FindWorksheet(workbookPart, sheet.Name) is not { } worksheetPart)
                 {
                     continue; // the target has no sheet with this name: skipped by design
