@@ -604,7 +604,8 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
                     || ParseQualifiedReference(second.Text) is not CellReference rightCell
                 )
                 {
-                    throw new ParseException("Expected a cell reference after '!'", first.Position);
+                    // Report at the RIGHT endpoint — that is the malformed side in this branch.
+                    throw new ParseException("Expected a cell reference after '!'", second.Position);
                 }
 
                 return string.Equals(
