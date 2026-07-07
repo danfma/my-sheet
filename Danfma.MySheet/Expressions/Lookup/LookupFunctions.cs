@@ -35,6 +35,23 @@ public sealed partial record Choose(Expression[] Arguments) : Function
             ? ComputedValue.Reference((Reference)chosen)
             : chosen.Evaluate(context);
     }
+
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
+    {
+        reference = null;
+        if (Arguments[0].Evaluate(context).CoerceToNumber(out var index) is not null)
+        {
+            return false;
+        }
+
+        var slot = (int)index;
+        if (slot < 1 || slot >= Arguments.Length)
+        {
+            return false;
+        }
+
+        return Arguments[slot].TryResolveReference(context, out reference);
+    }
 }
 
 [MemoryPackable]

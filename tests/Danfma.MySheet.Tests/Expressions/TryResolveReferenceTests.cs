@@ -134,4 +134,16 @@ public class TryResolveReferenceTests
         await Assert.That(ok).IsFalse();
         await Assert.That(reference).IsNull();
     }
+
+    [Test]
+    public async Task Choose_ResolvesChosenArgumentToReference()
+    {
+        var (workbook, sheet) = Grid();
+        var expr = ExpressionParser.Parse("=CHOOSE(2,A1,B5)", sheet);
+
+        var ok = expr.TryResolveReference(new EvaluationContext(workbook), out var reference);
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(((CellReference)reference!).Id).IsEqualTo("B5");
+    }
 }
