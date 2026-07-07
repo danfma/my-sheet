@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.6.0"></a>
+## [3.6.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.6.0) (2026-07-07)
+
+### Features
+
+* **excel-merge:** add overload to skip a set of sheets during merge ([6f32abe](https://www.github.com/danfma/my-sheet/commit/6f32abe2f967a43df5f225e1c4e05d8fdff3c9fc))
+
 <a name="3.5.0"></a>
 ## [3.5.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.5.0) (2026-07-07)
 
