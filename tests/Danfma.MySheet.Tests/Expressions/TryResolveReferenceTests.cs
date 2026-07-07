@@ -55,6 +55,23 @@ public class TryResolveReferenceTests
     }
 
     [Test]
+    public async Task IndexIntoReversedRange_ResolvesToNormalizedTargetCell()
+    {
+        var (workbook, sheet) = Grid();
+        sheet["A1"] = new NumberValue(10);
+        sheet["A2"] = new NumberValue(20);
+        sheet["A3"] = new NumberValue(30);
+        // A3:A1 is a reversed range: StartId="A3", EndId="A1". Row 1 of the normalized range is A1, not A3.
+        var expr = ExpressionParser.Parse("=INDEX(A3:A1,1,1)", sheet);
+
+        var ok = expr.TryResolveReference(new EvaluationContext(workbook), out var reference);
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(reference).IsTypeOf<CellReference>();
+        await Assert.That(((CellReference)reference!).Id).IsEqualTo("A1");
+    }
+
+    [Test]
     public async Task IndexIntoComputedArray_DoesNotResolve()
     {
         var (workbook, sheet) = Grid();
