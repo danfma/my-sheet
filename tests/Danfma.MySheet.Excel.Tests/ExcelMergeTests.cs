@@ -98,4 +98,74 @@ public class ExcelMergeTests
             File.Delete(reportPath);
         }
     }
+
+    /// <summary>Target: Data!A1=1, Data!A2 formula, Skip!A1="orig".</summary>
+    private static string CreateTargetWithSkipSheet()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-skip-{Guid.NewGuid():N}.xlsx");
+
+        using var target = new XLWorkbook();
+        var data = target.AddWorksheet("Data");
+        data.Cell("A1").Value = 1;
+        data.Cell("A2").FormulaA1 = "A1*10";
+        target.AddWorksheet("Skip").Cell("A1").Value = "orig";
+        target.SaveAs(path);
+
+        return path;
+    }
+
+    /// <summary>Our values: Data!A2 = 5, Skip!A1 = 42 (the value that must NOT land when Skip is ignored).</summary>
+    private static Workbook BuildWorkbookWithSkip()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        data["A2"] = ExpressionParser.Parse("=2+3", data);
+
+        var skip = workbook.Sheets.Add("Skip");
+        skip["A1"] = ExpressionParser.Parse("=42", skip);
+
+        return workbook;
+    }
+
+    [Test]
+    public async Task Merge_WithIgnoredSheet_SkipsIt()
+    {
+        var path = CreateTargetWithSkipSheet();
+
+        try
+        {
+            BuildWorkbookWithSkip().MergeIntoExcel(path, new HashSet<string> { "Skip" });
+
+            using var merged = new XLWorkbook(path);
+
+            // Non-ignored sheet merged as usual.
+            await Assert.That(merged.Worksheet("Data").Cell("A2").GetDouble()).IsEqualTo(5.0);
+            // Ignored sheet untouched: our 42 was NOT written, the target's "orig" stays.
+            await Assert.That(merged.Worksheet("Skip").Cell("A1").GetString()).IsEqualTo("orig");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task Merge_IgnoredSheet_IsCaseInsensitive()
+    {
+        var path = CreateTargetWithSkipSheet();
+
+        try
+        {
+            // Lowercase "skip" must still skip the "Skip" sheet.
+            BuildWorkbookWithSkip().MergeIntoExcel(path, new HashSet<string> { "skip" });
+
+            using var merged = new XLWorkbook(path);
+
+            await Assert.That(merged.Worksheet("Skip").Cell("A1").GetString()).IsEqualTo("orig");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

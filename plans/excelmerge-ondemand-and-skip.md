@@ -121,14 +121,14 @@ grep = 0, on-demand grep = 1. No behavior change. Committed on branch `feat/exce
 ---
 
 ## Phase 2: `MergeIntoExcel` overload that skips a set of sheets
-Status: Not started
+Status: Complete
 
 Add an overload that accepts sheet names to skip. The existing no-arg method delegates to it with
 an empty set, so there is one implementation body.
 
-- [ ] Add a private static empty set to delegate to: `private static readonly IReadOnlySet<string> NoIgnoredSheets = new HashSet<string>();`
-- [ ] Change the no-arg method to delegate: `public static void MergeIntoExcel(this Workbook workbook, string path) => workbook.MergeIntoExcel(path, NoIgnoredSheets);`
-- [ ] Add the overload holding the merge body from Phase 1, with the skip:
+- [x] Add a private static empty set to delegate to: `private static readonly IReadOnlySet<string> NoIgnoredSheets = new HashSet<string>();`
+- [x] Change the no-arg method to delegate: `public static void MergeIntoExcel(this Workbook workbook, string path) => workbook.MergeIntoExcel(path, NoIgnoredSheets);`
+- [x] Add the overload holding the merge body from Phase 1, with the skip:
 
   ```csharp
   /// <summary>Merges in place, skipping any sheet whose name is in <paramref name="ignoredSheets"/>
@@ -173,8 +173,8 @@ an empty set, so there is one implementation body.
   The no-arg method's body becomes the one-line delegation above (do NOT keep a second copy of the
   loop — the overload is the single implementation).
 
-- [ ] Update the `<summary>` XML doc on the class/method to mention the new skip behavior.
-- [ ] Build: `dotnet build Danfma.MySheet.Excel/Danfma.MySheet.Excel.csproj -c Release` — 0 warnings.
+- [x] Update the `<summary>` XML doc on the class/method to mention the new skip behavior.
+- [x] Build: `dotnet build Danfma.MySheet.Excel/Danfma.MySheet.Excel.csproj -c Release` — 0 warnings.
 
 ### Verification Plan
 - Add two TUnit tests to `tests/Danfma.MySheet.Excel.Tests/ExcelMergeTests.cs`:
@@ -184,12 +184,35 @@ an empty set, so there is one implementation body.
 - Full Excel suite green: `dotnet run --project tests/Danfma.MySheet.Excel.Tests/Danfma.MySheet.Excel.Tests.csproj -c Release` → 0 failures.
 
 ### Phase Summary
-_(write when phase completes)_
+Done. Added `MergeIntoExcel(this Workbook, string path, IReadOnlySet<string> ignoredSheets)` holding
+the single merge implementation; the no-arg `MergeIntoExcel(workbook, path)` now delegates to it with
+a shared static empty set (`NoIgnoredSheets`) — one implementation body, no duplication. The overload
+normalizes the input to a `HashSet<string>(…, StringComparer.OrdinalIgnoreCase)` (only when non-empty)
+so skipping is case-insensitive regardless of the caller's set comparer, and the write loop `continue`s
+past any sheet in that set (neither evaluated nor written). Two new TUnit tests added to
+`ExcelMergeTests.cs`: `Merge_WithIgnoredSheet_SkipsIt` (ignored sheet's target cell keeps its original
+value; non-ignored sheet still merges) and `Merge_IgnoredSheet_IsCaseInsensitive` (lowercase `"skip"`
+skips `"Skip"`). **Verification result:** build 0/0; `ExcelMergeTests` 4/4 pass; full Excel suite 26/26
+pass. Both new tests failed to compile before the overload existed (RED confirmed via `CS1501`).
 
 ---
 
 ## Final Recap
-_(write when all phases complete)_
+Both changes landed in `Danfma.MySheet.Excel/ExcelMerge.cs` on branch `feat/excelmerge-ondemand-skip`.
+
+- **Phase 1 (perf):** `MergeIntoExcel` no longer pre-materializes every computed value into a
+  `Dictionary<(Sheet, Id), ComputedValue>`. The whole merge runs inside one `RunWithLargeStack` and
+  each cell is computed on demand at write time, removing a full second copy of all cell values
+  (~one entry per non-blank cell). Output is byte-identical (existing tests unchanged and green).
+- **Phase 2 (feature):** a new `IReadOnlySet<string> ignoredSheets` overload skips named sheets
+  (case-insensitive) during the merge; the no-arg method delegates to it. Skipped sheets are neither
+  evaluated nor written, leaving the target's copies untouched.
+
+Test results: `ExcelMergeTests` 4/4, full `Danfma.MySheet.Excel.Tests` suite 26/26, 0 warnings. Only
+the Excel interop project was touched; the core `Danfma.MySheet` project and its 990-test suite are
+unaffected. Commits: `perf(excel-merge): …` (Phase 1) and `feat(excel-merge): …` (Phase 2).
 
 ## Deployment Plan
-_(write when all phases complete)_
+1. Ensure the branch is green: `dotnet run --project tests/Danfma.MySheet.Excel.Tests/Danfma.MySheet.Excel.Tests.csproj -c Release` → 26/26.
+2. Open a PR to `main` (`gh pr create --base main`). CI's `build-and-test` job must pass (the required status check). Merge via squash (the ruleset requires linear history) once green: `gh pr merge <N> --squash --delete-branch`.
+3. No release step required by these changes; the next `workflow_dispatch` Release will pick them up and bump the version normally (now that the release job pushes with `RELEASE_TOKEN`). No data migration, no config changes.
