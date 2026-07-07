@@ -22,7 +22,15 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
             return false;
         }
 
-        var sheet = start is CellReference sc ? sc.SheetName : ((RangeReference)start!).SheetName;
+        var startSheet = SheetOf(start!);
+        var endSheet = SheetOf(end!);
+
+        // A cross-sheet range (Sheet1!A1:Sheet2!B2) is #REF! in Excel, not a silent resolve against the
+        // start endpoint's sheet. Both endpoints must live on the same sheet.
+        if (!string.Equals(startSheet, endSheet, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
 
         var minColumn = Math.Min(startBox.MinColumn, endBox.MinColumn);
         var minRow = Math.Min(startBox.MinRow, endBox.MinRow);
@@ -32,7 +40,7 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
         reference = new RangeReference(
             new CellAddress(minColumn, minRow).ToId(),
             new CellAddress(maxColumn, maxRow).ToId(),
-            sheet);
+            startSheet);
         return true;
     }
 
@@ -43,6 +51,11 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
         TryResolveReference(context, out var reference)
             ? ComputedValue.Reference(reference!)
             : ComputedValue.Error(Error.Ref);
+
+    // The sheet a resolved endpoint lives on. TryBox only accepts CellReference/RangeReference, so those
+    // are the only shapes reaching here.
+    private static string SheetOf(Reference reference) =>
+        reference is CellReference cell ? cell.SheetName : ((RangeReference)reference).SheetName;
 
     private readonly record struct Box(int MinColumn, int MinRow, int MaxColumn, int MaxRow);
 

@@ -166,7 +166,7 @@ existing OFFSET tests unchanged (integer args → identical); full core suite 99
 ---
 
 ## Phase 3: Cross-sheet `:` yields #REF!
-Status: Not started
+Status: Complete
 
 Two sub-cases (see the parser analysis): the **dynamic** case is the real silent bug; the **static
 both-qualified** case already errors (a `ParseException`) and only differs from Excel cosmetically.
@@ -193,12 +193,34 @@ throws `ParseException` because the second endpoint (`Sheet2`) is not a bare cel
 - Full core suite green (990 + new).
 
 ### Phase Summary
-_(write when phase completes)_
-
----
+Done — both 3a and 3b landed (3b did not destabilize; it also fixed a pre-existing bug).
+- **3a:** `DynamicRange.TryResolveReference` now extracts both endpoints' sheets and returns false (→ `#REF!`)
+  when they differ. Because the error-ignoring COUNT family would otherwise treat that `#REF!` as an empty
+  range (return 0), `ReferenceGuard`'s `DynamicRange` case now returns `Error.Ref` when the range cannot form
+  a concrete reference (cross-sheet / open / array endpoint), so COUNT/SUM short-circuit to `#REF!` up front.
+- **3b:** `ParseQualifiedReference`'s `:` branch now detects a sheet-qualified RIGHT endpoint (a `!` follows
+  the second token) and parses it as its own qualified reference. Same sheet → a plain `RangeReference`
+  (this fixes `Sheet1!A1:Sheet1!B2`, which previously threw `Unexpected token '!'`); different sheets →
+  a `DynamicRange` that 3a resolves to `#REF!`. The common `Sheet1!A1:B2` and all other range forms are
+  unchanged.
+- Rewrote `CountFamily_DynamicRangeOverMissingSheet_IsRefError` to put BOTH endpoints on the missing sheet
+  (so it tests missing-sheet, not cross-sheet); added `DynamicRange_CrossSheetEndpoints_IsRefError`,
+  `StaticCrossSheetQualifiedRange_IsRefError`, `StaticSameSheetQualifiedRange_Resolves`.
+- **Verification:** parse repros — `Sheet1!A1:Sheet2!B2`→DynamicRange, `Sheet1!A1:Sheet1!B2`→RangeReference,
+  `Sheet1!A1:B2`/`A1:B2`/`$D:$D` unchanged; full core suite 1001/1001; Excel interop 26/26.
 
 ## Final Recap
-_(write when all phases complete)_
+Three Excel-compatibility follow-ups landed on branch `feat/expression-followups`, one commit per phase:
+1. **INDIRECT** (`feat`): new volatile `Indirect` function (A1-style; runtime-parses ref_text; single-cell →
+   value, range → reference; works as a `:` endpoint; `a1=FALSE`/malformed/unknown-sheet → `#REF!`). Tag 318.
+2. **OFFSET truncation** (`fix`): height/width truncated toward zero like Excel (Aspose-verified).
+3. **Cross-sheet `:`** (`feat`): cross-sheet ranges → `#REF!` (dynamic guard + COUNT-family short-circuit),
+   and sheet-qualified right endpoints parse (same-sheet range fixed, cross-sheet → `#REF!`).
+
+Test results: core suite **1001/1001**, Excel interop **26/26**, 0 warnings. Only `Danfma.MySheet` +
+its test project changed. Excel-subtle values verified against Aspose.Cells.
 
 ## Deployment Plan
-_(write when all phases complete)_
+1. Green gate: `dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` → 1001/1001; Excel suite → 26/26.
+2. PR to `main`; CI `build-and-test` must pass (required status check). Squash-merge (linear history) once green.
+3. Serialization note: a new MemoryPack union tag (318 = `Indirect`) is additive — old `.mysheet` files load unaffected; new files containing an `Indirect` node are forward-only. No migration, no config change. The next `workflow_dispatch` Release picks these up and bumps the version normally.

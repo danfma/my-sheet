@@ -79,15 +79,49 @@ public class DynamicRangeEvaluationTests
     }
 
     // Regression: ReferenceGuard.MissingSheet must guard a DynamicRange too, same as it does a plain
-    // reference/NameReference argument. Sheet2 does not exist in this workbook (only "Sheet1" is added by
-    // Grid()) — the dynamic range INDEX(Sheet2!A1:A3,2):A5 resolves structurally (INDEX/DynamicRange don't
-    // themselves check sheet existence) to a range on the missing sheet. Before the fix, COUNT's
-    // error-ignoring fold silently enumerated zero cells and returned 0; it must short-circuit to #REF!.
+    // reference/NameReference argument. BOTH endpoints are on Sheet2 (which does not exist — Grid() adds
+    // only "Sheet1"), so this exercises the MISSING-sheet guard, not the cross-sheet guard. The dynamic
+    // range resolves structurally to a range on the missing sheet; COUNT must short-circuit to #REF!
+    // rather than silently enumerating zero cells and returning 0.
     [Test]
     public async Task CountFamily_DynamicRangeOverMissingSheet_IsRefError()
     {
         var (wb, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
+        await Assert.That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):Sheet2!A5)")).IsEqualTo(ErrorValue.Reference);
+    }
+
+    // Cross-sheet ':' is #REF! in Excel: Sheet2 EXISTS here, so this is not a missing-sheet case — the
+    // endpoints simply live on different sheets (INDEX target on Sheet2, A5 on Sheet1), which Excel rejects.
+    [Test]
+    public async Task DynamicRange_CrossSheetEndpoints_IsRefError()
+    {
+        var (wb, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
+        var other = wb.Sheets.Add("Sheet2");
+        other["A1"] = new NumberValue(9);
+        other["A2"] = new NumberValue(9);
+        other["A3"] = new NumberValue(9);
+
         await Assert.That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):A5)")).IsEqualTo(ErrorValue.Reference);
+        // Same-sheet control still resolves (both endpoints on Sheet1).
+        await Assert.That(Calc(wb, sheet, "=SUM(INDEX(A1:A3,2):A3)") as double?).IsEqualTo(5.0);
+    }
+
+    // Static both-qualified cross-sheet range Sheet1!A1:Sheet2!B2 is #REF! in Excel (both sheets exist
+    // here). Previously the parser threw; now it builds a DynamicRange that resolves cross-sheet → #REF!.
+    [Test]
+    public async Task StaticCrossSheetQualifiedRange_IsRefError()
+    {
+        var (wb, sheet) = Grid(("A1", 1));
+        wb.Sheets.Add("Sheet2")["B2"] = new NumberValue(9);
+        await Assert.That(Calc(wb, sheet, "=SUM(Sheet1!A1:Sheet2!B2)")).IsEqualTo(ErrorValue.Reference);
+    }
+
+    // Static both-qualified SAME-sheet range Sheet1!A1:Sheet1!A3 is a valid range (previously threw).
+    [Test]
+    public async Task StaticSameSheetQualifiedRange_Resolves()
+    {
+        var (wb, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
+        await Assert.That(Calc(wb, sheet, "=SUM(Sheet1!A1:Sheet1!A3)") as double?).IsEqualTo(6.0);
     }
 
     // Aspose oracle: Excel truncates OFFSET height/width toward zero, so OFFSET(A1,0,0,1.9,1) is a
