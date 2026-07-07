@@ -72,6 +72,18 @@ public class TryResolveReferenceTests
     }
 
     [Test]
+    public async Task Offset_ResolvesToTargetCell()
+    {
+        var (workbook, sheet) = Grid();
+        var expr = ExpressionParser.Parse("=OFFSET(A1,1,0)", sheet);
+
+        var ok = expr.TryResolveReference(new EvaluationContext(workbook), out var reference);
+
+        await Assert.That(ok).IsTrue();
+        await Assert.That(((CellReference)reference!).Id).IsEqualTo("A2");
+    }
+
+    [Test]
     public async Task IndexIntoComputedArray_DoesNotResolve()
     {
         var (workbook, sheet) = Grid();
