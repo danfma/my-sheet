@@ -203,4 +203,20 @@ public class FormulaWriterTests
 
         await Assert.That(failures).IsEmpty();
     }
+
+    // A DynamicRange (reference-returning endpoints, e.g. INDEX(...) as the ':' left operand) must render
+    // through FormulaWriter instead of throwing NotSupportedException, and the written text must re-parse
+    // to an equivalent DynamicRange.
+    [Test]
+    public async Task DynamicRange_RoundTrips()
+    {
+        var expression = Parse("INDEX($D:$D,2):$D1");
+        await Assert.That(expression).IsTypeOf<DynamicRange>();
+
+        var written = expression.ToFormula(ContextSheet);
+        await Assert.That(written).Contains(":");
+
+        var reparsed = Parse(written);
+        await Assert.That(reparsed).IsTypeOf<DynamicRange>();
+    }
 }

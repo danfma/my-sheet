@@ -102,6 +102,12 @@ public static class FormulaWriter
                 builder.Append(name.Name);
                 break;
 
+            case DynamicRange dyn:
+                Write(builder, dyn.Start, context, AtomPrecedence);
+                builder.Append(':');
+                Write(builder, dyn.End, context, AtomPrecedence);
+                break;
+
             case UnaryOperation { Operator: UnaryOperator.Percent } percent:
                 Write(builder, percent.Operand, context, PercentPrecedence);
                 builder.Append('%');
