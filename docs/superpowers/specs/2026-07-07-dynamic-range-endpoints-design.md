@@ -145,6 +145,21 @@ destructive version bump.
 - **Recursion.** Resolving a function endpoint may evaluate sub-expressions; reuse the
   existing evaluation cycle guard so a self-referential range degrades to `#REF!`.
 
+## Excel compatibility (acceptance criterion)
+
+Excel behaviour is the acceptance bar. Where the correct result is subtle, it is not
+taken from memory: **`Aspose.Cells` (already referenced in `external/BenchExpressions`)
+is an Excel-compatible engine and is used as the oracle** — the same formula is computed
+in Aspose to derive the expected value, which is then baked as a constant into the TDD
+test (so the committed test has no runtime Aspose dependency). Corners pinned this way:
+
+1. **Corner rule** — `ref1:ref2` = smallest rectangle bounding both references; verify
+   `B2:A1 == A1:B2` and mixed cell/range endpoints.
+2. **Array-form INDEX as an endpoint** — e.g. `INDEX({1,2,3},2):A1`; confirm Excel's
+   `#REF!` (our array path returns false → `#REF!`).
+3. **Cross-sheet `:`** — `Sheet1!A1:Sheet2!B2`; match Excel's error behaviour rather than
+   silently using `Start`'s sheet.
+
 ## Testing (TDD)
 
 RED first, from the confirmed repros, then semantics, then regression.
