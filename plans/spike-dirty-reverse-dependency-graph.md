@@ -382,7 +382,14 @@ valor + fórmula + conversões literal↔fórmula, cada lote BIT-IDÊNTICO a `In
 `StructureRebuilt` conferido contra a mudança real da versão. `RecalculationEngineTests` (10 testes): o caso
 definitivo de re-wiring (editar a fórmula de B1 de `=A1` para `=A2`, depois editar A2 e ver B1 seguir, e editar
 A1 e ver B1 NÃO reagir), bump da versão, cross-sheet, união, ciclo (não trava), add/remove de sheet, overflow,
-collect-outputs, value-edit-sem-rebuild. Suite total: **1043/1043 verde** (+11).
+collect-outputs, value-edit-sem-rebuild.
+
+**Segundo workload (shape diferente do K1).** `CrossSheetFormulaEditEquivalenceTests`: uma MALHA de 4 sheets
+(Raw→Calc→Agg→Report) com dependências cross-sheet pesadas, cadeias profundas atravessando sheets, ranges
+fechados + coluna ABERTA cross-sheet, UNIÃO cross-sheet e ramos de IF. O mesmo portão (80 lotes misturando
+valor + fórmula + re-wiring CROSS-SHEET + conversões literal↔fórmula) passa bit-idêntico. O K1 prova a escala
+(566k, uma coluna quente); este prova a diversidade estrutural (malha multi-sheet) — juntos fecham a evidência
+de corretude que estava sobre um único workbook. Suite total: **1044/1044 verde** (+12).
 
 **Custo medido (K1, 566k).** Edição de VALOR típica: ~0.25ms (cone mediano 4 células) — inalterado. Edição de
 FÓRMULA: ~840ms — o custo é reconstruir o grafo (~801ms build) + o recompute parcial; `StructureRebuilt=true`,
