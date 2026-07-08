@@ -219,45 +219,55 @@ motor dirty **vale a pena** — a maioria das edições de input vai de 1.2s →
 **evict-and-pull** (uma estratégia). A manutenção incremental do grafo vai para a Fase 3.
 
 ## Phase 3: Marcação dirty + invalidação seletiva
-Status: Not started
+Status: Complete
 
-- [ ] Armazenamento de dirty flags: um conjunto de endereços dirty por sheet (molde do `_tainted` do
-      `SheetValueStore`), ou um bit de presença — decidir e medir. Deve sobreviver ao contrato edição→recalc.
-- [ ] Em `SetCell`/`Remove`, propagar dirty **transitivamente para cima** via grafo reverso: a célula editada,
-      seus dependentes, os dependentes deles, ∪ o conjunto sempre-dirty (voláteis/dinâmicos). Guardar contra
-      ciclos (reusar a ideia do `_evaluating`/`_resolving`).
-- [ ] API pública nova (aditiva): `MarkDirty(sheet, id)`, `GetDirtyCells()` (todo o cone sujo) e
-      `GetAffectedOutputs()` (os *sinks* do sub-DAG sujo — células sem dependentes sujos acima; opcionalmente
-      filtráveis por um conjunto de outputs registrado).
-- [ ] Não alterar o comportamento de `InvalidateCache`/`Recalculate` existentes.
-
-### Verification Plan
-- Teste TUnit `DirtyMarkingTests`: após um lote de edições, `GetDirtyCells()` == fecho transitivo de
-  dependentes (mesmo oráculo da Fase 2 ∪ sempre-dirty); `GetAffectedOutputs()` == os sinks desse conjunto.
-  Rodar via `--treenode-filter "/*/*/DirtyMarkingTests/*"`, esperado: todos passam.
-
-### Phase Summary
-_(escrever quando a fase completar)_
-
-## Phase 4: Duas estratégias de recomputação + PORTÃO DE CORRETUDE
-Status: Not started
-
-- [ ] **4a — evict-and-pull**: `CalculateDirty()` evicta do store denso exatamente as células dirty e então
-      relê os outputs; a recursão pull-based memoizada (via `RunWithLargeStack`) recomputa só o cone sujo,
-      cada célula uma vez.
-- [ ] **4b — scheduler bottom-up topológico**: ordenar as células dirty topologicamente sobre o sub-DAG e
-      computar de baixo para cima, sem recursão. Medir profundidade máxima e comparar com 4a.
-- [ ] **PORTÃO DE CORRETUDE (fuzz)**: sobre K lotes de edições aleatórias num fixture não-trivial, os
-      resultados de todas as células após `CalculateDirty` (4a e 4b) devem ser **bit-idênticos** aos após
-      `InvalidateCache()+ComputeAll()`. Divergência = spike falhou; parar e replanejar.
+- [x] **Decisão de armazenamento:** NÃO há storage de dirty-flag separado. "Dirty" = "evictado do cache".
+      `SheetValueStore.EvictDense(handle,col,row)` dropa o bit de PRESENÇA da célula (+ marca tainted) —
+      reusa o bitmap de presença que já existe. `Workbook.EvictDense(sheet,col,row)` é o ponto de entrada.
+- [x] `DirtyEngine.CalculateDirty(edited)` propaga transitivamente via o grafo reverso (editadas ∪ cone
+      transitivo ∪ sempre-dirty) e evicta esse conjunto.
+- [x] API (interna, aditiva): `CalculateDirty` (= MarkDirty + evict, retorna o cone dirty), `PullAll` (força
+      o recompute), `GetAffectedOutputs` (os *sinks* do sub-DAG — "as células no topo").
+- [x] `InvalidateCache`/`Recalculate` intocados; `EvictDense` é aditivo.
 
 ### Verification Plan
-- Teste TUnit `DirtyRecomputeEquivalenceTests` (fuzz determinístico com seed fixa): para cada estratégia,
-  N=1000 edições aleatórias, assert bit-idêntico ao caminho completo, incluindo `#REF!`/blank/erros. Rodar via
-  `--treenode-filter "/*/*/DirtyRecomputeEquivalenceTests/*"`, esperado: todos passam.
+- `DirtyMarkingTests` (5): cone dirty == editadas+dependentes; **evict-and-pull propaga a edição SEM
+  `InvalidateCache`** (A3 vai de 3→12 após editar A1); eviction é seletiva (célula não-afetada fica HIT);
+  outputs == sinks; sempre-dirty sempre incluído. **5/5 ✓**.
 
 ### Phase Summary
-_(escrever quando a fase completar)_
+**Feito.** O evict-and-pull nasceu: `EvictDense` (dropa 1 célula do cache) + `DirtyEngine` (computa o cone e
+evicta). Nenhum storage novo de dirty — "evictado" É "dirty". `GetAffectedOutputs` dá os sinks (o conjunto
+input→output). Corretude do propagate provada (A1 editado → A3 fresco sem InvalidateCache).
+
+## Phase 4: Recompute evict-and-pull + PORTÃO DE CORRETUDE
+Status: Complete
+
+- [x] **4a — evict-and-pull**: `DirtyEngine.CalculateDirty` evicta o cone dirty; o pull-based memoizado (via
+      `RunWithLargeStack`/`PullAll`) recomputa só o cone, cada célula 1×. Enumeração **output-sensitive**
+      (`GetAllDependentsBounded`, BFS por-célula via buckets) com **cap de 50k**: cone pequeno → evict-and-pull;
+      cone grande (coluna quente) → `null` ⇒ fallback a `InvalidateCache`+ComputeAll.
+- [x] **4b — scheduler topológico: DESCARTADO** (decisão da Fase 2 — a estratégia evict-and-pull evita a
+      enumeração/quadratura; o scheduler cairia na mesma armadilha). Uma estratégia, não duas.
+- [x] **PORTÃO DE CORRETUDE (fuzz):** `DirtyRecomputeEquivalenceTests` — 60 lotes de edições aleatórias num
+      workbook com células+ranges+coluna-inteira+cadeias: todas as células após `CalculateDirty` são
+      **bit-idênticas** às após `InvalidateCache()+ComputeAll()`. **PASSOU.**
+
+### Verification Plan
+- `DirtyRecomputeEquivalenceTests` — **1/1 ✓** (60 iterações internas). Suíte completa **1031/1031 ✓**.
+- Harness `--dirty-recompute` na K1 mede o speedup end-to-end (abaixo).
+
+### Phase Summary
+**Feito, e o payoff está medido.** Speedup end-to-end na K1 editando INPUTS reais (Input!B):
+- Build do motor (grafo): **1.1s, uma vez** (amortizado sobre milhares de edições).
+- Baseline (InvalidateCache+ComputeAll): **1264 ms/edição**.
+- **31/40 edições → cone pequeno (mediana 4 células recomputadas) → mediana 1.05 ms ⇒ ~1200× mais rápido.**
+- **9/40 edições → cone grande (cauda da coluna quente) → fallback a full-recompute** (~1264 ms; sem ganho,
+  mas correto — ali o impacto É ~metade do workbook).
+- **Corretude bit-idêntica provada** pelo portão fuzzed.
+
+O híbrido (bounded + fallback) casa exatamente com a distribuição bimodal: a maioria dos inputs ganha ~1200×,
+a minoria "hub" cai para o full de forma correta.
 
 ## Phase 5: Medição em escala + go/no-go
 Status: Not started

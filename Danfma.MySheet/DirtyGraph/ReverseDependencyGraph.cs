@@ -305,6 +305,45 @@ internal sealed class ReverseDependencyGraph
                 .Count > 0;
     }
 
+    /// <summary>
+    /// Variante OUTPUT-SENSITIVE do fecho transitivo, para o evict-and-pull: BFS por-célula via os buckets
+    /// (<see cref="CollectDirectDependents"/>), cujo custo acompanha o tamanho do cone — rápido para o caso
+    /// comum (cone pequeno). Retorna <c>null</c> assim que o cone excede <paramref name="cap"/> — o sinal de
+    /// "cone grande demais (ex.: alcançou a coluna quente); o caller deve full-recomputar", já que ali o
+    /// impacto É grande e a BFS por-célula degradaria. NÃO inclui as fontes.
+    /// </summary>
+    public HashSet<CellDep>? GetAllDependentsBounded(IEnumerable<CellDep> sources, int cap)
+    {
+        var affected = new HashSet<CellDep>();
+        var frontier = new Queue<CellDep>();
+        foreach (var source in sources)
+        {
+            frontier.Enqueue(source);
+        }
+
+        var next = new List<CellDep>();
+        while (frontier.Count > 0)
+        {
+            var current = frontier.Dequeue();
+            next.Clear();
+            CollectDirectDependents(current, next);
+
+            foreach (var dependent in next)
+            {
+                if (affected.Add(dependent))
+                {
+                    if (affected.Count > cap)
+                    {
+                        return null; // cone grande → deixa o caller full-recomputar
+                    }
+                    frontier.Enqueue(dependent);
+                }
+            }
+        }
+
+        return affected;
+    }
+
     private static bool RowContains(in RangeDep range, int row) =>
         (range.RowMin is not { } rMin || row >= rMin)
         && (range.RowMax is not { } rMax || row <= rMax);

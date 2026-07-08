@@ -26,6 +26,13 @@ if (args.Contains("--dep-graph"))
     return;
 }
 
+// Speedup end-to-end do evict-and-pull na K1 (Fase 4): `dotnet run -c Release -- --dirty-recompute`.
+if (args.Contains("--dirty-recompute"))
+{
+    DirtyGraphHarness.RunDirtyRecompute();
+    return;
+}
+
 // Wall-clock harness da escala de coluna inteira (Fase 0): `dotnet run -c Release -- --whole-column-scale [--full]`.
 if (args.Contains("--whole-column-scale"))
 {

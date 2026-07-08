@@ -268,6 +268,128 @@ internal static class DirtyGraphHarness
         );
     }
 
+    // Fase 4: mede o SPEEDUP end-to-end do evict-and-pull (CalculateDirty + pull) vs o baseline
+    // (InvalidateCache + ComputeAll), editando INPUTS reais (Input!B) — o caso "dado inputs → outputs".
+    public static void RunDirtyRecompute()
+    {
+        var fixturePath = FindFixture();
+        if (fixturePath is null)
+        {
+            Console.Error.WriteLine("Fixture samples/k1.myxl não encontrado.");
+            return;
+        }
+
+        Console.WriteLine("=== Dirty-graph spike — Fase 4 (evict-and-pull, speedup real) ===");
+        var workbook = Workbook.Load(fixturePath);
+        workbook.ComputeAll(); // aquece
+
+        var swBuild = Stopwatch.StartNew();
+        var engine = DirtyEngine.Build(workbook);
+        swBuild.Stop();
+        Console.WriteLine(
+            $"Build do motor (grafo), amortizado: {swBuild.Elapsed.TotalMilliseconds:F0} ms (1×)"
+        );
+
+        if (!workbook.TryGetSheet("Input", out var input))
+        {
+            Console.Error.WriteLine("Sheet Input ausente.");
+            return;
+        }
+        var inputRows = Math.Max(1, input.Count / 3);
+        var rng = new Random(20260708);
+
+        // Baseline (input edit → InvalidateCache → ComputeAll), poucas amostras p/ referência.
+        double baselineMs = 0;
+        const int baseN = 3;
+        for (var i = 0; i < baseN; i++)
+        {
+            var r = rng.Next(1, inputRows + 1);
+            var original = input[$"B{r}"];
+            var (ms, _) = Measure(() =>
+            {
+                input[$"B{r}"] = new NumberValue(rng.Next(1, 1000));
+                workbook.InvalidateCache();
+                workbook.ComputeAll();
+            });
+            baselineMs += ms;
+            input[$"B{r}"] = original;
+            workbook.InvalidateCache();
+            workbook.ComputeAll();
+        }
+        baselineMs /= baseN;
+        Console.WriteLine(
+            $"Baseline por edição de input (InvalidateCache+ComputeAll): {baselineMs:F0} ms"
+        );
+        Console.WriteLine();
+
+        // Dirty (evict-and-pull) por edição de input.
+        const int n = 40;
+        var smallMs = new List<double>();
+        var smallCone = new List<int>();
+        var fullFallback = 0;
+
+        for (var k = 0; k < n; k++)
+        {
+            var r = rng.Next(1, inputRows + 1);
+            var addr = new CellDep("Input", 2, r);
+            var original = input[$"B{r}"];
+
+            input[$"B{r}"] = new NumberValue(rng.Next(1, 1000));
+            var sw = Stopwatch.StartNew();
+            var dirty = engine.CalculateDirty([addr]);
+            if (dirty is null)
+            {
+                workbook.ComputeAll(); // cone grande → full-recompute (fallback)
+                sw.Stop();
+                fullFallback++;
+            }
+            else
+            {
+                engine.PullAll(dirty);
+                sw.Stop();
+                smallMs.Add(sw.Elapsed.TotalMilliseconds);
+                smallCone.Add(dirty.Count);
+            }
+
+            // restaura (não medido)
+            input[$"B{r}"] = original;
+            var reset = engine.CalculateDirty([addr]);
+            if (reset is null)
+            {
+                workbook.ComputeAll();
+            }
+            else
+            {
+                engine.PullAll(reset);
+            }
+        }
+
+        Console.WriteLine($"Evict-and-pull por edição de input (N={n}):");
+        Console.WriteLine($"  cone PEQUENO (evict-and-pull): {smallMs.Count}/{n} edições");
+        Console.WriteLine(
+            $"  cone GRANDE (fallback full-recompute): {fullFallback}/{n} edições (cauda da coluna quente)"
+        );
+        if (smallMs.Count > 0)
+        {
+            smallMs.Sort();
+            smallCone.Sort();
+            var medMs = smallMs[smallMs.Count / 2];
+            Console.WriteLine(
+                $"  cone pequeno — células recomputadas: mediana {smallCone[smallCone.Count / 2]:N0} | max {smallCone[^1]:N0}"
+            );
+            Console.WriteLine(
+                $"  cone pequeno — tempo: mediana {medMs:F2} ms | média {smallMs.Average():F2} ms | max {smallMs.Max():F2} ms"
+            );
+            Console.WriteLine(
+                $"  SPEEDUP (mediana) vs baseline {baselineMs:F0} ms: ~{baselineMs / Math.Max(medMs, 0.001):F0}×"
+            );
+        }
+        Console.WriteLine();
+        Console.WriteLine(
+            "Corretude do evict-and-pull provada no teste DirtyRecomputeEquivalenceTests (bit-idêntico ao full)."
+        );
+    }
+
     // Memória gerenciada viva após GC full + compactação de LOH (o delta de load deixa buffers grandes na
     // LOH que, sem compactar, tornam GetTotalMemory ruidoso — daí o número negativo antes).
     private static long SettledMemory()
