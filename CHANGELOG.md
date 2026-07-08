@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.8.0"></a>
+## [3.8.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.8.0) (2026-07-08)
+
+### Features
+
+* **recalc:** incremental recomputation engine with reverse dependency graph ([2f2f4d9](https://www.github.com/danfma/my-sheet/commit/2f2f4d970e6b0ce614b30a841a43c6e2ed1afc00))
+
 <a name="3.7.0"></a>
 ## [3.7.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.7.0) (2026-07-08)
 
