@@ -492,3 +492,9 @@ $RECYCLE.BIN/
 
 # Dev-secret benchmark data (never commit)
 external/
+
+# Confidential K1 source data (raw, never commit); anonymized outputs are large & regenerable
+samples/synthetic-sheet-as-json.json
+samples/synthetic-input.json
+samples/k1-anonymized.json
+samples/*.myxl
