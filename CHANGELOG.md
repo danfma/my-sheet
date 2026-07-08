@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.7.0"></a>
+## [3.7.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.7.0) (2026-07-08)
+
+### Features
+
+* **functions:** implement INDIRECT (A1-style, volatile, works as a ':' endpoint) ([7c65c58](https://www.github.com/danfma/my-sheet/commit/7c65c58762a091e3c903811b3eccba97ad563e2f))
+* **parser:** cross-sheet ':' ranges yield #REF!; sheet-qualified right endpoints parse ([0bcf3a5](https://www.github.com/danfma/my-sheet/commit/0bcf3a57132a1fb9dc1444797c3b4acc7da926d0))
+
+### Bug Fixes
+
+* **excel-merge:** drop stale calcChain so Excel does not force a repair ([b09290b](https://www.github.com/danfma/my-sheet/commit/b09290b88aaed93815de0c8ba8627aac9e0c0222))
+* **formula-writer:** render INDIRECT so ToFormula/FORMULATEXT/SaveAsExcel round-trip ([935aed0](https://www.github.com/danfma/my-sheet/commit/935aed095002ccde2a3ef8e0cefdfff90537ca1d))
+* **offset:** non-positive height/width is #REF!; report ':' endpoint error at the right side ([2f3804b](https://www.github.com/danfma/my-sheet/commit/2f3804bf4ebdaec7d6a3842086d27378165bc90b))
+* **offset:** truncate height/width toward zero to match Excel ([4cf68e1](https://www.github.com/danfma/my-sheet/commit/4cf68e19e91e923694deb1b2941b405539143a1c))
+
 <a name="3.6.0"></a>
 ## [3.6.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.6.0) (2026-07-07)
 
