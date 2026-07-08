@@ -447,6 +447,19 @@ public sealed partial class Workbook
     internal int ResolveDenseHandle(string sheetName) => ValueStore.HandleFor(sheetName);
 
     /// <summary>
+    /// Spike (dirty-graph): evicts one dense cell from the memoized cache so the next read recomputes it —
+    /// the selective invalidation the evict-and-pull path uses instead of <see cref="InvalidateCache"/>.
+    /// No-op if the value store has not been created yet. Internal — not host API.
+    /// </summary>
+    internal void EvictDense(string sheetName, int column, int row)
+    {
+        if (_valueStore is { } store)
+        {
+            store.EvictDense(store.HandleFor(sheetName), column, row);
+        }
+    }
+
+    /// <summary>
     /// The numeric-address twin of <see cref="GetCellValue(string,string)"/> for range expansion: given a
     /// pre-resolved sheet <paramref name="handle"/> (from <see cref="ResolveDenseHandle"/>) and a 1-based
     /// <paramref name="column"/>/<paramref name="row"/>, returns the memoized value with IDENTICAL semantics to
@@ -615,6 +628,15 @@ public sealed partial class Workbook
     }
 
     /// <summary>
+    /// Creates a <see cref="RecalculationEngine"/> over this workbook: a reverse dependency graph that turns a
+    /// set of edited cells into just the affected cone (evict-and-pull) instead of a whole-workbook
+    /// <see cref="InvalidateCache"/>, and answers which outputs a set of inputs affects. Build it AFTER the
+    /// workbook is populated (typically after a first <see cref="ComputeAll"/>); it tracks structural edits so a
+    /// FORMULA change rebuilds the graph transparently while value edits stay on the cheap path.
+    /// </summary>
+    public RecalculationEngine CreateRecalculationEngine() => new(this);
+
+    /// <summary>
     /// Eagerly evaluates every cell in the workbook, filling the memoization cache so later reads (and a
     /// warm <see cref="Save(string, WorkbookSaveOptions)"/>) hit already-computed values instead of
     /// evaluating lazily. This is the eager counterpart to on-demand <see cref="GetCellValue"/> — the
@@ -764,7 +786,11 @@ public sealed partial class Workbook
         );
 
         return compress
-            ? BuildContainer(ContainerVersionBrotli, model, BrotliCompress(model, values, options.CompressionLevel))
+            ? BuildContainer(
+                ContainerVersionBrotli,
+                model,
+                BrotliCompress(model, values, options.CompressionLevel)
+            )
             : BuildContainer(ContainerVersionUncompressed, model, Concat(model, values));
     }
 
@@ -1075,6 +1101,20 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     /// side-effect-free peek (never creates or builds). Test/introspection only.</summary>
     internal SheetStructuralIndex? PeekStructuralIndex() => _structuralIndex;
 
+    // Monotonic counter of STRUCTURAL edits (a formula added/removed/changed) on this sheet, maintained by the
+    // SetCell/Remove choke point. It bumps only when the dependency STRUCTURE can change — a formula on either
+    // side of the edit — NOT for a pure value edit (literal↔literal). The reverse dependency graph
+    // (RecalculationEngine) snapshots it per-sheet to know when its graph went stale and must be rebuilt, so a
+    // FORMULA edit at runtime stays correct while value edits keep the cheap evict-and-pull path. Runtime-only
+    // ([MemoryPackIgnore]): a loaded workbook starts at 0 and any engine built after Load rebuilds from the
+    // current state anyway. Single-thread edit contract (same as the structural index), so a plain increment.
+    [MemoryPackIgnore]
+    private long _structuralVersion;
+
+    /// <summary>The count of structural (formula-shape) edits this sheet has seen; the reverse dependency graph
+    /// uses it to detect that it went stale. Internal — part of the recalculation contract, not host API.</summary>
+    internal long StructuralVersion => _structuralVersion;
+
     [MemoryPackIgnore]
     public int Count => _cells.Count;
 
@@ -1098,6 +1138,27 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     /// </summary>
     internal void SetCell(string id, Expression expr)
     {
+        // Structural-change detection for the reverse dependency graph: a formula on EITHER side of the edit can
+        // change the dependency structure (new formula adds edges; overwriting a formula changes/removes them),
+        // so bump the version. A literal↔literal edit (the common input-value case) leaves the structure intact
+        // and does NOT bump — that keeps the fast evict-and-pull path. The peek for the old value is only paid
+        // when the NEW value is a literal (the else-branch below); a formula write short-circuits it, so bulk
+        // formula loading stays a single store lookup.
+        if (expr is not ValueExpression)
+        {
+            unchecked
+            {
+                _structuralVersion++;
+            }
+        }
+        else if (_cells.TryGetValue(id, out var previous) && previous is not ValueExpression)
+        {
+            unchecked
+            {
+                _structuralVersion++; // formula → literal: its outgoing edges must be dropped
+            }
+        }
+
         // The store routes the id (canonical A1 → numeric dense map, else → overflow) and reports whether a
         // genuinely NEW A1 cell was inserted, so an overwrite skips index maintenance while a new cell updates
         // it. Only A1 cells carry column/row structure the index tracks (overflow ids are not addresses).
@@ -1120,6 +1181,12 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     /// </summary>
     public bool Remove(string id)
     {
+        // Peek before removing so the reverse graph learns of a structural change: removing a FORMULA drops its
+        // outgoing edges (structural → bump); removing a value cell is a value edit (the host recalculates the
+        // removed address), so it leaves the structure intact and does NOT bump.
+        var removedFormula =
+            _cells.TryGetValue(id, out var previous) && previous is not ValueExpression;
+
         if (!_cells.Remove(id, out var wasDenseCell, out var column, out var row))
         {
             return false;
@@ -1128,6 +1195,14 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
         if (wasDenseCell && _structuralIndex is { } index)
         {
             index.OnCellRemoved(column, row);
+        }
+
+        if (removedFormula)
+        {
+            unchecked
+            {
+                _structuralVersion++;
+            }
         }
 
         return true;

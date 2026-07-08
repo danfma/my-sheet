@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Running;
 using Danfma.MySheet.Benchmark;
 using Danfma.MySheet.Benchmark.Spike;
+using Danfma.MySheet.Benchmark.Spike.DirtyGraph;
 using Danfma.MySheet.Benchmark.Spike.MessagePackFormat;
 using Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 
@@ -8,6 +9,27 @@ using Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 if (args.Contains("--check"))
 {
     SpikeSelfCheck.Run();
+    return;
+}
+
+// Baseline do spike do grafo de dependências (Fase 0): `dotnet run -c Release -- --dirty-graph [N]`.
+if (args.Contains("--dirty-graph"))
+{
+    DirtyGraphHarness.Run(args);
+    return;
+}
+
+// Footprint do grafo reverso na K1 (Fase 2): `dotnet run -c Release -- --dep-graph`.
+if (args.Contains("--dep-graph"))
+{
+    DirtyGraphHarness.RunGraphFootprint();
+    return;
+}
+
+// Speedup end-to-end do evict-and-pull na K1 (Fase 4): `dotnet run -c Release -- --dirty-recompute`.
+if (args.Contains("--dirty-recompute"))
+{
+    DirtyGraphHarness.RunDirtyRecompute();
     return;
 }
 

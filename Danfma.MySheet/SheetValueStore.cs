@@ -303,6 +303,17 @@ internal sealed class SheetValueStore
         }
     }
 
+    /// <summary>
+    /// Evicts one dense cell — drops its memoized value (presence bit) and any tainted mark — so the next
+    /// read recomputes it. The selective counterpart of <see cref="Clear"/>, used by the dirty-graph
+    /// evict-and-pull path to drop exactly the affected cells instead of the whole cache.
+    /// </summary>
+    public void EvictDense(int handle, int col, int row)
+    {
+        PeekSlab(handle)?.ClearPresent(col, row);
+        _tainted?.TryRemove((handle, col, row), out _);
+    }
+
     // === Warm-start snapshot ============================================================================
 
     /// <summary>
