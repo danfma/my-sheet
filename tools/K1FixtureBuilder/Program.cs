@@ -159,14 +159,10 @@ foreach (var (k, r) in keyRow.OrderBy(p => p.Value))
         );
     }
 
-    // Coluna C: resolve B pela chave A via XLOOKUP.
-    inputSheet.Cells.Add(
-        new CellModel(
-            $"C{r}",
-            CellKind.Formula,
-            $"=XLOOKUP(A{r},$A$1:$A${keyCount},$B$1:$B${keyCount})"
-        )
-    );
+    // Coluna C: o valor resolvido da chave, referenciando B{r} DIRETAMENTE (não um XLOOKUP de coluna
+    // inteira). A célula-alvo que as interpolações referenciam. Ref direta desacopla os inputs — editar
+    // B{r} só afeta as interpolações da chave r (um XLOOKUP sobre $B$1:$B$N acoplaria todo input a tudo).
+    inputSheet.Cells.Add(new CellModel($"C{r}", CellKind.Formula, $"=B{r}"));
 }
 model.Add(inputSheet);
 Console.WriteLine(
@@ -248,7 +244,7 @@ static int Verify(string myxlPath)
                 xlookupOk = true;
             }
         }
-        Check("XLOOKUP resolve (Input!Cr == Br)", xlookupOk);
+        Check("Input!Cr == Br (ref direta resolve)", xlookupOk);
 
         // Célula de interpolação conhecida: Sheet_1!S2 (ex-"Supplemental Statement", era {ENT_EIN}) → não é erro.
         var s2 = wb.GetCellValue("Sheet_1", "S2");

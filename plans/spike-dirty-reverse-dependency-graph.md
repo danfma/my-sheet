@@ -160,30 +160,63 @@ INDIRECT …`); o branch do spike foi rebasado por cima. O extrator ainda trata 
 clareza + o guard de `VisitArguments`).
 
 ## Phase 2: Grafo reverso + índice de contenção de ranges
-Status: Not started
+Status: Complete
 
-- [ ] Estrutura de arestas reversas célula→dependentes (dep de célula única): dado um endereço numérico,
-      obter as fórmulas que o leem. Armazenamento per-sheet, endereçamento numérico (sem strings), no molde
-      do `SheetStructuralIndex`.
-- [ ] **Índice de contenção de ranges**: coleção de `(fórmulaAddr, sheet, retângulo|colunaAberta)` consultável
-      por **ponto** — "quais fórmulas-range contêm (col,row)?". Começar por uma implementação bucketizada por
-      coluna (uma coluna-inteira indexa em O(1) por coluna; um retângulo indexa nas colunas que cobre) e medir.
-- [ ] Manutenção incremental nos choke points `Sheet.SetCell`/`Sheet.Remove`: inserir/remover as arestas de
-      uma fórmula quando ela é escrita/removida; para deps de coluna-aberta, a *pertinência* muda quando
-      qualquer célula da coluna é adicionada/removida — validar que o índice reflete isso.
-- [ ] Sonda de footprint: medir bytes do grafo + índice de contenção nos fixtures de 50k e 500k, isolando a
-      contribuição dos agregados coluna-inteira (o risco de fan-in).
+- [x] Estrutura de arestas reversas célula→dependentes (`ReverseDependencyGraph`, endereçamento numérico
+      `CellDep`). `Build(workbook)` varre cada fórmula 1× via `DependencyExtractor` e inverte as arestas.
+- [x] **Índice de contenção de ranges** bucketizado por `(sheet, coluna)`: uma aresta-de-range de eixo-coluna
+      fechado indexa em cada bucket de coluna do span (largura pequena, nunca altura); coluna aberta / span
+      largo (>256) vai para um fallback por-sheet. Consulta por ponto testa só a linha no bucket da coluna.
+- [x] Sonda de footprint (`--dep-graph`) na K1 (566k): footprint + fan-in direto + distribuição.
+- [ ] Manutenção incremental em `Sheet.SetCell`/`Remove` — MOVIDA para a Fase 3 (é onde as edições acontecem).
 
 ### Verification Plan
-- Teste TUnit `ReverseDependencyGraphTests` com um **oráculo por força bruta**: para um workbook dado,
-  `GetDependents(addr)` (fecho transitivo) deve igualar o conjunto derivado re-varrendo TODAS as fórmulas e
-  re-extraindo deps. Cobrir: dep de célula, retângulo, coluna-aberta, união, e edição que adiciona uma célula
-  dentro de uma coluna-aberta já referenciada. Rodar via `--treenode-filter "/*/*/ReverseDependencyGraphTests/*"`,
-  esperado: todos passam.
-- Harness imprime o footprint do grafo (50k/500k) sem exceção; registrado no Phase Summary.
+- `ReverseDependencyGraphTests` (7 casos) valida `GetAllDependents` contra **oráculo por força bruta** (fecho
+  transitivo re-derivado): cadeia, retângulo, coluna-inteira (linha vazia inclusa), cross-sheet, diamante,
+  volátil, + comparação num workbook randomizado (40 edições). `--treenode-filter
+  "/*/*/ReverseDependencyGraphTests/*"` → **7/7 ✓** (mantidos após o bucketizing).
 
 ### Phase Summary
-_(escrever quando a fase completar)_
+**Grafo + memória VALIDADOS; a enumeração transitiva revelou o achado-chave que reformula a Fase 4.**
+
+Números na K1 (566k células): build do grafo **1.3s**; 1.1M arestas de célula; **816k deps de range** (uma por
+fórmula-range — a mitigação funciona: expandir por célula daria bilhões), das quais **408k são coluna-inteira**;
+footprint **~86MB estimado / 145MB real**. → **Memória é viável**, não explode.
+
+**Fan-in por edição pontual — bimodal (o achado):**
+- **Mediana = 3 dependentes diretos.** A EDIÇÃO TÍPICA afeta quase nada → o CalculateDirty tem potencial de
+  ganho de ~2-3 ordens de grandeza sobre o baseline de 1.2s/edição. A tese se sustenta para o caso comum.
+- **Cauda pesada real:** o MAIOR bucket de coluna tem **490.705** entradas. Ou seja, existe uma coluna "quente"
+  cujas ~490k fórmulas-range a referenciam; editar uma célula lá afeta MESMO ~metade do workbook. Nesses edits
+  o dirty NÃO ganha do full-recompute (o impacto É grande) — e a BFS transitiva ingênua (re-varre o bucket por
+  célula da fronteira) fica **quadrática**. Custo da consulta DIRETA (limitada): mediana 0.2ms, ok.
+
+**Re-plano da Fase 4 (decisão):** a estratégia **evict-and-pull** fica claramente preferida — ela NUNCA enumera
+o fecho transitivo (evita o quadrático): só evicta as células dirty e deixa o motor pull-based memoizado
+recomputar o cone, cada célula 1×. O grafo reverso serve para (a) saber o que evictar e (b) enumerar outputs —
+e essa enumeração, quando precisa, deve ser um **sweep por fixpoint** sobre os buckets (O(entradas × profundidade),
+limitado), não a BFS por-célula. A alternativa "scheduler topológico" perde força (mesma armadilha de enumeração).
+
+**FECHADO:** `GetAllDependents` reescrito como **sweep fixpoint** (BFS nas arestas de célula + varredura de
+range 1×/passe com índice de linhas-dirty por coluna via `SortedSet.GetViewBetween`) — não-quadrático, oráculo
+7/7 mantido, 110-127ms/edição na K1.
+
+**Impacto transitivo re-medido nos DOIS designs de fixture (o achado que decide o valor do spike):**
+| edição | fixture XLOOKUP-coluna (acoplado) | fixture ref-direta (desacoplado) |
+| --- | --- | --- |
+| **input (Input!B)** — o caso real | mediana **542k (96%)** | **mediana 5 células**, p90 496k, média 141k (bimodal) |
+| célula interna qualquer | mediana 231k | mediana 208k |
+
+O XLOOKUP sobre `$B$1:$B$N` era o vilão: acoplava todo input a tudo. Com `Input!C{r}=B{r}` direto, a **edição
+típica de um input afeta ~5 células** → dirty seria ~5 en 566k, **~5 ordens de grandeza** mais rápido que o full
+de 1.2s. **A premissa se sustenta fortemente para o caso input→output.** MAS a distribuição é **bimodal**:
+~10-15% dos inputs alimentam a coluna quente REAL do K1 (490k fórmulas-range) e cascateiam para ~metade do
+workbook — para esses o dirty não ganha (o impacto É grande). Editar uma célula INTERNA aleatória também cai
+na cauda (mediana 208k), mas esse não é o caso de uso.
+
+**Conclusão da Fase 2:** grafo + memória viáveis (~86-145MB, build 0.8s), fixpoint eficiente e correto, e o
+motor dirty **vale a pena** — a maioria das edições de input vai de 1.2s → microssegundos. A Fase 4 fica
+**evict-and-pull** (uma estratégia). A manutenção incremental do grafo vai para a Fase 3.
 
 ## Phase 3: Marcação dirty + invalidação seletiva
 Status: Not started

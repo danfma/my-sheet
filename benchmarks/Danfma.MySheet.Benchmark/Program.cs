@@ -19,6 +19,13 @@ if (args.Contains("--dirty-graph"))
     return;
 }
 
+// Footprint do grafo reverso na K1 (Fase 2): `dotnet run -c Release -- --dep-graph`.
+if (args.Contains("--dep-graph"))
+{
+    DirtyGraphHarness.RunGraphFootprint();
+    return;
+}
+
 // Wall-clock harness da escala de coluna inteira (Fase 0): `dotnet run -c Release -- --whole-column-scale [--full]`.
 if (args.Contains("--whole-column-scale"))
 {
