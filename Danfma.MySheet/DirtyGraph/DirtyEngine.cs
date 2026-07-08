@@ -29,6 +29,16 @@ internal sealed class DirtyEngine
 
     public ReverseDependencyGraph Graph => _graph;
 
+    /// <summary>
+    /// API DE ANÁLISE (barata, sem recomputar nem evictar): estima o impacto de editar <paramref name="edited"/>
+    /// — recomputar FULL ou PARCIAL, e o tamanho do cone quando parcial. É a MESMA decisão que
+    /// <see cref="CalculateDirty"/> toma internamente, exposta para o host planejar: mostrar o custo na UI,
+    /// agrupar edições, ou escolher a estratégia antes de pagar. O preditor desiste barato ao alcançar uma
+    /// fonte quente (sem varrer seu bucket gigante), então chamar isto NÃO custa o preço de um cálculo full.
+    /// </summary>
+    public ImpactEstimate EstimateImpact(IReadOnlyCollection<CellDep> edited) =>
+        _graph.Analyze(edited, LargeConeCap).Estimate;
+
     // Acima deste tamanho de cone, o impacto é grande demais (≈ alcançou a coluna quente / meio workbook):
     // full-recompute é o certo e a enumeração por-célula degradaria. Casa com a distribuição bimodal do K1.
     private const int LargeConeCap = 50_000;
@@ -46,13 +56,15 @@ internal sealed class DirtyEngine
     /// </summary>
     public HashSet<CellDep>? CalculateDirty(IReadOnlyCollection<CellDep> edited)
     {
-        var dirty = _graph.GetAllDependentsBounded(edited, LargeConeCap);
+        var (estimate, cone) = _graph.Analyze(edited, LargeConeCap);
 
-        if (dirty is null)
+        if (estimate.RecommendFull)
         {
             _workbook.InvalidateCache(); // cone grande → full-recompute (lazy no próximo read)
             return null;
         }
+
+        var dirty = cone!;
 
         foreach (var cell in edited)
         {

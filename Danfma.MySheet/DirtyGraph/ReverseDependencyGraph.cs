@@ -46,6 +46,11 @@ internal sealed class ReverseDependencyGraph
     private int _bucketEntries; // entradas físicas nos buckets + fallback (o que ocupa memória)
     private int _wholeColumnDeps; // deps de range com AMBOS os limites de linha abertos (coluna inteira)
 
+    // Fontes "QUENTES" (fan-in direto acima do limiar): editar/alcançar uma explode o cone. Precomputadas no
+    // build para o PREDITOR barato — a análise desiste ao tocar numa SEM varrer seu bucket gigante.
+    private const int HotFanInThreshold = 10_000;
+    private readonly HashSet<(string Sheet, int Column)> _hotColumns = new();
+
     private readonly record struct RangeEdge(RangeDep Range, CellDep Formula);
 
     /// <summary>Constrói o grafo reverso varrendo todas as fórmulas do workbook.</summary>
@@ -73,8 +78,28 @@ internal sealed class ReverseDependencyGraph
             }
         }
 
+        graph.ComputeHotSources();
         return graph;
     }
+
+    // Marca como quente cada coluna cujo bucket de arestas-de-range excede o limiar: editar uma célula ali
+    // dispara todas essas fórmulas de uma vez (fan-in enorme). Uma passada barata sobre os buckets.
+    private void ComputeHotSources()
+    {
+        foreach (var (key, bucket) in _columnBuckets)
+        {
+            if (bucket.Count > HotFanInThreshold)
+            {
+                _hotColumns.Add(key);
+            }
+        }
+    }
+
+    // Uma célula é "fonte quente" se está numa coluna quente (muitas fórmulas-range a leem) OU tem muitas
+    // arestas de célula diretas. Editá-la, ou o cone alcançá-la, garante um impacto enorme.
+    private bool IsHotSource(CellDep cell) =>
+        _hotColumns.Contains((cell.Sheet, cell.Column))
+        || (_cellDependents.TryGetValue(cell, out var deps) && deps.Count > HotFanInThreshold);
 
     private void AddFormula(CellDep formula, DependencyScan scan)
     {
@@ -306,13 +331,16 @@ internal sealed class ReverseDependencyGraph
     }
 
     /// <summary>
-    /// Variante OUTPUT-SENSITIVE do fecho transitivo, para o evict-and-pull: BFS por-célula via os buckets
-    /// (<see cref="CollectDirectDependents"/>), cujo custo acompanha o tamanho do cone — rápido para o caso
-    /// comum (cone pequeno). Retorna <c>null</c> assim que o cone excede <paramref name="cap"/> — o sinal de
-    /// "cone grande demais (ex.: alcançou a coluna quente); o caller deve full-recomputar", já que ali o
-    /// impacto É grande e a BFS por-célula degradaria. NÃO inclui as fontes.
+    /// PREDITOR + enumeração num só passo, para o evict-and-pull. BFS por-célula via os buckets, output-
+    /// sensitive (custo acompanha o cone — rápido no caso comum). Decide FULL de forma BARATA por duas vias:
+    /// (1) ao alcançar uma <em>fonte quente</em> precomputada, desiste NA HORA sem varrer seu bucket gigante;
+    /// (2) se o cone acumulado excede <paramref name="cap"/>. Retorna a <see cref="ImpactEstimate"/> (o
+    /// veredito + tamanho + razão) e, quando parcial, o CONE (para o caller evictar) — senão <c>null</c>.
     /// </summary>
-    public HashSet<CellDep>? GetAllDependentsBounded(IEnumerable<CellDep> sources, int cap)
+    public (ImpactEstimate Estimate, HashSet<CellDep>? Cone) Analyze(
+        IEnumerable<CellDep> sources,
+        int cap
+    )
     {
         var affected = new HashSet<CellDep>();
         var frontier = new Queue<CellDep>();
@@ -325,6 +353,19 @@ internal sealed class ReverseDependencyGraph
         while (frontier.Count > 0)
         {
             var current = frontier.Dequeue();
+
+            // Barato: se a célula da fronteira é uma fonte quente, o impacto é enorme → full, SEM varrer o
+            // bucket dela (o ganho vs. o preditor reativo, que varria as ~490k arestas antes de desistir).
+            if (IsHotSource(current))
+            {
+                return (
+                    ImpactEstimate.Full(
+                        $"o cone alcança uma fonte quente ({current.Sheet}!col{current.Column})"
+                    ),
+                    null
+                );
+            }
+
             next.Clear();
             CollectDirectDependents(current, next);
 
@@ -334,14 +375,14 @@ internal sealed class ReverseDependencyGraph
                 {
                     if (affected.Count > cap)
                     {
-                        return null; // cone grande → deixa o caller full-recomputar
+                        return (ImpactEstimate.Full($"cone acima do cap ({cap} células)"), null);
                     }
                     frontier.Enqueue(dependent);
                 }
             }
         }
 
-        return affected;
+        return (ImpactEstimate.Partial(affected.Count), affected);
     }
 
     private static bool RowContains(in RangeDep range, int row) =>
@@ -389,6 +430,19 @@ internal sealed class ReverseDependencyGraph
             bytes
         );
     }
+}
+
+/// <summary>
+/// O veredito da análise de impacto de uma edição, para o híbrido e para o host planejar: recomputar FULL
+/// (impacto grande — alcança uma fonte quente ou passa do cap) ou PARCIAL (evict-and-pull), com o tamanho do
+/// cone quando parcial e a razão da escolha.
+/// </summary>
+internal readonly record struct ImpactEstimate(bool RecommendFull, int ConeSize, string Reason)
+{
+    public static ImpactEstimate Full(string reason) => new(true, -1, reason);
+
+    public static ImpactEstimate Partial(int coneSize) =>
+        new(false, coneSize, $"cone pequeno ({coneSize} células)");
 }
 
 /// <summary>Footprint do grafo reverso.</summary>

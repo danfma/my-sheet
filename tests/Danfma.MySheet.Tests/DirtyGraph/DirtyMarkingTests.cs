@@ -105,6 +105,25 @@ public class DirtyMarkingTests
     }
 
     [Test]
+    public async Task EstimateImpact_ReportsPartial_WithConeSize_ForSmallEdit()
+    {
+        var wb = new Workbook();
+        var s = wb.Sheets.Add("Sheet1");
+        s["A1"] = new NumberValue(1);
+        s["A2"] = ExpressionParser.Parse("=A1+1", s);
+        s["A3"] = ExpressionParser.Parse("=A2+1", s);
+
+        var engine = DirtyEngine.Build(wb);
+        var estimate = engine.EstimateImpact([Addr(wb, "Sheet1", "A1")]);
+
+        // Cone pequeno → recomenda PARCIAL; tamanho = dependentes (A2, A3) = 2. Não evicta (só analisa).
+        await Assert.That(estimate.RecommendFull).IsFalse();
+        await Assert.That(estimate.ConeSize).IsEqualTo(2);
+        // A análise não recomputou nada: A3 continua o que já estava (aqui, ainda não lido → segue lazy).
+        await Assert.That(wb.GetCellValue("Sheet1", "A3").ToDouble()).IsEqualTo(3.0);
+    }
+
+    [Test]
     public async Task AlwaysDirty_IsAlwaysInTheDirtySet()
     {
         var wb = new Workbook();

@@ -385,6 +385,38 @@ internal static class DirtyGraphHarness
             );
         }
         Console.WriteLine();
+
+        // API DE ANÁLISE (EstimateImpact): prevê full vs parcial SEM recomputar nem evictar — o host chama
+        // para planejar. É BARATO mesmo no caso full (desiste na fonte quente sem varrer o bucket gigante).
+        var estMs = new double[100];
+        var partial = 0;
+        var full = 0;
+        for (var i = 0; i < 100; i++)
+        {
+            var addr = new CellDep("Input", 2, rng.Next(1, inputRows + 1));
+            var swEst = Stopwatch.StartNew();
+            var estimate = engine.EstimateImpact([addr]);
+            swEst.Stop();
+            estMs[i] = swEst.Elapsed.TotalMilliseconds;
+            if (estimate.RecommendFull)
+            {
+                full++;
+            }
+            else
+            {
+                partial++;
+            }
+        }
+        Array.Sort(estMs);
+        Console.WriteLine("API EstimateImpact — prever full/parcial SEM computar (N=100 inputs):");
+        Console.WriteLine($"  veredito: {partial}/100 parcial, {full}/100 full");
+        Console.WriteLine(
+            $"  custo da análise: mediana {estMs[50]:F3} ms | média {estMs.Average():F3} ms | max {estMs[^1]:F3} ms"
+        );
+        Console.WriteLine(
+            "  (barato até no caso full — desiste ao alcançar a fonte quente, sem varrer o bucket de 490k)"
+        );
+        Console.WriteLine();
         Console.WriteLine(
             "Corretude do evict-and-pull provada no teste DirtyRecomputeEquivalenceTests (bit-idêntico ao full)."
         );

@@ -269,6 +269,15 @@ Status: Complete
 O híbrido (bounded + fallback) casa exatamente com a distribuição bimodal: a maioria dos inputs ganha ~1200×,
 a minoria "hub" cai para o full de forma correta.
 
+**Enhancement — preditor hot-aware + API de análise (`EstimateImpact`).** As "fontes quentes" (colunas cujo
+bucket > 10k) são precomputadas no build; o preditor (`Analyze`) desiste NA HORA ao alcançar uma, SEM varrer
+seu bucket de 490k (o ganho vs. o preditor reativo, que varria antes de desistir). Isso (1) afiou a
+classificação — o cone "pequeno" agora é genuinamente pequeno (**mediana 4, MAX 6** células; as médias que
+antes escapavam sob o cap viraram "full"), subindo o speedup mediano para **~4778×**; e (2) expôs
+`DirtyEngine.EstimateImpact(edited)` → `{RecommendFull, ConeSize, Reason}`: o host pré-analisa full-vs-parcial
+**sem recomputar**, a **~0.006 ms/edição** (barato até no veredito full). Responde ao pedido "predição de peso +
+seleção automática" (o `CalculateDirty` já auto-seleciona) E "método de análise para o usuário decidir".
+
 ## Phase 5: Medição em escala + go/no-go
 Status: Not started
 
