@@ -38,6 +38,8 @@ public class FormulaWriterTests
     [Arguments("IF(A1>0,\"yes\",\"no\")")]
     [Arguments("IFERROR(1/0,42)")]
     [Arguments("VLOOKUP(A1,B1:C10,2,FALSE)")]
+    [Arguments("INDIRECT(\"A1\")")] // regressão: INDIRECT não tinha arm no FormulaWriter.Call
+    [Arguments("INDIRECT(\"A1\",TRUE)")]
     [Arguments("COUNTIF(A1:A10,\">5\")")]
     [Arguments("LET(x,1,y,2,x+y)")]
     [Arguments("SHEET()")]

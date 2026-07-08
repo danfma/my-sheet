@@ -319,6 +319,7 @@ public static class FormulaWriter
             VLookup f => ("VLOOKUP", f.Arguments),
             XLookup f => ("XLOOKUP", f.Arguments),
             Offset f => ("OFFSET", f.Arguments),
+            Indirect f => ("INDIRECT", f.Arguments),
             Let f => ("LET", f.Arguments),
             SheetNumber f => ("SHEET", f.Arguments),
             Pmt f => ("PMT", f.Arguments),
