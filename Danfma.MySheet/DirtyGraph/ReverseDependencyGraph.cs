@@ -432,19 +432,6 @@ internal sealed class ReverseDependencyGraph
     }
 }
 
-/// <summary>
-/// O veredito da análise de impacto de uma edição, para o híbrido e para o host planejar: recomputar FULL
-/// (impacto grande — alcança uma fonte quente ou passa do cap) ou PARCIAL (evict-and-pull), com o tamanho do
-/// cone quando parcial e a razão da escolha.
-/// </summary>
-internal readonly record struct ImpactEstimate(bool RecommendFull, int ConeSize, string Reason)
-{
-    public static ImpactEstimate Full(string reason) => new(true, -1, reason);
-
-    public static ImpactEstimate Partial(int coneSize) =>
-        new(false, coneSize, $"cone pequeno ({coneSize} células)");
-}
-
 /// <summary>Footprint do grafo reverso.</summary>
 internal readonly record struct GraphDiagnostics(
     int DistinctSourceCells,

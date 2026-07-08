@@ -319,6 +319,87 @@ Status: Not started
 ### Phase Summary
 _(escrever quando a fase completar)_
 
+## Phase 7: Produção com suporte a edição de FÓRMULA (lazy-rebuild)
+Status: Complete
+
+Objetivo: promover o spike a algo aprovável para produção, corrigindo o defeito conhecido — o grafo é
+construído de um snapshot e edições de FÓRMULA (estrutura muda em runtime) o deixam stale → resultados
+errados em edições futuras. Escolha do dono: suportar edições de fórmula. Abordagem aprovada: **lazy-rebuild**
+(não manutenção incremental agora).
+
+Insight que fundamenta o design: a edição ATUAL está sempre correta mesmo com grafo stale (os dependentes de
+F — quem lê F — não mudam quando a fórmula de F muda). A staleness só afeta edições FUTURAS. Logo a
+manutenção pode ser preguiçosa: uma edição estrutural marca o grafo stale e a próxima query o reconstrói.
+
+- [ ] **`Sheet.StructuralVersion`** (`long`, `[MemoryPackIgnore]`, runtime-only): incrementa em `SetCell`/
+      `Remove` quando a edição é ESTRUTURAL (velho OU novo é não-`ValueExpression`). Literal↔literal (edição de
+      input) NÃO bumpa — caminho rápido preservado. `SetCell` evita o peek do valor antigo quando o novo já é
+      fórmula (short-circuit no hot path de load).
+- [ ] **API pública** (`Danfma.MySheet` namespace): `Workbook.CreateRecalculationEngine()` →
+      `RecalculationEngine`; tipos públicos `CellRef(Sheet, Id)`, `ImpactEstimate` (tornar público, reusado
+      pelo interno), `RecalculationMode { Partial, FullFallback }`, `RecalculationResult`. O engine é um wrapper
+      fino sobre o `DirtyEngine` interno: snapshot de versões por-sheet, `EnsureFresh()` reconstrói o grafo se
+      alguma versão mudou ou o conjunto de sheets mudou (add/remove). `EstimateImpact` (barato, sem recompute),
+      `Recalculate(edited, collectOutputs)` (evict-and-pull; opcionalmente coleta os outputs/sinks).
+- [ ] **Portão de corretude com edições de FÓRMULA** (a evidência que falta): estender o fuzz para, no meio do
+      lote, TROCAR a fórmula de células (mudando suas deps) além de editar valores, e provar bit-identidade com
+      `InvalidateCache`+`ComputeAll`. É este teste que autoriza aprovar edições de fórmula.
+- [ ] **Testes de borda**: união, cross-sheet, ciclo, remoção de sheet, adição de sheet, overflow (id não-A1),
+      literal↔fórmula↔literal (bump correto), sequência valor-edit sem rebuild (sem bump).
+- [ ] **Medir o custo do rebuild** no K1 (566k) e reportar a amortização (rebuild só em edição de fórmula).
+
+### Verification Plan
+- `dotnet test` verde (suite completa + os novos testes de fórmula/borda).
+- O fuzz gate com edições de fórmula passa bit-identidade em ≥60 iterações.
+- `dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --dirty-recompute` reporta o custo do
+  rebuild pós-edição-de-fórmula sem exceção.
+
+### Phase Summary
+
+Entregue o suporte a edição de FÓRMULA em runtime via **lazy-rebuild**, fechando o defeito que impedia
+aprovação para produção. Números medidos no fixture K1 (566k células).
+
+**Detecção estrutural (`Sheet.StructuralVersion`).** Um contador `long` `[MemoryPackIgnore]` incrementa no
+choke point `SetCell`/`Remove` só quando a edição é estrutural (fórmula em qualquer lado): literal→fórmula,
+fórmula→fórmula, fórmula→literal e `Remove` de fórmula bumpam; literal↔literal e `Remove` de literal NÃO. O
+`SetCell` faz short-circuit — só paga o peek do valor antigo quando o novo é literal — então o load em massa de
+fórmulas segue com um único lookup no store.
+
+**API pública (`Danfma.MySheet`).** `Workbook.CreateRecalculationEngine()` → `RecalculationEngine` (wrapper fino
+sobre o `DirtyEngine` interno). Tipos públicos: `CellRef(Sheet, Id)`, `ImpactEstimate` (promovido a público,
+reusado pelo grafo interno), `RecalculationMode { Partial, FullFallback }`, `RecalculationResult`. O engine
+snapshota as versões por-sheet e o `EnsureFresh()` reconstrói o grafo quando alguma versão avança OU o conjunto
+de sheets muda (add/remove, via identidade do `Sheet`). `EstimateImpact` (análise barata, sem recompute),
+`Recalculate(edited, collectOutputs)` (evict-and-pull; opcionalmente devolve os sinks). Célula editada não-A1
+(overflow) → fallback full conservador (corretude > esperteza).
+
+**O insight que torna o lazy-rebuild correto:** a edição ATUAL é sempre correta mesmo com grafo stale (os
+dependentes de F não mudam quando a fórmula de F muda); a staleness só afeta edições FUTURAS. Logo o rebuild
+pode ser preguiçoso: um bump marca stale, a próxima query reconstrói antes de servir.
+
+**Corretude (a evidência que faltava).** `FormulaEditRecomputeEquivalenceTests`: 80 lotes misturando edições de
+valor + fórmula + conversões literal↔fórmula, cada lote BIT-IDÊNTICO a `InvalidateCache`+`ComputeAll`, com
+`StructureRebuilt` conferido contra a mudança real da versão. `RecalculationEngineTests` (10 testes): o caso
+definitivo de re-wiring (editar a fórmula de B1 de `=A1` para `=A2`, depois editar A2 e ver B1 seguir, e editar
+A1 e ver B1 NÃO reagir), bump da versão, cross-sheet, união, ciclo (não trava), add/remove de sheet, overflow,
+collect-outputs, value-edit-sem-rebuild. Suite total: **1043/1043 verde** (+11).
+
+**Custo medido (K1, 566k).** Edição de VALOR típica: ~0.25ms (cone mediano 4 células) — inalterado. Edição de
+FÓRMULA: ~840ms — o custo é reconstruir o grafo (~801ms build) + o recompute parcial; `StructureRebuilt=true`,
+`Mode=Partial`. Ou seja, uma edição de fórmula custa ~3300× uma edição de valor, e é paga SÓ nela, amortizada
+sobre as (muito mais frequentes) edições de valor. Confirma a tese: lazy-rebuild é production-safe quando
+edições de fórmula são raras vs. reprocessar inputs.
+
+**Limitação anotada (trabalho futuro, não bloqueante):** manutenção INCREMENTAL do grafo (diffar deps
+antigas×novas em `SetCell` guardando forward-deps por fórmula) evitaria o rebuild de ~840ms, valendo a pena só
+com evidência de que edições de fórmula são frequentes. Fora do escopo desta fase por decisão de projeto.
+
+**Arquivos:** `Danfma.MySheet/RecalculationEngine.cs` (novo, API pública), `Danfma.MySheet/Workbook.cs`
+(`Sheet.StructuralVersion` + bump em SetCell/Remove + `CreateRecalculationEngine`),
+`Danfma.MySheet/DirtyGraph/ReverseDependencyGraph.cs` (ImpactEstimate movido p/ público),
+`tests/.../DirtyGraph/RecalculationEngineTests.cs` + `FormulaEditRecomputeEquivalenceTests.cs` (novos),
+`benchmarks/.../DirtyGraphHarness.cs` (seção Fase 7: custo de edição de fórmula via API pública).
+
 ## Final Recap
 _(escrever quando todas as fases completarem)_
 

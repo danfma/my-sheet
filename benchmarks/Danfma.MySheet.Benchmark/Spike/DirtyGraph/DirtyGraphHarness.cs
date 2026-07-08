@@ -3,6 +3,7 @@ using System.Runtime;
 using Danfma.MySheet;
 using Danfma.MySheet.DirtyGraph;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Parsing;
 
 namespace Danfma.MySheet.Benchmark.Spike.DirtyGraph;
 
@@ -420,6 +421,72 @@ internal static class DirtyGraphHarness
         Console.WriteLine(
             "Corretude do evict-and-pull provada no teste DirtyRecomputeEquivalenceTests (bit-idêntico ao full)."
         );
+        Console.WriteLine();
+
+        // === Fase 7: custo de uma edição de FÓRMULA (lazy-rebuild) via a API PÚBLICA ====================
+        // Uma edição de VALOR fica no caminho rápido (sem rebuild); uma edição de FÓRMULA muda a estrutura, e o
+        // engine reconstrói o grafo transparentemente. O objetivo é medir esse custo no fixture real e mostrar
+        // que ele é pago SÓ em edição de fórmula (raro), amortizado sobre as muitas edições de valor.
+        Console.WriteLine(
+            "=== Fase 7 — edição de FÓRMULA (lazy-rebuild) via RecalculationEngine público ==="
+        );
+        var publicEngine = workbook.CreateRecalculationEngine();
+
+        // (a) edição de VALOR: caminho rápido, StructureRebuilt=false.
+        {
+            var r = rng.Next(1, inputRows + 1);
+            var original = input[$"B{r}"];
+            input[$"B{r}"] = new NumberValue(rng.Next(1, 1000));
+            var swValue = Stopwatch.StartNew();
+            var res = publicEngine.Recalculate([new CellRef("Input", $"B{r}")]);
+            swValue.Stop();
+            Console.WriteLine(
+                $"  edição de VALOR (Input!B{r}): {swValue.Elapsed.TotalMilliseconds:F2} ms | rebuild={res.StructureRebuilt} | modo={res.Mode}"
+            );
+            input[$"B{r}"] = original;
+            publicEngine.Recalculate([new CellRef("Input", $"B{r}")]);
+        }
+
+        // (b) edição de FÓRMULA: muda a estrutura → o engine reconstrói o grafo (StructureRebuilt=true).
+        var target = FindFormulaCell(workbook);
+        if (target is { } t)
+        {
+            var sheet = workbook[t.Sheet];
+            var original = sheet[t.Id];
+            sheet[t.Id] = ExpressionParser.Parse("=Input!B1+1", sheet); // deps novas
+            var swFormula = Stopwatch.StartNew();
+            var res = publicEngine.Recalculate([new CellRef(t.Sheet, t.Id)]);
+            swFormula.Stop();
+            Console.WriteLine(
+                $"  edição de FÓRMULA ({t.Sheet}!{t.Id}): {swFormula.Elapsed.TotalMilliseconds:F0} ms | rebuild={res.StructureRebuilt} | modo={res.Mode}"
+            );
+            Console.WriteLine(
+                $"    (o custo ≈ reconstruir o grafo do zero, ~{swBuild.Elapsed.TotalMilliseconds:F0} ms; pago SÓ em edição de fórmula, amortizado sobre as edições de valor)"
+            );
+            sheet[t.Id] = original;
+            publicEngine.Recalculate([new CellRef(t.Sheet, t.Id)]);
+        }
+    }
+
+    // Primeira célula de fórmula (não-literal) fora da sheet Input — um alvo seguro para o probe de edição de
+    // fórmula.
+    private static (string Sheet, string Id)? FindFormulaCell(Workbook workbook)
+    {
+        foreach (var sheet in workbook.Sheets.Values)
+        {
+            if (string.Equals(sheet.Name, "Input", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            foreach (var id in sheet.Keys)
+            {
+                if (sheet[id] is not ValueExpression)
+                {
+                    return (sheet.Name, id);
+                }
+            }
+        }
+        return null;
     }
 
     // Memória gerenciada viva após GC full + compactação de LOH (o delta de load deixa buffers grandes na
