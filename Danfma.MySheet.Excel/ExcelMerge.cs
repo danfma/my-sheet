@@ -81,6 +81,11 @@ public static class ExcelMerge
                 var sheetData =
                     worksheet.GetFirstChild<SheetData>() ?? worksheet.AppendChild(new SheetData());
 
+                // Index the existing rows/cells once so each write is an O(1) hash lookup instead of a linear
+                // DOM scan — a fully-populated target (the common template case) otherwise turns every write
+                // into an O(rows) walk, i.e. O(rows²) overall.
+                var index = new SheetDataIndex(sheetData);
+
                 var orderedCells = sheet
                     .Select(entry => (entry.Key, Position: CellId.Parse(entry.Key)))
                     .OrderBy(cell => cell.Position.Row)
@@ -95,7 +100,7 @@ public static class ExcelMerge
                         continue; // blanks are not written, leaving the target cell as it was
                     }
 
-                    var cell = GetOrCreateCell(GetOrCreateRow(sheetData, position.Row), id, position.Column);
+                    var cell = index.GetOrCreateCell(id, position.Row, position.Column);
 
                     WriteLiteral(cell, value);
                 }
@@ -118,44 +123,122 @@ public static class ExcelMerge
             : null;
     }
 
-    // Rows must stay ordered by RowIndex, so a missing row is inserted before the first higher one.
-    private static XlsxRow GetOrCreateRow(SheetData sheetData, int rowIndex)
+    // A hash index over one worksheet's <sheetData>, so getting/creating a row or cell is O(1) instead of a
+    // linear DOM walk. Rows must stay ordered by RowIndex and cells by column; because writes arrive in
+    // ascending (row, column) order, the maxima let the common append land in O(1), and the rare
+    // out-of-order insert (a target with gaps we fill low) still finds its successor without touching the
+    // hot path.
+    private sealed class SheetDataIndex
     {
-        foreach (var row in sheetData.Elements<XlsxRow>())
-        {
-            if (row.RowIndex?.Value == (uint)rowIndex)
-            {
-                return row;
-            }
+        private readonly SheetData _sheetData;
+        private readonly Dictionary<uint, XlsxRow> _rows = new();
+        private readonly Dictionary<XlsxRow, RowCells> _cells = new();
+        private uint _maxRow;
 
-            if (row.RowIndex?.Value > (uint)rowIndex)
+        public SheetDataIndex(SheetData sheetData)
+        {
+            _sheetData = sheetData;
+
+            foreach (var row in sheetData.Elements<XlsxRow>())
             {
-                return sheetData.InsertBefore(new XlsxRow { RowIndex = (uint)rowIndex }, row);
+                if (row.RowIndex?.Value is { } rowIndex)
+                {
+                    _rows[rowIndex] = row;
+                    _maxRow = Math.Max(_maxRow, rowIndex);
+                }
             }
         }
 
-        return sheetData.AppendChild(new XlsxRow { RowIndex = (uint)rowIndex });
+        public Cell GetOrCreateCell(string id, int row, int column)
+        {
+            var target = GetOrCreateRow((uint)row);
+
+            if (!_cells.TryGetValue(target, out var rowCells))
+            {
+                rowCells = new RowCells(target);
+                _cells[target] = rowCells;
+            }
+
+            return rowCells.GetOrCreate(id, (uint)column);
+        }
+
+        private XlsxRow GetOrCreateRow(uint rowIndex)
+        {
+            if (_rows.TryGetValue(rowIndex, out var existing))
+            {
+                return existing;
+            }
+
+            var created = new XlsxRow { RowIndex = rowIndex };
+
+            if (rowIndex > _maxRow)
+            {
+                _sheetData.AppendChild(created);
+                _maxRow = rowIndex;
+            }
+            else
+            {
+                var successor = _sheetData.Elements<XlsxRow>().First(row => row.RowIndex?.Value > rowIndex);
+                _sheetData.InsertBefore(created, successor);
+            }
+
+            _rows[rowIndex] = created;
+
+            return created;
+        }
     }
 
-    // Cells must stay ordered by column within their row, mirroring GetOrCreateRow.
-    private static Cell GetOrCreateCell(XlsxRow row, string id, int column)
+    // The per-row mirror of SheetDataIndex: column → cell, keeping cells ordered by column.
+    private sealed class RowCells
     {
-        foreach (var cell in row.Elements<Cell>())
+        private readonly XlsxRow _row;
+        private readonly Dictionary<uint, Cell> _cells = new();
+        private uint _maxColumn;
+
+        public RowCells(XlsxRow row)
         {
-            var reference = cell.CellReference?.Value;
+            _row = row;
 
-            if (string.Equals(reference, id, StringComparison.OrdinalIgnoreCase))
+            foreach (var cell in row.Elements<Cell>())
             {
-                return cell;
-            }
-
-            if (reference is not null && CellId.Parse(reference).Column > column)
-            {
-                return row.InsertBefore(new Cell { CellReference = id }, cell);
+                if (cell.CellReference?.Value is { } reference)
+                {
+                    var column = (uint)CellId.Parse(reference).Column;
+                    _cells[column] = cell;
+                    _maxColumn = Math.Max(_maxColumn, column);
+                }
             }
         }
 
-        return row.AppendChild(new Cell { CellReference = id });
+        public Cell GetOrCreate(string id, uint column)
+        {
+            if (_cells.TryGetValue(column, out var existing))
+            {
+                return existing;
+            }
+
+            var created = new Cell { CellReference = id };
+
+            if (column > _maxColumn)
+            {
+                _row.AppendChild(created);
+                _maxColumn = column;
+            }
+            else
+            {
+                var successor = _row
+                    .Elements<Cell>()
+                    .First(cell =>
+                        cell.CellReference?.Value is { } reference
+                        && CellId.Parse(reference).Column > column
+                    );
+                _row.InsertBefore(created, successor);
+            }
+
+            _cells[column] = created;
+
+            return created;
+        }
     }
 
     // Replaces the cell's CONTENT with a literal (dropping any formula) while leaving its style —
