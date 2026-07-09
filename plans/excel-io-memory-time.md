@@ -199,6 +199,36 @@ a formatação número→string (566k `double.ToString`), inevitável porque
 `OpenXmlWriter.WriteString` só recebe `string`. Fugir disso exigiria escrita UTF-8
 direta em buffer, fora do que o SDK expõe — parada pragmática.
 
+## Phase 6: Merge — texto como shared string (encolher o arquivo)
+Status: Complete
+
+O merge gravava texto como inline string (texto completo por célula), inflando o
+arquivo vs o export/Excel quando o mesmo rótulo se repete. (Medição descartou o
+interning in-memory: só ~0,3% de RAM — as strings já são compartilhadas em
+runtime; o problema é só bytes em disco.)
+
+- [x] `SharedStrings` (lazy) anexa texto à shared-string table do alvo,
+      reusando itens de texto simples e preservando os existentes (append-only →
+      índices das células passadas verbatim continuam válidos); rich-text
+      intocado.
+- [x] `WriteCell` grava texto como `t="s"` + índice (era `inlineStr`).
+- [x] `Finish()` zera `count`/`uniqueCount` stale (Excel recalcula).
+
+### Verification Plan
+- Suíte Excel passa (incl. `Merge_InjectsLiterals…` que lê texto mergeado).
+- `--excel-memory` → merge-target encolhe e faz round-trip sem divergência.
+
+### Phase Summary
+Merge passou a escrever texto como shared string. Um `SharedStrings` por merge
+carrega a tabela existente do alvo (lazy), reusa entradas de texto simples por
+valor e anexa as novas, mantendo os índices existentes válidos. `WriteCell` emite
+`t="s"`+índice; whitespace de borda preservado via `XlsxTextFactory`.
+
+**Resultado (K1):** arquivo mergeado 1,79 MB → **1,54 MB** (= o export; `sheet3`
+descomprimido 30,1 → 20,5 MB, −32%); 500.653 inline strings → 0, agora shared.
+Bônus: alocação do merge 339 → **251 MB**, pico 825 → 730 MB. Correção: 29 testes
+Excel + round-trip do K1 (0 divergências, 27/27 sheets).
+
 ## Final Recap
 Reduzimos memória e tempo dos dois caminhos de I/O Excel permanecendo no
 `DocumentFormat.OpenXml` (sem trocar biblioteca, sem licença). Resultados K1

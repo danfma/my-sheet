@@ -11,9 +11,10 @@ namespace Danfma.MySheet.Excel;
 /// <summary>
 /// Merges computed values from a MySheet <see cref="Workbook"/> into an EXISTING .xlsx file, in place:
 /// every cell we hold is written as its computed literal value — dropping any formula the target cell had —
-/// while everything else in the file (styles, other cells, other sheets, shared strings) is left intact.
-/// Sheets are matched by name (case-insensitive); sheets missing from the target are skipped, blank values
-/// are not written. Text is written as an inline string so the target's shared-string table is untouched.
+/// while everything else in the file (styles, other cells, other sheets) is left intact. Sheets are matched
+/// by name (case-insensitive); sheets missing from the target are skipped, blank values are not written. Text
+/// is written as a shared string — appended to the target's shared-string table, reusing existing plain-text
+/// entries — so a label repeated across many cells costs a single index, not a full inline copy each time.
 ///
 /// Each worksheet is rewritten by STREAMING its XML through an XmlReader→XmlWriter merge-join (existing cells
 /// in document order vs our cells in ascending order) instead of materializing the whole worksheet DOM — so
@@ -25,7 +26,6 @@ namespace Danfma.MySheet.Excel;
 public static class ExcelMerge
 {
     private const string Ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-    private const string XmlNamespace = "http://www.w3.org/XML/1998/namespace";
 
     // Shared empty set so the no-argument overload delegates without allocating per call.
     private static readonly IReadOnlySet<string> NoIgnoredSheets = new HashSet<string>();
@@ -73,6 +73,10 @@ public static class ExcelMerge
                 workbookPart.DeletePart(calcChain);
             }
 
+            // One shared-string table for the whole merge: text from every sheet dedups into it, and it is
+            // finalized once after all sheets are streamed.
+            var sharedStrings = new SharedStrings(workbookPart);
+
             foreach (var sheet in orderedSheets)
             {
                 if (ignored is not null && ignored.Contains(sheet.Name))
@@ -85,8 +89,10 @@ public static class ExcelMerge
                     continue; // the target has no sheet with this name: skipped by design
                 }
 
-                StreamMergeWorksheet(worksheetPart, sheet, workbook);
+                StreamMergeWorksheet(worksheetPart, sheet, workbook, sharedStrings);
             }
+
+            sharedStrings.Finish();
 
             return 0; // RunWithLargeStack exposes only a Func<T> overload; the result is unused
         });
@@ -107,7 +113,12 @@ public static class ExcelMerge
 
     // Rewrites the worksheet part by streaming its XML and merging our cells in. Our cells are grouped by
     // row and sorted by column so the merge-join against the existing (already-ordered) rows/cells is linear.
-    private static void StreamMergeWorksheet(WorksheetPart part, Sheet sheet, Workbook workbook)
+    private static void StreamMergeWorksheet(
+        WorksheetPart part,
+        Sheet sheet,
+        Workbook workbook,
+        SharedStrings sharedStrings
+    )
     {
         var rows = new SortedDictionary<int, List<(int Column, string Id)>>();
 
@@ -136,7 +147,7 @@ public static class ExcelMerge
         using (var writer = XmlWriter.Create(buffer, new XmlWriterSettings { CloseOutput = false }))
         {
             reader.MoveToContent(); // <worksheet>
-            MergeWorksheet(reader, writer, workbook, sheet.Name, rows);
+            MergeWorksheet(reader, writer, workbook, sheet.Name, rows, sharedStrings);
         }
 
         buffer.Position = 0;
@@ -150,7 +161,8 @@ public static class ExcelMerge
         XmlWriter writer,
         Workbook workbook,
         string sheetName,
-        SortedDictionary<int, List<(int Column, string Id)>> rows
+        SortedDictionary<int, List<(int Column, string Id)>> rows,
+        SharedStrings sharedStrings
     )
     {
         writer.WriteStartElement(reader.Prefix, reader.LocalName, reader.NamespaceURI);
@@ -161,7 +173,7 @@ public static class ExcelMerge
         if (reader.IsEmptyElement)
         {
             // A worksheet with no children at all: emit our rows as a fresh <sheetData> if we have any.
-            WriteSheetData(writer, workbook, sheetName, rows);
+            WriteSheetData(writer, workbook, sheetName, rows, sharedStrings);
             writer.WriteEndElement();
             return;
         }
@@ -172,7 +184,7 @@ public static class ExcelMerge
         {
             if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "sheetData")
             {
-                MergeSheetData(reader, writer, workbook, sheetName, rows);
+                MergeSheetData(reader, writer, workbook, sheetName, rows, sharedStrings);
                 sheetDataWritten = true;
             }
             else if (reader.NodeType == XmlNodeType.Element)
@@ -190,7 +202,7 @@ public static class ExcelMerge
         // that created it on demand.)
         if (!sheetDataWritten)
         {
-            WriteSheetData(writer, workbook, sheetName, rows);
+            WriteSheetData(writer, workbook, sheetName, rows, sharedStrings);
         }
 
         writer.WriteEndElement(); // </worksheet>
@@ -202,7 +214,8 @@ public static class ExcelMerge
         XmlWriter writer,
         Workbook workbook,
         string sheetName,
-        SortedDictionary<int, List<(int Column, string Id)>> rows
+        SortedDictionary<int, List<(int Column, string Id)>> rows,
+        SharedStrings sharedStrings
     )
     {
         writer.WriteStartElement(reader.Prefix, "sheetData", reader.NamespaceURI);
@@ -215,7 +228,7 @@ public static class ExcelMerge
         {
             while (hasOurs)
             {
-                WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value);
+                WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value, sharedStrings);
                 hasOurs = ours.MoveNext();
             }
 
@@ -235,13 +248,13 @@ public static class ExcelMerge
                 // Our rows that sort before this existing one are brand-new: emit them first.
                 while (hasOurs && ours.Current.Key < rowNumber)
                 {
-                    WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value);
+                    WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value, sharedStrings);
                     hasOurs = ours.MoveNext();
                 }
 
                 if (hasOurs && ours.Current.Key == rowNumber)
                 {
-                    MergeRow(reader, writer, workbook, sheetName, ours.Current.Value);
+                    MergeRow(reader, writer, workbook, sheetName, ours.Current.Value, sharedStrings);
                     hasOurs = ours.MoveNext();
                 }
                 else
@@ -262,7 +275,7 @@ public static class ExcelMerge
         // Our rows that sort after every existing row.
         while (hasOurs)
         {
-            WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value);
+            WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value, sharedStrings);
             hasOurs = ours.MoveNext();
         }
 
@@ -277,7 +290,8 @@ public static class ExcelMerge
         XmlWriter writer,
         Workbook workbook,
         string sheetName,
-        List<(int Column, string Id)> ourCells
+        List<(int Column, string Id)> ourCells,
+        SharedStrings sharedStrings
     )
     {
         writer.WriteStartElement(reader.Prefix, "row", reader.NamespaceURI);
@@ -287,7 +301,7 @@ public static class ExcelMerge
 
         if (reader.IsEmptyElement)
         {
-            WriteRemainingCells(writer, workbook, sheetName, ourCells, ref index);
+            WriteRemainingCells(writer, workbook, sheetName, ourCells, ref index, sharedStrings);
             writer.WriteEndElement();
             reader.Read(); // move past the empty <row/>
             return;
@@ -304,7 +318,7 @@ public static class ExcelMerge
                 // Our cells that sort before this existing one are brand-new.
                 while (index < ourCells.Count && ourCells[index].Column < column)
                 {
-                    WriteOurCell(writer, workbook, sheetName, ourCells[index], style: null);
+                    WriteOurCell(writer, workbook, sheetName, ourCells[index], style: null, sharedStrings);
                     index++;
                 }
 
@@ -321,7 +335,7 @@ public static class ExcelMerge
                         // Preserve the target cell's style (formatting lives in the style index), drop its
                         // formula/value by skipping the old subtree and writing ours in its place.
                         var style = reader.GetAttribute("s");
-                        WriteCell(writer, ourCells[index].Id, style, value);
+                        WriteCell(writer, ourCells[index].Id, style, value, sharedStrings);
                         reader.Skip();
                     }
 
@@ -342,7 +356,7 @@ public static class ExcelMerge
             }
         }
 
-        WriteRemainingCells(writer, workbook, sheetName, ourCells, ref index);
+        WriteRemainingCells(writer, workbook, sheetName, ourCells, ref index, sharedStrings);
 
         writer.WriteEndElement(); // </row>
         reader.Read(); // move past </row>
@@ -355,7 +369,8 @@ public static class ExcelMerge
         Workbook workbook,
         string sheetName,
         int rowNumber,
-        List<(int Column, string Id)> cells
+        List<(int Column, string Id)> cells,
+        SharedStrings sharedStrings
     )
     {
         var nonBlank = new List<(string Id, ComputedValue Value)>(cells.Count);
@@ -380,7 +395,7 @@ public static class ExcelMerge
 
         foreach (var (id, value) in nonBlank)
         {
-            WriteCell(writer, id, style: null, value);
+            WriteCell(writer, id, style: null, value, sharedStrings);
         }
 
         writer.WriteEndElement();
@@ -391,12 +406,13 @@ public static class ExcelMerge
         Workbook workbook,
         string sheetName,
         List<(int Column, string Id)> cells,
-        ref int index
+        ref int index,
+        SharedStrings sharedStrings
     )
     {
         while (index < cells.Count)
         {
-            WriteOurCell(writer, workbook, sheetName, cells[index], style: null);
+            WriteOurCell(writer, workbook, sheetName, cells[index], style: null, sharedStrings);
             index++;
         }
     }
@@ -406,21 +422,28 @@ public static class ExcelMerge
         Workbook workbook,
         string sheetName,
         (int Column, string Id) cell,
-        string? style
+        string? style,
+        SharedStrings sharedStrings
     )
     {
         var value = workbook.GetCellValue(sheetName, cell.Id);
 
         if (value.Kind != ComputedValueKind.Blank)
         {
-            WriteCell(writer, cell.Id, style, value);
+            WriteCell(writer, cell.Id, style, value, sharedStrings);
         }
     }
 
-    // Writes a <c> for one computed value, mirroring the old DOM WriteLiteral: numbers bare, booleans t="b",
-    // text as an inline string (t="inlineStr", so the shared-string table is never touched), errors t="e".
-    // A preserved style index is re-emitted so a formatted template cell stays formatted.
-    private static void WriteCell(XmlWriter writer, string reference, string? style, in ComputedValue value)
+    // Writes a <c> for one computed value: numbers bare, booleans t="b", text as a shared string (t="s", the
+    // <v> being the index into the target's shared-string table), errors t="e". A preserved style index is
+    // re-emitted so a formatted template cell stays formatted.
+    private static void WriteCell(
+        XmlWriter writer,
+        string reference,
+        string? style,
+        in ComputedValue value,
+        SharedStrings sharedStrings
+    )
     {
         writer.WriteStartElement("c", Ns);
         writer.WriteAttributeString("r", reference);
@@ -442,21 +465,12 @@ public static class ExcelMerge
                 break;
 
             case ComputedValueKind.Text:
-                writer.WriteAttributeString("t", "inlineStr");
-                writer.WriteStartElement("is", Ns);
-                writer.WriteStartElement("t", Ns);
-
-                var text = value.ToText();
-
-                // Match XlsxTextFactory: only edge whitespace needs xml:space="preserve".
-                if (text != text.Trim())
-                {
-                    writer.WriteAttributeString("xml", "space", XmlNamespace, "preserve");
-                }
-
-                writer.WriteString(text);
-                writer.WriteEndElement(); // </t>
-                writer.WriteEndElement(); // </is>
+                writer.WriteAttributeString("t", "s");
+                writer.WriteElementString(
+                    "v",
+                    Ns,
+                    sharedStrings.IndexOf(value.ToText()).ToString(CultureInfo.InvariantCulture)
+                );
                 break;
 
             case ComputedValueKind.Error:
@@ -480,16 +494,84 @@ public static class ExcelMerge
         XmlWriter writer,
         Workbook workbook,
         string sheetName,
-        SortedDictionary<int, List<(int Column, string Id)>> rows
+        SortedDictionary<int, List<(int Column, string Id)>> rows,
+        SharedStrings sharedStrings
     )
     {
         writer.WriteStartElement("sheetData", Ns);
 
         foreach (var (rowNumber, cells) in rows)
         {
-            WriteNewRow(writer, workbook, sheetName, rowNumber, cells);
+            WriteNewRow(writer, workbook, sheetName, rowNumber, cells, sharedStrings);
         }
 
         writer.WriteEndElement();
+    }
+
+    // Appends our text values to the target's shared-string table and hands back the index to reference, so a
+    // repeated label costs one index per cell instead of a full inline copy. Loaded lazily (never touched if
+    // the merge writes no text); existing entries keep their positions so passed-through cells stay valid;
+    // rich-text entries are left intact and never reused.
+    private sealed class SharedStrings
+    {
+        private readonly WorkbookPart _workbookPart;
+        private SharedStringTable? _table;
+        private Dictionary<string, int>? _plainIndex;
+        private int _count;
+
+        public SharedStrings(WorkbookPart workbookPart) => _workbookPart = workbookPart;
+
+        public int IndexOf(string text)
+        {
+            EnsureLoaded();
+
+            if (_plainIndex!.TryGetValue(text, out var existing))
+            {
+                return existing;
+            }
+
+            var index = _count++;
+            _table!.AppendChild(new SharedStringItem(XlsxTextFactory.Create(text)));
+            _plainIndex[text] = index;
+
+            return index;
+        }
+
+        // The count/uniqueCount hints are now stale (we appended); drop them so Excel recomputes rather than
+        // reporting a mismatch and forcing a repair. No-op if we never touched the table.
+        public void Finish()
+        {
+            if (_table is null)
+            {
+                return;
+            }
+
+            _table.Count = null;
+            _table.UniqueCount = null;
+        }
+
+        private void EnsureLoaded()
+        {
+            if (_table is not null)
+            {
+                return;
+            }
+
+            var part =
+                _workbookPart.SharedStringTablePart ?? _workbookPart.AddNewPart<SharedStringTablePart>();
+            _table = part.SharedStringTable ??= new SharedStringTable();
+            _plainIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (var item in _table.Elements<SharedStringItem>())
+            {
+                // Only a plain <si><t>…</t></si> entry (no rich-text runs) is safe to reuse by its text.
+                if (item.Text is { } text && !item.Elements<Run>().Any())
+                {
+                    _plainIndex.TryAdd(text.Text ?? string.Empty, _count);
+                }
+
+                _count++;
+            }
+        }
     }
 }
