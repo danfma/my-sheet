@@ -114,55 +114,70 @@ um `Cell`/`CellValue` DOM transitório por célula (~566k). São efêmeros (por 
 os atributos direto no `OpenXmlWriter` (sem construir objetos `Cell`) — registrado
 como refinamento opcional na Fase 5.
 
-## Phase 3 (condicional): Merge — read+write em streaming para cortar o DOM
-Status: Not started
+## Phase 3: Merge — read+write em streaming para cortar o DOM
+Status: Complete
 
-Executar SOMENTE se, após a Fase 1, o pico de memória do Merge continuar
-inaceitável (DOM materializado ~ +777 MB sobre o workbook retido).
-
-- [ ] Ler a planilha existente com `OpenXmlReader` e escrever uma substituta com
-      `OpenXmlWriter`, fazendo merge-join dos valores computados em ordem de
-      célula; repassar intactos todos os demais elementos (`cols`, `mergeCells`,
-      `dataValidations`, `sheetPr`, etc.).
-- [ ] Trocar a parte antiga pela nova (via arquivo temporário ou re-link do
-      `WorksheetPart`), preservando relacionamentos, estilos e a remoção do
-      calcChain.
-- [ ] Validar preservação de tudo que não é célula computada (formatação,
-      validações, merges).
+- [x] Ler a planilha existente com `XmlReader` e escrever uma substituta com
+      `XmlWriter`, fazendo merge-join dos valores computados em ordem de célula;
+      repassar intactos todos os demais elementos (`cols`, `mergeCells`,
+      `dataValidations`, `sheetPr`, etc.) via `WriteNode`.
+- [x] Trocar o conteúdo da part via `WorksheetPart.FeedData(stream)` — sem
+      cirurgia de relacionamento; namespaces/relacionamentos preservados
+      (verificado por probe: 0 divergências em 62k células).
+- [x] Validar preservação de tudo que não é célula computada (estilos via índice
+      `s`, ranges mesclados, células/linhas intocadas).
 
 ### Verification Plan
-- Testes de `ExcelMergeTests` passam + um novo teste que faz merge num template
-  com `mergeCells`/validação e confirma que sobrevivem.
-- `--excel-memory` → pico do Merge tende ao piso do workbook retido (~500 MB).
+- Testes de `ExcelMergeTests` passam + novo teste
+  `Merge_PreservesStylesMergedRangesAndUntouchedContent`.
+- `--excel-memory` → pico do Merge cai e o output faz round-trip sem divergência.
 
 ### Phase Summary
-_(escrever ao completar)_
+`ExcelMerge` reescrito de mutação DOM para streaming `XmlReader`→`XmlWriter`→
+`FeedData`. Por worksheet: copia `<worksheet>` e filhos verbatim (`WriteNode`),
+exceto `<sheetData>`, que passa por um merge-join de dois níveis (linhas, depois
+colunas) entre as células existentes (streamed, ascendentes) e as nossas
+(agrupadas por linha, ordenadas por coluna). Células que possuímos: valor
+substituído, fórmula dropada, `s` (estilo) preservado; blanks não sobrescrevem.
+Células/linhas/elementos que não possuímos: `WriteNode` verbatim. Texto vira
+inline string (não toca a shared-string table). `WriteCell` espelha a antiga
+`WriteLiteral`, incluindo `xml:space="preserve"` só em whitespace de borda.
+
+**Resultado medido (K1):** tempo 32,34s → **0,98s** (33x); alocado 3.865 MB →
+**339 MB** (11x); pico vivo 1.273 MB → **825 MB** (−35%). O pico fica acima do
+probe verbatim (579 MB) porque o merge computa os 566k valores (a memoização do
+workbook cresce o retido) — é o piso real. **Correção:** 29/29 testes Excel
+(incl. novo teste de preservação de estilo/merge) + round-trip do K1 com 0
+divergências em 62.812 células, 27/27 sheets.
 
 ## Phase 4: Limpeza do andaime
-Status: Not started
+Status: Complete
 
-- [ ] Decidir destino do `ExcelMemoryHarness.cs` + dispatch em `Program.cs` +
-      `ProjectReference` do Excel no benchmark: manter como benchmark
-      versionado (documentado) OU remover. Registrar a decisão.
-- [ ] `git status` limpo (fora as mudanças intencionais).
+- [x] **Decisão:** MANTER `ExcelMemoryHarness.cs` + dispatch `--excel-memory` +
+      `ProjectReference` do Excel no benchmark como benchmark de regressão (segue o
+      padrão dos harnesses irmãos que usam Aspose+k1). Removido só o probe verbatim
+      descartável (papel de validação já cumprido pelo streaming merge real).
+- [x] `git status` limpo (fora as mudanças intencionais); build sem warnings.
 
 ### Verification Plan
 - `dotnet build -c Release` da solução sem warnings novos.
 
 ### Phase Summary
-_(escrever ao completar)_
+Probe verbatim removido; harness de medição mantido como benchmark
+(`--excel-memory`) com round-trip embutido. `dotnet build -c Release`: 0 warnings.
 
-## Phase 5 (opcional): Export — escrita de célula sem DOM transitório
-Status: Not started
+## Phase 5: Export — escrita de célula sem DOM transitório
+Status: Complete
 
 Fechar a lacuna de alocação (730 MB → alvo < 300 MB) da Fase 2.
 
-- [ ] Reescrever a escrita de célula para emitir `<c>`/`<f>`/`<v>` direto no
+- [x] Reescrever a escrita de célula para emitir `<c>`/`<f>`/`<v>` direto no
       `OpenXmlWriter` via `WriteStartElement(element, atributos)` + `WriteString`,
-      sem construir objetos `Cell`/`CellValue` por célula (reutilizar elementos
-      "template" como nome de tag, passando atributos explícitos).
-- [ ] Preservar exatamente os atributos/tipos atuais (`t="b|s|e|str"`, cached
-      values do modo Formulas) e o comportamento de blank (omissão).
+      sem construir objetos `Cell`/`CellValue` por célula (templates reutilizados +
+      `List<OpenXmlAttribute>` com `Clear()`; `OpenXmlAttribute` é struct).
+- [x] Preservar exatamente os atributos/tipos atuais (`t="b|s|e|str"`, cached
+      values do modo Formulas) e o comportamento de blank (omissão). Resolvido via
+      `CellContent`/`LiteralContent`/`CachedContent`.
 
 ### Verification Plan
 - Suíte Excel 28/28 passa (round-trips + oráculo ClosedXML detectam qualquer
@@ -170,10 +185,48 @@ Fechar a lacuna de alocação (730 MB → alvo < 300 MB) da Fase 2.
 - `--excel-memory` → alocação do Export cai para < ~300 MB.
 
 ### Phase Summary
-_(escrever ao completar)_
+Escrita de célula reescrita para emitir atributos direto no `OpenXmlWriter` com
+templates e `OpenXmlAttribute` (struct) reutilizados — zero alocação de objetos
+`Cell` DOM por célula. Semântica preservada por `CellContent`
+(`LiteralContent`/`CachedContent`): text literal → shared string `t="s"`; text de
+fórmula → `t="str"` inline; blank de fórmula → sem `<v>`.
+
+**Resultado (K1):** alocado 730 MB → **425 MB** (total 891 → 425, −52%). Tempo
+3,03s → 2,80s. Correção: 28/28 testes.
+
+**Meta <300 MB não totalmente atingida.** Os ~425 MB restantes são majoritariamente
+a formatação número→string (566k `double.ToString`), inevitável porque
+`OpenXmlWriter.WriteString` só recebe `string`. Fugir disso exigiria escrita UTF-8
+direta em buffer, fora do que o SDK expõe — parada pragmática.
 
 ## Final Recap
-_(escrever ao completar todas as fases)_
+Reduzimos memória e tempo dos dois caminhos de I/O Excel permanecendo no
+`DocumentFormat.OpenXml` (sem trocar biblioteca, sem licença). Resultados K1
+(566k células):
+
+| Caminho | Baseline | Final | Ganho |
+|---|---|---|---|
+| **Export** tempo | 5,20s | 2,72s | 1,9x |
+| **Export** alocado | 891 MB | 424 MB | 2,1x |
+| **Export** pico | 1.044 MB | 745 MB | −29% |
+| **Merge** tempo | 32,34s | 0,98s | **33x** |
+| **Merge** alocado | 3.865 MB | 339 MB | **11x** |
+| **Merge** pico | 1.273 MB | 825 MB | −35% |
+
+Mudanças: Merge deixou de usar scan O(n²) e depois virou streaming
+`XmlReader`→`XmlWriter`→`FeedData` (elimina o DOM materializado); Export virou
+streaming `OpenXmlWriter` sem dict up-front e com escrita direta de atributos. O
+piso restante é o próprio workbook MySheet (~500 MB) + a formatação
+número→string. Correção: 29 testes Excel + 1044 core + round-trip do K1 (0
+divergências).
 
 ## Deployment Plan
-_(escrever ao completar todas as fases)_
+1. Mudanças são commits `perf(excel-*)` na `main` (biblioteca NuGet); release é
+   **manual** via GitHub Actions.
+2. Disparar: `gh workflow run release.yml --ref main` (ou Actions → Release → Run
+   workflow). **Publicação em produção no NuGet, irreversível** — requer aprovação
+   explícita do prompt de permissão.
+3. `versionize` bumpa patch pelos `perf` (3.8.1 → 3.8.2), empacota os dois
+   pacotes, publica (OIDC), então dá push do commit/tag e cria o Release. Publish
+   falho deixa a `main` limpa.
+4. Pós-release: conferir tag `v3.8.2` e os pacotes em nuget.org.
