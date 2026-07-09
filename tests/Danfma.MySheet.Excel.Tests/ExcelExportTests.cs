@@ -144,6 +144,64 @@ public class ExcelExportTests
     }
 
     [Test]
+    public async Task Text_WithEdgeWhitespace_EmitsXmlSpacePreserve()
+    {
+        // Regression for the whitespace-trimming bug. Spec-compliant readers (Excel, Aspose.Cells) strip
+        // leading/trailing whitespace off a shared-string <t> unless it carries xml:space="preserve".
+        // ClosedXML is lenient and keeps the spaces regardless, so a reader-based round-trip is a false
+        // negative — we must assert on the raw XML the file actually contains.
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-export-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            var workbook = new Workbook();
+            var sheet = workbook.Sheets.Add("Data");
+            sheet["A1"] = new StringValue("  leading");
+            sheet["A2"] = new StringValue("trailing  ");
+            sheet["A3"] = new StringValue("clean");
+            sheet["A4"] = new StringValue("   ");
+
+            workbook.SaveAsExcel(path, new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly });
+
+            var sharedStringsXml = ReadEntry(path, "xl/sharedStrings.xml");
+
+            // Edge-whitespace strings are tagged so real spreadsheets keep the spaces...
+            await Assert.That(sharedStringsXml).Contains("xml:space=\"preserve\">  leading</");
+            await Assert.That(sharedStringsXml).Contains("xml:space=\"preserve\">trailing  </");
+            await Assert.That(sharedStringsXml).Contains("xml:space=\"preserve\">   </");
+
+            // ...while a clean string is left untagged (no attribute bloat).
+            await Assert.That(sharedStringsXml).Contains("<x:t>clean</x:t>");
+
+            // ClosedXML (lenient) and our own reader both keep the spaces, closing the loop.
+            using var oracle = new XLWorkbook(path);
+            var data = oracle.Worksheet("Data");
+            await Assert.That(data.Cell("A1").GetString()).IsEqualTo("  leading");
+            await Assert.That(data.Cell("A2").GetString()).IsEqualTo("trailing  ");
+            await Assert.That(data.Cell("A4").GetString()).IsEqualTo("   ");
+
+            var reloaded = ExcelFile.Load(path);
+            await Assert.That(reloaded.GetCellValue("Data", "A1").ToText()).IsEqualTo("  leading");
+            await Assert.That(reloaded.GetCellValue("Data", "A2").ToText()).IsEqualTo("trailing  ");
+            await Assert.That(reloaded.GetCellValue("Data", "A4").ToText()).IsEqualTo("   ");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string ReadEntry(string xlsxPath, string entryName)
+    {
+        using var archive = System.IO.Compression.ZipFile.OpenRead(xlsxPath);
+        var entry =
+            archive.GetEntry(entryName)
+            ?? throw new InvalidOperationException($"Entry '{entryName}' not found in {xlsxPath}.");
+        using var reader = new StreamReader(entry.Open());
+        return reader.ReadToEnd();
+    }
+
+    [Test]
     public async Task DefaultOptions_AreValuesOnly()
     {
         await WithExport(

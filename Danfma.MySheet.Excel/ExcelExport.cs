@@ -283,7 +283,7 @@ public static class ExcelExport
 
             var part = workbookPart.AddNewPart<SharedStringTablePart>();
             part.SharedStringTable = new SharedStringTable(
-                _items.Select(item => new SharedStringItem(new XlsxText(item)))
+                _items.Select(item => new SharedStringItem(XlsxTextFactory.Create(item)))
             );
         }
     }

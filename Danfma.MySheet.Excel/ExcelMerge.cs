@@ -4,7 +4,6 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using XlsxRow = DocumentFormat.OpenXml.Spreadsheet.Row;
 using XlsxSheet = DocumentFormat.OpenXml.Spreadsheet.Sheet;
-using XlsxText = DocumentFormat.OpenXml.Spreadsheet.Text;
 
 namespace Danfma.MySheet.Excel;
 
@@ -181,7 +180,7 @@ public static class ExcelMerge
 
             case ComputedValueKind.Text:
                 cell.DataType = CellValues.InlineString;
-                cell.InlineString = new InlineString(new XlsxText(value.ToText()));
+                cell.InlineString = new InlineString(XlsxTextFactory.Create(value.ToText()));
                 break;
 
             case ComputedValueKind.Error:
