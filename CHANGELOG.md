@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.8.1"></a>
+## [3.8.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.8.1) (2026-07-09)
+
+### Bug Fixes
+
+* **excel-export:** preserve leading/trailing whitespace in cell text ([d3315f6](https://www.github.com/danfma/my-sheet/commit/d3315f6269d6db43a36d69117f1d120706904855))
+
 <a name="3.8.0"></a>
 ## [3.8.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.8.0) (2026-07-08)
 
