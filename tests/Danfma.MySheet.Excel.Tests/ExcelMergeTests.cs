@@ -174,6 +174,53 @@ public class ExcelMergeTests
     // calcChain.xml" and shows a repair dialog. The merge must remove the stale calcChain so Excel
     // rebuilds it silently on open.
     [Test]
+    public async Task Merge_PreservesStylesMergedRangesAndUntouchedContent()
+    {
+        // The streaming merge must copy everything it does not own verbatim: a cell's style index (so a
+        // formatted template cell stays formatted), merged ranges, and untouched cells/rows.
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-preserve-{Guid.NewGuid():N}.xlsx");
+
+        using (var target = new XLWorkbook())
+        {
+            var data = target.AddWorksheet("Data");
+            data.Cell("A1").Value = 0; // we will overwrite this value…
+            data.Cell("A1").Style.NumberFormat.Format = "0.00"; // …but this format must survive
+            data.Cell("A1").Style.Font.Bold = true;
+            data.Range("B2:D2").Merge(); // a merged range far from our cell
+            data.Cell("F6").Value = "untouched";
+            target.SaveAs(path);
+        }
+
+        try
+        {
+            var workbook = new Workbook();
+            var sheet = workbook.Sheets.Add("Data");
+            sheet["A1"] = ExpressionParser.Parse("=2+2", sheet);
+
+            workbook.MergeIntoExcel(path);
+
+            using var merged = new XLWorkbook(path);
+            var data = merged.Worksheet("Data");
+
+            // Our value landed as a literal…
+            await Assert.That(data.Cell("A1").GetDouble()).IsEqualTo(4.0);
+            await Assert.That(data.Cell("A1").HasFormula).IsFalse();
+
+            // …while the target cell's formatting (style index) was preserved.
+            await Assert.That(data.Cell("A1").Style.NumberFormat.Format).IsEqualTo("0.00");
+            await Assert.That(data.Cell("A1").Style.Font.Bold).IsTrue();
+
+            // Merged ranges and untouched cells are intact.
+            await Assert.That(data.MergedRanges.Select(r => r.RangeAddress.ToString())).Contains("B2:D2");
+            await Assert.That(data.Cell("F6").GetString()).IsEqualTo("untouched");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     public async Task Merge_RemovesStaleCalcChain()
     {
         var path = CreateTargetFile(); // Data!A2 is a formula → the authored file has a calcChain
