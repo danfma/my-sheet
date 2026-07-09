@@ -48,51 +48,45 @@ public static class ExcelExport
         var mode = (options ?? new ExcelExportOptions()).FormulaMode;
         var orderedSheets = workbook.Sheets.Values.OrderBy(sheet => sheet.Index).ToArray();
 
-        // Evaluate everything up front on one large-stack thread, so deep dependency chains cannot
-        // overflow while cells are being written. Results are memoized per cell.
-        var values = Workbook.RunWithLargeStack(() =>
+        // The whole write runs on one large-stack thread: each cell value is computed ON DEMAND at write
+        // time (deep dependency chains cannot overflow) and streamed straight out via OpenXmlWriter, so we
+        // never hold a second dictionary of every value NOR a full worksheet DOM — only the workbook's own
+        // memoized store plus the (distinct-string-bounded) shared-string table stay resident.
+        Workbook.RunWithLargeStack(() =>
         {
-            var computed = new Dictionary<(string Sheet, string Id), ComputedValue>();
+            using var document = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
 
+            var workbookPart = document.AddWorkbookPart();
+            var sharedStrings = new SharedStringRegistry();
+            var sheetEntries = new List<(string Id, string Name)>(orderedSheets.Length);
+
+            // Stream each worksheet part first: this is where the shared-string registry gets populated,
+            // so the shared-string table must be written afterwards.
             foreach (var sheet in orderedSheets)
             {
-                foreach (var id in sheet.Keys)
-                {
-                    computed[(sheet.Name, id)] = workbook.GetCellValue(sheet.Name, id);
-                }
+                var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+                WriteWorksheet(worksheetPart, sheet, workbook, mode, sharedStrings);
+                sheetEntries.Add((workbookPart.GetIdOfPart(worksheetPart), sheet.Name));
             }
 
-            return computed;
+            var xlsxWorkbook = new XlsxWorkbook();
+            var sheetList = xlsxWorkbook.AppendChild(new Sheets());
+            var sheetId = 1u;
+
+            foreach (var (id, name) in sheetEntries)
+            {
+                sheetList.AppendChild(new XlsxSheet { Id = id, SheetId = sheetId++, Name = name });
+            }
+
+            workbookPart.Workbook = xlsxWorkbook;
+
+            // Defined names go after <sheets> in the workbook element (schema order).
+            WriteDefinedNames(workbookPart, workbook);
+
+            sharedStrings.WriteTo(workbookPart);
+
+            return 0; // RunWithLargeStack exposes only a Func<T> overload; the result is unused
         });
-
-        using var document = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
-
-        var workbookPart = document.AddWorkbookPart();
-        workbookPart.Workbook = new XlsxWorkbook();
-
-        var sheetList = workbookPart.Workbook.AppendChild(new Sheets());
-        var sharedStrings = new SharedStringRegistry();
-        var sheetId = 1u;
-
-        foreach (var sheet in orderedSheets)
-        {
-            var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
-            worksheetPart.Worksheet = new Worksheet(BuildSheetData(sheet, values, mode, sharedStrings));
-
-            sheetList.AppendChild(
-                new XlsxSheet
-                {
-                    Id = workbookPart.GetIdOfPart(worksheetPart),
-                    SheetId = sheetId++,
-                    Name = sheet.Name,
-                }
-            );
-        }
-
-        // Defined names go after <sheets> in the workbook element (schema order).
-        WriteDefinedNames(workbookPart, workbook);
-
-        sharedStrings.WriteTo(workbookPart);
     }
 
     private static void WriteDefinedNames(WorkbookPart workbookPart, Workbook workbook)
@@ -116,15 +110,21 @@ public static class ExcelExport
         (workbookPart.Workbook ??= new XlsxWorkbook()).AppendChild(definedNames);
     }
 
-    private static SheetData BuildSheetData(
+    // Streams one worksheet part cell-by-cell via OpenXmlWriter: a transient Cell is built, written, and
+    // immediately eligible for GC, so we never materialize the whole <sheetData> tree in memory. Values are
+    // computed on demand here (we are already on the large-stack thread from SaveAsExcel).
+    private static void WriteWorksheet(
+        WorksheetPart part,
         Sheet sheet,
-        Dictionary<(string Sheet, string Id), ComputedValue> values,
+        Workbook workbook,
         FormulaMode mode,
         SharedStringRegistry sharedStrings
     )
     {
-        var sheetData = new SheetData();
-        XlsxRow? currentRow = null;
+        using var writer = OpenXmlWriter.Create(part);
+
+        writer.WriteStartElement(new Worksheet());
+        writer.WriteStartElement(new SheetData());
 
         // OpenXML requires rows in order and cells in column order within the row.
         var orderedCells = sheet
@@ -132,24 +132,40 @@ public static class ExcelExport
             .OrderBy(cell => cell.Position.Row)
             .ThenBy(cell => cell.Position.Column);
 
+        var currentRow = -1;
+
         foreach (var (id, position, expression) in orderedCells)
         {
-            var cell = BuildCell(id, expression, values[(sheet.Name, id)], sheet.Name, mode, sharedStrings);
+            var value = workbook.GetCellValue(sheet.Name, id);
+            var cell = BuildCell(id, expression, value, sheet.Name, mode, sharedStrings);
 
             if (cell is null)
             {
                 continue; // blank: the cell is simply omitted
             }
 
-            if (currentRow is null || currentRow.RowIndex! != (uint)position.Row)
+            if (position.Row != currentRow)
             {
-                currentRow = sheetData.AppendChild(new XlsxRow { RowIndex = (uint)position.Row });
+                if (currentRow != -1)
+                {
+                    writer.WriteEndElement(); // close the previous <row>
+                }
+
+                writer.WriteStartElement(new XlsxRow { RowIndex = (uint)position.Row });
+                currentRow = position.Row;
             }
 
-            currentRow.AppendChild(cell);
+            writer.WriteElement(cell);
         }
 
-        return sheetData;
+        if (currentRow != -1)
+        {
+            writer.WriteEndElement(); // close the last <row>
+        }
+
+        writer.WriteEndElement(); // </sheetData>
+        writer.WriteEndElement(); // </worksheet>
+        writer.Close();
     }
 
     private static Cell? BuildCell(
