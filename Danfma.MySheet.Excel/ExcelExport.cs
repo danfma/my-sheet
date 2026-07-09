@@ -110,9 +110,10 @@ public static class ExcelExport
         (workbookPart.Workbook ??= new XlsxWorkbook()).AppendChild(definedNames);
     }
 
-    // Streams one worksheet part cell-by-cell via OpenXmlWriter: a transient Cell is built, written, and
-    // immediately eligible for GC, so we never materialize the whole <sheetData> tree in memory. Values are
-    // computed on demand here (we are already on the large-stack thread from SaveAsExcel).
+    // Streams one worksheet part straight to the package via OpenXmlWriter, writing each <c>/<f>/<v>
+    // through reusable template elements + struct attributes so there is NO per-cell heap allocation and
+    // never a materialized <sheetData> tree. Values are computed on demand here (we are already on the
+    // large-stack thread from SaveAsExcel).
     private static void WriteWorksheet(
         WorksheetPart part,
         Sheet sheet,
@@ -126,6 +127,15 @@ public static class ExcelExport
         writer.WriteStartElement(new Worksheet());
         writer.WriteStartElement(new SheetData());
 
+        // Reused across the whole sheet: the tag templates carry no attributes of their own (we pass every
+        // attribute explicitly) and OpenXmlAttribute is a struct, so the only heap object is this list's
+        // backing array, reused via Clear().
+        var attributes = new List<OpenXmlAttribute>(2);
+        var rowTag = new XlsxRow();
+        var cellTag = new Cell();
+        var formulaTag = new CellFormula();
+        var valueTag = new CellValue();
+
         // OpenXML requires rows in order and cells in column order within the row.
         var orderedCells = sheet
             .Select(entry => (entry.Key, Position: CellId.Parse(entry.Key), Expression: entry.Value))
@@ -137,11 +147,27 @@ public static class ExcelExport
         foreach (var (id, position, expression) in orderedCells)
         {
             var value = workbook.GetCellValue(sheet.Name, id);
-            var cell = BuildCell(id, expression, value, sheet.Name, mode, sharedStrings);
 
-            if (cell is null)
+            // Resolve what this cell serializes to. A formula node (Formulas mode) always writes its <f>,
+            // even when the cached value is blank; a literal blank is omitted entirely.
+            string? formula;
+            CellContent content;
+
+            if (mode == FormulaMode.Formulas && expression is not ValueExpression)
             {
-                continue; // blank: the cell is simply omitted
+                formula = expression.ToFormula(sheet.Name);
+                content = CachedContent(value);
+            }
+            else
+            {
+                formula = null;
+
+                if (value.Kind == ComputedValueKind.Blank)
+                {
+                    continue; // literal blank: the cell is simply omitted
+                }
+
+                content = LiteralContent(value, sharedStrings);
             }
 
             if (position.Row != currentRow)
@@ -151,11 +177,39 @@ public static class ExcelExport
                     writer.WriteEndElement(); // close the previous <row>
                 }
 
-                writer.WriteStartElement(new XlsxRow { RowIndex = (uint)position.Row });
+                attributes.Clear();
+                attributes.Add(
+                    new OpenXmlAttribute("r", "", ((uint)position.Row).ToString(CultureInfo.InvariantCulture))
+                );
+                writer.WriteStartElement(rowTag, attributes);
                 currentRow = position.Row;
             }
 
-            writer.WriteElement(cell);
+            attributes.Clear();
+            attributes.Add(new OpenXmlAttribute("r", "", id));
+
+            if (content.DataType is { } dataType)
+            {
+                attributes.Add(new OpenXmlAttribute("t", "", dataType));
+            }
+
+            writer.WriteStartElement(cellTag, attributes);
+
+            if (formula is not null)
+            {
+                writer.WriteStartElement(formulaTag);
+                writer.WriteString(formula);
+                writer.WriteEndElement();
+            }
+
+            if (content.Value is { } text)
+            {
+                writer.WriteStartElement(valueTag);
+                writer.WriteString(text);
+                writer.WriteEndElement();
+            }
+
+            writer.WriteEndElement(); // </c>
         }
 
         if (currentRow != -1)
@@ -168,108 +222,43 @@ public static class ExcelExport
         writer.Close();
     }
 
-    private static Cell? BuildCell(
-        string id,
-        Expression expression,
-        in ComputedValue value,
-        string sheetName,
-        FormulaMode mode,
-        SharedStringRegistry sharedStrings
-    )
-    {
-        // A literal node is written as a literal in both modes; a formula node keeps its formula text
-        // (plus the cached value) in Formulas mode and is flattened to its computed value otherwise.
-        if (mode == FormulaMode.Formulas && expression is not ValueExpression)
+    // The (t attribute, <v> text) a cell serializes to; a null DataType means no t attribute and a null
+    // Value means no <v> child (a formula whose cached result is blank).
+    private readonly record struct CellContent(string? DataType, string? Value);
+
+    // A literal cell value. Text goes through the shared-string table (t="s", <v> is the index).
+    private static CellContent LiteralContent(in ComputedValue value, SharedStringRegistry sharedStrings) =>
+        value.Kind switch
         {
-            var cell = new Cell
-            {
-                CellReference = id,
-                CellFormula = new CellFormula(expression.ToFormula(sheetName)),
-            };
+            ComputedValueKind.Number => new(null, value.ToDouble().ToString(CultureInfo.InvariantCulture)),
+            ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
+            ComputedValueKind.Text => new(
+                "s",
+                sharedStrings.IndexOf(value.ToText()).ToString(CultureInfo.InvariantCulture)
+            ),
+            ComputedValueKind.Error => new("e", ErrorText(value)),
+            // A bare reference result (e.g. a multi-cell OFFSET) has no single cell value.
+            ComputedValueKind.Reference => new("e", Error.Value.ToString()),
+            _ => new(null, null),
+        };
 
-            ApplyCachedValue(cell, value);
-
-            return cell;
-        }
-
-        return BuildLiteralCell(id, value, sharedStrings);
-    }
-
-    // The cached value that accompanies a formula: plain number, t="b", t="str" (NOT a shared string —
-    // that is the xlsx convention for formula-produced text) or t="e".
-    private static void ApplyCachedValue(Cell cell, in ComputedValue value)
-    {
-        switch (value.Kind)
+    // The cached value that accompanies a formula: plain number, t="b", t="str" (NOT a shared string — that
+    // is the xlsx convention for formula-produced text), t="e", or blank (no <v>).
+    private static CellContent CachedContent(in ComputedValue value) =>
+        value.Kind switch
         {
-            case ComputedValueKind.Number:
-                cell.CellValue = new CellValue(value.ToDouble().ToString(CultureInfo.InvariantCulture));
-                break;
+            ComputedValueKind.Number => new(null, value.ToDouble().ToString(CultureInfo.InvariantCulture)),
+            ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
+            ComputedValueKind.Text => new("str", value.ToText()),
+            ComputedValueKind.Error => new("e", ErrorText(value)),
+            ComputedValueKind.Reference => new("e", Error.Value.ToString()),
+            _ => new(null, null),
+        };
 
-            case ComputedValueKind.Boolean:
-                cell.DataType = CellValues.Boolean;
-                cell.CellValue = new CellValue(value.ToBoolean() ? "1" : "0");
-                break;
-
-            case ComputedValueKind.Text:
-                cell.DataType = CellValues.String;
-                cell.CellValue = new CellValue(value.ToText());
-                break;
-
-            case ComputedValueKind.Error:
-                ApplyError(cell, value);
-                break;
-
-            case ComputedValueKind.Reference:
-                // A bare reference result (e.g. a multi-cell OFFSET) has no single cell value.
-                cell.DataType = CellValues.Error;
-                cell.CellValue = new CellValue(Error.Value.ToString());
-                break;
-
-            // Blank: a formula whose result is blank carries no cached value.
-        }
-    }
-
-    private static Cell? BuildLiteralCell(string id, in ComputedValue value, SharedStringRegistry sharedStrings)
-    {
-        var cell = new Cell { CellReference = id };
-
-        switch (value.Kind)
-        {
-            case ComputedValueKind.Number:
-                cell.CellValue = new CellValue(value.ToDouble().ToString(CultureInfo.InvariantCulture));
-                return cell;
-
-            case ComputedValueKind.Boolean:
-                cell.DataType = CellValues.Boolean;
-                cell.CellValue = new CellValue(value.ToBoolean() ? "1" : "0");
-                return cell;
-
-            case ComputedValueKind.Text:
-                cell.DataType = CellValues.SharedString;
-                cell.CellValue = new CellValue(
-                    sharedStrings.IndexOf(value.ToText()).ToString(CultureInfo.InvariantCulture)
-                );
-                return cell;
-
-            case ComputedValueKind.Error:
-                ApplyError(cell, value);
-                return cell;
-
-            case ComputedValueKind.Reference:
-                cell.DataType = CellValues.Error;
-                cell.CellValue = new CellValue(Error.Value.ToString());
-                return cell;
-
-            default:
-                return null; // blank cells are omitted entirely
-        }
-    }
-
-    private static void ApplyError(Cell cell, in ComputedValue value)
+    private static string ErrorText(in ComputedValue value)
     {
         value.TryGetError(out var error);
-        cell.DataType = CellValues.Error;
-        cell.CellValue = new CellValue(error.ToString());
+        return error.ToString();
     }
 
     /// <summary>Deduplicating shared-string table, written to the workbook only when any text was used.</summary>
