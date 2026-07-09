@@ -16,5 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Danfma.MySheet\Danfma.MySheet.csproj" />
+    <ProjectReference Include="..\..\Danfma.MySheet.Excel\Danfma.MySheet.Excel.csproj" />
   </ItemGroup>
 </Project>

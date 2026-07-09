@@ -5,6 +5,13 @@ using Danfma.MySheet.Benchmark.Spike.DirtyGraph;
 using Danfma.MySheet.Benchmark.Spike.MessagePackFormat;
 using Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 
+// TEMP memória Excel (OpenXML vs Aspose): `dotnet run -c Release -- --excel-memory`.
+if (args.Contains("--excel-memory"))
+{
+    ExcelMemoryHarness.Run();
+    return;
+}
+
 // Sanidade do spike CellValue (Fase 1): `dotnet run -- --check`.
 if (args.Contains("--check"))
 {
