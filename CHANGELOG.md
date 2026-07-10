@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.11.0"></a>
+## [3.11.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.11.0) (2026-07-10)
+
+### Features
+
+* **excel-load:** ExcelLoadOptions with load-warning callback ([182a1f4](https://www.github.com/danfma/my-sheet/commit/182a1f48535adc38ca6538e75e38895a2b6071d7))
+
 <a name="3.10.4"></a>
 ## [3.10.4](https://www.github.com/danfma/my-sheet/releases/tag/v3.10.4) (2026-07-10)
 
