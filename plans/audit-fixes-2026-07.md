@@ -194,7 +194,19 @@ Status: Complete — escopo executado: tudo menos override (decisão do usuário
 - Push + release (minor se houver feat)
 
 ### Phase Summary
-_(write when phase completes)_
+- **P3** (b2f8d83): admissão população-aware p/ retângulos via structural index (early-exit no
+  threshold; nunca força build do índice; legado preservado sem índice). Retângulo esparso 1M×20
+  populadas: 192 MB → 888 bytes.
+- **M1-M3** (46b7aed): SUBTOTAL passe único numérico (−29% alloc, −45% tempo); fast-paths 0/1-arg no
+  ParseFunctionCall (opção (b) do plano REJEITADA com prova — List já nasce cap 4 e 0-args regride);
+  NUMBERVALUE por span; presize do snapshot warm; IRR REJEITADO (exigiria alargar
+  TimeValueOfMoney.Solve em 3 sites por alocação cold).
+- **P4** (commit desta entrada): Values de retângulo fechado → view zero-copy sobre o dense store
+  (equivalência PROVADA: build força presença; épocas caem juntas). 40 ranges de 250k: −228,8 MB
+  (bate 24B/célula exato). OpenRangeReference deliberadamente adiado (design próprio; whole-column
+  flagship intocado, sem regressão).
+
+Suítes: 1.084 core + 53 Excel, 0 falhas.
 
 ### Phase Summary
 - **6a** (ea4b4fa): `FunctionRegistry` com 305 entradas unificadas → índices ByName (Parser) e ByType
@@ -212,24 +224,24 @@ Suítes finais: 1.081 core + 53 Excel, 0 falhas.
 
 
 ## Phase 7: Cauda de desempenho + micro pendentes → release patch
-Status: Not started
+Status: Complete
 
-- [ ] **P3 (admissão população-aware)**: `EstimatePopulatedCells` para RangeReference fechado é cego
+- [x] **P3 (admissão população-aware)**: `EstimatePopulatedCells` para RangeReference fechado é cego
   (retorna área capada) enquanto open ranges consultam o structural index para contagem exata
   (Workbook — região movida p/ RangeValueCache.cs na 6b; era Workbook.cs:244-288). Fix: usar o
   structural index também para retângulos fechados (contagem por interseção coluna×linhas), tornando a
   admissão consistente e evitando snapshot de retângulo esparso. Medir: cenário de retângulo 1000×1 com
   10 células populadas NÃO deve mais materializar 1000 slots.
-- [ ] **M1 (Parser: 2 alocações por function call)**: `ParseFunctionCall` aloca `List<Expression>` +
+- [x] **M1 (Parser: 2 alocações por function call)**: `ParseFunctionCall` aloca `List<Expression>` +
   `ToArray()` nos dois ramos (Parser.cs ~:772,794,805 pré-refactor; localizar pós-6a). Avaliar: buffer
   pooled, ou contagem em duas passadas, ou aceitar 1 alocação (o array final é retido pelo nó — só a
   List é lixo). Meta: 1 alocação (o array) por chamada.
-- [ ] **M2 (SUBTOTAL)**: dupla materialização + `ToId()` string por célula (Subtotal.cs:~40,70-84,170).
+- [x] **M2 (SUBTOTAL)**: dupla materialização + `ToId()` string por célula (Subtotal.cs:~40,70-84,170).
   Passe único, id via span/CellRef.TryFormat ou consulta numérica direta.
-- [ ] **M3 (triviais)**: NUMBERVALUE sem LINQ sobre chars (TextFormatting.cs:153,180); presize de
+- [x] **M3 (triviais)**: NUMBERVALUE sem LINQ sobre chars (TextFormatting.cs:153,180); presize de
   `SnapshotComputedValues` (Workbook.Serialization.cs, era Workbook.cs:855); closure do IRR (Irr.cs:52)
   se trivial.
-- [ ] **P4 (INVESTIGAÇÃO — RangeSnapshot.Values duplica o dense store)**: o snapshot materializa cópia
+- [x] **P4 (INVESTIGAÇÃO — RangeSnapshot.Values duplica o dense store)**: o snapshot materializa cópia
   física dos valores por época (RangeValueCache.cs:107,163-209) além dos índices derivados. Investigar
   (estilo R2, com critério): é viável construir os índices derivados lendo o dense store sem reter
   `Values`, mantendo os consumidores de iteração via cursor? SE a medição mostrar regressão de tempo
@@ -284,6 +296,11 @@ _(write when phase completes)_
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
 Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perder:
+- **OpenRangeReference sem cópia Values** (follow-up do P4): exige inversão posição→(col,row) sobre os
+  buckets do structural index (abstração de offsets segmentados); flagship whole-column — design próprio.
+- **Spike EvictDense × range cache** (achado do P4): EvictDense evicta célula densa SEM limpar
+  _rangeCache — snapshot stale se o caminho spike do dirty graph for usado com ranges; pré-existente,
+  documentado como "not host API", mas é armadilha se o spike for promovido.
 - **Dirty graph é ilha** (decisão de produto): integrar ao SetCell/InvalidateCache OU medir e documentar
   o crossover rebuild O(F) vs InvalidateCache; hoje há dois mundos de invalidação paralelos.
 - **AST = modelo serializado**: spans/trivia p/ error-recovery e parser incremental exigem CST paralelo
