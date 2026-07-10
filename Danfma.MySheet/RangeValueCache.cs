@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Danfma.MySheet.Expressions;
+using MemoryPack;
 
 namespace Danfma.MySheet;
 
@@ -602,5 +603,164 @@ internal sealed class RangeSnapshot
         }
 
         return low;
+    }
+}
+
+public sealed partial class Workbook
+{
+    // === Layer-1 structural index (whole-column scale) ==================================================
+    // The per-sheet "which cells exist in this column/row" index now lives ON the Sheet (see
+    // Sheet.GetStructuralIndex): it is write-maintained by the SetCell/Remove choke point and lifetime-scoped,
+    // so InvalidateCache() no longer drops it (only cell edits change structure, and those maintain it in
+    // place). The Workbook keeps no structural state of its own anymore.
+
+    // === Layer-2 range value cache (whole-column scale) =================================================
+    // Per-epoch snapshot (materialized ComputedValue[] + lazy derived accelerators) of a populated range,
+    // keyed by the range reference record (OpenRangeReference/RangeReference have value equality). The
+    // snapshot re-reads cell VALUES once and every consuming formula of the epoch then serves its lookup /
+    // criterion / aggregate O(1)/O(log n) instead of re-scanning N cells. Values can be volatile-tainted, so
+    // this is dropped by BOTH InvalidateCache() AND Recalculate() (unlike the structural index). Lazily
+    // created race-free via the RangeCache accessor — never `= new()` on the field (MemoryPack bypasses it).
+    [MemoryPackIgnore]
+    private ConcurrentDictionary<Reference, RangeCacheEntry>? _rangeCache;
+
+    // A range with fewer than this many populated cells is not cached: a linear scan already wins there and
+    // caching every tiny range would flood the dictionary. Measured against the whole-column benchmark.
+    // Internal (not private): VLOOKUP/HLOOKUP's linear fallback probes this threshold against the table's own
+    // row/column count BEFORE building the single-column/row RangeReference key, so a small table (the common
+    // case) never pays that allocation just to have TryGetRangeSnapshot immediately reject it as too small.
+    internal const int RangeCacheMinimumCells = 256;
+
+    // Defensive cap on lightweight "Seen" markers. A workload of single-use ranges that clear the threshold
+    // (e.g. 10k distinct sliding windows) only ever leaves markers behind — never a built snapshot — so the
+    // marker set could grow unbounded within an epoch. Each marker is tiny (a key + a null-snapshot slot) and
+    // drops on InvalidateCache/Recalculate, but past this count new ranges simply stay on the linear path
+    // rather than pay even the marker. 64k markers is far above any legitimate reuse-heavy working set.
+    private const int RangeCacheMarkerCap = 65_536;
+
+    // Approximate count of live entries (markers + built). Interlocked, reset when the cache is dropped; used
+    // only to enforce RangeCacheMarkerCap cheaply (ConcurrentDictionary.Count would lock every bucket).
+    private int _rangeCacheEntryCount;
+
+    private ConcurrentDictionary<Reference, RangeCacheEntry> RangeCache
+    {
+        get
+        {
+            var existing = _rangeCache;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new ConcurrentDictionary<Reference, RangeCacheEntry>();
+            return Interlocked.CompareExchange(ref _rangeCache, created, null) ?? created;
+        }
+    }
+
+    // Test-only bypass: forces every consumer down the pre-cache linear path, so the equivalence harness can
+    // capture the "no cache" expectation and diff it against the cache-served result. Not serialized.
+    [MemoryPackIgnore]
+    internal bool RangeCacheDisabled { get; set; }
+
+    /// <summary>
+    /// The shared per-epoch <see cref="RangeSnapshot"/> for a populated range, or <c>null</c> when the range
+    /// is not cacheable (not a rectangle/open range, below the size threshold, the cache is disabled, or this
+    /// is the range's FIRST read this epoch) — in which case the caller keeps its existing linear path.
+    ///
+    /// <para><b>Second-use admission (Phase 4).</b> Materializing a snapshot pays off only when a range is read
+    /// more than once per epoch. A range read exactly once (a sliding window, a one-shot bounded lookup) would
+    /// pay an O(N) build it never reuses — the 2.6.2 regression. So the first read only records a lightweight
+    /// marker and returns <c>null</c> (the caller's linear path is used); the snapshot is built on the SECOND
+    /// read and reused by every read after. Ranges below the threshold are never even marked.</para>
+    /// </summary>
+    internal RangeSnapshot? TryGetRangeSnapshot(Reference range, EvaluationContext context)
+    {
+        if (RangeCacheDisabled || range is not (RangeReference or OpenRangeReference))
+        {
+            return null;
+        }
+
+        var cache = RangeCache;
+
+        // Already seen this epoch: the second (or later) read builds the snapshot (once) and reuses it.
+        if (cache.TryGetValue(range, out var entry))
+        {
+            return entry.GetOrBuild(range, context);
+        }
+
+        // First read: only worth remembering if it clears the size threshold and we are under the marker cap.
+        if (
+            Volatile.Read(ref _rangeCacheEntryCount) >= RangeCacheMarkerCap
+            || EstimatePopulatedCells(range, context) < RangeCacheMinimumCells
+        )
+        {
+            return null;
+        }
+
+        // Record a bare "Seen" marker and keep this first read on the linear path.
+        if (cache.TryAdd(range, new RangeCacheEntry()))
+        {
+            Interlocked.Increment(ref _rangeCacheEntryCount);
+        }
+
+        return null;
+    }
+
+    // A cheap UPPER BOUND on a range's populated-cell count, used only to decide whether caching is worth it.
+    // A bounded rectangle uses its area; an open range sums the covered structural-index lists (ignoring row
+    // bounds — an over-estimate is harmless: it only risks caching a range that turns out small).
+    private int EstimatePopulatedCells(Reference range, EvaluationContext context)
+    {
+        switch (range)
+        {
+            case RangeReference rectangle:
+                var area = (long)rectangle.RowCount * rectangle.ColumnCount;
+                return area >= RangeCacheMinimumCells ? RangeCacheMinimumCells : (int)area;
+
+            case OpenRangeReference open:
+                if (!Sheets.TryGetValue(open.SheetName, out var sheet))
+                {
+                    return 0;
+                }
+
+                // The structural index is lifetime-scoped and write-maintained, so consulting it is cheap: it
+                // is built once per sheet life (never per epoch) and every read after is O(covered lists). The
+                // count it gives is exact, so a small open range read repeatedly is correctly kept off the
+                // value cache (below the threshold) instead of admitted on faith.
+                var index = sheet.GetStructuralIndex();
+                var total = 0;
+
+                // Whole-row shape (both column limits open, row axis bounded): sum the covered rows.
+                if (open is { ColMin: null, ColMax: null, RowMin: { } rowMin, RowMax: { } rowMax })
+                {
+                    for (var row = rowMin; row <= rowMax && total < RangeCacheMinimumCells; row++)
+                    {
+                        total += index.RowLength(row);
+                    }
+
+                    return total;
+                }
+
+                // Column-driven shapes: sum the covered columns' lengths (an upper bound over row bounds).
+                foreach (var column in index.ColumnKeys)
+                {
+                    if (
+                        (open.ColMin is not { } min || column >= min)
+                        && (open.ColMax is not { } max || column <= max)
+                    )
+                    {
+                        total += index.ColumnLength(column);
+                        if (total >= RangeCacheMinimumCells)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                return total;
+
+            default:
+                return 0;
+        }
     }
 }

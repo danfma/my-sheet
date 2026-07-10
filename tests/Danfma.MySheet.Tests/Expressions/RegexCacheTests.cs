@@ -10,6 +10,10 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// SAME compiled instance, the cache must survive well past its documented capacity without breaking, and
 /// the 1-second defensive timeout must still fire on a catastrophic pattern.
 /// </summary>
+// The cache under test is a process-wide singleton and the capacity test triggers a wholesale
+// eviction; running these in parallel lets that clear land between the identity test's two Gets
+// (observed flake). Serialize the class's tests against each other.
+[NotInParallel(nameof(RegexCacheTests))]
 public class RegexCacheTests
 {
     [Test]
