@@ -426,7 +426,9 @@ public static class ExcelMerge
         }
 
         writer.WriteStartElement("row", Ns);
-        writer.WriteAttributeString("r", rowNumber.ToString(CultureInfo.InvariantCulture));
+        writer.WriteStartAttribute("r");
+        XlsxNumbers.Write(writer, rowNumber);
+        writer.WriteEndAttribute();
 
         foreach (var (id, value) in nonBlank)
         {
@@ -491,11 +493,9 @@ public static class ExcelMerge
         switch (value.Kind)
         {
             case ComputedValueKind.Number:
-                writer.WriteElementString(
-                    "v",
-                    Ns,
-                    value.ToDouble().ToString(CultureInfo.InvariantCulture)
-                );
+                writer.WriteStartElement("v", Ns);
+                XlsxNumbers.Write(writer, value.ToDouble());
+                writer.WriteEndElement();
                 break;
 
             case ComputedValueKind.Boolean:
@@ -505,11 +505,9 @@ public static class ExcelMerge
 
             case ComputedValueKind.Text:
                 writer.WriteAttributeString("t", "s");
-                writer.WriteElementString(
-                    "v",
-                    Ns,
-                    sharedStrings.IndexOf(value.ToText()).ToString(CultureInfo.InvariantCulture)
-                );
+                writer.WriteStartElement("v", Ns);
+                XlsxNumbers.Write(writer, sharedStrings.IndexOf(value.ToText()));
+                writer.WriteEndElement();
                 break;
 
             case ComputedValueKind.Error:

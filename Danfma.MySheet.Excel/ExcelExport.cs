@@ -154,18 +154,29 @@ public static class ExcelExport
         var formulaTag = new CellFormula();
         var valueTag = new CellValue();
 
-        // OpenXML requires rows in order and cells in column order within the row.
-        var orderedCells = sheet
-            .Select(entry =>
-                (entry.Key, Position: CellId.Parse(entry.Key), Expression: entry.Value)
-            )
-            .OrderBy(cell => cell.Position.Row)
-            .ThenBy(cell => cell.Position.Column);
+        // OpenXML requires rows in order and cells in column order within the row. Sorting packed
+        // (row << 14 | column) keys against a parallel payload array replaces the LINQ pipeline —
+        // no iterator or per-cell tuple boxing on a 600k-cell sheet.
+        var sortKeys = new long[sheet.Count];
+        var cells = new (string Id, int Row, int Column, Expression Expression)[sheet.Count];
+        var next = 0;
+
+        foreach (var entry in sheet)
+        {
+            var (row, column) = CellId.Parse(entry.Key);
+
+            sortKeys[next] = ((long)row << 14) | (uint)column;
+            cells[next] = (entry.Key, row, column, entry.Value);
+            next++;
+        }
+
+        Array.Sort(sortKeys, cells);
 
         var currentRow = -1;
 
-        foreach (var (id, position, expression) in orderedCells)
+        foreach (var (id, row, column, expression) in cells)
         {
+            var position = (Row: row, Column: column);
             var value = workbook.GetCellValue(sheet.Name, id);
 
             // Resolve what this cell serializes to. A formula node (Formulas mode) always writes its <f>,
@@ -257,14 +268,11 @@ public static class ExcelExport
     ) =>
         value.Kind switch
         {
-            ComputedValueKind.Number => new(
-                null,
-                value.ToDouble().ToString(CultureInfo.InvariantCulture)
-            ),
+            ComputedValueKind.Number => new(null, XlsxNumbers.Format(value.ToDouble())),
             ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
             ComputedValueKind.Text => new(
                 "s",
-                sharedStrings.IndexOf(value.ToText()).ToString(CultureInfo.InvariantCulture)
+                XlsxNumbers.Format(sharedStrings.IndexOf(value.ToText()))
             ),
             ComputedValueKind.Error => new("e", ErrorText(value)),
             // A bare reference result (e.g. a multi-cell OFFSET) has no single cell value.
@@ -277,10 +285,7 @@ public static class ExcelExport
     private static CellContent CachedContent(in ComputedValue value) =>
         value.Kind switch
         {
-            ComputedValueKind.Number => new(
-                null,
-                value.ToDouble().ToString(CultureInfo.InvariantCulture)
-            ),
+            ComputedValueKind.Number => new(null, XlsxNumbers.Format(value.ToDouble())),
             ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
             ComputedValueKind.Text => new("str", value.ToText()),
             ComputedValueKind.Error => new("e", ErrorText(value)),

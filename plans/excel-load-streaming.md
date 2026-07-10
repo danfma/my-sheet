@@ -204,18 +204,32 @@ FormatException engolida (hint, não contrato). MEDIDO E MANTIDO: allocated 305 
 coberto por teste. Suíte Excel: 46/46.
 
 ## Phase 7: Residual do save
-Status: Not started
+Status: Complete
 
-- [ ] **Merge** (caminho de produção): em `WriteCell`/`WriteNewRow` (ExcelMerge.cs:475-529, 429), trocar `ToString` por `double.TryFormat`/`int.TryFormat` em `char[32]` reutilizado + `writer.WriteChars` (dígitos não precisam escaping). NÃO usar formato "R" explícito — o TryFormat default = shortest round-trip = paridade com ToString atual
-- [ ] `SmallNumberStrings` interno compartilhado (cache `string[]` para inteiros 0..1023, fast-path `d == (int)d`) usado por merge, export e índices de shared string
-- [ ] **Export**: aplicar `SmallNumberStrings`; trocar o LINQ `Select/OrderBy` com tupla por célula (ExcelExport.cs:158-163) por array pré-ordenado sem iterators
-- [ ] Medir; decisão documentada: reescrever export para `XmlWriter` puro (padrão do merge) OU aceitar residual — só reescrever se o número pós-fase ainda incomodar
+- [x] **Merge** (caminho de produção): em `WriteCell`/`WriteNewRow` (ExcelMerge.cs:475-529, 429), trocar `ToString` por `double.TryFormat`/`int.TryFormat` em `char[32]` reutilizado + `writer.WriteChars` (dígitos não precisam escaping). NÃO usar formato "R" explícito — o TryFormat default = shortest round-trip = paridade com ToString atual
+- [x] `SmallNumberStrings` interno compartilhado (cache `string[]` para inteiros 0..1023, fast-path `d == (int)d`) usado por merge, export e índices de shared string
+- [x] **Export**: aplicar `SmallNumberStrings`; trocar o LINQ `Select/OrderBy` com tupla por célula (ExcelExport.cs:158-163) por array pré-ordenado sem iterators
+- [x] Medir; decisão documentada: reescrever export para `XmlWriter` puro (padrão do merge) OU aceitar residual — só reescrever se o número pós-fase ainda incomodar
 
 ### Verification Plan
 - Suítes verdes (round-trip de merge/export já coberto); `--excel-memory`: allocated de export e merge caem vs fase anterior
 
 ### Phase Summary
-_(write when phase completes)_
+Helper `XlsxNumbers` (nasceu como o "SmallNumberStrings" do plano): cache "0".."1023" + overloads
+`Write(XmlWriter, double/int)` com `double.TryFormat` em buffer [ThreadStatic] + `WriteChars` (dígitos
+nunca precisam de escaping; TryFormat default = shortest round-trip = paridade byte com ToString).
+Merge: número, índice de shared string e @r de linha nova escritos sem string. Export: `Format()` com
+cache (OpenXmlWriter continua exigindo string para o resto) + LINQ Select/OrderBy substituído por sort
+de chave empacotada (row<<14|col) com payload paralelo — zero iterators/tuple boxing.
+
+**Resultado**: export 269 → 255 MB, merge 308 → 286 MB alocados; round-trip Aspose 0 mismatches
+(paridade de formatação PROVADA); 1.044+46 testes verdes. No fixture (decimais aleatórios) o cache de
+inteiros rende pouco — em planilhas de negócio (inteiros dominam) rende mais.
+
+**DECISÃO (export → XmlWriter puro): NÃO reescrever agora.** O residual do export é o
+`double.ToString` de decimais não-inteiros, inerente ao OpenXmlWriter; export já está em 1,6s / 255 MB
+(vs Aspose load+save 2,0s / 241 MB). A reescrita replicaria o merge inteiro por ~30-40 MB — não paga o
+risco neste momento. Reavaliar se o export virar gargalo do usuário.
 
 ## Phase 8: Fechamento (+ fase opcional gated)
 Status: Not started
