@@ -19,18 +19,18 @@ Releases: versionize bumpa por conventional commits (fix/perf → patch; feat �
 com push + `gh workflow run release.yml --ref main` + verificação do run.
 
 ## Phase 1: Correções de corretude → release patch
-Status: Not started
+Status: Complete
 
-- [ ] **F1 (DefineName × dirty graph)**: `DefineName` não bumpa versão estrutural → `RecalculationEngine`
+- [x] **F1 (DefineName × dirty graph)**: `DefineName` não bumpa versão estrutural → `RecalculationEngine`
   serve valores stale após redefinição de nome (Workbook.cs:1002; IsStale em RecalculationEngine.cs:178
   só olha sheets). Fix: versão de nomes no Workbook (`[MemoryPackIgnore]`), bump em `DefineName`,
   `IsStale` compara no snapshot. Teste: redefinir nome usado por fórmula → engine recomputa via caminho
   parcial (sem InvalidateCache manual).
-- [ ] **F2 (merge × @r implícito)**: `ExcelMerge` assume `@r` presente (`int.Parse(...!)` em
+- [x] **F2 (merge × @r implícito)**: `ExcelMerge` assume `@r` presente (`int.Parse(...!)` em
   ExcelMerge.cs:253,344) — arquivo que o loader lê OK (posição implícita) quebra o merge. Fix: replicar
   o tracking currentRow/nextColumn do `WorksheetStreamLoader`. Teste: fixture bruto sem `@r`
   (padrão de StreamingLoadEdgeTests) passa por load E merge.
-- [ ] **F3 (guard de profundidade)**: Parser (Parser.cs:378-413) e FormulaWriter (FormulaWriter.cs:48)
+- [x] **F3 (guard de profundidade)**: Parser (Parser.cs:378-413) e FormulaWriter (FormulaWriter.cs:48)
   recursam sem limite → StackOverflow não-capturável em fórmula patológica. Fix: contador de
   profundidade (limite generoso, ex. 256) → `ParseException` no parse; guard equivalente no writer.
   Testes: profundidade N-1 passa, N+1 lança ParseException; sem SO.
@@ -41,7 +41,20 @@ Status: Not started
 - Push + release workflow verde + tag nova no NuGet
 
 ### Phase Summary
-_(write when phase completes)_
+Três fixes delegados a agentes Sonnet (1 por vez, árvore compartilhada), revisados e commitados pelo
+orquestrador:
+- **F1** (db9c647): `_namesVersion` runtime-only ([MemoryPackIgnore]) bumpado nos 2 overloads de
+  DefineName; IsStale do engine compara. Prova contrafactual: teste falha sem o fix (StructureRebuilt
+  = false → valor stale). Mutação direta do dicionário DefinedNames documentada como não-rastreada.
+- **F2** (bcd3406): tracking currentRow/nextColumn no merge espelhando o loader; verbatim das
+  existentes PROVADO seguro (posição implícita = anterior+1; não há inteiro entre as duas → inserção
+  nossa nunca desloca implícita). 2 testes novos com fixture bruto.
+- **F3** (da54344): MaxDepth=256 nos DOIS ciclos de recursão do Parser (ParseExpression + 
+  ParseQualifiedReference — o segundo descoberto pelo agente: ranges cross-sheet encadeados recorrem
+  sem passar pelo hub) → ParseException capturável; FormulaWriter com depth por parâmetro →
+  InvalidOperationException. 7 testes novos.
+
+Suítes: 1.059 core + 48 Excel, 0 falhas. Zero toque em wire format.
 
 ## Phase 2: Superlineares (RANK + regex cache) → release patch
 Status: Not started
