@@ -33,17 +33,11 @@ public sealed partial record RangeReference(
             yield break;
         }
 
-        var start = CellAddress.Parse(StartId);
-        var end = CellAddress.Parse(EndId);
+        var bounds = GetBounds();
 
-        var minColumn = Math.Min(start.Column, end.Column);
-        var maxColumn = Math.Max(start.Column, end.Column);
-        var minRow = Math.Min(start.Row, end.Row);
-        var maxRow = Math.Max(start.Row, end.Row);
-
-        for (var column = minColumn; column <= maxColumn; column++)
+        for (var column = bounds.LeftColumn; column <= bounds.RightColumn; column++)
         {
-            for (var row = minRow; row <= maxRow; row++)
+            for (var row = bounds.TopRow; row <= bounds.BottomRow; row++)
             {
                 yield return sheet[new CellAddress(column, row).ToId()];
             }
@@ -59,13 +53,7 @@ public sealed partial record RangeReference(
     /// unchanged (they live behind <see cref="Workbook.GetCellValueDense"/>).</summary>
     internal RangeValueSequence ExpandComputedValues(EvaluationContext context)
     {
-        var start = CellAddress.Parse(StartId);
-        var end = CellAddress.Parse(EndId);
-
-        var minColumn = Math.Min(start.Column, end.Column);
-        var maxColumn = Math.Max(start.Column, end.Column);
-        var minRow = Math.Min(start.Row, end.Row);
-        var maxRow = Math.Max(start.Row, end.Row);
+        var bounds = GetBounds();
 
         var workbook = context.Workbook;
         var store = workbook.DenseStore;
@@ -76,41 +64,119 @@ public sealed partial record RangeReference(
             store,
             SheetName,
             handle,
-            minColumn,
-            maxColumn,
-            minRow,
-            maxRow
+            bounds.LeftColumn,
+            bounds.RightColumn,
+            bounds.TopRow,
+            bounds.BottomRow
         );
     }
 
-    public int RowCount =>
-        Math.Abs(CellAddress.Parse(EndId).Row - CellAddress.Parse(StartId).Row) + 1;
+    public int RowCount => GetBounds().RowCount;
 
-    public int ColumnCount =>
-        Math.Abs(CellAddress.Parse(EndId).Column - CellAddress.Parse(StartId).Column) + 1;
+    public int ColumnCount => GetBounds().ColumnCount;
 
-    public int TopRow => Math.Min(CellAddress.Parse(StartId).Row, CellAddress.Parse(EndId).Row);
+    public int TopRow => GetBounds().TopRow;
 
-    public int LeftColumn =>
-        Math.Min(CellAddress.Parse(StartId).Column, CellAddress.Parse(EndId).Column);
+    public int LeftColumn => GetBounds().LeftColumn;
+
+    /// <summary>
+    /// The normalized rectangle corners (min/max of <see cref="StartId"/>/<see cref="EndId"/>), parsed
+    /// exactly once via the no-alloc <see cref="CellAddress.TryGetColumnRow"/>. Falls back to the allocating
+    /// <see cref="CellAddress.Parse"/> — and its <see cref="FormatException"/> on a malformed id — only for a
+    /// non-canonical id, matching the exact behavior of every property/method this replaces (they used to
+    /// re-parse both corners with <see cref="CellAddress.Parse"/> on every call).
+    /// </summary>
+    internal RangeBounds GetBounds()
+    {
+        if (TryGetBounds(out var bounds))
+        {
+            return bounds;
+        }
+
+        var start = CellAddress.Parse(StartId);
+        var end = CellAddress.Parse(EndId);
+
+        return new RangeBounds(
+            Math.Min(start.Column, end.Column),
+            Math.Min(start.Row, end.Row),
+            Math.Max(start.Column, end.Column),
+            Math.Max(start.Row, end.Row)
+        );
+    }
+
+    /// <summary>No-alloc attempt at <see cref="GetBounds"/>: <c>false</c> when either corner id is not a
+    /// canonical A1 address (the caller then falls back to the allocating <see cref="CellAddress.Parse"/> path).</summary>
+    private bool TryGetBounds(out RangeBounds bounds)
+    {
+        if (
+            !CellAddress.TryGetColumnRow(StartId, out var startColumn, out var startRow)
+            || !CellAddress.TryGetColumnRow(EndId, out var endColumn, out var endRow)
+        )
+        {
+            bounds = default;
+            return false;
+        }
+
+        bounds = new RangeBounds(
+            Math.Min(startColumn, endColumn),
+            Math.Min(startRow, endRow),
+            Math.Max(startColumn, endColumn),
+            Math.Max(startRow, endRow)
+        );
+        return true;
+    }
 
     /// <summary>The memoized <see cref="ComputedValue"/> at a 1-based (row, column) position (normalized corners).</summary>
     internal ComputedValue CellComputedValueAt(EvaluationContext context, int row, int column)
     {
-        var start = CellAddress.Parse(StartId);
-        var end = CellAddress.Parse(EndId);
-        var absoluteColumn = Math.Min(start.Column, end.Column) + column - 1;
-        var absoluteRow = Math.Min(start.Row, end.Row) + row - 1;
-
-        // Numeric address (no ToId round trip on a hit); same GetCellValue semantics via the dense twin.
         var workbook = context.Workbook;
-        return workbook.GetCellValueDense(
+        return CellComputedValueAt(
+            workbook,
             workbook.ResolveDenseHandle(SheetName),
-            SheetName,
-            absoluteColumn,
-            absoluteRow
+            GetBounds(),
+            row,
+            column
         );
     }
+
+    /// <summary>
+    /// Same lookup as <see cref="CellComputedValueAt(EvaluationContext,int,int)"/>, but takes an
+    /// already-resolved dense <paramref name="handle"/> and <paramref name="bounds"/> so a caller that reads
+    /// many (row, column) positions from the same table — e.g. VLOOKUP/HLOOKUP's linear fallback scan — pays
+    /// the bounds parse and the sheet-handle resolution ONCE for the whole scan instead of once per row/column.
+    /// </summary>
+    internal ComputedValue CellComputedValueAt(
+        Workbook workbook,
+        int handle,
+        RangeBounds bounds,
+        int row,
+        int column
+    )
+    {
+        var absoluteColumn = bounds.LeftColumn + column - 1;
+        var absoluteRow = bounds.TopRow + row - 1;
+
+        // Numeric address (no ToId round trip on a hit); same GetCellValue semantics via the dense twin.
+        return workbook.GetCellValueDense(handle, SheetName, absoluteColumn, absoluteRow);
+    }
+}
+
+/// <summary>
+/// The normalized rectangle bounds of a <see cref="RangeReference"/> (min/max corners), returned by
+/// <see cref="RangeReference.GetBounds"/> so a caller that needs several of <c>RowCount</c>/<c>ColumnCount</c>/
+/// <c>TopRow</c>/<c>LeftColumn</c> together pays a single parse of <see cref="RangeReference.StartId"/>/
+/// <see cref="RangeReference.EndId"/> instead of one per property.
+/// </summary>
+internal readonly record struct RangeBounds(
+    int LeftColumn,
+    int TopRow,
+    int RightColumn,
+    int BottomRow
+)
+{
+    public int RowCount => BottomRow - TopRow + 1;
+
+    public int ColumnCount => RightColumn - LeftColumn + 1;
 }
 
 /// <summary>

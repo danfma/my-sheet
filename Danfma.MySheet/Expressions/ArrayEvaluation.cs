@@ -424,7 +424,12 @@ internal static class ArrayEvaluation
                 return false;
 
             case Row { Arguments: [RangeReference range] }:
-                operand = new RowNumbersOperand(range.TopRow, range.RowCount, range.ColumnCount);
+                var rowBounds = range.GetBounds();
+                operand = new RowNumbersOperand(
+                    rowBounds.TopRow,
+                    rowBounds.RowCount,
+                    rowBounds.ColumnCount
+                );
                 return true;
 
             // ROW over an open range is likewise refused.
@@ -450,15 +455,16 @@ internal static class ArrayEvaluation
     {
         var workbook = context.Workbook;
         var handle = workbook.ResolveDenseHandle(range.SheetName);
+        var bounds = range.GetBounds();
 
         return new RangeOperand(
             workbook,
             handle,
             range.SheetName,
-            range.LeftColumn,
-            range.TopRow,
-            range.RowCount,
-            range.ColumnCount
+            bounds.LeftColumn,
+            bounds.TopRow,
+            bounds.RowCount,
+            bounds.ColumnCount
         );
     }
 

@@ -157,7 +157,10 @@ public sealed partial class Workbook
 
     // A range with fewer than this many populated cells is not cached: a linear scan already wins there and
     // caching every tiny range would flood the dictionary. Measured against the whole-column benchmark.
-    private const int RangeCacheMinimumCells = 256;
+    // Internal (not private): VLOOKUP/HLOOKUP's linear fallback probes this threshold against the table's own
+    // row/column count BEFORE building the single-column/row RangeReference key, so a small table (the common
+    // case) never pays that allocation just to have TryGetRangeSnapshot immediately reject it as too small.
+    internal const int RangeCacheMinimumCells = 256;
 
     // Defensive cap on lightweight "Seen" markers. A workload of single-use ranges that clear the threshold
     // (e.g. 10k distinct sliding windows) only ever leaves markers behind — never a built snapshot — so the

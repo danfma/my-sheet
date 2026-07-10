@@ -71,10 +71,19 @@ internal static class ArgumentFlattening
     {
         // A closed rectangle has known bounds: size the buffer to its exact cell count so the hot per-cell fill
         // never pays a List doubling + recopy. Open ranges/unions/scalars have no known count up front — keep the
-        // default-capacity List (no heroics where the bound is unknown).
-        var values = argument is RangeReference closed
-            ? new List<ComputedValue>(closed.RowCount * closed.ColumnCount)
-            : new List<ComputedValue>();
+        // default-capacity List (no heroics where the bound is unknown). GetBounds() is called ONCE here (rather
+        // than once per RowCount/ColumnCount property read) so sizing the list costs a single corner parse.
+        List<ComputedValue> values;
+
+        if (argument is RangeReference closed)
+        {
+            var bounds = closed.GetBounds();
+            values = new List<ComputedValue>(bounds.RowCount * bounds.ColumnCount);
+        }
+        else
+        {
+            values = new List<ComputedValue>();
+        }
 
         switch (argument)
         {

@@ -52,9 +52,12 @@ internal struct PositionalRange
 
         if (argument is RangeReference rectangle)
         {
+            // A single GetBounds() call sizes the cursor without paying one corner parse per property read.
+            var bounds = rectangle.GetBounds();
+
             return new PositionalRange(
                 rectangle.ExpandComputedValues(context).GetEnumerator(),
-                rectangle.RowCount * rectangle.ColumnCount
+                bounds.RowCount * bounds.ColumnCount
             );
         }
 

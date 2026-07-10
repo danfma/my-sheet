@@ -77,6 +77,13 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Ref);
         }
 
+        // Bounds + the dense sheet handle are resolved ONCE here, not re-parsed/re-resolved on every column of
+        // the linear fallback scan below. This is a pure, side-effect-free read of the table's own corners, so
+        // hoisting it ahead of the argument evaluation below does not change Arguments' evaluation order.
+        var workbook = context.Workbook;
+        var bounds = table.GetBounds();
+        var handle = workbook.ResolveDenseHandle(table.SheetName);
+
         var lookup = Arguments[0].Evaluate(context);
 
         if (Arguments[2].Evaluate(context).CoerceToNumber(out var rowIndex) is { } rowError)
@@ -90,7 +97,7 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Value);
         }
 
-        if (rowIndex > table.RowCount)
+        if (rowIndex > bounds.RowCount)
         {
             return ComputedValue.Error(Error.Ref);
         }
@@ -112,13 +119,20 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
 
         // The first row is a sub-range of the table; its per-epoch snapshot serves the key search O(1)
         // (exact) / O(log n) (approximate). A 1-based snapshot position IS the 1-based table column, because
-        // the key row enumerates left-to-right. A small table keeps the linear scan.
-        var keyRow = new RangeReference(
-            new CellAddress(table.LeftColumn, table.TopRow).ToId(),
-            new CellAddress(table.LeftColumn + table.ColumnCount - 1, table.TopRow).ToId(),
-            table.SheetName
-        );
-        var keySnapshot = context.Workbook.TryGetRangeSnapshot(keyRow, context);
+        // the key row enumerates left-to-right. Built LAZILY: TryGetRangeSnapshot would reject a table below
+        // the cache's own size threshold anyway, so a small table (the common case) skips the RangeReference +
+        // two CellAddress.ToId allocations entirely and goes straight to the linear scan.
+        RangeSnapshot? keySnapshot = null;
+
+        if (!workbook.RangeCacheDisabled && bounds.ColumnCount >= Workbook.RangeCacheMinimumCells)
+        {
+            var keyRow = new RangeReference(
+                new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId(),
+                new CellAddress(bounds.RightColumn, bounds.TopRow).ToId(),
+                table.SheetName
+            );
+            keySnapshot = workbook.TryGetRangeSnapshot(keyRow, context);
+        }
 
         var matchColumn = -1;
 
@@ -134,9 +148,9 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             }
             else
             {
-                for (var column = 1; column <= table.ColumnCount; column++)
+                for (var column = 1; column <= bounds.ColumnCount; column++)
                 {
-                    var key = table.CellComputedValueAt(context, 1, column);
+                    var key = table.CellComputedValueAt(workbook, handle, bounds, 1, column);
                     if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
                     {
                         continue;
@@ -165,11 +179,11 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
 
             if (matchColumn < 1)
             {
-                for (var column = 1; column <= table.ColumnCount; column++)
+                for (var column = 1; column <= bounds.ColumnCount; column++)
                 {
                     if (
                         ValueCoercion.AreEqual(
-                            table.CellComputedValueAt(context, 1, column),
+                            table.CellComputedValueAt(workbook, handle, bounds, 1, column),
                             lookup
                         )
                     )
@@ -182,7 +196,7 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         }
 
         return matchColumn >= 1
-            ? table.CellComputedValueAt(context, (int)rowIndex, matchColumn)
+            ? table.CellComputedValueAt(workbook, handle, bounds, (int)rowIndex, matchColumn)
             : ComputedValue.Error(Error.NA);
     }
 }
