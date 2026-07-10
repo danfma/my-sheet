@@ -254,9 +254,12 @@ vs MySheet (77000, 43000, 8000) em Gen0/1/2 → nossa lib aloca MENOS transiente
 (1 Expression/célula + strings + dict entries) vs modelo colunar do Aspose (poucos arrays grandes);
 custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido durante o load.
 
-- [ ] **G1 (instrumento)**: benchmark BDN com MemoryDiagnoser para o cenário ExcelFile.Load
-  (k1-synthetic.xlsx) no benchmark suite — Gen0/1/2 + tempo comparáveis aos números do usuário;
-  baseline registrada ANTES das mudanças.
+- [ ] **G1 (instrumento — espec. refinada pelo usuário)**: benchmark BDN com MemoryDiagnoser para
+  ExcelFile.Load com DOIS casos: (a) xlsx CONVERTIDO do .myxl do repo (GlobalSetup: Workbook.Load do
+  k1.myxl|k1-synthetic.myxl → SaveAsExcel com FormulaMode.Formulas → temp xlsx) — fórmulas completas
+  por célula, sem shared formulas (nosso export não as emite); (b) k1-synthetic.xlsx (grupos de shared
+  formula reais). Os dois shapes isolam parse pleno vs expansão por delta. Gen0/1/2 + tempo + allocated;
+  baseline registrada ANTES do G2.
 - [ ] **G2 (dedup de literais no load)**: no WorksheetStreamLoader/LoadContext, dedup de
   `NumberValue` por valor (dicionário por load; inteiro pequenos e valores repetidos dominam dados),
   `StringValue` 1 wrapper por instância de shared string, `BooleanValue.True/False` singletons (se já
