@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.10.0"></a>
+## [3.10.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.10.0) (2026-07-10)
+
+### Features
+
+* **api:** populated-cell enumeration and span-based id formatting ([acd2a16](https://www.github.com/danfma/my-sheet/commit/acd2a16e48737ce04d1d0c956885b6cc745d1717))
+
 <a name="3.9.0"></a>
 ## [3.9.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.9.0) (2026-07-10)
 
