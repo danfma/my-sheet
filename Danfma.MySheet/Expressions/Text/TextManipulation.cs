@@ -162,10 +162,11 @@ public sealed partial record Search(Expression[] Arguments) : Function
             }
         }
 
-        return new Regex(
+        // Shared process-wide cache: a column of SEARCH calls with the same find_text compiles the
+        // translated pattern once instead of once per evaluated cell (still 1s-timeout protected).
+        return RegexCache.Get(
             builder.ToString(),
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline,
-            TimeSpan.FromSeconds(1)
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline
         );
     }
 }

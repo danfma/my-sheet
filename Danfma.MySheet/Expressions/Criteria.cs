@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Danfma.MySheet.Expressions.Text;
 
 namespace Danfma.MySheet.Expressions;
 
@@ -25,10 +26,12 @@ internal sealed class Criteria
     private readonly double _number;
     private readonly string _text;
 
-    // A text criterion's wildcard pattern compiled ONCE per criterion (null for numeric criteria). The old
-    // code rebuilt the "^…$" pattern string and re-parsed the regex on EVERY cell — for a *IFS scan over a
-    // 50k range that was a per-cell StringBuilder + pattern string, the dominant transient once the range
-    // lists were gone. Compiling here (once per Parse, i.e. once per evaluation) makes Matches allocation-free.
+    // A text criterion's wildcard pattern resolved ONCE per criterion (null for numeric criteria), via the
+    // shared RegexCache. The old code rebuilt the "^…$" pattern string and re-parsed the regex on EVERY cell —
+    // for a *IFS scan over a 50k range that was a per-cell StringBuilder + pattern string, the dominant
+    // transient once the range lists were gone. Routing through RegexCache also means the SAME text criterion
+    // reused across cells/formulas (a common *IFS shape) shares one compiled Regex instead of recompiling it
+    // once per Criteria.Parse.
     private readonly Regex? _regex;
 
     private Criteria(Op op, bool numeric, double number, string text)
@@ -37,7 +40,9 @@ internal sealed class Criteria
         _numeric = numeric;
         _number = number;
         _text = text;
-        _regex = numeric ? null : new Regex(BuildWildcardPattern(text), RegexOptions.IgnoreCase);
+        _regex = numeric
+            ? null
+            : RegexCache.Get(BuildWildcardPattern(text), RegexOptions.IgnoreCase);
     }
 
     public static Criteria Parse(in ComputedValue value)
@@ -100,12 +105,23 @@ internal sealed class Criteria
 
         var text = CellText(cellValue);
 
-        return _op switch
+        try
         {
-            Op.Equal => _regex!.IsMatch(text),
-            Op.NotEqual => !_regex!.IsMatch(text),
-            _ => false,
-        };
+            return _op switch
+            {
+                Op.Equal => _regex!.IsMatch(text),
+                Op.NotEqual => !_regex!.IsMatch(text),
+                _ => false,
+            };
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // The cached regex carries RegexCache's defensive 1s timeout (a wildcard criterion is not
+            // normally at risk, but a formula can still chain enough '*' to backtrack pathologically).
+            // Matches has no error channel, so a timeout fails safe as "does not match" — the same call
+            // a caller would make for an unmatched cell.
+            return false;
+        }
     }
 
     private static string CellText(in ComputedValue value)
@@ -145,8 +161,21 @@ internal sealed class Criteria
         return (Op.Equal, s);
     }
 
-    internal static bool WildcardMatch(string pattern, string text) =>
-        Regex.IsMatch(text, BuildWildcardPattern(pattern), RegexOptions.IgnoreCase);
+    internal static bool WildcardMatch(string pattern, string text)
+    {
+        try
+        {
+            return RegexCache
+                .Get(BuildWildcardPattern(pattern), RegexOptions.IgnoreCase)
+                .IsMatch(text);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // Same fail-safe as Matches: no error channel here (XLOOKUP/XMATCH/LOOKUP wildcard scans treat
+            // this as a per-element bool), so a timeout is reported as "no match" rather than propagating.
+            return false;
+        }
+    }
 
     // Translates an Excel wildcard pattern (* → any run, ? → any single char, everything else literal) into
     // an anchored .NET regex pattern. Called ONCE per text criterion (see <see cref="_regex"/>), not per cell.

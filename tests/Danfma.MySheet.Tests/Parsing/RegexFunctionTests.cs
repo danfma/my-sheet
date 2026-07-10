@@ -62,6 +62,20 @@ public class RegexFunctionTests
     }
 
     [Test]
+    public async Task RegexTest_CatastrophicPattern_TimesOutToValueError()
+    {
+        // "(a+)+$" against a long non-matching run of 'a's is the textbook catastrophic-backtracking
+        // shape. The defensive 1s construction timeout (now applied via the shared RegexCache, see
+        // RegexCacheTests) must still fire and RegexTest must still surface it as #VALUE!, exactly as
+        // before the cache existed.
+        var input = new string('a', 40) + "!";
+
+        await Assert
+            .That(Calc($"=REGEXTEST(\"{input}\",\"(a+)+$\")"))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
     public async Task RegexExtract_MatchesExcelDocs()
     {
         // support.microsoft.com REGEXEXTRACT example 1 (A2="DylanWilliams"):

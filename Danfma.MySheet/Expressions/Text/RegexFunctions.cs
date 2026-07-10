@@ -195,7 +195,9 @@ file static class ExcelRegex
 
         try
         {
-            regex = new Regex(pattern, options, TimeSpan.FromSeconds(1));
+            // Shared process-wide cache: a column of REGEXTEST/REGEXEXTRACT/REGEXREPLACE with the same
+            // pattern compiles it once instead of once per evaluated cell (still 1s-timeout protected).
+            regex = RegexCache.Get(pattern, options);
             return null;
         }
         catch (ArgumentException)
