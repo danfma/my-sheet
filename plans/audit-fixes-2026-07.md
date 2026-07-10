@@ -122,14 +122,14 @@ Três lotes sequenciais (agentes Sonnet), todos com micro-medição contrafactua
 Suítes: 1.074 core + 48 Excel, 0 falhas. Zero wire format.
 
 ## Phase 4: Streaming uniforme + export dispatch → release patch
-Status: Not started
+Status: Complete
 
-- [ ] **S1**: SUMIF/AVERAGEIF/AND/OR/XOR para cursores streaming (padrão de COUNTIF/CriteriaScan)
+- [x] **S1**: SUMIF/AVERAGEIF/AND/OR/XOR para cursores streaming (padrão de COUNTIF/CriteriaScan)
   (SumIf.cs:18, ConditionalAggregates.cs:24, LogicalReduction.cs:40,95). Paridade semântica coberta
   pelos 1.051 testes existentes (famílias bem testadas).
-- [ ] **S2**: `FormulaWriter.Call` — dispatch por `FrozenDictionary<Type, ...>` em vez do switch de 304
+- [x] **S2**: `FormulaWriter.Call` — dispatch por `FrozenDictionary<Type, ...>` em vez do switch de 304
   braços (FormulaWriter.cs:282-598). Sem mudança de output (FormulaWriterTests congelam).
-- [ ] **S3**: wildcard estático (`Criteria.WildcardMatch`) compilado 1× antes do scan (LookupMatching.cs:53).
+- [x] **S3**: wildcard estático (`Criteria.WildcardMatch`) compilado 1× antes do scan (LookupMatching.cs:53).
 
 ### Verification Plan
 - Suítes completas verdes (FormulaWriterTests = oráculo do S2)
@@ -137,7 +137,18 @@ Status: Not started
 - Push + release verde
 
 ### Phase Summary
-_(write when phase completes)_
+- **S1** (bf9a23d): SUMIF/AVERAGEIF → PositionalRange; AND/OR/XOR → RangeValueCursor por ref (sem
+  IEnumerable boxado). Paridade congelada: erros de célula não propagam no par critério, blanks
+  ignorados, shape mismatch = Min-length (≠ SUMIFS #VALUE! — documentado e testado). List de 50k
+  eliminada (~1,2MB/leitura). DESCOBERTA: dupla sondagem do TryGetRangeSnapshot (stateful) anula o
+  streaming da 1ª época — corrigida via overload que passa o snapshot já sondado.
+- **S2+S3+bônus** (commit desta entrada): FormulaWriter com FrozenDictionary sobre os 304 braços
+  uniformes + switch residual de 2 (FunctionCall, Sum) — output byte-idêntico, dispatch ~35% mais
+  rápido; wildcard de lookup compilado 1× antes do scan (fail-safe de timeout preservado); dupla
+  sondagem corrigida em CountIf, MATCH e XLOOKUP (varredura completa dos call sites — demais já
+  corretos). COUNTIF 50k 1ª leitura: 9,57MB → 8,36MB (idêntico ao SUMIF).
+
+Suítes: 1.077 core + 48 Excel, 0 falhas. Zero wire format; zero mudança de texto emitido.
 
 ## Phase 5: Robustez do interop → release minor
 Status: Not started
