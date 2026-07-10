@@ -89,25 +89,37 @@ Status: Complete
 Suítes: 1.073 core + 48 Excel, 0 falhas. Zero wire format.
 
 ## Phase 3: Quick wins de alocação → release patch
-Status: Not started
+Status: Complete
 
-- [ ] **A1**: `RangeReference` corners — parse único no-alloc via `TryGetColumnRow` (helper TryGetBounds);
+- [x] **A1**: `RangeReference` corners — parse único no-alloc via `TryGetColumnRow` (helper TryGetBounds);
   consertar RowCount/ColumnCount/TopRow/LeftColumn (RangeReference.cs:86-113) e os multiplicadores
   (ArgumentFlattening.cs:75, CriteriaScan.cs:57, ArrayEvaluation.cs:454). Campos cacheados = `[MemoryPackIgnore]`.
-- [ ] **A2**: VLOOKUP fallback — hoistar bounds+handle do laço (VLookup.cs:87,119,129); `keyColumn` lazy (:64).
-- [ ] **A3**: `CellId.Parse` com `AsSpan` (CellId.cs:19); `CellId.Format` sem concat em loop.
-- [ ] **A4**: Solvers financeiros — hoistar cronograma de cupom/year-fractions invariantes dos lambdas
+- [x] **A2**: VLOOKUP fallback — hoistar bounds+handle do laço (VLookup.cs:87,119,129); `keyColumn` lazy (:64).
+- [x] **A3**: `CellId.Parse` com `AsSpan` (CellId.cs:19); `CellId.Format` sem concat em loop.
+- [x] **A4**: Solvers financeiros — hoistar cronograma de cupom/year-fractions invariantes dos lambdas
   (BondMath.cs:338,982,1250) e reduzir walks duplicados em Price (:161-207,281-314).
-- [ ] **A5**: `EvaluationContext.WithName` — encadeamento sem cópia O(k²) (EvaluationContext.cs:36-45).
-- [ ] **A6**: locks separados para `EpochNow` vs `NextRandom` (Workbook.cs:333,349).
-- [ ] **A7**: NETWORKDAYS — serial incremental no loop diário, sem ToOADate por passo (WorkdayFunctions.cs:141,330).
+- [x] **A5**: `EvaluationContext.WithName` — encadeamento sem cópia O(k²) (EvaluationContext.cs:36-45).
+- [x] **A6**: locks separados para `EpochNow` vs `NextRandom` (Workbook.cs:333,349).
+- [x] **A7**: NETWORKDAYS — serial incremental no loop diário, sem ToOADate por passo (WorkdayFunctions.cs:141,330).
 
 ### Verification Plan
 - Suítes completas verdes; `--k1-endtoend` e `--excel-memory` sem regressão (compute deve melhorar ou empatar)
 - Push + release verde
 
 ### Phase Summary
-_(write when phase completes)_
+Três lotes sequenciais (agentes Sonnet), todos com micro-medição contrafactual e paridade provada:
+- **A1+A2** (f70fd14): `RangeBounds` struct (corners parseados 1× no-alloc, semântica de range invertido
+  preservada) + hoist de bounds/handle nos fallbacks de VLOOKUP/HLOOKUP + keyColumn lazy sob o threshold
+  de admissão. VLOOKUP fallback: 22.096 → 0,1 B/aval; SUM range: 288 → 120 B/aval.
+- **A3+A4+A7** (80dba42): CellId com AsSpan/stackalloc; `CouponSchedule`/`OddFPriceContext`/year-fractions
+  hoistados dos lambdas dos solvers SEM reordenar aritmética (checksums idênticos). YIELD×2k: ~126 → ~40ms;
+  NETWORKDAYS×2k: ~23 → ~18ms (serial incremental; weekday continua via DateTime — decisão conservadora
+  documentada).
+- **A5+A6** (commit desta entrada): LET com cadeia imutável de escopos (1 nó/binding, shadowing grátis,
+  comparador OrdinalIgnoreCase preservado) — 20 bindings ×10k: 77,6ms/16,8KB → 18,3ms/1,1KB; locks de
+  clock e RNG separados (prova: nenhum ponto reseta ambos atomicamente; RNG nunca é re-semeado por época).
+
+Suítes: 1.074 core + 48 Excel, 0 falhas. Zero wire format.
 
 ## Phase 4: Streaming uniforme + export dispatch → release patch
 Status: Not started
