@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# husky.sh runs this body under `sh -e`, so the first failing command aborts the push.
+echo "🐶 husky pre-push — csharpier check + build + tests"
+
+dotnet tool restore
+dotnet csharpier check .
+dotnet build Danfma.MySheet.slnx -c Release
+dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release --no-build
+dotnet run --project tests/Danfma.MySheet.Excel.Tests/Danfma.MySheet.Excel.Tests.csproj -c Release --no-build

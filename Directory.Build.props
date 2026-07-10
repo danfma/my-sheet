@@ -1,0 +1,32 @@
+<Project>
+  <!--
+    Bootstrap Husky.Net git hooks on restore so a fresh clone (or CI) wires up
+    core.hooksPath -> .husky automatically, with no manual `dotnet husky install`.
+
+    Guards:
+      - HUSKY=0            : lets anyone opt out (e.g. `HUSKY=0 dotnet build`).
+      - husky_skip_init    : set by .husky/_/husky.sh while a hook is running, so the
+                             build a hook triggers does NOT re-install husky (no recursion).
+      - MSBuildProjectName : runs once, only while restoring the core project.
+  -->
+  <Target
+    Name="HuskyInstall"
+    BeforeTargets="Restore;CollectPackageReferences"
+    Condition="'$(HUSKY)' != '0' and '$(husky_skip_init)' == '' and '$(MSBuildProjectName)' == 'Danfma.MySheet'"
+  >
+    <Exec
+      Command="dotnet tool restore"
+      WorkingDirectory="$(MSBuildThisFileDirectory)"
+      StandardOutputImportance="Low"
+      StandardErrorImportance="High"
+      ContinueOnError="true"
+    />
+    <Exec
+      Command="dotnet husky install"
+      WorkingDirectory="$(MSBuildThisFileDirectory)"
+      StandardOutputImportance="Low"
+      StandardErrorImportance="High"
+      ContinueOnError="true"
+    />
+  </Target>
+</Project>

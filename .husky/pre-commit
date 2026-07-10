@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# husky.sh runs this body under `sh -e`, so the first failing command aborts the commit.
+echo "🐶 husky pre-commit — csharpier check + build"
+
+dotnet tool restore
+dotnet csharpier check .
+dotnet build Danfma.MySheet.slnx -c Debug

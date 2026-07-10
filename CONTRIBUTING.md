@@ -7,6 +7,19 @@ The version is derived from [Conventional Commits](https://www.conventionalcommi
 `test:`, `chore:`, etc. A `feat:` bumps the minor version, `fix:`/`perf:` the patch; a `BREAKING CHANGE:`
 footer (or `!`) bumps the major.
 
+## Git hooks
+
+Git hooks are managed by [Husky.Net](https://alirezanet.github.io/Husky.Net/) and install
+themselves — the `Directory.Build.props` target runs `dotnet husky install` on the first restore,
+so a fresh clone wires up `core.hooksPath` -> `.husky` with no manual step. Formatting is enforced
+with [CSharpier](https://csharpier.com/); both tools are pinned in `dotnet-tools.json`.
+
+- **pre-commit** — `dotnet csharpier check .` + `dotnet build` (Debug).
+- **pre-push** — `dotnet csharpier check .` + `dotnet build` (Release) + both test suites.
+
+Run `dotnet csharpier format .` to fix formatting. Bypass a hook when you must with `--no-verify`
+(e.g. `git commit --no-verify`) or disable all hooks for a command with `HUSKY=0`.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request to `main`: it builds `Danfma.MySheet.slnx`
