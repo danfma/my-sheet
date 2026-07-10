@@ -278,7 +278,7 @@ custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido duran
   não existirem). Mesma prova de segurança do FormulaCache (imutável, estado por (sheet,col,row) fora
   do nó; MemoryPack sem reference-tracking → wire por célula idêntico). Medir com G1: meta = queda
   visível de Gen1/Gen2 e de objetos vivos pós-load.
-- [ ] **G3 (SPIKE GATED — decisão com o usuário)**: escravas de shared formula como nó-delta
+- [ ] **G3 (SPIKE APROVADO pelo usuário em 2026-07-10 — próximo passo ao retomar)**: escravas de shared formula como nó-delta
   `(masterTree, deltaRow, deltaCol)` em vez de 360k+ árvores expandidas — como o Excel armazena.
   Colapsa a contagem de objetos do load na maior alavanca disponível. EXIGE: união tag nova
   (append-only OK), resolução de referências delta-aware na AVALIAÇÃO (mudança profunda), FormulaWriter
@@ -301,6 +301,12 @@ custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido duran
   objetos retidos são as ~360k árvores de fórmula → o gap de Gen1/Gen2 do usuário aponta para o G3.
   Armadilha de metodologia documentada: GetTotalMemory enganado por FragmentedBytes; PromotedBytes e
   contagem por identidade são os sinais confiáveis.
+
+**Estado ao pausar (2026-07-10, fim do dia)**: G1+G2 entregues (v3.12.2); decisões do usuário:
+G3 = SPIKE AGORA (especificar com critérios: paridade via SharedFormulaDeltaTests + ExcelLoadBenchmarks
+como gate; protótipo atrás do loader; se provar ganho → /real-work próprio para produção);
+intern do Sheet.Name no load = NÃO (só o caveat multi-tenant no backlog). Nenhum agente em voo;
+working tree limpo; próxima ação = disparar o spike G3.
 
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
