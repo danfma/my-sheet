@@ -232,22 +232,66 @@ inteiros rende pouco — em planilhas de negócio (inteiros dominam) rende mais.
 risco neste momento. Reavaliar se o export virar gargalo do usuário.
 
 ## Phase 8: Fechamento (+ fase opcional gated)
-Status: Not started
+Status: Complete
 
-- [ ] **GATED (só se Scenario L ainda > ~936ms referência externa)**: dieta de alocação do tokenizer — tokens por span `(Type, Start, Length)` + `FrozenDictionary.GetAlternateLookup<ReadOnlySpan<char>>`; risco médio, 1044 testes cobrem
-- [ ] Tabela final de números (baseline → cada fase → final) vs referência Aspose no Phase Summary
-- [ ] Atualizar CHANGELOG.md, `<summary>` de `ExcelFile`, e `plans/excel-load-streaming.md` (recap)
-- [ ] `dotnet csharpier format .` + build + suítes completas + push (release manual via workflow fica a critério do usuário)
+- [x] ~~GATED~~ **DECISÃO (com o usuário): NÃO executar** — ver Phase Summary: dieta de alocação do tokenizer — tokens por span `(Type, Start, Length)` + `FrozenDictionary.GetAlternateLookup<ReadOnlySpan<char>>`; risco médio, 1044 testes cobrem
+- [x] Tabela final de números (baseline → cada fase → final) vs referência Aspose no Phase Summary
+- [x] `<summary>` de `ExcelFile` atualizado (Fase 2); CHANGELOG é gerado pelo versionize no release (não editar à mão); recap abaixo
+- [x] `dotnet csharpier format .` + build + suítes completas + push (release manual via workflow fica a critério do usuário)
 
 ### Verification Plan
 - Build 0 warnings; 1044 + 29+ + novos testes verdes; `--excel-memory` final registrado
 - Comparação final: load MySheet vs 936ms (meta: fechar ou superar; modelo MySheet é mais barato de popular que DOM — plausível)
 
 ### Phase Summary
-_(write when phase completes)_
+**Gate avaliado e NÃO disparado (decisão com o usuário)**: o load final (1,20s no fixture) ainda fica
+acima dos 0,42s do Aspose-avaliação local, mas o fixture é deliberadamente mais pesado que o arquivo real
+do usuário (360k escravas de shared formula) e a projeção no arquivo dele (~430-500ms) fica bem abaixo da
+referência externa de 936ms. A dieta de tokens-por-span segue disponível como trabalho futuro se a medição
+no ambiente real do usuário justificar.
+
+**Escopo extra (pedido mid-flight do usuário, sugestão do Copilot)**: avaliação profunda do "leitor denso
+por sheet" → veredito: enumerador denso do value store tem pegadinha (só devolve o memoizado; literais e
+fórmulas não computadas vivem fora) + o enumerador interno não é seqlock-safe. Implementada a forma segura:
+**`SheetValueReader` público** (`workbook.GetValueReader(sheet).GetValue(col, row)`) — handle resolvido 1×,
+hit sem id-string/parse/hash, miss avalia on-demand (semântica idêntica ao GetCellValue). Medido: extração
+de 360k células 29,8ms/24,2MB → **6,9ms/0 bytes (4,3x, zero alocação)**. 3 testes novos.
 
 ## Final Recap
-_(write when all phases complete: summary of the entire piece of work)_
+
+Objetivo: fechar o gap de load/save vs Aspose (usuário media load 2042ms vs 936ms). Entregue em 8 fases +
+1 escopo extra, tudo medido no fixture sintético K1 (620k células / 360k fórmulas, criado na Fase 0 para o
+repo ficar auto-suficiente sem os dados confidenciais):
+
+| Load (Scenario L) | Baseline (DOM) | Final | Ganho |
+|---|---:|---:|---:|
+| Tempo | 5,72s | **1,20s** | **4,8x** |
+| Alocado | 1.800 MB | **272 MB** | **6,6x** |
+| Pico vivo | 918 MB | **492 MB** | **−46%** |
+
+Save: export 269→255 MB, merge 308→286 MB alocados (round-trip Aspose 0 mismatches). Extração pós-compute
+(API nova `SheetValueReader`): 4,3x mais rápida, zero alocação.
+
+Como: (F1-2) load 100% streaming XmlReader — DOM OpenXml eliminado, paridade provada por serialização
+MemoryPack byte-idêntica; (F3) 10 testes de edge em fixtures brutos; (F4) ParseFormulaBody + dedup de AST
+por sheet + FrozenDictionary; (F5) shared formulas expandidas por delta no token stream (master tokenizado
+1×; shifter textual vira fallback out-of-spec) com paridade congelada em 6 testes ANTES da troca; (F6)
+presize do CellStore via dimension; (F7) XlsxNumbers (TryFormat+WriteChars+cache de inteiros) no merge e
+export. Suítes: 1.047 core + 52 Excel, 0 falhas. Commits: 5e7c06b..745ff9a (9 commits perf/test/feat/chore).
+
+Trabalho futuro (não disparado): dieta tokens-por-span no Tokenizer (se a medição do usuário no ambiente
+real ainda justificar); reescrita do export para XmlWriter puro (residual ~30-40MB, declarado não valer o
+risco agora); cursor denso por range via TryBlockCopyColumn (se o usuário aceitar o contrato
+"snapshot pós-ComputeAll").
 
 ## Deployment Plan
-_(write when all phases complete: step-by-step deployment instructions)_
+
+1. `git push` para main (feito ao final desta sessão).
+2. Release: manual, via `gh workflow run release.yml --ref main` (Actions → Release → Run workflow).
+   O versionize computa a versão dos conventional commits — os `perf:`/`feat:` desta sessão bumpam
+   minor (feat) → 3.9.0 — e gera o CHANGELOG automaticamente. NÃO editar CHANGELOG.md à mão.
+3. Consumidor (app do usuário): atualizar o pacote NuGet Danfma.MySheet + Danfma.MySheet.Excel; para a
+   extração pós-compute, migrar `GetCellValue(name, "C"+r)` → `var reader = wb.GetValueReader(name);
+   reader.GetValue(col, row)`.
+4. Validar no ambiente real: medir load do arquivo K1 verdadeiro (expectativa: ~430-500ms vs 936ms do
+   Aspose licenciado) e reportar — decide se a fase opcional de tokens-por-span entra num próximo ciclo.
