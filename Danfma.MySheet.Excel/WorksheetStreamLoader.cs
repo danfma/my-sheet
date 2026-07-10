@@ -62,6 +62,16 @@ internal static class WorksheetStreamLoader
         {
             while (reader.Read())
             {
+                if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "dimension")
+                {
+                    // The dimension ref is a bounding box, not a cell count: presize the dense store
+                    // toward it, capped so a sparse sheet with a huge bbox cannot balloon the
+                    // reservation (the cap bounds waste to a few MB, reclaimed by the next resize).
+                    ApplyDimensionHint(sheet, reader.GetAttribute("ref"));
+
+                    continue;
+                }
+
                 if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "sheetData")
                 {
                     if (!reader.IsEmptyElement)
@@ -93,6 +103,39 @@ internal static class WorksheetStreamLoader
             {
                 sheet[id] = cachedLiteral;
             }
+        }
+    }
+
+    private const int MaxPresizedCells = 512 * 1024;
+
+    private static void ApplyDimensionHint(Sheet sheet, string? dimensionRef)
+    {
+        if (dimensionRef is null)
+        {
+            return;
+        }
+
+        var separator = dimensionRef.IndexOf(':');
+
+        if (separator < 0)
+        {
+            return; // single-cell dimension: nothing worth reserving
+        }
+
+        try
+        {
+            var (fromRow, fromColumn) = CellId.Parse(dimensionRef[..separator]);
+            var (toRow, toColumn) = CellId.Parse(dimensionRef[(separator + 1)..]);
+            var cells = (long)(toRow - fromRow + 1) * (toColumn - fromColumn + 1);
+
+            if (cells > 0)
+            {
+                sheet.EnsureCellCapacity((int)long.Min(cells, MaxPresizedCells));
+            }
+        }
+        catch (FormatException)
+        {
+            // A malformed dimension is a hint we simply don't take.
         }
     }
 

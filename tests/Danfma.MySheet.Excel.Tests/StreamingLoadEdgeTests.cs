@@ -315,6 +315,29 @@ public class StreamingLoadEdgeTests
     }
 
     [Test]
+    public async Task Load_HugeDimensionOnSparseSheet_IsHarmless()
+    {
+        // The dimension bbox is only a (capped) presize hint: a pathological bbox over a 1-cell
+        // sheet must not affect correctness (nor balloon memory — the cap bounds the reservation).
+        await WithRawFixture(
+            $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <worksheet xmlns="{MainNs}">
+            <dimension ref="A1:XFD1048576"/>
+            <sheetData>
+            <row r="1"><c r="A1"><v>7</v></c></row>
+            </sheetData>
+            </worksheet>
+            """,
+            async workbook =>
+            {
+                await Assert.That(workbook.GetCellValue("S", "A1").ToDouble()).IsEqualTo(7.0);
+                await Assert.That(workbook["S"].Count).IsEqualTo(1);
+            }
+        );
+    }
+
+    [Test]
     public async Task Load_Export_Load_RoundTripsValues()
     {
         // load(export(load(x))): computed values survive a full round trip through our own writer.

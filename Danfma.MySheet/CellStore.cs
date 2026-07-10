@@ -36,6 +36,11 @@ internal sealed class CellStore : IReadOnlyDictionary<string, Expression>
     // The formatter presizes the dense map for the incoming A1 cells (overflow stays lazy).
     internal CellStore(int denseCapacity) => _dense = new(denseCapacity);
 
+    // Bulk loaders (the .xlsx reader) reserve capacity up front to avoid rehash cascades while cells
+    // stream in. Dictionary.EnsureCapacity never reorders existing entries, so the wire byte-identity
+    // argument above is unaffected.
+    internal void EnsureDenseCapacity(int capacity) => _dense.EnsureCapacity(capacity);
+
     /// <summary>
     /// Reads the numeric address out of a canonical A1 id WITHOUT allocating, returning <c>true</c> only
     /// when the id is EXACTLY what <see cref="CellAddress.ToId"/> would produce for <c>(column,row)</c>:

@@ -1118,6 +1118,12 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     [MemoryPackIgnore]
     public int Count => _cells.Count;
 
+    /// <summary>
+    /// Reserves dense-store capacity ahead of a bulk load (used by the .xlsx reader with the
+    /// worksheet's dimension hint). Purely an allocation optimization — never affects content.
+    /// </summary>
+    internal void EnsureCellCapacity(int capacity) => _cells.EnsureDenseCapacity(capacity);
+
     [MemoryPackIgnore]
     public Expression this[string key]
     {

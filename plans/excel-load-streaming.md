@@ -186,18 +186,22 @@ torna underflow impossível no caminho novo). Paridade absoluta com risco zero.
 Acumulado vs baseline: tempo 5,72 → 1,21s (**4,7x**), allocated 1.800 → 305 MB (**5,9x**).
 
 ## Phase 6: Presize do CellStore (medido, reversível)
-Status: Not started
+Status: Complete
 
 - [x] `Danfma.MySheet.csproj`: `+ <InternalsVisibleTo Include="Danfma.MySheet.Excel" />` (antecipado na Fase 5)
-- [ ] `CellStore.EnsureDenseCapacity(int)` + `Sheet.EnsureCellCapacity(int)` (internal; `Dictionary.EnsureCapacity` não altera ordem de inserção → wire MemoryPack intacto)
-- [ ] `WorksheetStreamLoader`: no `<dimension>`, `EnsureCellCapacity(min(bboxCells, 524_288))` com overflow-check (bbox é bounding box, não contagem real — cap limita desperdício em sheet esparsa a ~25MB liberáveis)
-- [ ] MANTER SÓ SE o harness mostrar ganho sem piorar cenário esparso (sanity: fixture 1×1 com dimension gigante)
+- [x] `CellStore.EnsureDenseCapacity(int)` + `Sheet.EnsureCellCapacity(int)` (internal; `Dictionary.EnsureCapacity` não altera ordem de inserção → wire MemoryPack intacto)
+- [x] `WorksheetStreamLoader`: no `<dimension>`, `EnsureCellCapacity(min(bboxCells, 524_288))` com overflow-check (bbox é bounding box, não contagem real — cap limita desperdício em sheet esparsa a ~25MB liberáveis)
+- [x] MANTER SÓ SE o harness mostrar ganho sem piorar cenário esparso (sanity: fixture 1×1 com dimension gigante)
 
 ### Verification Plan
 - Suítes verdes; `--excel-memory` compara com/sem presize; decisão documentada no Phase Summary
 
 ### Phase Summary
-_(write when phase completes)_
+`CellStore.EnsureDenseCapacity` + `Sheet.EnsureCellCapacity` (internos; EnsureCapacity não reordena →
+wire intacto). Loader lê `<dimension>` e reserva `min(bboxCells, 512k)` com overflow-check e
+FormatException engolida (hint, não contrato). MEDIDO E MANTIDO: allocated 305 → 272 MB, peak-live
+515 → 491 MB, tempo estável (2 runs). Sanity de sheet esparsa (dimension A1:XFD1048576 com 1 célula)
+coberto por teste. Suíte Excel: 46/46.
 
 ## Phase 7: Residual do save
 Status: Not started
