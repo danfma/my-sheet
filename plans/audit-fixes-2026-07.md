@@ -180,13 +180,13 @@ Status: Complete
 Suítes: 1.077 core + 53 Excel, 0 falhas.
 
 ## Phase 6: FunctionRegistry (AVALIAR BREAKING com o usuário antes de executar)
-Status: In progress — DECISÃO DO USUÁRIO (2026-07-10): executar TUDO MENOS override de built-ins (registrado como decisão futura)
+Status: Complete — escopo executado: tudo menos override (decisão do usuário)
 
-- [ ] Extrair catálogo de funções do Parser para `FunctionRegistry` (mantendo FrozenDictionary interno)
-- [ ] `FormulaWriter` deriva nomes do registry (mata a 4ª cópia manual)
-- [ ] Custom functions: validação de aridade opcional em `RegisterFunction` (aditivo)
+- [x] Extrair catálogo de funções do Parser para `FunctionRegistry` (mantendo FrozenDictionary interno)
+- [x] `FormulaWriter` deriva nomes do registry (mata a 4ª cópia manual)
+- [x] Custom functions: validação de aridade opcional em `RegisterFunction` (aditivo)
 - [x] DECISÃO COM O USUÁRIO: override de built-ins NÃO entra (fica documentado como possível evolução opt-in)
-- [ ] Extrações do Workbook.cs (serialização, época volátil, admissão de range cache, Sheet) — só as
+- [x] Extrações do Workbook.cs (serialização, época volátil, admissão de range cache, Sheet) — só as
   `[MemoryPackIgnore]`-safe; membros serializados NÃO se movem
 
 ### Verification Plan
@@ -196,8 +196,48 @@ Status: In progress — DECISÃO DO USUÁRIO (2026-07-10): executar TUDO MENOS o
 ### Phase Summary
 _(write when phase completes)_
 
+### Phase Summary
+- **6a** (ea4b4fa): `FunctionRegistry` com 305 entradas unificadas → índices ByName (Parser) e ByType
+  (FormulaWriter) derivados de UMA lista; Sum absorvido via accessor custom (só FunctionCall permanece
+  especial, por ser o fallback runtime); Parser 976→642 linhas, FormulaWriter 673→328.
+  `RegisterFunction(minArgs, maxArgs)` opcional validado na avaliação (#VALUE! em vez de exceção do
+  host); defaults preservam comportamento legado (provado por teste).
+- **6b** (commit desta entrada): Workbook.cs 1.384→607 linhas — Sheet.cs, CollectionExtensions.cs,
+  Workbook.Serialization.cs, Workbook.VolatileEpoch.cs e admissão do range cache movida para
+  RangeValueCache.cs (subsistema Layer-2 inteiro num arquivo). Wire safety PROVADA por emissão do
+  source generator (só Sheets+DefinedNames serializam); MemoryPackCompatibilityTests (binário congelado)
+  verdes após CADA extração. Flake de isolamento do RegexCacheTests corrigido ([NotInParallel]).
+
+Suítes finais: 1.081 core + 53 Excel, 0 falhas.
+
 ## Final Recap
-_(write when all phases complete)_
+
+Plano executado integralmente em 6 fases / 6 releases parciais, tudo delegado a subagentes Sonnet com
+revisão e commit do orquestrador. Zero breaking changes (override de built-ins deliberadamente fora,
+registrado como evolução opt-in futura). Zero toque em wire format (provado por source generator +
+binário congelado).
+
+| Release | Conteúdo | Destaques medidos |
+|---|---|---|
+| v3.10.1 | 3 correções de corretude | DefineName×grafo stale; merge×@r implícito; StackOverflow→ParseException |
+| v3.10.2 | Superlineares | RANK 5k: 740→~25ms; regex 50k: 110→13ms; +fix ReDoS sem timeout |
+| v3.10.3 | Alocação (7 itens) | VLOOKUP 22KB→0,1B/aval; YIELD ~3x; LET 14,7x menos alocação |
+| v3.10.4 | Streaming + dispatch | Writer ~35% + output idêntico; dupla sondagem corrigida em 3 funções |
+| v3.11.0 | Interop robusto | ExcelLoadOptions/warnings; merge −29% alloc/−17% pico (temp file) |
+| (próxima) | Registry + god-file | Catálogo 4×→1×; Workbook.cs 1.384→607 linhas |
+
+Descobertas de agentes além do escopo pedido: 2º ciclo de recursão no Parser (F3), bug de dupla
+sondagem do snapshot em CountIf/MATCH/XLOOKUP (S1/S2), ausência de timeout no wildcard (P2), flake de
+isolamento do RegexCacheTests (6b).
+
+Pendências documentadas para ciclos futuros: override opt-in de built-ins; tokens-por-span no
+Tokenizer (plans/excel-load-streaming.md); AST=wire como limitação estratégica; crossover
+rebuild-vs-InvalidateCache do dirty graph (documentar número).
 
 ## Deployment Plan
-_(write when all phases complete: já embutido — cada fase publica sua release)_
+
+Cada fase já foi publicada no NuGet pela release workflow (v3.10.1→v3.11.0). A release final
+(registry + extrações, refactor: não bumpa sozinho — sai como patch junto do próximo fix/perf, OU
+disparada manualmente se desejado; o commit refactor: estará no CHANGELOG da próxima release).
+Consumidores: nenhum código precisa mudar; hosts que queiram aridade validada passam
+minArgs/maxArgs no RegisterFunction; hosts que queiram warnings de load passam ExcelLoadOptions.
