@@ -136,9 +136,14 @@ internal static class WorkdayMath
 
         var count = 0;
 
-        for (var day = start; day <= end; day = day.AddDays(1))
+        // Walk the serial alongside the DateTime instead of calling ToOADate() every step: whole-day
+        // DateTime values advance the OADate by exactly 1 per AddDays(1), so an int++ is bit-exact and
+        // skips the per-day double conversion. DayOfWeek still needs the DateTime (WeekendSchedule).
+        var serial = (int)start.ToOADate();
+
+        for (var day = start; day <= end; day = day.AddDays(1), serial++)
         {
-            if (!schedule.IsWeekend(day) && !holidays.Contains((int)day.ToOADate()))
+            if (!schedule.IsWeekend(day) && !holidays.Contains(serial))
             {
                 count++;
             }
@@ -320,14 +325,17 @@ public sealed partial record Workday(Expression[] Arguments) : Function
         var step = days > 0 ? 1 : -1;
         var remaining = Math.Abs(days);
         var current = start;
+        // See CountNetworkDays: walk the serial alongside current instead of calling ToOADate() per step.
+        var serial = (int)start.ToOADate();
 
         try
         {
             while (remaining > 0)
             {
                 current = current.AddDays(step);
+                serial += step;
 
-                if (!schedule.IsWeekend(current) && !holidays.Contains((int)current.ToOADate()))
+                if (!schedule.IsWeekend(current) && !holidays.Contains(serial))
                 {
                     remaining--;
                 }

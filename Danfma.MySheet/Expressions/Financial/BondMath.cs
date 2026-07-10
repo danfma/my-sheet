@@ -206,6 +206,32 @@ internal static class BondMath
         };
     }
 
+    /// <summary>
+    /// The yield-independent coupon-schedule facts <see cref="Price"/>, <see cref="Yield"/> and
+    /// <see cref="Duration"/> need, computed with a single backward walk (<see cref="FindCouponDates"/>)
+    /// instead of the 2-3 independent walks that calling <see cref="CoupNum"/>/<see cref="CoupPcd"/>/
+    /// <see cref="CoupDays"/> separately would each perform. Reused across every iteration of the YIELD
+    /// solver, where only the yield itself varies.
+    /// </summary>
+    private readonly record struct CouponSchedule(DateTime Pcd, DateTime Ncd, double N, double E);
+
+    private static CouponSchedule GetCouponSchedule(
+        DateTime settl,
+        DateTime mat,
+        double freq,
+        int basis
+    )
+    {
+        var (pcd, ncd) = FindCouponDates(settl, mat, freq);
+        double months = (mat.Year - pcd.Year) * 12 + (mat.Month - pcd.Month);
+        var n = months * freq / 12d;
+        var e =
+            basis == 1 ? Days(ncd, pcd)
+            : basis == 3 ? 365d / freq
+            : 360d / freq;
+        return new CouponSchedule(pcd, ncd, n, e);
+    }
+
     /// <summary>Basis-specific day count between two dates (Numerator = accrual-style actual for 2/3).</summary>
     internal static double DaysBetween(int basis, DateTime a, DateTime b, bool numerator) =>
         basis switch
@@ -286,12 +312,32 @@ internal static class BondMath
         double redemption,
         double freq,
         int basis
+    ) =>
+        Price(
+            GetCouponSchedule(settl, mat, freq, basis),
+            settl,
+            rate,
+            yld,
+            redemption,
+            freq,
+            basis
+        );
+
+    // Same arithmetic as the public overload, but takes an already-computed schedule so the YIELD solver
+    // (which calls this once per iteration, only varying `yld`) doesn't re-walk the coupon schedule every time.
+    private static double Price(
+        CouponSchedule schedule,
+        DateTime settl,
+        double rate,
+        double yld,
+        double redemption,
+        double freq,
+        int basis
     )
     {
-        var n = CoupNum(settl, mat, freq);
-        var pcd = CoupPcd(settl, mat, freq);
-        var a = DaysBetween(basis, pcd, settl, true);
-        var e = CoupDays(basis, settl, mat, freq);
+        var n = schedule.N;
+        var a = DaysBetween(basis, schedule.Pcd, settl, true);
+        var e = schedule.E;
         var dsc = e - a;
         var coupon = 100d * rate / freq;
         var accrued = 100d * rate / freq * a / e;
@@ -323,10 +369,10 @@ internal static class BondMath
         int basis
     )
     {
-        var n = CoupNum(settl, mat, freq);
-        var pcd = CoupPcd(settl, mat, freq);
-        var a = DaysBetween(basis, pcd, settl, true);
-        var e = CoupDays(basis, settl, mat, freq);
+        var schedule = GetCouponSchedule(settl, mat, freq, basis);
+        var n = schedule.N;
+        var a = DaysBetween(basis, schedule.Pcd, settl, true);
+        var e = schedule.E;
         var dsr = e - a;
 
         if (n <= 1d)
@@ -336,7 +382,7 @@ internal static class BondMath
         }
 
         return TimeValueOfMoney.Solve(
-            y => Price(settl, mat, rate, y, redemption, freq, basis) - pr,
+            y => Price(schedule, settl, rate, y, redemption, freq, basis) - pr,
             0.05
         );
     }
@@ -351,9 +397,15 @@ internal static class BondMath
         bool modified
     )
     {
-        var dbc = CoupDaysBs(basis, settl, mat, freq);
-        var e = CoupDays(basis, settl, mat, freq);
-        var n = CoupNum(settl, mat, freq);
+        var schedule = GetCouponSchedule(settl, mat, freq, basis);
+        var dbc = basis switch
+        {
+            0 => Diff360Us(schedule.Pcd, settl, Method360.ModifyStartDate),
+            4 => DayCount.Euro360Days(schedule.Pcd, settl),
+            _ => Days(settl, schedule.Pcd),
+        };
+        var e = schedule.E;
+        var n = schedule.N;
         var dsc = e - dbc;
         var x1 = dsc / e;
         var x2 = x1 + n - 1d;
@@ -966,14 +1018,30 @@ internal static class BondMath
         double rate,
         IReadOnlyList<double> cashFlows,
         IReadOnlyList<DateTime> dates
-    )
+    ) => XNpv(rate, cashFlows, XNpvYearFractions(dates));
+
+    // Per-flow (Days(dates[i], d0) / 365d) exponents, independent of `rate` — computed once and reused
+    // across every XIRR solver iteration instead of being recomputed (Days() included) each time.
+    private static double[] XNpvYearFractions(IReadOnlyList<DateTime> dates)
     {
         var d0 = dates[0];
+        var yearFractions = new double[dates.Count];
+
+        for (var i = 0; i < dates.Count; i++)
+        {
+            yearFractions[i] = (double)Days(dates[i], d0) / 365d;
+        }
+
+        return yearFractions;
+    }
+
+    private static double XNpv(double rate, IReadOnlyList<double> cashFlows, double[] yearFractions)
+    {
         double sum = 0;
 
         for (var i = 0; i < cashFlows.Count; i++)
         {
-            sum += cashFlows[i] / Math.Pow(1d + rate, (double)Days(dates[i], d0) / 365d);
+            sum += cashFlows[i] / Math.Pow(1d + rate, yearFractions[i]);
         }
 
         return sum;
@@ -983,7 +1051,11 @@ internal static class BondMath
         IReadOnlyList<double> cashFlows,
         IReadOnlyList<DateTime> dates,
         double guess
-    ) => TimeValueOfMoney.Solve(rate => XNpv(rate, cashFlows, dates), guess);
+    )
+    {
+        var yearFractions = XNpvYearFractions(dates);
+        return TimeValueOfMoney.Solve(rate => XNpv(rate, cashFlows, yearFractions), guess);
+    }
 
     private static void Dollar(
         double value,
@@ -1143,13 +1215,36 @@ internal static class BondMath
         return pcd == firstCoupon;
     }
 
-    internal static double OddFPrice(
+    /// <summary>
+    /// Every <see cref="OddFPrice"/> term that doesn't involve <c>yld</c> — the branch choice (short vs.
+    /// long first coupon), the coupon-count/day-count walks, and the per-coupon aggregation loop.
+    /// Computed once and reused across every ODDFYIELD solver iteration, which otherwise re-ran the whole
+    /// walk (including the O(coupons) aggregation loop) just to evaluate a different yield.
+    /// </summary>
+    private readonly record struct OddFPriceContext(
+        bool ShortFirstCoupon,
+        double M,
+        double Rate,
+        double Redemption,
+        // short-first-coupon branch
+        double N,
+        double Y,
+        double Term2Const,
+        double Term4,
+        // long-first-coupon branch
+        double Nq,
+        double N2,
+        double YL,
+        double Term2ConstLong,
+        double Term4Long
+    );
+
+    private static OddFPriceContext BuildOddFPriceContext(
         DateTime settl,
         DateTime mat,
         DateTime issue,
         DateTime firstCoupon,
         double rate,
-        double yld,
         double redemption,
         double freq,
         int basis
@@ -1166,19 +1261,24 @@ internal static class BondMath
         {
             var dsc = DaysNotNeg(basis, settl, firstCoupon);
             var a = DaysNotNeg(basis, issue, settl);
-            var p1 = yld / m + 1d;
             var y = dsc / e;
-            var term1 = redemption / Math.Pow(p1, n - 1d + y);
-            var term2 = 100d * rate / m * dfc / e / Math.Pow(p1, y);
-            double term3 = 0;
-
-            for (var index = 2; index <= (int)n; index++)
-            {
-                term3 += 100d * rate / m / Math.Pow(p1, index - 1d + y);
-            }
-
+            var term2Const = 100d * rate / m * dfc / e;
             var term4 = a / e * (rate / m) * 100d;
-            return term1 + term2 + term3 - term4;
+            return new OddFPriceContext(
+                ShortFirstCoupon: true,
+                M: m,
+                Rate: rate,
+                Redemption: redemption,
+                N: n,
+                Y: y,
+                Term2Const: term2Const,
+                Term4: term4,
+                Nq: 0,
+                N2: 0,
+                YL: 0,
+                Term2ConstLong: 0,
+                Term4Long: 0
+            );
         }
 
         var nc = CoupNum(issue, firstCoupon, freq);
@@ -1215,19 +1315,82 @@ internal static class BondMath
 
         var nq = CoupNumberOdd(firstCoupon, settl, numMonths, true);
         var n2 = CoupNum(firstCoupon, mat, freq);
-        var p1L = yld / m + 1d;
         var yL = dscLong / e;
-        var t1 = redemption / Math.Pow(p1L, yL + nq + n2);
-        var t2 = 100d * rate / m * dcnl / Math.Pow(p1L, nq + yL);
-        double t3 = 0;
+        var term2ConstLong = 100d * rate / m * dcnl;
+        var term4Long = 100d * rate / m * anl;
 
-        for (var index = 1; index <= (int)n2; index++)
+        return new OddFPriceContext(
+            ShortFirstCoupon: false,
+            M: m,
+            Rate: rate,
+            Redemption: redemption,
+            N: 0,
+            Y: 0,
+            Term2Const: 0,
+            Term4: 0,
+            Nq: nq,
+            N2: n2,
+            YL: yL,
+            Term2ConstLong: term2ConstLong,
+            Term4Long: term4Long
+        );
+    }
+
+    // The only part of OddFPrice that depends on `yld` — evaluated once per solver iteration against a
+    // context computed once per ODDFYIELD call (see BuildOddFPriceContext).
+    private static double EvaluateOddFPrice(in OddFPriceContext ctx, double yld)
+    {
+        var p1 = yld / ctx.M + 1d;
+
+        if (ctx.ShortFirstCoupon)
         {
-            t3 += 100d * rate / m / Math.Pow(p1L, index + nq + yL);
+            var term1 = ctx.Redemption / Math.Pow(p1, ctx.N - 1d + ctx.Y);
+            var term2 = ctx.Term2Const / Math.Pow(p1, ctx.Y);
+            double term3 = 0;
+
+            for (var index = 2; index <= (int)ctx.N; index++)
+            {
+                term3 += 100d * ctx.Rate / ctx.M / Math.Pow(p1, index - 1d + ctx.Y);
+            }
+
+            return term1 + term2 + term3 - ctx.Term4;
         }
 
-        var t4 = 100d * rate / m * anl;
-        return t1 + t2 + t3 - t4;
+        var t1 = ctx.Redemption / Math.Pow(p1, ctx.YL + ctx.Nq + ctx.N2);
+        var t2 = ctx.Term2ConstLong / Math.Pow(p1, ctx.Nq + ctx.YL);
+        double t3 = 0;
+
+        for (var index = 1; index <= (int)ctx.N2; index++)
+        {
+            t3 += 100d * ctx.Rate / ctx.M / Math.Pow(p1, index + ctx.Nq + ctx.YL);
+        }
+
+        return t1 + t2 + t3 - ctx.Term4Long;
+    }
+
+    internal static double OddFPrice(
+        DateTime settl,
+        DateTime mat,
+        DateTime issue,
+        DateTime firstCoupon,
+        double rate,
+        double yld,
+        double redemption,
+        double freq,
+        int basis
+    )
+    {
+        var ctx = BuildOddFPriceContext(
+            settl,
+            mat,
+            issue,
+            firstCoupon,
+            rate,
+            redemption,
+            freq,
+            basis
+        );
+        return EvaluateOddFPrice(ctx, yld);
     }
 
     internal static double OddFYield(
@@ -1247,11 +1410,17 @@ internal static class BondMath
         var num = rate * years * 100d - px;
         var denum = px / 4d + years * px / 2d + years * 100d;
         var guess = num / denum;
-        return TimeValueOfMoney.Solve(
-            yld =>
-                pr - OddFPrice(settl, mat, issue, firstCoupon, rate, yld, redemption, freq, basis),
-            guess
+        var ctx = BuildOddFPriceContext(
+            settl,
+            mat,
+            issue,
+            firstCoupon,
+            rate,
+            redemption,
+            freq,
+            basis
         );
+        return TimeValueOfMoney.Solve(yld => pr - EvaluateOddFPrice(ctx, yld), guess);
     }
 
     internal static double OddLFunc(
