@@ -209,6 +209,19 @@ public static class ExcelMerge
     }
 
     // Merge-joins the existing rows (streamed, ascending) with our rows (ascending) inside <sheetData>.
+    //
+    // A <row> without @r is, per ECMA-376 §18.3.1.73, implicitly the one immediately after the previous
+    // row element (row 1 if it is the first). currentRow tracks that running position — mirroring
+    // WorksheetStreamLoader.ReadSheetData — purely so this row can be compared against our sorted rows;
+    // the existing row's own XML is still copied verbatim (see MergeRow) and is NEVER rewritten with an
+    // explicit @r.
+    //
+    // That is safe because an implicit position is always "previous + 1": there is no integer between a
+    // predecessor's position and predecessor+1, so a brand-new row we insert can never land strictly
+    // before an implicit existing row — WriteNewRow only ever fires while our key is less than the next
+    // existing row's (explicit or computed) number, and no such key can exist between an implicit row and
+    // its immediate predecessor. Consequently inserting our rows never shifts an existing implicit row's
+    // computed position, and the verbatim copy stays correct.
     private static void MergeSheetData(
         XmlReader reader,
         XmlWriter writer,
@@ -223,6 +236,7 @@ public static class ExcelMerge
 
         using var ours = rows.GetEnumerator();
         var hasOurs = ours.MoveNext();
+        var currentRow = 0;
 
         if (reader.IsEmptyElement)
         {
@@ -250,7 +264,18 @@ public static class ExcelMerge
         {
             if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "row")
             {
-                var rowNumber = int.Parse(reader.GetAttribute("r")!, CultureInfo.InvariantCulture);
+                // A row without @r is implicitly the one after the previous row (ECMA-376 §18.3.1.73) —
+                // mirrors WorksheetStreamLoader.ReadSheetData so this streams the same worksheet the
+                // loader would.
+                currentRow = int.TryParse(
+                    reader.GetAttribute("r"),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var parsedRow
+                )
+                    ? parsedRow
+                    : currentRow + 1;
+                var rowNumber = currentRow;
 
                 // Our rows that sort before this existing one are brand-new: emit them first.
                 while (hasOurs && ours.Current.Key < rowNumber)
@@ -313,6 +338,17 @@ public static class ExcelMerge
 
     // Merge-joins one existing <row>'s cells (streamed, ascending) with our cells for that row (ascending),
     // preserving the row's own attributes and every cell we do not own.
+    //
+    // A <c> without @r is, per ECMA-376 §18.3.1.4, implicitly the one immediately after the previous cell
+    // in the row (column 1 if it is the first). nextColumn tracks that running position — mirroring
+    // WorksheetStreamLoader.ReadRow — purely for comparison against our sorted cells; existing cells that
+    // are not ours are still copied verbatim (WriteNode), never rewritten with an explicit @r.
+    //
+    // That is safe for the same reason it is safe at the row level (see MergeSheetData): an implicit
+    // column is always "previous + 1", so no column value exists strictly between a predecessor and an
+    // implicit successor for one of OUR cells to occupy. WriteOurCell only fires while our column is less
+    // than the next existing cell's (explicit or computed) column, and that can never be true for an
+    // implicit successor. So inserting our cells never shifts an existing implicit cell's computed column.
     private static void MergeRow(
         XmlReader reader,
         XmlWriter writer,
@@ -326,6 +362,7 @@ public static class ExcelMerge
         writer.WriteAttributes(reader, defattr: false); // r, spans, s, customFormat, ht, … all preserved
 
         var index = 0;
+        var nextColumn = 1;
 
         if (reader.IsEmptyElement)
         {
@@ -341,7 +378,10 @@ public static class ExcelMerge
         {
             if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "c")
             {
-                var column = CellId.Parse(reader.GetAttribute("r")!).Column;
+                var column = reader.GetAttribute("r") is { } cellRef
+                    ? CellId.Parse(cellRef).Column
+                    : nextColumn;
+                nextColumn = column + 1;
 
                 // Our cells that sort before this existing one are brand-new.
                 while (index < ourCells.Count && ourCells[index].Column < column)
