@@ -32,6 +32,16 @@ sheet["A1"] = ExpressionParser.Parse("=DOUBLE(21)", sheet);
 double result = workbook.GetCellValue("Sheet1", "A1").ToDouble();   // 42.0
 ```
 
+Opcionalmente declare a contagem de argumentos aceita — uma chamada fora do intervalo avalia para
+`#VALUE!` em vez de invocar o delegate (então `arguments[0]` no seu código fica seguro por construção):
+
+```csharp
+workbook.RegisterFunction("DOUBLE", handler, minArgs: 1, maxArgs: 1);
+```
+
+Sem `minArgs`/`maxArgs` o delegate é invocado incondicionalmente, exatamente como antes — validar
+(ou não) segue sendo responsabilidade do próprio delegate.
+
 A assinatura do delegate é:
 
 ```csharp
