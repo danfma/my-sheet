@@ -1234,7 +1234,22 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     // The numeric (column,row) addresses of the A1 cells, for the structural-index build — it consumes the
     // coordinates directly instead of enumerating id strings only to re-parse them. Internal, not host API.
     [MemoryPackIgnore]
-    internal IEnumerable<(int Column, int Row)> CellAddresses => _cells.DenseAddresses;
+    /// <summary>
+    /// The numeric addresses of this sheet's populated canonical-A1 cells, in insertion order —
+    /// allocation-free enumeration (struct enumerator, no id strings). Pair with
+    /// <see cref="Workbook.GetValueReader"/> for bulk extraction and <see cref="CellRef.TryFormat"/>
+    /// to render ids without allocating. Non-A1 overflow ids are not listed (see
+    /// <see cref="EnumerateCells"/>).
+    /// </summary>
+    public CellAddressCollection CellAddresses => _cells.DenseAddresses;
+
+    /// <summary>
+    /// This sheet's populated cells as <c>(Id, Column, Row)</c>, in insertion order. The canonical id
+    /// is derived once per cell (one string each — for the allocation-free variant use
+    /// <see cref="CellAddresses"/> + <see cref="CellRef.TryFormat"/>); non-A1 overflow ids are
+    /// included with <c>Column = 0, Row = 0</c>.
+    /// </summary>
+    public SheetCellRefCollection EnumerateCells() => _cells.AddressedEntries;
 
     [MemoryPackIgnore]
     public IEnumerable<string> Keys => _cells.Keys;

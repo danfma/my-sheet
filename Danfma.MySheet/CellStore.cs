@@ -156,7 +156,9 @@ internal sealed class CellStore : IReadOnlyDictionary<string, Expression>
     // The dense (A1) coordinates, for the structural-index build — it consumes numeric addresses directly,
     // so the build no longer re-derives an id string per cell only to re-parse it (the overflow ids are not
     // A1 and were skipped by the old parse anyway).
-    internal IEnumerable<(int Column, int Row)> DenseAddresses => _dense.Keys;
+    internal CellAddressCollection DenseAddresses => new(_dense);
+
+    internal SheetCellRefCollection AddressedEntries => new(_dense, _overflow);
 
     public int Count => _dense.Count + (_overflow?.Count ?? 0);
 

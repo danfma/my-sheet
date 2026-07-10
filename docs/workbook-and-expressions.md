@@ -35,6 +35,8 @@ Key `Workbook` members:
 | `Sheets` / `this[string]` | Access sheets by name (case-insensitive); the indexer throws `KeyNotFoundException` for a missing name. |
 | `TryGetSheet(name, out sheet)` | Non-throwing sheet lookup (case-insensitive) → `bool`; the host's counterpart to the throwing indexer. |
 | `GetCellValue(sheetName, id)` | Memoized evaluation of one cell → `ComputedValue`; a reference to a missing sheet resolves to `#REF!` (never throws). |
+| `Sheet.CellAddresses` / `Sheet.EnumerateCells()` | Populated-cell enumeration (struct enumerators, no interface boxing): `CellAddresses` yields `(Column, Row)` allocation-free (canonical cells only); `EnumerateCells()` yields `(Id, Column, Row)` deriving the canonical id once per cell (overflow ids included with `0,0`). |
+| `CellRef.TryFormat(col, row, span, out written)` / `CellRef.Format(col, row)` | A1-style id formatting from numeric addresses; the `TryFormat` span form allocates nothing (18 chars always suffice). |
 | `GetValueReader(sheetName)` | Numeric-address bulk reader for one sheet → `SheetValueReader`; `GetValue(column, row)` serves memoized values with no per-cell id string, A1 parse or sheet-name hash — misses evaluate on demand, identical to `GetCellValue`. See [Bulk reads](#bulk-reads-getvaluereader). |
 | `ComputeAll()` | Eagerly evaluates every cell (the "calculate now" counterpart to lazy `GetCellValue`), filling the cache so a later warm save carries computed values. Runs on a large stack for deep chains; a second call is all hits. After edits, call `InvalidateCache()` first. |
 | `InvalidateCache()` | Explicitly flushes the whole memoization cache (required after edits); also resets the volatile epoch. |
@@ -188,6 +190,26 @@ evaluates on demand (memoization, cycle guard), so literals and never-computed f
 `InvalidateCache()` applies the same way, and the reader instance stays valid across invalidations.
 Measured on a 360k-cell extraction: `29.8 ms / 24.2 MB` allocated with per-cell ids → `6.9 ms / 0 bytes`
 with the reader.
+
+To drive the loop from the sheet itself (instead of known bounds), enumerate the populated cells. The
+fully allocation-free pipeline — including rendering the id text, e.g. for a JSON field — combines
+`CellAddresses`, `CellRef.TryFormat` and the reader:
+
+```csharp
+var reader = workbook.GetValueReader("Results");
+Span<char> id = stackalloc char[18];
+
+foreach (var (column, row) in sheet.CellAddresses)      // struct enumerator, zero alloc
+{
+    CellRef.TryFormat(column, row, id, out var length); // id text without a string
+    jsonWriter.WriteString(id[..length], reader.GetValue(column, row).ToDouble());
+}
+```
+
+When you want the id as a `string` anyway, `sheet.EnumerateCells()` yields `(Id, Column, Row)` — the
+library derives the canonical id once per cell (one string each), and the numeric address pairs
+directly with the reader. Enumeration order is insertion order, not row-major; sort if you need
+deterministic output.
 
 ### Formula results are never blank (Excel parity)
 

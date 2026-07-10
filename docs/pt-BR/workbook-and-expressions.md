@@ -38,6 +38,8 @@ Principais membros de `Workbook`:
 | `Sheets` / `this[string]` | Acessa planilhas pelo nome (case-insensitive); o indexador lança `KeyNotFoundException` para um nome sem planilha correspondente. |
 | `TryGetSheet(name, out sheet)` | Consulta de planilha sem lançar exceção (case-insensitive) → `bool`; a contraparte do indexador que lança exceção. |
 | `GetCellValue(sheetName, id)` | Avaliação memoizada de uma célula → `ComputedValue`; uma referência a uma planilha ausente resolve para `#REF!` (nunca lança exceção). |
+| `Sheet.CellAddresses` / `Sheet.EnumerateCells()` | Enumeração de células populadas (struct enumerators, sem boxing de interface): `CellAddresses` produz `(Column, Row)` sem alocação (só células canônicas); `EnumerateCells()` produz `(Id, Column, Row)` derivando o id canônico uma vez por célula (ids overflow incluídos com `0,0`). |
+| `CellRef.TryFormat(col, row, span, out written)` / `CellRef.Format(col, row)` | Formatação de id A1 a partir de endereços numéricos; a forma span (`TryFormat`) não aloca nada (18 chars sempre bastam). |
 | `GetValueReader(sheetName)` | Leitor em massa por endereço numérico para uma planilha → `SheetValueReader`; `GetValue(column, row)` serve valores memoizados sem string de id, sem parse A1 e sem hash do nome da planilha por célula — misses avaliam sob demanda, idêntico ao `GetCellValue`. Veja [Leituras em massa](#leituras-em-massa-getvaluereader). |
 | `ComputeAll()` | Avalia avidamente (eagerly) todas as células (a contraparte "calcular agora" do `GetCellValue` preguiçoso), preenchendo o cache para que um salvamento subsequente a quente carregue os valores computados. Roda em uma large stack para cadeias profundas; uma segunda chamada é toda hits. Após edições, chame `InvalidateCache()` primeiro. |
 | `InvalidateCache()` | Esvazia explicitamente **todo** o cache de memoização (obrigatório após edições); também reinicia a época volátil. |
@@ -197,6 +199,26 @@ avalia sob demanda (memoização, guarda de ciclos), então literais e fórmulas
 servidos. `InvalidateCache()` se aplica da mesma forma, e a instância do reader permanece válida entre
 invalidações. Medido numa extração de 360 mil células: `29,8 ms / 24,2 MB` alocados com ids por célula →
 `6,9 ms / 0 bytes` com o reader.
+
+Para dirigir o laço a partir da própria planilha (em vez de limites conhecidos), enumere as células
+populadas. O pipeline totalmente livre de alocação — incluindo o texto do id, por exemplo para um campo
+JSON — combina `CellAddresses`, `CellRef.TryFormat` e o reader:
+
+```csharp
+var reader = workbook.GetValueReader("Results");
+Span<char> id = stackalloc char[18];
+
+foreach (var (column, row) in sheet.CellAddresses)      // struct enumerator, zero alocação
+{
+    CellRef.TryFormat(column, row, id, out var length); // texto do id sem string
+    jsonWriter.WriteString(id[..length], reader.GetValue(column, row).ToDouble());
+}
+```
+
+Quando você precisa do id como `string` de qualquer forma, `sheet.EnumerateCells()` produz
+`(Id, Column, Row)` — a lib deriva o id canônico uma vez por célula (uma string cada), e o endereço
+numérico casa direto com o reader. A ordem de enumeração é a de inserção, não row-major; ordene se
+precisar de saída determinística.
 
 ### Resultados de fórmula nunca são em branco (paridade com o Excel)
 

@@ -8,7 +8,7 @@ namespace Danfma.MySheet;
 /// currency of <see cref="RecalculationEngine"/> — you tell it which cells you edited and it answers with the
 /// outputs those edits affect, all in this shape.
 /// </summary>
-public readonly record struct CellRef(string Sheet, string Id);
+public readonly partial record struct CellRef(string Sheet, string Id);
 
 /// <summary>How a <see cref="RecalculationEngine.Recalculate"/> handled an edit.</summary>
 public enum RecalculationMode
