@@ -58,7 +58,7 @@ public sealed partial record Indirect(Expression[] Arguments) : Function
         Expression parsed;
         try
         {
-            parsed = ExpressionParser.Parse("=" + refText, sheet);
+            parsed = ExpressionParser.ParseFormulaBody(refText, sheet);
         }
         catch (ParseException)
         {

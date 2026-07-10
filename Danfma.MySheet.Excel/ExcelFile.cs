@@ -95,7 +95,10 @@ public static class ExcelFile
             {
                 // The refersTo (e.g. "Data!$A$1:$A$10") is parsed as a formula; a constant name (e.g. "0.1")
                 // parses to a literal.
-                var expression = ExpressionParser.Parse("=" + definedName.Text, DefinedNameContext);
+                var expression = ExpressionParser.ParseFormulaBody(
+                    definedName.Text,
+                    DefinedNameContext
+                );
                 workbook.DefineName(name, expression);
             }
             catch (Exception exception) when (exception is ParseException or ArgumentException)

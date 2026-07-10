@@ -20,16 +20,35 @@ namespace Danfma.MySheet.Excel;
 /// </summary>
 internal static class WorksheetStreamLoader
 {
+    // Per-worksheet load state, so the reader helpers stay small.
+    private sealed class LoadContext(Sheet sheet, IReadOnlyList<string> sharedStrings)
+    {
+        public Sheet Sheet { get; } = sheet;
+        public IReadOnlyList<string> SharedStrings { get; } = sharedStrings;
+
+        /// <summary>Masters of shared-formula groups: si → (master cell, formula text).</summary>
+        public Dictionary<uint, (string MasterId, string Formula)> SharedFormulas { get; } = [];
+
+        /// <summary>
+        /// Identical formula text parses to an identical immutable tree, and sharing one instance
+        /// across cells is safe because per-cell evaluation state lives in the value store keyed by
+        /// (sheet, column, row) — never in the node. Deduplicating saves both the re-parse and the
+        /// duplicate tree.
+        /// </summary>
+        public Dictionary<string, Expression> FormulaCache { get; } = [];
+
+        /// <summary>
+        /// Out-of-spec slaves seen before their master (lazy; null on the happy path). The cached
+        /// literal is decoded eagerly because the &lt;v&gt; text is gone once the reader moves on.
+        /// </summary>
+        public List<(string Id, uint SharedIndex, Expression? CachedLiteral)>? PendingSlaves;
+
+        public StringBuilder Builder { get; } = new();
+    }
+
     public static void Load(WorksheetPart part, Sheet sheet, IReadOnlyList<string> sharedStrings)
     {
-        // Masters of shared-formula groups: si → (master cell, formula text).
-        var sharedFormulas = new Dictionary<uint, (string MasterId, string Formula)>();
-
-        // Out-of-spec slaves seen before their master (lazy; null on the happy path). The cached
-        // literal is decoded eagerly because the <v> text is gone once the reader moves on.
-        List<(string Id, uint SharedIndex, Expression? CachedLiteral)>? pendingSlaves = null;
-
-        var builder = new StringBuilder();
+        var context = new LoadContext(sheet, sharedStrings);
 
         using (var source = part.GetStream(FileMode.Open, FileAccess.Read))
         using (var reader = XmlReader.Create(source))
@@ -40,14 +59,7 @@ internal static class WorksheetStreamLoader
                 {
                     if (!reader.IsEmptyElement)
                     {
-                        ReadSheetData(
-                            reader,
-                            sheet,
-                            sharedStrings,
-                            sharedFormulas,
-                            ref pendingSlaves,
-                            builder
-                        );
+                        ReadSheetData(reader, context);
                     }
 
                     break; // nothing after sheetData is load-relevant
@@ -55,20 +67,20 @@ internal static class WorksheetStreamLoader
             }
         }
 
-        if (pendingSlaves is null)
+        if (context.PendingSlaves is null)
         {
             return;
         }
 
         // A deferred slave resolves against its master if one eventually appeared; otherwise it falls
         // back to its cached literal — the same outcome the DOM loader produced for an unknown master.
-        foreach (var (id, sharedIndex, cachedLiteral) in pendingSlaves)
+        foreach (var (id, sharedIndex, cachedLiteral) in context.PendingSlaves)
         {
-            if (sharedFormulas.TryGetValue(sharedIndex, out var master))
+            if (context.SharedFormulas.TryGetValue(sharedIndex, out var master))
             {
                 var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
 
-                sheet[id] = ExpressionParser.Parse("=" + shifted, sheet);
+                sheet[id] = ExpressionParser.ParseFormulaBody(shifted, sheet);
             }
             else if (cachedLiteral is not null)
             {
@@ -77,14 +89,7 @@ internal static class WorksheetStreamLoader
         }
     }
 
-    private static void ReadSheetData(
-        XmlReader reader,
-        Sheet sheet,
-        IReadOnlyList<string> sharedStrings,
-        Dictionary<uint, (string MasterId, string Formula)> sharedFormulas,
-        ref List<(string Id, uint SharedIndex, Expression? CachedLiteral)>? pendingSlaves,
-        StringBuilder builder
-    )
+    private static void ReadSheetData(XmlReader reader, LoadContext context)
     {
         var currentRow = 0;
 
@@ -114,15 +119,7 @@ internal static class WorksheetStreamLoader
                     continue;
                 }
 
-                ReadRow(
-                    reader,
-                    sheet,
-                    currentRow,
-                    sharedStrings,
-                    sharedFormulas,
-                    ref pendingSlaves,
-                    builder
-                );
+                ReadRow(reader, context, currentRow);
 
                 continue;
             }
@@ -142,15 +139,7 @@ internal static class WorksheetStreamLoader
     }
 
     // Entered ON a non-empty <row>; consumes through </row> and past it.
-    private static void ReadRow(
-        XmlReader reader,
-        Sheet sheet,
-        int row,
-        IReadOnlyList<string> sharedStrings,
-        Dictionary<uint, (string MasterId, string Formula)> sharedFormulas,
-        ref List<(string Id, uint SharedIndex, Expression? CachedLiteral)>? pendingSlaves,
-        StringBuilder builder
-    )
+    private static void ReadRow(XmlReader reader, LoadContext context, int row)
     {
         var nextColumn = 1;
 
@@ -162,17 +151,7 @@ internal static class WorksheetStreamLoader
         {
             if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "c")
             {
-                nextColumn =
-                    ReadCell(
-                        reader,
-                        sheet,
-                        row,
-                        nextColumn,
-                        sharedStrings,
-                        sharedFormulas,
-                        ref pendingSlaves,
-                        builder
-                    ) + 1;
+                nextColumn = ReadCell(reader, context, row, nextColumn) + 1;
 
                 continue;
             }
@@ -195,16 +174,7 @@ internal static class WorksheetStreamLoader
 
     // Entered ON a <c>; consumes through </c> and past it. Returns the cell's 1-based column so the
     // caller can track the implicit position of a following cell that lacks @r.
-    private static int ReadCell(
-        XmlReader reader,
-        Sheet sheet,
-        int row,
-        int nextColumn,
-        IReadOnlyList<string> sharedStrings,
-        Dictionary<uint, (string MasterId, string Formula)> sharedFormulas,
-        ref List<(string Id, uint SharedIndex, Expression? CachedLiteral)>? pendingSlaves,
-        StringBuilder builder
-    )
+    private static int ReadCell(XmlReader reader, LoadContext context, int row, int nextColumn)
     {
         var id = reader.GetAttribute("r");
         var type = reader.GetAttribute("t");
@@ -284,7 +254,7 @@ internal static class WorksheetStreamLoader
                         case "is":
                             inlineText = SharedStringsStreamReader.ReadFlattenedText(
                                 reader,
-                                builder
+                                context.Builder
                             );
 
                             continue;
@@ -310,40 +280,47 @@ internal static class WorksheetStreamLoader
         {
             if (isSharedFormula)
             {
-                sharedFormulas[sharedIndex] = (id, formulaText);
+                context.SharedFormulas[sharedIndex] = (id, formulaText);
             }
 
-            sheet[id] = ExpressionParser.Parse("=" + formulaText, sheet);
+            if (!context.FormulaCache.TryGetValue(formulaText, out var expression))
+            {
+                expression = ExpressionParser.ParseFormulaBody(formulaText, context.Sheet);
+                context.FormulaCache[formulaText] = expression;
+            }
+
+            context.Sheet[id] = expression;
 
             return column;
         }
 
         // A shared-formula slave carries no text: expand it from its master, shifting relative
-        // references by the cell delta — exactly what Excel does.
+        // references by the cell delta — exactly what Excel does. The shifted text is unique per
+        // cell, so it bypasses the formula cache.
         if (isSharedFormula)
         {
-            if (sharedFormulas.TryGetValue(sharedIndex, out var master))
+            if (context.SharedFormulas.TryGetValue(sharedIndex, out var master))
             {
                 var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
 
-                sheet[id] = ExpressionParser.Parse("=" + shifted, sheet);
+                context.Sheet[id] = ExpressionParser.ParseFormulaBody(shifted, context.Sheet);
 
                 return column;
             }
 
             // Out-of-spec producer: the slave appeared before its master. Defer it; the cached
             // literal is decoded now because the <v> text is unavailable later.
-            pendingSlaves ??= [];
-            pendingSlaves.Add(
-                (id, sharedIndex, DecodeLiteral(type, raw, inlineText, sharedStrings))
+            context.PendingSlaves ??= [];
+            context.PendingSlaves.Add(
+                (id, sharedIndex, DecodeLiteral(context, type, raw, inlineText))
             );
 
             return column;
         }
 
-        if (DecodeLiteral(type, raw, inlineText, sharedStrings) is { } literal)
+        if (DecodeLiteral(context, type, raw, inlineText) is { } literal)
         {
-            sheet[id] = literal;
+            context.Sheet[id] = literal;
         }
 
         return column;
@@ -351,10 +328,10 @@ internal static class WorksheetStreamLoader
 
     // Parity port of the DOM loader's LoadLiteral, keyed by the raw @t string.
     private static Expression? DecodeLiteral(
+        LoadContext context,
         string? type,
         string? raw,
-        string? inlineText,
-        IReadOnlyList<string> sharedStrings
+        string? inlineText
     )
     {
         if (type == "inlineStr")
@@ -377,7 +354,9 @@ internal static class WorksheetStreamLoader
 
         return type switch
         {
-            "s" => new StringValue(sharedStrings[int.Parse(raw, CultureInfo.InvariantCulture)]),
+            "s" => new StringValue(
+                context.SharedStrings[int.Parse(raw, CultureInfo.InvariantCulture)]
+            ),
             "b" => new BooleanValue(
                 raw is "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
             ),

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Expressions.Dates;
@@ -35,9 +36,12 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         Func<Expression[], Expression> Create
     );
 
-    private static readonly Dictionary<string, FunctionSpec> Functions = new(
-        StringComparer.OrdinalIgnoreCase
-    )
+    // Frozen for read-optimized lookups: the table is built once and only ever read (hot path:
+    // one lookup per function call parsed).
+    private static readonly FrozenDictionary<string, FunctionSpec> Functions = new Dictionary<
+        string,
+        FunctionSpec
+    >(StringComparer.OrdinalIgnoreCase)
     {
         ["SUM"] = new(0, int.MaxValue, arguments => new Sum(arguments)),
         ["AVERAGE"] = new(0, int.MaxValue, arguments => new Average(arguments)),
@@ -348,7 +352,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
         // F1 — volatile RNG functions.
         ["RAND"] = new(0, 0, arguments => new Rand(arguments)),
         ["RANDBETWEEN"] = new(2, 2, arguments => new RandBetween(arguments)),
-    };
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     private int _index;
 

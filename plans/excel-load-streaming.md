@@ -134,19 +134,26 @@ inline string com espaços, shared string padded + rich text multi-run, t="str" 
 e round-trip load→export→load. Suíte Excel: 39/39.
 
 ## Phase 4: Parse quick wins
-Status: Not started
+Status: Complete
 
-- [ ] `ExpressionParser.ParseFormulaBody(string, Sheet)` (pula exigência de `=`); usar nos call sites do load (3×) e `Indirect.cs:61` — elimina o concat `"=" + formula` por célula
-- [ ] **Dedup de AST por texto de fórmula**: `Dictionary<string, Expression>` POR SHEET dentro do load (AST imutável + memoização externa = sharing seguro; NÃO aplicar a defined names — contexto de sheet diferente); economiza parse E memória em fórmulas repetidas
-- [ ] `Parser.Functions` → `FrozenDictionary`
-- [ ] `Tokenizer.Tokenize`: capacidade inicial do `List<Token>` (`text.Length/3+4`)
+- [x] `ExpressionParser.ParseFormulaBody(string, Sheet)` (pula exigência de `=`); usar nos call sites do load (3×) e `Indirect.cs:61` — elimina o concat `"=" + formula` por célula
+- [x] **Dedup de AST por texto de fórmula**: `Dictionary<string, Expression>` POR SHEET dentro do load (AST imutável + memoização externa = sharing seguro; NÃO aplicar a defined names — contexto de sheet diferente); economiza parse E memória em fórmulas repetidas
+- [x] `Parser.Functions` → `FrozenDictionary`
+- [x] `Tokenizer.Tokenize`: capacidade inicial do `List<Token>` (`text.Length/3+4`)
 
 ### Verification Plan
 - 1044 + 29+ testes verdes
 - `--excel-memory` Scenario L: tempo cai (arquivo sintético tem fórmulas duplicadas → dedup mensurável)
 
 ### Phase Summary
-_(write when phase completes)_
+`ParseFormulaBody` público (elimina DUAS cópias por fórmula: o concat "="+body no caller e o slice [1..]
+de volta no parser); migrados os call sites do load (WorksheetStreamLoader ×3, defined names) e
+Indirect.cs. Dedup de AST por texto num `FormulaCache` por sheet (LoadContext novo agrupa o estado do
+load); escravas shifted não passam pelo cache (texto único por célula). `Parser.Functions` →
+FrozenDictionary; `Tokenizer` presized (len/3+4). 1.044+39 testes verdes. Scenario L: allocated
+1.196 → 1.108 MB; tempo estável em 1,77s — esperado: o CPU dominante são as 360k escravas
+(shift textual + reparse), alvo da Fase 5. O dedup rende em arquivos com fórmulas literais repetidas
+(o fixture quase não tem).
 
 ## Phase 5: Shared formulas por delta de token
 Status: Not started

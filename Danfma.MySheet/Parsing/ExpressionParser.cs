@@ -30,6 +30,19 @@ public static class ExpressionParser
         return ParseLiteral(expression);
     }
 
+    /// <summary>
+    /// Parses a formula BODY — the text after the leading '='. Callers that already hold the body
+    /// (the .xlsx loader, INDIRECT) skip the two per-formula string copies <see cref="Parse"/> would
+    /// cost them: the <c>"=" + body</c> concatenation and the slice back. Same semantics as
+    /// <c>Parse("=" + body, sheet)</c>.
+    /// </summary>
+    public static Expression ParseFormulaBody(string body, Sheet sheet)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+
+        return new Parser(Tokenizer.Tokenize(body), sheet.Name).ParseFormula();
+    }
+
     private static Expression ParseLiteral(string text)
     {
         if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var number))

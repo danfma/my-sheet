@@ -13,7 +13,9 @@ internal sealed class Tokenizer(string text)
     public static List<Token> Tokenize(string text)
     {
         var tokenizer = new Tokenizer(text);
-        var tokens = new List<Token>();
+        // Presized: one token per ~3 chars is a safe upper-bound shape for real formulas, so the
+        // list virtually never regrows.
+        var tokens = new List<Token>(text.Length / 3 + 4);
 
         Token token;
         do
