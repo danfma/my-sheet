@@ -103,9 +103,12 @@ internal enum ExactMatchOutcome
 /// </summary>
 internal sealed class RangeSnapshot
 {
-    /// <summary>The materialized cell values in the range's enumeration order — a 1-based position is
-    /// <c>index + 1</c>, exactly the position the linear scans of MATCH/VLOOKUP/… report.</summary>
-    public ComputedValue[] Values { get; }
+    /// <summary>The cell values in the range's enumeration order — a 1-based position is <c>index + 1</c>,
+    /// exactly the position the linear scans of MATCH/VLOOKUP/… report. For a closed rectangle this is a
+    /// zero-copy arithmetic view straight over the dense store (see <see cref="RectangleValueList"/>) — no
+    /// second copy of values that already live in <see cref="SheetValueStore"/>; for an open range it stays the
+    /// materialized list (its enumeration order comes from the structural index, not arithmetic).</summary>
+    public IReadOnlyList<ComputedValue> Values { get; }
 
     private readonly Lazy<ExactIndex> _exact;
     private readonly Lazy<SortedIndex> _sorted;
@@ -113,7 +116,7 @@ internal sealed class RangeSnapshot
     private readonly Lazy<SortedNumbers> _sortedNumbers;
     private readonly ConcurrentDictionary<AggregateKind, ComputedValue> _aggregates = new();
 
-    private RangeSnapshot(ComputedValue[] values)
+    private RangeSnapshot(IReadOnlyList<ComputedValue> values)
     {
         Values = values;
         _exact = new Lazy<ExactIndex>(BuildExact);
@@ -122,7 +125,7 @@ internal sealed class RangeSnapshot
         _sortedNumbers = new Lazy<SortedNumbers>(BuildSortedNumbers);
     }
 
-    public int Count => Values.Length;
+    public int Count => Values.Count;
 
     /// <summary>Materializes the snapshot from a range reference, reusing the exact enumeration order and the
     /// memoized cell values the consuming functions already see (so the linear-fallback path is identical).</summary>
@@ -131,23 +134,26 @@ internal sealed class RangeSnapshot
         switch (range)
         {
             case RangeReference rectangle:
-                // A closed rectangle has known bounds: materialize straight into a PRE-SIZED array (no List
-                // doubling + ToArray recopy), filled per column in column-major order — the block-copy fast path
-                // when the column is fully present, else the per-cell numeric accessor (which evaluates misses on
-                // demand). The element order is IDENTICAL to the old ExpandComputedValues path (column outer,
+                // A closed rectangle has known bounds AND arithmetic position<->(col,row): FORCE every covered
+                // cell to be computed/memoized (block-copy-free presence probe when a column is already fully
+                // present, else the per-cell numeric accessor), then hand back a zero-copy view over the dense
+                // store — no second ComputedValue[] duplicating what SheetValueStore already retains for the
+                // epoch. The view's element order is IDENTICAL to the old materialized array (column outer,
                 // row inner).
-                return new RangeSnapshot(BuildRectangle(rectangle, context));
+                return new RangeSnapshot(BuildRectangleView(rectangle, context));
 
             case OpenRangeReference open:
                 // Open ranges expose only their POPULATED cells (count unknown up front, order = the structural
-                // index's) — no pre-sizing/block-copy applies (Phase 3 territory), so the List path is kept.
+                // index's, not arithmetic) — no cheap position<->(col,row) inverse exists (it would need an
+                // auxiliary per-covered-column offset table read through the structural index), so the List
+                // path is kept.
                 var values = new List<ComputedValue>();
                 foreach (var value in open.ExpandComputedValues(context))
                 {
                     values.Add(value);
                 }
 
-                return new RangeSnapshot(values.ToArray());
+                return new RangeSnapshot(values);
 
             default:
                 return new RangeSnapshot(Array.Empty<ComputedValue>());
@@ -155,13 +161,16 @@ internal sealed class RangeSnapshot
     }
 
     /// <summary>
-    /// Materializes a closed rectangle into a pre-sized column-major <see cref="ComputedValue"/>[] (one entry
-    /// per cell, blanks included). Each column is filled by a single seqlock-verified block copy of its pages
-    /// when every covered slot is present; otherwise the per-cell numeric accessor fills it, taking the hit path
-    /// (a lock-free store read) or the on-demand evaluation of a miss — the exact semantics, and the exact
-    /// column-major order, of the enumerator this replaced.
+    /// Forces every cell of a closed rectangle to be computed and memoized in the dense store — a per-column
+    /// presence probe (no copy) skips columns already fully present; otherwise the per-cell numeric accessor
+    /// evaluates each miss on demand — then returns a zero-copy <see cref="RectangleValueList"/> view over the
+    /// store. Equivalent BIT FOR BIT to the old materialized array: once this returns, every covered (col,row)
+    /// is present in the store with exactly the value the old array would have captured, and — within the
+    /// mainline epoch model (a cell present in the store never silently changes before
+    /// <see cref="Workbook.InvalidateCache"/>/<see cref="Workbook.Recalculate"/> drop this very cache) — stays
+    /// that way for the rest of the epoch.
     /// </summary>
-    private static ComputedValue[] BuildRectangle(
+    private static RectangleValueList BuildRectangleView(
         RangeReference rectangle,
         EvaluationContext context
     )
@@ -176,7 +185,10 @@ internal sealed class RangeSnapshot
 
         var rowCount = maxRow - minRow + 1;
         var columnCount = maxColumn - minColumn + 1;
-        var result = new ComputedValue[checked(rowCount * columnCount)];
+        checked
+        {
+            _ = rowCount * columnCount; // preserve the old path's overflow guard
+        }
 
         var workbook = context.Workbook;
         var store = workbook.DenseStore;
@@ -185,28 +197,107 @@ internal sealed class RangeSnapshot
 
         for (var column = minColumn; column <= maxColumn; column++)
         {
-            var destBase = (column - minColumn) * rowCount;
-
-            // Fast path: the whole column's covered rows are present -> block-copy its pages into dest.
-            if (store.TryBlockCopyColumn(handle, column, minRow, maxRow, result, destBase))
+            // Fast path: the whole column's covered rows are already present -> nothing to force.
+            if (store.IsColumnRangePresent(handle, column, minRow, maxRow))
             {
                 continue;
             }
 
             // Fallback: per-cell numeric accessor. A hit is a lock-free store read; a miss routes through the
-            // workbook for the cycle guard + on-demand evaluation + memoization (identical to the old path).
+            // workbook for the cycle guard + on-demand evaluation + memoization (identical to the old path) —
+            // the result is discarded here (only presence matters); the view reads it back on actual access.
             for (var row = minRow; row <= maxRow; row++)
             {
-                if (!store.TryGetDense(handle, column, row, out var value))
+                if (!store.TryGetDense(handle, column, row, out _))
                 {
-                    value = workbook.GetCellValueDense(handle, sheetName, column, row);
+                    workbook.GetCellValueDense(handle, sheetName, column, row);
                 }
-
-                result[destBase + (row - minRow)] = value;
             }
         }
 
-        return result;
+        return new RectangleValueList(
+            workbook,
+            store,
+            handle,
+            sheetName,
+            minColumn,
+            minRow,
+            rowCount,
+            columnCount
+        );
+    }
+
+    /// <summary>
+    /// Zero-copy <see cref="IReadOnlyList{T}"/> view of a closed rectangle's cells, addressed by the SAME
+    /// column-major position <see cref="RangeSnapshot.Build"/> used to fill the old materialized array
+    /// (<c>index = (column - minColumn) * rowCount + (row - minRow)</c>, inverted below). Every access reads
+    /// straight through <see cref="SheetValueStore"/> (a lock-free, seqlock-protected read) instead of a
+    /// retained copy — the store already holds every covered cell after <see cref="BuildRectangleView"/>
+    /// forced it, so a hit is the overwhelmingly common case; a miss (a defensive fallback, never expected once
+    /// <see cref="Build"/> has returned) still evaluates on demand exactly like the old per-cell path, so this
+    /// is correct even if that invariant is ever violated.
+    /// </summary>
+    private sealed class RectangleValueList : IReadOnlyList<ComputedValue>
+    {
+        private readonly Workbook _workbook;
+        private readonly SheetValueStore _store;
+        private readonly int _handle;
+        private readonly string _sheetName;
+        private readonly int _minColumn;
+        private readonly int _minRow;
+        private readonly int _rowCount;
+
+        public RectangleValueList(
+            Workbook workbook,
+            SheetValueStore store,
+            int handle,
+            string sheetName,
+            int minColumn,
+            int minRow,
+            int rowCount,
+            int columnCount
+        )
+        {
+            _workbook = workbook;
+            _store = store;
+            _handle = handle;
+            _sheetName = sheetName;
+            _minColumn = minColumn;
+            _minRow = minRow;
+            _rowCount = rowCount;
+            Count = rowCount * columnCount;
+        }
+
+        public int Count { get; }
+
+        public ComputedValue this[int index]
+        {
+            get
+            {
+                if ((uint)index >= (uint)Count)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                }
+
+                var column = _minColumn + (index / _rowCount);
+                var row = _minRow + (index % _rowCount);
+
+                return _store.TryGetDense(_handle, column, row, out var value)
+                    ? value
+                    : _workbook.GetCellValueDense(_handle, _sheetName, column, row);
+            }
+        }
+
+        public IEnumerator<ComputedValue> GetEnumerator()
+        {
+            for (var i = 0; i < Count; i++)
+            {
+                yield return this[i];
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
     }
 
     // === Aggregate memo (SUM/COUNT/COUNTA/MAX/MIN/AVERAGE of a pure range) ================================
@@ -239,7 +330,7 @@ internal sealed class RangeSnapshot
     {
         var index = new ExactIndex();
 
-        for (var i = 0; i < Values.Length; i++)
+        for (var i = 0; i < Values.Count; i++)
         {
             var value = Values[i];
             var position = i + 1;
@@ -349,9 +440,9 @@ internal sealed class RangeSnapshot
     private SortedIndex BuildSorted()
     {
         // Non-blank/non-error cells only — MATCH/VLOOKUP approximate scans skip both.
-        var entries = new List<(ComputedValue Value, int Position)>(Values.Length);
+        var entries = new List<(ComputedValue Value, int Position)>(Values.Count);
 
-        for (var i = 0; i < Values.Length; i++)
+        for (var i = 0; i < Values.Count; i++)
         {
             var value = Values[i];
             if (value.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
@@ -501,7 +592,7 @@ internal sealed class RangeSnapshot
 
     private SortedNumbers BuildSortedNumbers()
     {
-        var numbers = new List<double>(Values.Length);
+        var numbers = new List<double>(Values.Count);
         Error? firstError = null;
 
         foreach (var value in Values)

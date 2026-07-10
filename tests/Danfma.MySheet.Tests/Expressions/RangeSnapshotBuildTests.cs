@@ -321,10 +321,10 @@ public class RangeSnapshotBuildTests
         return values;
     }
 
-    private static string DescribeAll(ComputedValue[] values)
+    private static string DescribeAll(IReadOnlyList<ComputedValue> values)
     {
-        var parts = new string[values.Length];
-        for (var i = 0; i < values.Length; i++)
+        var parts = new string[values.Count];
+        for (var i = 0; i < values.Count; i++)
         {
             var value = values[i];
             parts[i] = value.Kind switch

@@ -227,6 +227,20 @@ internal sealed class SheetValueStore
         return slab is not null && slab.TryBlockCopyColumn(col, minRow, maxRow, dest, destBase);
     }
 
+    /// <summary>
+    /// Copy-free presence probe over a closed column slice: true only when EVERY covered slot is present, so a
+    /// caller that only needs to FORCE the range's cells to be computed/memoized (not read their values right
+    /// now — see <see cref="RangeSnapshot.Build"/>'s rectangle path) can skip its per-cell fallback loop for
+    /// this column. Same per-page presence check as <see cref="TryBlockCopyColumn"/>'s pre-pass, minus the
+    /// copy; a racy "false" (or a genuinely absent slot) is always safe — the caller's per-cell fallback (which
+    /// evaluates a miss on demand) is the correctness net, this is purely a fast-path skip.
+    /// </summary>
+    public bool IsColumnRangePresent(int handle, int col, int minRow, int maxRow)
+    {
+        var slab = PeekSlab(handle);
+        return slab is not null && slab.IsColumnRangePresent(col, minRow, maxRow);
+    }
+
     /// <summary>Stores a memoized cell, marking it tainted when it touched a volatile this epoch.</summary>
     public void SetDense(int handle, int col, int row, ComputedValue value, bool tainted)
     {
@@ -679,6 +693,16 @@ internal sealed class SheetValueStore
             return column is not null && column.TryBlockCopy(minRow, maxRow, dest, destBase);
         }
 
+        /// <summary>Copy-free presence probe over one column's rows [minRow, maxRow] (see
+        /// <see cref="Column.IsFullyPresent"/>). A column diverted (in part) to the sparse dictionary fails the
+        /// page pre-check and returns false — safe, since the caller's per-cell fallback reads the sparse
+        /// dictionary too.</summary>
+        public bool IsColumnRangePresent(int col, int minRow, int maxRow)
+        {
+            var column = FindColumn(col);
+            return column is not null && column.IsFullyPresent(minRow, maxRow);
+        }
+
         public IEnumerable<(int Col, int Row, ComputedValue Value)> EnumeratePresent()
         {
             var groups = _groups;
@@ -893,6 +917,43 @@ internal sealed class SheetValueStore
                 if (!page.CopyPresentSlice(sLo, sHi, dest, destOffset))
                 {
                     return false; // a slot was dropped mid-window -> bail; caller re-fills this column per cell
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Copy-free counterpart of <see cref="TryBlockCopy"/>'s pre-pass: true only when every covered page
+        /// exists and is 100% present over its covered slice of [minRow, maxRow]. Used by
+        /// <see cref="RangeSnapshot.Build"/>'s rectangle path to skip the per-cell forcing loop for a column
+        /// that is already fully computed, WITHOUT paying the block-copy's <c>Array.Copy</c> — the caller never
+        /// needs the values themselves at this point, only that they exist.
+        /// </summary>
+        public bool IsFullyPresent(int minRow, int maxRow)
+        {
+            var pages = Volatile.Read(ref _pages);
+            var firstPi = minRow >> _geo.PageShift;
+            var lastPi = maxRow >> _geo.PageShift;
+
+            if (lastPi >= pages.Length)
+            {
+                return false; // a covered page lies beyond the directory -> absent
+            }
+
+            for (var pi = firstPi; pi <= lastPi; pi++)
+            {
+                var page = Volatile.Read(ref pages[pi]);
+                if (page is null)
+                {
+                    return false;
+                }
+
+                var sLo = pi == firstPi ? minRow & _geo.PageMask : 0;
+                var sHi = pi == lastPi ? maxRow & _geo.PageMask : _geo.PageMask;
+                if (!page.IsRangePresent(sLo, sHi))
+                {
+                    return false;
                 }
             }
 
