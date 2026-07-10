@@ -17,8 +17,9 @@ namespace Danfma.MySheet.Excel;
 /// entries — so a label repeated across many cells costs a single index, not a full inline copy each time.
 ///
 /// Each worksheet is rewritten by STREAMING its XML through an XmlReader→XmlWriter merge-join (existing cells
-/// in document order vs our cells in ascending order) instead of materializing the whole worksheet DOM — so
-/// the peak memory stays close to the workbook itself even on very large sheets.
+/// in document order vs our cells in ascending order) instead of materializing the whole worksheet DOM, and
+/// the merged XML is staged in a temp file rather than an in-memory buffer before being fed back into the
+/// part — so peak memory stays close to the workbook itself even on very large sheets.
 ///
 /// To produce a new report from a pristine template, copy the template first
 /// (<c>File.Copy(template, output)</c>) and merge into the copy.
@@ -140,7 +141,23 @@ public static class ExcelMerge
             cells.Sort((left, right) => left.Column.CompareTo(right.Column));
         }
 
-        using var buffer = new MemoryStream();
+        // The merged XML is buffered on disk, not in RAM: a 600k-cell sheet would otherwise transit tens of
+        // MB through a MemoryStream just to satisfy FeedData's "give me the whole part" contract. The temp
+        // file is opened with FileShare.None (exclusive to this process) and DeleteOnClose, so it disappears
+        // the moment this method returns — normally or via exception — without a manual try/finally.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"mysheet-merge-{Guid.NewGuid():N}.xml");
+
+        using var buffer = new FileStream(
+            tempPath,
+            new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.None,
+                Options = FileOptions.DeleteOnClose,
+                BufferSize = 64 * 1024,
+            }
+        );
 
         using (var source = part.GetStream(FileMode.Open, FileAccess.Read))
         using (var reader = XmlReader.Create(source))
