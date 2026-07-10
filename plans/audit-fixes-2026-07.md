@@ -266,13 +266,13 @@ vs MySheet (77000, 43000, 8000) em Gen0/1/2 → nossa lib aloca MENOS transiente
 (1 Expression/célula + strings + dict entries) vs modelo colunar do Aspose (poucos arrays grandes);
 custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido durante o load.
 
-- [ ] **G1 (instrumento — espec. refinada pelo usuário)**: benchmark BDN com MemoryDiagnoser para
+- [x] **G1 (instrumento — espec. refinada pelo usuário)**: benchmark BDN com MemoryDiagnoser para
   ExcelFile.Load com DOIS casos: (a) xlsx CONVERTIDO do .myxl do repo (GlobalSetup: Workbook.Load do
   k1.myxl|k1-synthetic.myxl → SaveAsExcel com FormulaMode.Formulas → temp xlsx) — fórmulas completas
   por célula, sem shared formulas (nosso export não as emite); (b) k1-synthetic.xlsx (grupos de shared
   formula reais). Os dois shapes isolam parse pleno vs expansão por delta. Gen0/1/2 + tempo + allocated;
   baseline registrada ANTES do G2.
-- [ ] **G2 (dedup de literais no load)**: no WorksheetStreamLoader/LoadContext, dedup de
+- [x] **G2 (dedup de literais no load)**: no WorksheetStreamLoader/LoadContext, dedup de
   `NumberValue` por valor (dicionário por load; inteiro pequenos e valores repetidos dominam dados),
   `StringValue` 1 wrapper por instância de shared string, `BooleanValue.True/False` singletons (se já
   não existirem). Mesma prova de segurança do FormulaCache (imutável, estado por (sheet,col,row) fora
@@ -290,8 +290,17 @@ custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido duran
   (MemoryPackCompatibilityTests)
 - Push + release patch (G2); G3 só após decisão
 
-### Phase Summary
-_(write when phase completes)_
+### Phase Summary (parcial — G3 pendente de decisão)
+- **G1** (ec696b7): `ExcelLoadBenchmarks` permanente (MemoryDiagnoser): convertido-do-myxl 1.579ms /
+  420MB / Gen 60000-19000-5000; shared-formulas 547ms / 253MB / Gen 43000-14000-4000. Razões de
+  promoção (Gen1/Gen0 ≈ 0,32) reproduzem a assinatura externa do usuário.
+- **G2** (commit desta entrada): singletons de BooleanValue + dedup de StringValue (60.008→209
+  instâncias no K1, provado por identidade) e ErrorValue no load. NumberValue dedup MEDIDO E
+  REVERTIDO (52% duplicação < break-even ~54-70% do overhead do dict; matemática no call site).
+  Efeito agregado marginal (~0,4% Allocated; Gen counts inalterados) — a população dominante de
+  objetos retidos são as ~360k árvores de fórmula → o gap de Gen1/Gen2 do usuário aponta para o G3.
+  Armadilha de metodologia documentada: GetTotalMemory enganado por FragmentedBytes; PromotedBytes e
+  contagem por identidade são os sinais confiáveis.
 
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
@@ -315,6 +324,11 @@ Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perd
 - `ReferenceGuard.MissingSheet` re-resolve NameReference/DynamicRange que a função resolve de novo.
 - LOOKUP forma-array materializa keys+results (baixo; forma-vetor já é zero-copy).
 - Seqlock: nota de ABA teórico a 2³¹ writes (comentário, não fix).
+- **Intern pool de nomes de sheet é process-lifetime** (Parser string.Intern + MemoryPack
+  InternStringFormatter, mesmo pool global): num servidor multi-tenant carregando milhares de arquivos
+  com nomes distintos, o pool cresce para sempre. Trade-off deliberado ("tiny bounded set" vale por
+  workbook, não por processo); trocar por pool por-workbook quebraria a convergência com o formatter.
+  Nuance menor: ExcelFile.Sheets.Add não interna o Sheet.Name → até 2 instâncias por nome pós-load.
 - Export para XmlWriter puro (unificação com merge; ganho modesto, decisão adiada na sessão de load).
 
 ## Final Recap
