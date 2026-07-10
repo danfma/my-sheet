@@ -193,6 +193,16 @@ internal sealed class CellStore : IReadOnlyDictionary<string, Expression>
             ? value
             : throw new KeyNotFoundException($"The cell '{key}' is not populated.");
 
+    /// <summary>
+    /// Numeric-address read of the dense (A1) map — for a caller that already has <c>(column, row)</c> in
+    /// hand from a numeric scan (e.g. a range walk or the structural index) and would otherwise pay a
+    /// <see cref="CellAddress.ToId"/> build plus a re-parse just to ask "is this cell populated / what
+    /// expression does it hold". Non-A1 overflow cells are not addressable this way (as with every other
+    /// numeric accessor on this store) — a caller that needs those still goes through the string indexer.
+    /// </summary>
+    internal bool TryGetDense(int column, int row, [MaybeNullWhen(false)] out Expression value) =>
+        _dense.TryGetValue((column, row), out value);
+
     // The A1 ids are re-derived on demand (a cold path — enumeration/Keys, never per formula read).
     public IEnumerable<string> Keys
     {

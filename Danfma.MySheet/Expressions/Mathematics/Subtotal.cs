@@ -37,152 +37,216 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var values = new List<ComputedValue>();
+        var accumulator = new SubtotalAccumulator(code);
 
         foreach (var argument in Arguments[1..])
         {
-            GatherSkippingSubtotals(argument, context, values);
+            if (GatherSkippingSubtotals(argument, context, ref accumulator) is { } error)
+            {
+                return ComputedValue.Error(error);
+            }
         }
 
-        return Aggregate(code, values);
+        return accumulator.Finish();
     }
 
-    // Walks a ref argument cell by cell so each cell's STORED EXPRESSION can be inspected: a cell
-    // whose formula is a SUBTOTAL call is skipped entirely.
-    private static void GatherSkippingSubtotals(
+    // Walks a ref argument cell by cell — numerically, wherever the shape allows it, so a big range pays
+    // neither a CellAddress.ToId() build (to ask "is this cell's stored formula a SUBTOTAL") nor a second one
+    // (to read its value) per cell — folding straight into the accumulator instead of building an intermediate
+    // List<ComputedValue> that Aggregate used to re-walk to extract doubles. Returns the Error to propagate
+    // (a numeric aggregate short-circuits on the first cell error, exactly as the old two-pass Aggregate did
+    // in scan order); COUNT/COUNTA never produce one, matching their standalone functions.
+    private static Error? GatherSkippingSubtotals(
         Expression argument,
         EvaluationContext context,
-        List<ComputedValue> values
+        ref SubtotalAccumulator accumulator
     )
     {
         switch (argument)
         {
             case RangeReference range:
             {
-                var sheet = context.Workbook.Sheets[range.SheetName];
-                var start = CellAddress.Parse(range.StartId);
-                var end = CellAddress.Parse(range.EndId);
-                var minColumn = Math.Min(start.Column, end.Column);
-                var maxColumn = Math.Max(start.Column, end.Column);
-                var minRow = Math.Min(start.Row, end.Row);
-                var maxRow = Math.Max(start.Row, end.Row);
+                var workbook = context.Workbook;
+                var sheet = workbook.Sheets[range.SheetName];
+                var bounds = range.GetBounds();
+                var handle = workbook.ResolveDenseHandle(range.SheetName);
 
-                for (var column = minColumn; column <= maxColumn; column++)
+                for (var column = bounds.LeftColumn; column <= bounds.RightColumn; column++)
                 {
-                    for (var row = minRow; row <= maxRow; row++)
+                    for (var row = bounds.TopRow; row <= bounds.BottomRow; row++)
                     {
-                        var id = new CellAddress(column, row).ToId();
-
-                        if (sheet[id] is Subtotal)
+                        if (
+                            sheet.TryGetCellExpressionDense(column, row, out var expression)
+                            && expression is Subtotal
+                        )
                         {
                             continue;
                         }
 
-                        values.Add(context.Workbook.GetCellValue(range.SheetName, id));
+                        var value = workbook.GetCellValueDense(
+                            handle,
+                            range.SheetName,
+                            column,
+                            row
+                        );
+
+                        if (accumulator.Add(value) is { } error)
+                        {
+                            return error;
+                        }
                     }
                 }
 
-                break;
+                return null;
             }
 
             case OpenRangeReference open:
             {
-                var sheet = context.Workbook.Sheets[open.SheetName];
+                var workbook = context.Workbook;
+                var sheet = workbook.Sheets[open.SheetName];
+                var handle = workbook.ResolveDenseHandle(open.SheetName);
 
-                foreach (var id in open.PopulatedIds(context))
+                // The index-backed (column, row) walk — no per-cell id string at all, unlike PopulatedIds.
+                foreach (var (column, row) in open.PopulatedCells(context))
                 {
-                    if (sheet[id] is not Subtotal)
+                    if (
+                        sheet.TryGetCellExpressionDense(column, row, out var expression)
+                        && expression is Subtotal
+                    )
                     {
-                        values.Add(context.Workbook.GetCellValue(open.SheetName, id));
+                        continue;
+                    }
+
+                    var value = workbook.GetCellValueDense(handle, open.SheetName, column, row);
+
+                    if (accumulator.Add(value) is { } error)
+                    {
+                        return error;
                     }
                 }
 
-                break;
+                return null;
             }
 
             case CellReference cell:
-                if (context.Workbook.Sheets[cell.SheetName][cell.Id] is not Subtotal)
+            {
+                var workbook = context.Workbook;
+                var sheet = workbook.Sheets[cell.SheetName];
+
+                // Every CellReference the parser produces carries a canonical A1 id, so this hits in
+                // practice; a non-canonical id (a defined-name/host edge case) falls back to the exact
+                // original string path below.
+                if (CellAddress.TryGetColumnRow(cell.Id, out var column, out var row))
                 {
-                    values.Add(cell.Evaluate(context));
+                    if (
+                        sheet.TryGetCellExpressionDense(column, row, out var expression)
+                        && expression is Subtotal
+                    )
+                    {
+                        return null;
+                    }
+
+                    var handle = workbook.ResolveDenseHandle(cell.SheetName);
+                    var value = workbook.GetCellValueDense(handle, cell.SheetName, column, row);
+
+                    return accumulator.Add(value);
                 }
 
-                break;
+                if (sheet[cell.Id] is not Subtotal)
+                {
+                    return accumulator.Add(cell.Evaluate(context));
+                }
+
+                return null;
+            }
 
             case UnionReference union:
                 foreach (var area in union.Areas)
                 {
-                    GatherSkippingSubtotals(area, context, values);
+                    if (GatherSkippingSubtotals(area, context, ref accumulator) is { } error)
+                    {
+                        return error;
+                    }
                 }
 
-                break;
+                return null;
 
             default:
                 var computed = argument.Evaluate(context);
 
                 // A reference produced by a function (OFFSET, CHOOSE, …) still carries the actual
                 // Reference node, so the nested-subtotal skip applies to it as well.
-                if (computed.TryGetReference(out var reference))
-                {
-                    GatherSkippingSubtotals(reference, context, values);
-                }
-                else
-                {
-                    values.Add(computed);
-                }
-
-                break;
+                return computed.TryGetReference(out var reference)
+                    ? GatherSkippingSubtotals(reference, context, ref accumulator)
+                    : accumulator.Add(computed);
         }
     }
 
-    private static ComputedValue Aggregate(int code, List<ComputedValue> values)
+    // Accumulates the exact shape SUBTOTAL's aggregate needs, directly from the per-cell scan — no
+    // intermediate List<ComputedValue> the way the old Aggregate() re-walked to build its List<double>.
+    // COUNT (2) and COUNTA (3) never propagate cell errors, like their standalone functions, so they only
+    // ever tally counts; every other code needs the numeric population (STDEV/VAR/AVERAGE all fold over the
+    // whole list) and DOES propagate the first error it meets, matching the old scan-order short-circuit.
+    private struct SubtotalAccumulator(int code)
     {
-        // COUNT (2) and COUNTA (3) never propagate cell errors, like their standalone functions.
-        if (code == 2)
+        private int _count; // code 2 (COUNT): cells whose value is a Number
+        private int _countA; // code 3 (COUNTA): cells whose value is not Blank
+        private readonly List<double> _numbers = code is 2 or 3 ? null! : new List<double>();
+
+        public Error? Add(ComputedValue value)
         {
-            var count = 0;
-
-            foreach (var value in values)
+            switch (code)
             {
-                if (value.Kind == ComputedValueKind.Number)
-                {
-                    count++;
-                }
-            }
+                case 2:
+                    if (value.Kind == ComputedValueKind.Number)
+                    {
+                        _count++;
+                    }
 
-            return ComputedValue.Number(count);
-        }
+                    return null;
 
-        if (code == 3)
-        {
-            var count = 0;
+                case 3:
+                    if (value.Kind != ComputedValueKind.Blank)
+                    {
+                        _countA++;
+                    }
 
-            foreach (var value in values)
-            {
-                if (value.Kind != ComputedValueKind.Blank)
-                {
-                    count++;
-                }
-            }
+                    return null;
 
-            return ComputedValue.Number(count);
-        }
+                default:
+                    if (value.TryGetError(out var error))
+                    {
+                        return error;
+                    }
 
-        var numbers = new List<double>();
+                    // Referenced semantics: text, logicals and blanks are ignored.
+                    if (value.TryGetNumber(out var number))
+                    {
+                        _numbers.Add(number);
+                    }
 
-        foreach (var value in values)
-        {
-            if (value.TryGetError(out var cellError))
-            {
-                return ComputedValue.Error(cellError);
-            }
-
-            // Referenced semantics: text, logicals and blanks are ignored.
-            if (value.TryGetNumber(out var number))
-            {
-                numbers.Add(number);
+                    return null;
             }
         }
 
+        public readonly ComputedValue Finish()
+        {
+            if (code == 2)
+            {
+                return ComputedValue.Number(_count);
+            }
+
+            if (code == 3)
+            {
+                return ComputedValue.Number(_countA);
+            }
+
+            return Aggregate(code, _numbers);
+        }
+    }
+
+    private static ComputedValue Aggregate(int code, List<double> numbers)
+    {
         switch (code)
         {
             case 1: // AVERAGE

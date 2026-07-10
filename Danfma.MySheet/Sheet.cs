@@ -223,4 +223,16 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
     {
         return _cells.TryGetValue(key, out value);
     }
+
+    /// <summary>
+    /// Numeric-address read of a canonical A1 cell's stored expression — skips the id-string round trip
+    /// entirely when the caller already has <c>(column, row)</c> in hand (e.g. SUBTOTAL's nested-subtotal
+    /// scan over a range/open-range). Non-A1 overflow cells are not addressable this way; use the string
+    /// indexer/<see cref="TryGetValue"/> for those. Internal — part of the evaluation fast path, not host API.
+    /// </summary>
+    internal bool TryGetCellExpressionDense(
+        int column,
+        int row,
+        [MaybeNullWhen(false)] out Expression value
+    ) => _cells.TryGetDense(column, row, out value);
 }

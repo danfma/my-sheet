@@ -140,12 +140,15 @@ public sealed partial class Workbook
     // the next read after loading) and reference-typed values (unrepresentable — their cells recompute).
     private List<CachedCellValue> SnapshotComputedValues()
     {
-        var list = new List<CachedCellValue>();
-
         if (_valueStore is not { } store)
         {
-            return list;
+            return new List<CachedCellValue>();
         }
+
+        // Presized off the store's own (cheap, approximate) cell count instead of growing cell by cell —
+        // it may slightly overcount (tainted cells the loop below skips), which only costs a few unused
+        // slots, never a regrowth.
+        var list = new List<CachedCellValue>(store.EstimatedPresentCount());
 
         // The store already excludes volatile-tainted cells; the surrogate factory drops the unrepresentable
         // Reference kind. Present blank cells ARE carried (an explicitly-empty cached cell round-trips).

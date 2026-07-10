@@ -150,7 +150,7 @@ public sealed partial record NumberValueFunction(Expression[] Arguments) : Funct
             return ComputedValue.Error(Error.Value);
         }
 
-        var compact = string.Concat(text.Where(c => !char.IsWhiteSpace(c)));
+        var compact = RemoveWhitespace(text);
 
         if (compact.Length == 0)
         {
@@ -177,9 +177,7 @@ public sealed partial record NumberValueFunction(Expression[] Arguments) : Funct
             return ComputedValue.Error(Error.Value); // group separator after the decimal separator
         }
 
-        var normalized = string.Concat(
-            compact.Where(c => c != groupSeparator).Select(c => c == decimalSeparator ? '.' : c)
-        );
+        var normalized = DropAndMap(compact, groupSeparator, decimalSeparator);
 
         if (
             !double.TryParse(
@@ -194,6 +192,47 @@ public sealed partial record NumberValueFunction(Expression[] Arguments) : Funct
         }
 
         return ComputedValue.Number(number / Math.Pow(100, percents));
+    }
+
+    // Strips whitespace, in place over a stack/pooled buffer instead of `text.Where(...)` +
+    // `string.Concat(IEnumerable<char>)`: that generic Concat overload calls `.ToString()` on every element,
+    // so each surviving CHAR was boxed into its own throwaway one-character string before this rewrite.
+    private static string RemoveWhitespace(string text)
+    {
+        Span<char> buffer =
+            text.Length <= 256 ? stackalloc char[text.Length] : new char[text.Length];
+        var length = 0;
+
+        foreach (var c in text)
+        {
+            if (!char.IsWhiteSpace(c))
+            {
+                buffer[length++] = c;
+            }
+        }
+
+        return new string(buffer[..length]);
+    }
+
+    // Drops the group separator and maps the decimal separator to '.', in one pass — the same per-char
+    // boxing `.Where(...).Select(...)` + `string.Concat` paid above, avoided the same way.
+    private static string DropAndMap(string text, char drop, char mapFrom)
+    {
+        Span<char> buffer =
+            text.Length <= 256 ? stackalloc char[text.Length] : new char[text.Length];
+        var length = 0;
+
+        foreach (var c in text)
+        {
+            if (c == drop)
+            {
+                continue;
+            }
+
+            buffer[length++] = c == mapFrom ? '.' : c;
+        }
+
+        return new string(buffer[..length]);
     }
 }
 

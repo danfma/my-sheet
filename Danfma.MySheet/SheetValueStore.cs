@@ -325,6 +325,29 @@ internal sealed class SheetValueStore
     // === Warm-start snapshot ============================================================================
 
     /// <summary>
+    /// A cheap (no per-cell walk), approximate upper bound on the number of entries
+    /// <see cref="EnumerateNonTainted"/> will yield — sums each slab's already-tracked (approximate) cell
+    /// counter plus the overflow dictionary's exact count. Meant only to presize a downstream collection (the
+    /// warm-start snapshot list): it may overcount by the tainted cells that enumeration will skip, which is
+    /// harmless for a capacity hint.
+    /// </summary>
+    public int EstimatedPresentCount()
+    {
+        var slabs = _slabs;
+        var total = 0;
+
+        foreach (var slab in slabs)
+        {
+            if (slab is not null)
+            {
+                total += slab.ApproximateCellCount;
+            }
+        }
+
+        return total + (_overflow?.Count ?? 0);
+    }
+
+    /// <summary>
     /// Enumerates every present cell that is NOT volatile-tainted, as (sheet name, canonical A1 id, value), for
     /// the warm-start save block. The id is reconstructed from (col, row); the caller filters unrepresentable
     /// kinds (Reference) via the surrogate factory.
@@ -436,6 +459,11 @@ internal sealed class SheetValueStore
         // running numerator (Interlocked on the 0->1 presence transition), used only to decide page allocation.
         private int _pages;
         private int _cells;
+
+        // Exposes the same approximate counter for capacity planning elsewhere (e.g. presizing the warm-start
+        // snapshot list) — cheap (a single Volatile.Read), not exact (see the field's own comment: it may
+        // include tainted cells a snapshot would skip), just a useful presize hint.
+        internal int ApproximateCellCount => Volatile.Read(ref _cells);
 
         // Sparse overflow for the scatter case: (col, row) -> value once the slab is proven too sparse to keep
         // allocating pages. Published via Volatile; ConcurrentDictionary gives per-entry atomicity.

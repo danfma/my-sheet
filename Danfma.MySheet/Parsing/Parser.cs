@@ -102,7 +102,19 @@ internal sealed class Parser(
                 // A comma inside parentheses is the reference-union operator: (A1:A3, C1:C3).
                 if (Current.Type == TokenType.Comma)
                 {
-                    var areas = new List<Expression> { inner };
+                    Advance();
+                    var second = ParseExpression(0);
+
+                    // Two areas is the overwhelmingly common shape: build the array directly instead of a
+                    // scratch List that only gets thrown away right after ToArray() — see ParseFunctionCall's
+                    // single-argument fast path for the same reasoning.
+                    if (Current.Type != TokenType.Comma)
+                    {
+                        Expect(TokenType.RParen);
+                        return new UnionReference([inner, second]);
+                    }
+
+                    var areas = new List<Expression> { inner, second };
 
                     while (Current.Type == TokenType.Comma)
                     {
@@ -470,18 +482,7 @@ internal sealed class Parser(
     {
         Expect(TokenType.LParen);
 
-        var arguments = new List<Expression>();
-
-        if (Current.Type != TokenType.RParen)
-        {
-            arguments.Add(ParseArgument());
-
-            while (Current.Type == TokenType.Comma)
-            {
-                Advance();
-                arguments.Add(ParseArgument());
-            }
-        }
+        var arguments = ParseArgumentList();
 
         Expect(TokenType.RParen);
 
@@ -492,18 +493,18 @@ internal sealed class Parser(
         // custom-function registry (#NAME? if never registered).
         if (!FunctionRegistry.ByName.TryGetValue(functionName, out var spec))
         {
-            return new FunctionCall(functionName, arguments.ToArray());
+            return new FunctionCall(functionName, arguments);
         }
 
-        if (arguments.Count < spec.MinArgs || arguments.Count > spec.MaxArgs)
+        if (arguments.Length < spec.MinArgs || arguments.Length > spec.MaxArgs)
         {
             throw new ParseException(
-                $"Function '{functionName}' does not accept {arguments.Count} argument(s)",
+                $"Function '{functionName}' does not accept {arguments.Length} argument(s)",
                 name.Position
             );
         }
 
-        return spec.Create(arguments.ToArray());
+        return spec.Create(arguments);
     }
 
     private Expression ParseArgument()
@@ -515,6 +516,37 @@ internal sealed class Parser(
         }
 
         return ParseExpression(0);
+    }
+
+    // Reads the comma-separated argument list up to (not including) the closing ')'. Zero and one argument
+    // are, by far, the most common shapes (PI()/NOW()/TRUE(), SQRT(x)/ABS(x)/LEN(x)/…) and are built directly
+    // as an array — no scratch List, so no throwaway backing array behind the final ToArray() copy. Two or
+    // more arguments still route through a List: the eventual count is not known ahead of the comma scan, so
+    // there is no allocation-free way to size the array up front (see the M1 write-up for why presizing the
+    // List does not help: its own first growth already lands on the same capacity the default gives it).
+    private Expression[] ParseArgumentList()
+    {
+        if (Current.Type == TokenType.RParen)
+        {
+            return [];
+        }
+
+        var first = ParseArgument();
+
+        if (Current.Type != TokenType.Comma)
+        {
+            return [first];
+        }
+
+        var arguments = new List<Expression> { first };
+
+        while (Current.Type == TokenType.Comma)
+        {
+            Advance();
+            arguments.Add(ParseArgument());
+        }
+
+        return arguments.ToArray();
     }
 
     // Excel stores newer functions with an "_xlfn." prefix; normalize it (and the bare "XLFN.") away.
