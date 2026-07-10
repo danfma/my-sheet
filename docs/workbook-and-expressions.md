@@ -35,6 +35,7 @@ Key `Workbook` members:
 | `Sheets` / `this[string]` | Access sheets by name (case-insensitive); the indexer throws `KeyNotFoundException` for a missing name. |
 | `TryGetSheet(name, out sheet)` | Non-throwing sheet lookup (case-insensitive) → `bool`; the host's counterpart to the throwing indexer. |
 | `GetCellValue(sheetName, id)` | Memoized evaluation of one cell → `ComputedValue`; a reference to a missing sheet resolves to `#REF!` (never throws). |
+| `GetValueReader(sheetName)` | Numeric-address bulk reader for one sheet → `SheetValueReader`; `GetValue(column, row)` serves memoized values with no per-cell id string, A1 parse or sheet-name hash — misses evaluate on demand, identical to `GetCellValue`. See [Bulk reads](#bulk-reads-getvaluereader). |
 | `ComputeAll()` | Eagerly evaluates every cell (the "calculate now" counterpart to lazy `GetCellValue`), filling the cache so a later warm save carries computed values. Runs on a large stack for deep chains; a second call is all hits. After edits, call `InvalidateCache()` first. |
 | `InvalidateCache()` | Explicitly flushes the whole memoization cache (required after edits); also resets the volatile epoch. |
 | `Recalculate()` | Refreshes only volatile cells (see [Volatile functions](#volatile-functions)); keeps every stable cell cached. |
@@ -163,6 +164,30 @@ bool isHigh = adHoc.Evaluate(workbook).ToBoolean();
 
 There is no other evaluation API: callers that need a loosely-typed `object?` call `.AsObject()` on the
 result.
+
+### Bulk reads: `GetValueReader`
+
+An extraction loop that builds ids — `GetCellValue(sheetName, "C" + r)` — pays three per-cell costs the
+result does not need: the id-string allocation, the A1 parse and a sheet-name hash lookup.
+`Workbook.GetValueReader(sheetName)` resolves the sheet handle once and reads by 1-based numeric address:
+
+```csharp
+var reader = workbook.GetValueReader("Results");
+
+for (var row = 2; row <= 60_001; row++)
+{
+    if (reader.GetValue(column: 2, row).TryGetNumber(out var value))
+    {
+        total += value;
+    }
+}
+```
+
+Semantics are identical to `GetCellValue`: a hit is a direct read of the paged value store; a miss
+evaluates on demand (memoization, cycle guard), so literals and never-computed formulas are served too.
+`InvalidateCache()` applies the same way, and the reader instance stays valid across invalidations.
+Measured on a 360k-cell extraction: `29.8 ms / 24.2 MB` allocated with per-cell ids → `6.9 ms / 0 bytes`
+with the reader.
 
 ### Formula results are never blank (Excel parity)
 

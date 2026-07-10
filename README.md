@@ -158,9 +158,13 @@ workbook.MergeIntoExcel("report.xlsx");
   **warm start** (`WorkbookSaveOptions.IncludeComputedValues`) that persists the computed cache so a load
   skips recomputation, and opt-in **Brotli compression** (`WorkbookSaveOptions.Compression`) that shrinks
   large models to well under half their size; the default save stays byte-identical to the model-only format.
+- **Bulk value reads**: `GetValueReader(sheet).GetValue(column, row)` reads computed values by numeric
+  address — no per-cell id strings or parsing in extraction loops, allocation-free on cache hits
+  (misses still evaluate on demand).
 - **Excel (.xlsx) interop** via `Danfma.MySheet.Excel` (OpenXML SDK, cross-platform, no Excel
   installation): `ExcelFile.Load`, `SaveAsExcel` (`ValuesOnly` snapshot or `Formulas` with cached
   values), and `MergeIntoExcel` (inject computed values into an existing file, preserving formatting).
+  All three paths **stream** the worksheet XML — no OpenXML DOM is ever materialized.
 
 ## Documentation
 

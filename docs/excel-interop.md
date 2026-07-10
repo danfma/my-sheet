@@ -27,6 +27,13 @@ using var stream = File.OpenRead("model.xlsx");
 Workbook fromStream = ExcelFile.Load(stream);
 ```
 
+Loading is **fully streaming**: shared strings and worksheets are read with a forward-only `XmlReader`,
+so the OpenXML DOM is never materialized and the only full in-memory representation is the MySheet model
+itself (on a ~620k-cell file: ~4.8x faster and ~6.6x fewer allocations than a DOM-based load). Two
+practical notes: the `Stream` overload requires a readable **and seekable** stream (a requirement of the
+underlying package reader), and cells or rows without an `r` attribute — implicit positions, emitted by
+some minimal writers — load at their spec-defined position.
+
 The result is a plain MySheet `Workbook`. The key property: **formula cells become real `Expression`
 trees**, parsed by the MySheet parser and re-evaluated by the MySheet engine — the cached values stored
 in the file are ignored for formula cells. Change an input cell, invalidate the cache, and every

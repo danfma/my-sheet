@@ -167,6 +167,22 @@ The memoization layer tracks the cells being evaluated on the current thread. A 
 `B1=A1`) is detected and returns `#REF!` (`Error.Ref`) instead of overflowing the stack. The tracking
 is thread-local, so concurrent evaluation of the same cell on different threads is not a false cycle.
 
+## Bulk extraction: `GetValueReader`
+
+`GetCellValue(sheetName, id)` is the right default read, but an extraction loop that builds ids
+(`"C" + row`) pays an id-string allocation, an A1 parse and a sheet-name hash **per cell**.
+[`Workbook.GetValueReader`](workbook-and-expressions.md#bulk-reads-getvaluereader) resolves the sheet
+handle once and reads by numeric address with identical semantics (misses evaluate on demand, literals
+included):
+
+```csharp
+var reader = workbook.GetValueReader("Results");
+var value = reader.GetValue(column: 3, row: 42); // no strings on a cache hit
+```
+
+Measured (360k computed cells): `29.8 ms / 24.2 MB` allocated with per-cell id strings →
+`6.9 ms / 0 bytes` with the reader — 4.3x faster, allocation-free.
+
 ## Whole-column references at scale
 
 Formulas that consume a **whole-column reference** — `MATCH(x, A:A)`, `VLOOKUP(x, A:B, 2, FALSE)`,
@@ -388,7 +404,8 @@ var totals = Workbook.RunWithLargeStack(() =>
 
 ## Practical checklist
 
-1. Read cells through `GetCellValue` (memoized), not by re-evaluating expressions in a loop.
+1. Read cells through `GetCellValue` (memoized), not by re-evaluating expressions in a loop; for
+   large extraction loops, switch to `GetValueReader` (numeric addresses — no per-cell strings).
 2. Batch your mutations, then call `InvalidateCache()` once.
 3. Wrap large extraction batches in a single `Workbook.RunWithLargeStack(...)` call.
 4. Extract results with `TryGet*`/`To*`; keep `AsObject()` (which boxes) out of hot loops.

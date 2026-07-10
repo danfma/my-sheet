@@ -182,6 +182,22 @@ A camada de memoização rastreia as células em avaliação na thread atual. Um
 detectado e retorna `#REF!` (`Error.Ref`), em vez de estourar a pilha. O rastreamento é thread-local,
 então a avaliação concorrente da mesma célula em threads diferentes não é um falso ciclo.
 
+## Extração em massa: `GetValueReader`
+
+`GetCellValue(sheetName, id)` é a leitura padrão correta, mas um laço de extração que constrói ids
+(`"C" + row`) paga uma alocação de string de id, um parse A1 e um hash do nome da planilha **por
+célula**. [`Workbook.GetValueReader`](workbook-and-expressions.md#leituras-em-massa-getvaluereader)
+resolve o handle da planilha uma vez e lê por endereço numérico com semântica idêntica (misses avaliam
+sob demanda, literais incluídos):
+
+```csharp
+var reader = workbook.GetValueReader("Results");
+var value = reader.GetValue(column: 3, row: 42); // nenhuma string num cache hit
+```
+
+Medido (360 mil células computadas): `29,8 ms / 24,2 MB` alocados com strings de id por célula →
+`6,9 ms / 0 bytes` com o reader — 4,3x mais rápido, sem alocação.
+
 ## Referências de coluna inteira em escala
 
 Fórmulas que consomem uma **referência de coluna inteira** — `MATCH(x, A:A)`, `VLOOKUP(x, A:B, 2, FALSE)`,
@@ -419,7 +435,8 @@ var totals = Workbook.RunWithLargeStack(() =>
 
 ## Checklist prático
 
-1. Leia células através de `GetCellValue` (memoizado), não reavaliando expressões em um laço.
+1. Leia células através de `GetCellValue` (memoizado), não reavaliando expressões em um laço. Para laços de extração
+   grandes, mude para `GetValueReader` (endereços numéricos — sem strings por célula).
 2. Agrupe as mutações em lote e, então, chame `InvalidateCache()` uma vez.
 3. Envolva grandes lotes de extração em uma única chamada de `Workbook.RunWithLargeStack(...)`.
 4. Extraia resultados com `TryGet*`/`To*`; mantenha `AsObject()` (que faz boxing) fora de laços críticos.
