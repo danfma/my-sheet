@@ -66,7 +66,9 @@ public readonly record struct RecalculationResult(
 /// structural edit (a formula added/removed/changed) and on sheet add/remove, and the next call rebuilds the
 /// graph before serving (reported via <see cref="RecalculationResult.StructureRebuilt"/>). A pure VALUE edit
 /// (changing a literal input) does NOT bump, so it keeps the cheap path. The rebuild is the amortized cost of a
-/// formula edit; value edits never pay it.</para>
+/// formula edit; value edits never pay it. Redefining a workbook-level name is a structural edit too — a name
+/// resolves into the graph at build time, so repointing it changes the dependency structure — and is caught the
+/// same way via <see cref="Workbook.NamesVersion"/>.</para>
 ///
 /// <para><b>Contract.</b> Create the engine AFTER the workbook is populated (typically after a first
 /// <see cref="Workbook.ComputeAll"/>). You MUST report every cell you edit — a cell whose value/formula changed
@@ -78,12 +80,14 @@ public sealed class RecalculationEngine
     private readonly Workbook _workbook;
     private DirtyEngine _engine;
     private Dictionary<Sheet, long> _snapshot;
+    private long _namesSnapshot;
 
     internal RecalculationEngine(Workbook workbook)
     {
         _workbook = workbook;
         _engine = DirtyEngine.Build(workbook);
         _snapshot = SnapshotVersions();
+        _namesSnapshot = workbook.NamesVersion;
     }
 
     /// <summary>
@@ -169,14 +173,22 @@ public sealed class RecalculationEngine
 
         _engine = DirtyEngine.Build(_workbook);
         _snapshot = SnapshotVersions();
+        _namesSnapshot = _workbook.NamesVersion;
         return true;
     }
 
-    // Stale if the set of sheets changed (count/identity) or any sheet's structural version advanced. Sheet
-    // identity is stable (the same Sheet object lives for the workbook's life), so a removed sheet drops from
-    // the map and a new one is absent from it — both caught here.
+    // Stale if the set of sheets changed (count/identity), any sheet's structural version advanced, or a
+    // defined name was (re)defined. Sheet identity is stable (the same Sheet object lives for the workbook's
+    // life), so a removed sheet drops from the map and a new one is absent from it — both caught here. A name
+    // redefinition touches no Sheet at all — DependencyExtractor.ResolveName bakes the name's definition into
+    // the graph at build time — so it needs its own version check via Workbook.NamesVersion.
     private bool IsStale()
     {
+        if (_workbook.NamesVersion != _namesSnapshot)
+        {
+            return true;
+        }
+
         var sheets = _workbook.Sheets;
         if (sheets.Count != _snapshot.Count)
         {

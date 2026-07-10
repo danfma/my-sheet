@@ -234,4 +234,36 @@ public class RecalculationEngineTests
         await Assert.That(result.Mode).IsEqualTo(RecalculationMode.Partial);
         await Assert.That(wb.GetCellValue("Sheet1", "A3").ToDouble()).IsEqualTo(12.0);
     }
+
+    // ============ Redefinição de nome (nenhuma Sheet muda — só o mapa de nomes do Workbook) ================
+
+    // Um nome é resolvido para sua definição ATUAL na construção do grafo (DependencyExtractor.ResolveName).
+    // Redefinir um nome — repontá-lo para outra referência — muda a estrutura de dependências exatamente como
+    // editar uma fórmula, mas não toca em nenhuma Sheet, então nenhum Sheet.StructuralVersion bumpa. Sem
+    // rastrear isso separadamente (Workbook.NamesVersion), o grafo antigo (nome→alvo velho) sobrevive à
+    // redefinição, e uma edição na dependente NOVA não marca dirty a fórmula que usa o nome → valor stale.
+    [Test]
+    public async Task NameRedefinition_MarksTheGraphStale_SoDependentsFollowTheNewTarget()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new NumberValue(10);
+        data["A2"] = new NumberValue(99);
+        wb.DefineName("N", "Data!A1");
+        main["B1"] = ExpressionParser.Parse("=SUM(N)", main);
+
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(10.0); // aquece com a def. antiga
+
+        // Repontar N para A2 — estrutural, mas nenhuma Sheet foi tocada.
+        wb.DefineName("N", "Data!A2");
+
+        // Fluxo normal: reporta a NOVA dependência (A2) como editada. Sem o fix, o grafo continua apontando
+        // N→A1, então A2 não tem dependentes nele e B1 nunca é marcado dirty (fica servindo 10, stale).
+        var result = engine.Recalculate([new CellRef("Data", "A2")]);
+
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(99.0);
+    }
 }

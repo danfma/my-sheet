@@ -363,12 +363,30 @@ public sealed partial class Workbook
     /// expression (a constant, a formula, another name) is allowed. Define them through
     /// <see cref="DefineName(string, Expression)"/> / <see cref="DefineName(string, string)"/>; a
     /// <see cref="Expressions.NameReference"/> in a formula resolves against this map (after the LET scope).
+    /// Mutating this dictionary directly (rather than through <see cref="DefineName(string, Expression)"/>)
+    /// is NOT tracked by <see cref="NamesVersion"/>, so a <see cref="RecalculationEngine"/> built over the
+    /// workbook would not notice the change — go through <see cref="DefineName(string, Expression)"/> instead.
     /// </summary>
     // MemoryPack serializes members in declaration order; this MUST stay the LAST serialized member of
     // Workbook so the schema is append-only — files written before it existed (which carry only Sheets)
     // still load, leaving this empty.
     public Dictionary<string, Expression> DefinedNames { get; private set; } =
         new(StringComparer.OrdinalIgnoreCase);
+
+    // Monotonic counter of DefinedNames mutations, bumped by DefineName. A defined name is resolved into the
+    // reverse dependency graph at BUILD time (DependencyExtractor.ResolveName bakes in the definition current at
+    // that point), so redefining a name — repointing it at a different reference — changes the dependency
+    // structure exactly like a formula edit does, but touches no Sheet and so would never bump any
+    // Sheet.StructuralVersion. RecalculationEngine snapshots this alongside the per-sheet versions to detect
+    // that staleness. Runtime-only ([MemoryPackIgnore]): a loaded workbook starts at 0 and any engine built
+    // after Load rebuilds from the current state anyway. Single-thread edit contract, same as StructuralVersion.
+    [MemoryPackIgnore]
+    private long _namesVersion;
+
+    /// <summary>The count of <see cref="DefineName(string, Expression)"/> calls this workbook has seen; the
+    /// reverse dependency graph uses it (together with each sheet's <see cref="Sheet.StructuralVersion"/>) to
+    /// detect that it went stale. Internal — part of the recalculation contract, not host API.</summary>
+    internal long NamesVersion => _namesVersion;
 
     // MemoryPack rebuilds the dictionaries with the default (case-sensitive) comparer, and older files
     // carry no DefinedNames at all (null after deserialization); restore ours in both cases.
@@ -1000,6 +1018,10 @@ public sealed partial class Workbook
         NamedReferences.ValidateName(name);
 
         DefinedNames[name] = reference;
+        unchecked
+        {
+            _namesVersion++;
+        }
     }
 
     /// <summary>
@@ -1029,6 +1051,10 @@ public sealed partial class Workbook
         }
 
         DefinedNames[name] = expression;
+        unchecked
+        {
+            _namesVersion++;
+        }
     }
 
     // Walks the parsed definition for any cell/range reference left on the sentinel ("") sheet — i.e.
