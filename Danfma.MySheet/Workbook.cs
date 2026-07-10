@@ -447,6 +447,23 @@ public sealed partial class Workbook
     internal int ResolveDenseHandle(string sheetName) => ValueStore.HandleFor(sheetName);
 
     /// <summary>
+    /// Creates a numeric-address value reader for one sheet, resolving the sheet handle once. Bulk
+    /// post-compute extraction via <c>GetCellValue(name, "C" + r)</c> pays an id-string allocation, an
+    /// A1 parse and a sheet-name hash lookup PER CELL; <see cref="SheetValueReader.GetValue"/> pays
+    /// none of them on a cache hit. A miss evaluates on demand with semantics IDENTICAL to
+    /// <see cref="GetCellValue(string,string)"/> (memoization, cycle guard, taint propagation), so
+    /// literals and never-computed formulas are served too — this is a faster address form of the
+    /// same read, not a snapshot of "only what was already computed". Like <c>GetCellValue</c>, the
+    /// cache is not invalidated automatically: call <see cref="InvalidateCache"/> after edits.
+    /// </summary>
+    public SheetValueReader GetValueReader(string sheetName)
+    {
+        ArgumentNullException.ThrowIfNull(sheetName);
+
+        return new SheetValueReader(this, ResolveDenseHandle(sheetName), sheetName);
+    }
+
+    /// <summary>
     /// Spike (dirty-graph): evicts one dense cell from the memoized cache so the next read recomputes it —
     /// the selective invalidation the evict-and-pull path uses instead of <see cref="InvalidateCache"/>.
     /// No-op if the value store has not been created yet. Internal — not host API.
