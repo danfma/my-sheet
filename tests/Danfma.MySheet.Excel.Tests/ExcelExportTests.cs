@@ -28,10 +28,7 @@ public class ExcelExportTests
         return workbook;
     }
 
-    private static async Task WithExport(
-        ExcelExportOptions? options,
-        Func<string, Task> assert
-    )
+    private static async Task WithExport(ExcelExportOptions? options, Func<string, Task> assert)
     {
         var path = Path.Combine(Path.GetTempPath(), $"mysheet-export-{Guid.NewGuid():N}.xlsx");
 
@@ -63,12 +60,18 @@ public class ExcelExportTests
                 await Assert.That(reloaded["Data"].Index).IsEqualTo(0);
                 await Assert.That(reloaded["Summary"].Index).IsEqualTo(1);
                 await Assert.That(reloaded.GetCellValue("Data", "B1").ToText()).IsEqualTo("hello");
-                await Assert.That(reloaded.GetCellValue("Data", "C1").TryGetBoolean(out var flag)).IsTrue();
+                await Assert
+                    .That(reloaded.GetCellValue("Data", "C1").TryGetBoolean(out var flag))
+                    .IsTrue();
                 await Assert.That(flag).IsTrue();
-                await Assert.That(reloaded.GetCellValue("Summary", "A1").ToDouble()).IsEqualTo(10.0);
+                await Assert
+                    .That(reloaded.GetCellValue("Summary", "A1").ToDouble())
+                    .IsEqualTo(10.0);
 
                 // The division error is written as an error literal.
-                await Assert.That(reloaded.GetCellValue("Data", "D1").TryGetError(out var error)).IsTrue();
+                await Assert
+                    .That(reloaded.GetCellValue("Data", "D1").TryGetError(out var error))
+                    .IsTrue();
                 await Assert.That(error).IsEqualTo(Error.DivZero);
             }
         );
@@ -87,7 +90,10 @@ public class ExcelExportTests
             var sheet = workbook.Sheets.Add("Data");
             sheet["A1"] = ExpressionParser.Parse("=F10", sheet);
 
-            workbook.SaveAsExcel(path, new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly });
+            workbook.SaveAsExcel(
+                path,
+                new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly }
+            );
 
             var reloaded = ExcelFile.Load(path);
 
@@ -113,8 +119,12 @@ public class ExcelExportTests
                 await Assert.That(reloaded["Data"]["A3"]).IsTypeOf<BinaryOperation>();
                 await Assert.That(reloaded.GetCellValue("Data", "A3").ToDouble()).IsEqualTo(5.0);
                 await Assert.That(reloaded["Summary"]["A1"]).IsTypeOf<BinaryOperation>();
-                await Assert.That(reloaded.GetCellValue("Summary", "A1").ToDouble()).IsEqualTo(10.0);
-                await Assert.That(reloaded.GetCellValue("Data", "D1").TryGetError(out var error)).IsTrue();
+                await Assert
+                    .That(reloaded.GetCellValue("Summary", "A1").ToDouble())
+                    .IsEqualTo(10.0);
+                await Assert
+                    .That(reloaded.GetCellValue("Data", "D1").TryGetError(out var error))
+                    .IsTrue();
                 await Assert.That(error).IsEqualTo(Error.DivZero);
 
                 // Plain literals stay literals.
@@ -135,7 +145,9 @@ public class ExcelExportTests
 
                 // The formula text is there (so Excel keeps recalculating the file)…
                 await Assert.That(data.Cell("A3").FormulaA1).IsEqualTo("A1+A2");
-                await Assert.That(oracle.Worksheet("Summary").Cell("A1").FormulaA1).IsEqualTo("Data!A3*2");
+                await Assert
+                    .That(oracle.Worksheet("Summary").Cell("A1").FormulaA1)
+                    .IsEqualTo("Data!A3*2");
 
                 // …and the cached value is written alongside, so viewers show it without recalc.
                 await Assert.That(data.Cell("A3").CachedValue.GetNumber()).IsEqualTo(5.0);
@@ -161,7 +173,10 @@ public class ExcelExportTests
             sheet["A3"] = new StringValue("clean");
             sheet["A4"] = new StringValue("   ");
 
-            workbook.SaveAsExcel(path, new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly });
+            workbook.SaveAsExcel(
+                path,
+                new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly }
+            );
 
             var sharedStringsXml = ReadEntry(path, "xl/sharedStrings.xml");
 

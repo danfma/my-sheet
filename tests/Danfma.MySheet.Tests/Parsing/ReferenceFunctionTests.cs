@@ -50,12 +50,19 @@ public class ReferenceFunctionTests
 
         await Assert
             .That(
-                ExpressionParser.Parse("=VLOOKUP(2,A1:B3,2,FALSE)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=VLOOKUP(2,A1:B3,2,FALSE)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
         await Assert
-            .That(ExpressionParser.Parse("=VLOOKUP(99,A1:B3,2,FALSE)", sheet).Evaluate(workbook).AsObject())
+            .That(
+                ExpressionParser
+                    .Parse("=VLOOKUP(99,A1:B3,2,FALSE)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject()
+            )
             .IsEqualTo(ErrorValue.NotAvailable);
     }
 
@@ -73,8 +80,10 @@ public class ReferenceFunctionTests
 
         await Assert
             .That(
-                ExpressionParser.Parse("=VLOOKUP(2.5,A1:B3,2,TRUE)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=VLOOKUP(2.5,A1:B3,2,TRUE)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
     }
@@ -93,17 +102,27 @@ public class ReferenceFunctionTests
 
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2,A1:A3,B1:B3)", sheet).Evaluate(workbook).AsObject() as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2,A1:A3,B1:B3)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(99,A1:A3,B1:B3,\"none\")", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(99,A1:A3,B1:B3,\"none\")", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("none");
         await Assert
-            .That(ExpressionParser.Parse("=XLOOKUP(99,A1:A3,B1:B3)", sheet).Evaluate(workbook).AsObject())
+            .That(
+                ExpressionParser
+                    .Parse("=XLOOKUP(99,A1:A3,B1:B3)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject()
+            )
             .IsEqualTo(ErrorValue.NotAvailable);
     }
 
@@ -128,13 +147,21 @@ public class ReferenceFunctionTests
         // Match at position 2 (within the [0,3) shared prefix) → the paired return cell.
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2,A1:A5,B1:B3)", sheet).Evaluate(workbook).AsObject() as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2,A1:A5,B1:B3)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
 
         // Match only in the uncovered tail (position 4 > return length) → dropped by the shorter bound.
         await Assert
-            .That(ExpressionParser.Parse("=XLOOKUP(4,A1:A5,B1:B3)", sheet).Evaluate(workbook).AsObject())
+            .That(
+                ExpressionParser
+                    .Parse("=XLOOKUP(4,A1:A5,B1:B3)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject()
+            )
             .IsEqualTo(ErrorValue.NotAvailable);
     }
 
@@ -144,10 +171,16 @@ public class ReferenceFunctionTests
         var (workbook, sheet) = Grid(("A1", N(10)), ("A2", N(20)), ("A3", N(30)), ("B1", N(5)));
 
         await Assert
-            .That(ExpressionParser.Parse("=OFFSET(A1,2,0)", sheet).Evaluate(workbook).AsObject() as double?)
+            .That(
+                ExpressionParser.Parse("=OFFSET(A1,2,0)", sheet).Evaluate(workbook).AsObject()
+                    as double?
+            )
             .IsEqualTo(30.0);
         await Assert
-            .That(ExpressionParser.Parse("=OFFSET(A1,0,1)", sheet).Evaluate(workbook).AsObject() as double?)
+            .That(
+                ExpressionParser.Parse("=OFFSET(A1,0,1)", sheet).Evaluate(workbook).AsObject()
+                    as double?
+            )
             .IsEqualTo(5.0);
     }
 
@@ -159,8 +192,10 @@ public class ReferenceFunctionTests
         // OFFSET(A1,0,0,3,1) is the range A1:A3, so SUM over it is 60.
         await Assert
             .That(
-                ExpressionParser.Parse("=SUM(OFFSET(A1,0,0,3,1))", sheet).Evaluate(workbook).AsObject()
-                    as double?
+                ExpressionParser
+                    .Parse("=SUM(OFFSET(A1,0,0,3,1))", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as double?
             )
             .IsEqualTo(60.0);
     }
@@ -180,14 +215,18 @@ public class ReferenceFunctionTests
         // Omitted if_not_found (,,) then match_mode -1 (next smaller) / 1 (next larger).
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2.5,A1:A3,B1:B3,,-1)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2.5,A1:A3,B1:B3,,-1)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2.5,A1:A3,B1:B3,,1)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2.5,A1:A3,B1:B3,,1)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("c");
     }
@@ -204,8 +243,10 @@ public class ReferenceFunctionTests
 
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(\"a*\",A1:A2,B1:B2,,2)", sheet).Evaluate(workbook).AsObject()
-                    as double?
+                ExpressionParser
+                    .Parse("=XLOOKUP(\"a*\",A1:A2,B1:B2,,2)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as double?
             )
             .IsEqualTo(1.0);
     }
@@ -225,14 +266,18 @@ public class ReferenceFunctionTests
         // search_mode 2 / -2 (binary) are not optimized but must still return the correct match.
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2,A1:A3,B1:B3,,0,2)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2,A1:A3,B1:B3,,0,2)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2,A1:A3,B1:B3,,0,-2)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2,A1:A3,B1:B3,,0,-2)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("b");
     }
@@ -253,8 +298,10 @@ public class ReferenceFunctionTests
 
         await Assert
             .That(
-                ExpressionParser.Parse("=XLOOKUP(2,A1:A4,B1:B4,,0,-1)", sheet).Evaluate(workbook).AsObject()
-                    as string
+                ExpressionParser
+                    .Parse("=XLOOKUP(2,A1:A4,B1:B4,,0,-1)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as string
             )
             .IsEqualTo("c");
     }

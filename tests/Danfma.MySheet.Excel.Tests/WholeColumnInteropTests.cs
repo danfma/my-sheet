@@ -53,7 +53,10 @@ public class WholeColumnInteropTests
             data["A2"] = new NumberValue(6);
             data["C1"] = ExpressionParser.Parse("=SUM(A:A)", data);
 
-            workbook.SaveAsExcel(path, new ExcelExportOptions { FormulaMode = FormulaMode.Formulas });
+            workbook.SaveAsExcel(
+                path,
+                new ExcelExportOptions { FormulaMode = FormulaMode.Formulas }
+            );
 
             // The oracle reads back the whole-column formula text verbatim.
             using (var oracle = new XLWorkbook(path))

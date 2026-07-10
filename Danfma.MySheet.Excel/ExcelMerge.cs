@@ -228,7 +228,14 @@ public static class ExcelMerge
         {
             while (hasOurs)
             {
-                WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value, sharedStrings);
+                WriteNewRow(
+                    writer,
+                    workbook,
+                    sheetName,
+                    ours.Current.Key,
+                    ours.Current.Value,
+                    sharedStrings
+                );
                 hasOurs = ours.MoveNext();
             }
 
@@ -248,13 +255,27 @@ public static class ExcelMerge
                 // Our rows that sort before this existing one are brand-new: emit them first.
                 while (hasOurs && ours.Current.Key < rowNumber)
                 {
-                    WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value, sharedStrings);
+                    WriteNewRow(
+                        writer,
+                        workbook,
+                        sheetName,
+                        ours.Current.Key,
+                        ours.Current.Value,
+                        sharedStrings
+                    );
                     hasOurs = ours.MoveNext();
                 }
 
                 if (hasOurs && ours.Current.Key == rowNumber)
                 {
-                    MergeRow(reader, writer, workbook, sheetName, ours.Current.Value, sharedStrings);
+                    MergeRow(
+                        reader,
+                        writer,
+                        workbook,
+                        sheetName,
+                        ours.Current.Value,
+                        sharedStrings
+                    );
                     hasOurs = ours.MoveNext();
                 }
                 else
@@ -275,7 +296,14 @@ public static class ExcelMerge
         // Our rows that sort after every existing row.
         while (hasOurs)
         {
-            WriteNewRow(writer, workbook, sheetName, ours.Current.Key, ours.Current.Value, sharedStrings);
+            WriteNewRow(
+                writer,
+                workbook,
+                sheetName,
+                ours.Current.Key,
+                ours.Current.Value,
+                sharedStrings
+            );
             hasOurs = ours.MoveNext();
         }
 
@@ -318,7 +346,14 @@ public static class ExcelMerge
                 // Our cells that sort before this existing one are brand-new.
                 while (index < ourCells.Count && ourCells[index].Column < column)
                 {
-                    WriteOurCell(writer, workbook, sheetName, ourCells[index], style: null, sharedStrings);
+                    WriteOurCell(
+                        writer,
+                        workbook,
+                        sheetName,
+                        ourCells[index],
+                        style: null,
+                        sharedStrings
+                    );
                     index++;
                 }
 
@@ -456,7 +491,11 @@ public static class ExcelMerge
         switch (value.Kind)
         {
             case ComputedValueKind.Number:
-                writer.WriteElementString("v", Ns, value.ToDouble().ToString(CultureInfo.InvariantCulture));
+                writer.WriteElementString(
+                    "v",
+                    Ns,
+                    value.ToDouble().ToString(CultureInfo.InvariantCulture)
+                );
                 break;
 
             case ComputedValueKind.Boolean:
@@ -558,7 +597,8 @@ public static class ExcelMerge
             }
 
             var part =
-                _workbookPart.SharedStringTablePart ?? _workbookPart.AddNewPart<SharedStringTablePart>();
+                _workbookPart.SharedStringTablePart
+                ?? _workbookPart.AddNewPart<SharedStringTablePart>();
             _table = part.SharedStringTable ??= new SharedStringTable();
             _plainIndex = new Dictionary<string, int>(StringComparer.Ordinal);
 

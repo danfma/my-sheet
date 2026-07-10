@@ -11,8 +11,7 @@ namespace Danfma.MySheet.Benchmark.Spike;
 /// <summary>Erro do spike com instâncias em cache (espelha os ErrorValue singleton do MySheet).</summary>
 public sealed class SpikeError
 {
-    private static readonly SpikeError[] Cache =
-        [new(0), new(1), new(2), new(3), new(4), new(5)];
+    private static readonly SpikeError[] Cache = [new(0), new(1), new(2), new(3), new(4), new(5)];
 
     private SpikeError(int code) => Code = code;
 
@@ -167,14 +166,15 @@ public sealed class SumCv(INodeCv[] children) : INodeCv
 
 internal static class SpikeCoercion
 {
-    public static double ToNumber(object? value) => value switch
-    {
-        double d => d,
-        bool b => b ? 1d : 0d,
-        string s => double.Parse(s, CultureInfo.InvariantCulture),
-        null => 0d,
-        _ => 0d,
-    };
+    public static double ToNumber(object? value) =>
+        value switch
+        {
+            double d => d,
+            bool b => b ? 1d : 0d,
+            string s => double.Parse(s, CultureInfo.InvariantCulture),
+            null => 0d,
+            _ => 0d,
+        };
 
     public static double ToNumber(in CellValue value)
     {

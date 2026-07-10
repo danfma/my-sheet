@@ -58,6 +58,8 @@ public sealed partial record Rate(Expression[] Arguments) : Function
             TimeValueOfMoney.Fv(rate, nper, pmt, pv, normalizedType) - fv;
 
         var result = TimeValueOfMoney.Solve(Residual, guess);
-        return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
+        return double.IsFinite(result)
+            ? ComputedValue.Number(result)
+            : ComputedValue.Error(Error.Num);
     }
 }

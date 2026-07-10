@@ -178,9 +178,7 @@ public sealed partial record NumberValueFunction(Expression[] Arguments) : Funct
         }
 
         var normalized = string.Concat(
-            compact
-                .Where(c => c != groupSeparator)
-                .Select(c => c == decimalSeparator ? '.' : c)
+            compact.Where(c => c != groupSeparator).Select(c => c == decimalSeparator ? '.' : c)
         );
 
         if (
@@ -219,7 +217,11 @@ public sealed partial record TextAfter(Expression[] Arguments) : Function
 // from the end) as one extra delimiter; a miss returns if_not_found when given, otherwise #N/A.
 file static class DelimiterSplit
 {
-    public static ComputedValue Evaluate(Expression[] arguments, EvaluationContext context, bool after)
+    public static ComputedValue Evaluate(
+        Expression[] arguments,
+        EvaluationContext context,
+        bool after
+    )
     {
         if (arguments[0].Evaluate(context).CoerceToText(out var text) is { } textError)
         {
@@ -288,7 +290,8 @@ file static class DelimiterSplit
             return ComputedValue.Text(after == n > 0 ? text : string.Empty);
         }
 
-        var comparison = matchMode == 1 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var comparison =
+            matchMode == 1 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         var positions = new List<int>();
         var index = 0;
 
@@ -298,7 +301,8 @@ file static class DelimiterSplit
             index += delimiter.Length;
         }
 
-        int start, end;
+        int start,
+            end;
         var occurrence = Math.Abs(n);
 
         if (occurrence <= positions.Count)

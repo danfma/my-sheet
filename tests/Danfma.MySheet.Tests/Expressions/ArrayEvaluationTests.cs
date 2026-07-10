@@ -85,9 +85,10 @@ public class ArrayEvaluationTests
         var context = new EvaluationContext(workbook);
 
         // IF(B2:B5="Show", ROW(B2:B5)) → [FALSE, 3, FALSE, 5]
-        var node = new If(
-            [Equal(Range("B2", "B5", sheet), String("Show")), new Row([Range("B2", "B5", sheet)])]
-        );
+        var node = new If([
+            Equal(Range("B2", "B5", sheet), String("Show")),
+            new Row([Range("B2", "B5", sheet)]),
+        ]);
 
         await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
         await Assert.That(result.Length).IsEqualTo(4);
@@ -148,9 +149,7 @@ public class ArrayEvaluationTests
         // condition [F,T,F,T]; inner keeps ROW only where ROW>3 → [_, F(row3), _, 5]
         // net → [FALSE, FALSE, FALSE, 5]
         var range = Range("B2", "B5", sheet);
-        var inner = new If(
-            [GreaterThan(new Row([range]), Number(3)), new Row([range])]
-        );
+        var inner = new If([GreaterThan(new Row([range]), Number(3)), new Row([range])]);
         var node = new If([Equal(range, String("Show")), inner]);
 
         await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
@@ -203,7 +202,11 @@ public class ArrayEvaluationTests
         var context = new EvaluationContext(workbook);
 
         // A1:A3 * 2 → [2, #DIV/0!, 6]
-        var node = new BinaryOperation(BinaryOperator.Multiply, Range("A1", "A3", sheet), Number(2));
+        var node = new BinaryOperation(
+            BinaryOperator.Multiply,
+            Range("A1", "A3", sheet),
+            Number(2)
+        );
 
         await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
         await Assert.That(NumberAt(result, 0)).IsEqualTo(2.0);
@@ -239,7 +242,9 @@ public class ArrayEvaluationTests
         var context = new EvaluationContext(workbook);
 
         // A plain scalar function (SUM of scalars) is not an array → TryEvaluate false.
-        await Assert.That(ArrayEvaluation.TryEvaluate(Sum(Number(1), Number(2)), context, out _)).IsFalse();
+        await Assert
+            .That(ArrayEvaluation.TryEvaluate(Sum(Number(1), Number(2)), context, out _))
+            .IsFalse();
 
         // A bare scalar literal → not an array.
         await Assert.That(ArrayEvaluation.TryEvaluate(Number(5), context, out _)).IsFalse();

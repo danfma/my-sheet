@@ -48,7 +48,9 @@ public class ExcelFileLoadTests
 
                 await Assert.That(workbook.GetCellValue("Data", "A1").ToDouble()).IsEqualTo(42.5);
                 await Assert.That(workbook.GetCellValue("Data", "A2").ToText()).IsEqualTo("hello");
-                await Assert.That(workbook.GetCellValue("Data", "A3").TryGetBoolean(out var flag)).IsTrue();
+                await Assert
+                    .That(workbook.GetCellValue("Data", "A3").TryGetBoolean(out var flag))
+                    .IsTrue();
                 await Assert.That(flag).IsTrue();
                 await Assert.That(workbook.GetCellValue("Summary", "B2").ToDouble()).IsEqualTo(7.0);
             }
@@ -91,7 +93,9 @@ public class ExcelFileLoadTests
             },
             async workbook =>
             {
-                await Assert.That(workbook.GetCellValue("Summary", "A1").ToDouble()).IsEqualTo(20.0);
+                await Assert
+                    .That(workbook.GetCellValue("Summary", "A1").ToDouble())
+                    .IsEqualTo(20.0);
             }
         );
     }
@@ -124,7 +128,9 @@ public class ExcelFileLoadTests
             },
             async workbook =>
             {
-                await Assert.That(workbook.GetCellValue("Data", "A1").TryGetError(out var error)).IsTrue();
+                await Assert
+                    .That(workbook.GetCellValue("Data", "A1").TryGetError(out var error))
+                    .IsTrue();
                 await Assert.That(error).IsEqualTo(Error.DivZero);
             }
         );
@@ -141,7 +147,9 @@ public class ExcelFileLoadTests
             async workbook =>
             {
                 await Assert.That(workbook["Data"]["Z9"]).IsTypeOf<BlankValue>();
-                await Assert.That(workbook.GetCellValue("Data", "Z9").Kind).IsEqualTo(ComputedValueKind.Blank);
+                await Assert
+                    .That(workbook.GetCellValue("Data", "Z9").Kind)
+                    .IsEqualTo(ComputedValueKind.Blank);
             }
         );
     }

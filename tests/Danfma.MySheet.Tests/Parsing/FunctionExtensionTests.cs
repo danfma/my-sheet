@@ -24,7 +24,10 @@ public class FunctionExtensionTests
         );
 
         await Assert
-            .That(ExpressionParser.Parse("=DOUBLE(21)", sheet).Evaluate(workbook).AsObject() as double?)
+            .That(
+                ExpressionParser.Parse("=DOUBLE(21)", sheet).Evaluate(workbook).AsObject()
+                    as double?
+            )
             .IsEqualTo(42.0);
     }
 
@@ -45,10 +48,16 @@ public class FunctionExtensionTests
         workbook.RegisterFunction("MYFN", (_, _) => 7.0);
 
         await Assert
-            .That(ExpressionParser.Parse("=XLFN.MYFN()", sheet).Evaluate(workbook).AsObject() as double?)
+            .That(
+                ExpressionParser.Parse("=XLFN.MYFN()", sheet).Evaluate(workbook).AsObject()
+                    as double?
+            )
             .IsEqualTo(7.0);
         await Assert
-            .That(ExpressionParser.Parse("=_xlfn.MYFN()", sheet).Evaluate(workbook).AsObject() as double?)
+            .That(
+                ExpressionParser.Parse("=_xlfn.MYFN()", sheet).Evaluate(workbook).AsObject()
+                    as double?
+            )
             .IsEqualTo(7.0);
     }
 
@@ -76,9 +85,12 @@ public class FunctionExtensionTests
         restored.RegisterFunction(
             "CUSTOM",
             (args, wb) =>
-                (args[0].Evaluate(wb).AsObject() as double? ?? 0) + (args[1].Evaluate(wb).AsObject() as double? ?? 0)
+                (args[0].Evaluate(wb).AsObject() as double? ?? 0)
+                + (args[1].Evaluate(wb).AsObject() as double? ?? 0)
         );
 
-        await Assert.That(restored["Sheet1"]["A1"].Evaluate(restored).AsObject() as double?).IsEqualTo(3.0);
+        await Assert
+            .That(restored["Sheet1"]["A1"].Evaluate(restored).AsObject() as double?)
+            .IsEqualTo(3.0);
     }
 }

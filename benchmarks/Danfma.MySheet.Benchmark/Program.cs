@@ -112,12 +112,36 @@ if (args.Contains("--dense-store-spike"))
 
 // Spike v4 (pós-3.3): persistência do índice + revisita da AST numérica.
 //   --v4-index-rebuild | --v4-index-persist | --v4-resident | --v4-parse | --v4-hotpath | --v4-all
-if (args.Contains("--v4-all")) { V4IndexAstHarness.RunAll(args); return; }
-if (args.Contains("--v4-index-rebuild")) { V4IndexAstHarness.IndexRebuild(); return; }
-if (args.Contains("--v4-index-persist")) { V4IndexAstHarness.IndexPersist(); return; }
-if (args.Contains("--v4-resident")) { V4IndexAstHarness.Resident(); return; }
-if (args.Contains("--v4-parse")) { V4IndexAstHarness.Parse(); return; }
-if (args.Contains("--v4-hotpath")) { V4IndexAstHarness.HotPath(); return; }
+if (args.Contains("--v4-all"))
+{
+    V4IndexAstHarness.RunAll(args);
+    return;
+}
+if (args.Contains("--v4-index-rebuild"))
+{
+    V4IndexAstHarness.IndexRebuild();
+    return;
+}
+if (args.Contains("--v4-index-persist"))
+{
+    V4IndexAstHarness.IndexPersist();
+    return;
+}
+if (args.Contains("--v4-resident"))
+{
+    V4IndexAstHarness.Resident();
+    return;
+}
+if (args.Contains("--v4-parse"))
+{
+    V4IndexAstHarness.Parse();
+    return;
+}
+if (args.Contains("--v4-hotpath"))
+{
+    V4IndexAstHarness.HotPath();
+    return;
+}
 
 // Varredura de tamanho de página do store denso (Fase 1, diretriz do dono):
 // `dotnet run -c Release -- --dense-store-pagesize`.

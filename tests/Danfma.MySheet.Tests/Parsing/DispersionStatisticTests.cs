@@ -37,8 +37,20 @@ public class DispersionStatisticTests
 
     // Dataset "Strength" compartilhado pelas 8 páginas STDEV*/VAR*: {1345, 1301, 1368, 1322,
     // 1310, 1370, 1318, 1350, 1303, 1299} em A2:A11.
-    private static readonly (string, object)[] Strength =
-        Column("A", 2, 1345, 1301, 1368, 1322, 1310, 1370, 1318, 1350, 1303, 1299);
+    private static readonly (string, object)[] Strength = Column(
+        "A",
+        2,
+        1345,
+        1301,
+        1368,
+        1322,
+        1310,
+        1370,
+        1318,
+        1350,
+        1303,
+        1299
+    );
 
     [Test]
     public async Task StDevSAndP_MatchTheGoldenExamples()
@@ -59,10 +71,7 @@ public class DispersionStatisticTests
     {
         // =VAR.S(A2:A11) -> 754.26667 (dígitos completos impressos na página do VARA);
         // =VAR.P(A2:A11) -> 678.84.
-        await Assert
-            .That(Num(Calc("=VAR.S(A2:A11)", Strength)))
-            .IsEqualTo(754.26667)
-            .Within(1e-4);
+        await Assert.That(Num(Calc("=VAR.S(A2:A11)", Strength))).IsEqualTo(754.26667).Within(1e-4);
         await Assert
             .That(Num(Calc("=VAR.P(A2:A11)", Strength)))
             .IsEqualTo(678.84)
@@ -82,10 +91,7 @@ public class DispersionStatisticTests
             .That(Num(Calc("=STDEVPA(A2:A11)", Strength)))
             .IsEqualTo(26.05455814)
             .Within(Tolerance);
-        await Assert
-            .That(Num(Calc("=VARA(A2:A11)", Strength)))
-            .IsEqualTo(754.26667)
-            .Within(1e-4);
+        await Assert.That(Num(Calc("=VARA(A2:A11)", Strength))).IsEqualTo(754.26667).Within(1e-4);
         await Assert
             .That(Num(Calc("=VARPA(A2:A11)", Strength)))
             .IsEqualTo(678.84)
@@ -159,9 +165,7 @@ public class DispersionStatisticTests
             .That(Num(Calc("=GEOMEAN(A2:A8)", cells)))
             .IsEqualTo(5.476987)
             .Within(Tolerance);
-        await Assert
-            .That(Calc("=GEOMEAN(A2:A3,0)", cells))
-            .IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=GEOMEAN(A2:A3,0)", cells)).IsEqualTo(ErrorValue.Number);
     }
 
     [Test]
@@ -174,16 +178,26 @@ public class DispersionStatisticTests
             .That(Num(Calc("=HARMEAN(A2:A8)", cells)))
             .IsEqualTo(5.028376)
             .Within(Tolerance);
-        await Assert
-            .That(Calc("=HARMEAN(A2:A3,-1)", cells))
-            .IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=HARMEAN(A2:A3,-1)", cells)).IsEqualTo(ErrorValue.Number);
     }
 
     // --- SKEW / SKEW.P / KURT — golden: páginas oficiais; dataset compartilhado
     // {3,4,5,2,3,4,5,6,4,7} em A2:A11. ---
 
-    private static readonly (string, object)[] SkewData =
-        Column("A", 2, 3, 4, 5, 2, 3, 4, 5, 6, 4, 7);
+    private static readonly (string, object)[] SkewData = Column(
+        "A",
+        2,
+        3,
+        4,
+        5,
+        2,
+        3,
+        4,
+        5,
+        6,
+        4,
+        7
+    );
 
     [Test]
     public async Task Skew_MatchesTheGoldenExample()

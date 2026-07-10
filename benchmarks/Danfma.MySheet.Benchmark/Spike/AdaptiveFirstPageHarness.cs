@@ -55,27 +55,48 @@ public static class AdaptiveFirstPageHarness
         );
     }
 
-    private static void Populate(SheetValueStore store, string sheet, int firstCol, int cols, int rows)
+    private static void Populate(
+        SheetValueStore store,
+        string sheet,
+        int firstCol,
+        int cols,
+        int rows
+    )
     {
         var handle = store.HandleFor(sheet);
         for (var c = firstCol; c < firstCol + cols; c++)
         {
             for (var r = 1; r <= rows; r++)
             {
-                store.SetDense(handle, c, r, ComputedValue.Number(c * 2_000_000d + r), tainted: false);
+                store.SetDense(
+                    handle,
+                    c,
+                    r,
+                    ComputedValue.Number(c * 2_000_000d + r),
+                    tainted: false
+                );
             }
         }
     }
 
-    private static void Report(string title, long cells, string gate, Action<SheetValueStore> populate)
+    private static void Report(
+        string title,
+        long cells,
+        string gate,
+        Action<SheetValueStore> populate
+    )
     {
         var usefulBytes = cells * Unsafe.SizeOf<ComputedValue>();
 
         Console.WriteLine($"-- {title} ({cells:N0} cells) --");
-        Console.WriteLine($"   {"initial slots",-16}{"store KB",12}{"useful KB",12}{"waste x",10}{"churn MB",12}");
+        Console.WriteLine(
+            $"   {"initial slots", -16}{"store KB", 12}{"useful KB", 12}{"waste x", 10}{"churn MB", 12}"
+        );
         Console.WriteLine("   " + new string('-', 62));
 
-        foreach (var (label, initialSlots) in new[] { ("1024 (opt-out)", 1024), ("128 (default)", 128) })
+        foreach (
+            var (label, initialSlots) in new[] { ("1024 (opt-out)", 1024), ("128 (default)", 128) }
+        )
         {
             GC.Collect();
             GC.WaitForPendingFinalizers();
@@ -96,8 +117,8 @@ public static class AdaptiveFirstPageHarness
             }
 
             Console.WriteLine(
-                $"   {label,-16}{storeBytes / 1024d,12:N1}{usefulBytes / 1024d,12:N1}"
-                    + $"{(double)storeBytes / usefulBytes,10:N1}{churn / 1024d / 1024d,12:N2}"
+                $"   {label, -16}{storeBytes / 1024d, 12:N1}{usefulBytes / 1024d, 12:N1}"
+                    + $"{(double)storeBytes / usefulBytes, 10:N1}{churn / 1024d / 1024d, 12:N2}"
             );
         }
 

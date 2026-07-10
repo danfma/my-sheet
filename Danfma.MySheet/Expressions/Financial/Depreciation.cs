@@ -97,12 +97,22 @@ public sealed partial record Db(Expression[] Arguments) : Function
         }
 
         var month = 12.0;
-        if (Arguments.Length > 4 && FinancialArguments.Number(Arguments, 4, context, out month) is { } e4)
+        if (
+            Arguments.Length > 4
+            && FinancialArguments.Number(Arguments, 4, context, out month) is { } e4
+        )
         {
             return ComputedValue.Error(e4);
         }
 
-        if (cost < 0 || salvage < 0 || life <= 0 || month is < 1 or > 12 || period < 1 || period > life)
+        if (
+            cost < 0
+            || salvage < 0
+            || life <= 0
+            || month is < 1 or > 12
+            || period < 1
+            || period > life
+        )
         {
             return ComputedValue.Error(Error.Num);
         }
@@ -138,7 +148,10 @@ public sealed partial record Ddb(Expression[] Arguments) : Function
         }
 
         var factor = 2.0;
-        if (Arguments.Length > 4 && FinancialArguments.Number(Arguments, 4, context, out factor) is { } e4)
+        if (
+            Arguments.Length > 4
+            && FinancialArguments.Number(Arguments, 4, context, out factor) is { } e4
+        )
         {
             return ComputedValue.Error(e4);
         }
@@ -184,13 +197,19 @@ public sealed partial record Vdb(Expression[] Arguments) : Function
         }
 
         var factor = 2.0;
-        if (Arguments.Length > 5 && FinancialArguments.Number(Arguments, 5, context, out factor) is { } e5)
+        if (
+            Arguments.Length > 5
+            && FinancialArguments.Number(Arguments, 5, context, out factor) is { } e5
+        )
         {
             return ComputedValue.Error(e5);
         }
 
         var noSwitch = false;
-        if (Arguments.Length > 6 && Arguments[6].Evaluate(context).CoerceToBool(out noSwitch) is { } e6)
+        if (
+            Arguments.Length > 6
+            && Arguments[6].Evaluate(context).CoerceToBool(out noSwitch) is { } e6
+        )
         {
             return ComputedValue.Error(e6);
         }
@@ -210,7 +229,9 @@ public sealed partial record Vdb(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        return FinancialArguments.Result(BondMath.Vdb(cost, salvage, life, startPeriod, endPeriod, factor, noSwitch));
+        return FinancialArguments.Result(
+            BondMath.Vdb(cost, salvage, life, startPeriod, endPeriod, factor, noSwitch)
+        );
     }
 }
 
@@ -335,7 +356,16 @@ public sealed partial record AmorDegrc(Expression[] Arguments) : Function
         }
 
         return FinancialArguments.Result(
-            BondMath.AmorDegrc(cost, datePurchased, firstPeriod, salvage, period, rate, basis, excelCompliant: true)
+            BondMath.AmorDegrc(
+                cost,
+                datePurchased,
+                firstPeriod,
+                salvage,
+                period,
+                rate,
+                basis,
+                excelCompliant: true
+            )
         );
     }
 }

@@ -99,9 +99,11 @@ public class CombinatoricsTests
     [Test]
     public async Task Gcd_IsRangeAware()
     {
-        await Assert.That(
-            Num(Calc("=GCD(A1:A2)", ("A1", new NumberValue(24)), ("A2", new NumberValue(36))))
-        ).IsEqualTo(12.0);
+        await Assert
+            .That(
+                Num(Calc("=GCD(A1:A2)", ("A1", new NumberValue(24)), ("A2", new NumberValue(36))))
+            )
+            .IsEqualTo(12.0);
     }
 
     [Test]
@@ -113,7 +115,9 @@ public class CombinatoricsTests
         await Assert.That(Num(Calc("=LCM(24,36)"))).IsEqualTo(72.0);
         await Assert.That(Num(Calc("=LCM(5,0)"))).IsEqualTo(0.0);
         await Assert.That(Calc("=LCM(-1,5)")).IsEqualTo(ErrorValue.Number);
-        await Assert.That(Calc("=LCM(4503599627370496,4503599627370497)")).IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=LCM(4503599627370496,4503599627370497)"))
+            .IsEqualTo(ErrorValue.Number);
     }
 
     [Test]

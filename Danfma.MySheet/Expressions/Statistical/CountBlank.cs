@@ -17,7 +17,10 @@ public sealed partial record CountBlank(Expression[] Arguments) : Function
 
         foreach (var value in ArgumentFlattening.FlattenComputedValues(Arguments, context))
         {
-            if (value.Kind == ComputedValueKind.Blank || (value.TryGetText(out var text) && text.Length == 0))
+            if (
+                value.Kind == ComputedValueKind.Blank
+                || (value.TryGetText(out var text) && text.Length == 0)
+            )
             {
                 count++;
             }

@@ -52,7 +52,7 @@ public static class DenseStoreSpikeHarness
     private const int DataRows = 100_000;
     private const int FormulaRows = 200_000; // C{r} and D{r} -> 400k formulas
     private const int PageRows = 1024;
-    private const int PageShift = 10;         // row >> 10 -> page index (PageRows == 1 << PageShift)
+    private const int PageShift = 10; // row >> 10 -> page index (PageRows == 1 << PageShift)
     private const int PageMask = PageRows - 1; // row & 1023 -> slot in page
     private const int PureTrials = 7; // best-of-N for the pure probes (N>=5 required)
 
@@ -69,7 +69,9 @@ public static class DenseStoreSpikeHarness
                 + "Traffic: 1.00M GetCellValue (600k miss/insert + 400k hit). "
                 + $"Page {PageRows} rows/col. Best-of-{PureTrials} (min); GC.Collect between trials."
         );
-        Console.WriteLine($"sizeof(ComputedValue) = {Unsafe.SizeOf<ComputedValue>()} bytes (multi-word => torn-write subject).");
+        Console.WriteLine(
+            $"sizeof(ComputedValue) = {Unsafe.SizeOf<ComputedValue>()} bytes (multi-word => torn-write subject)."
+        );
         Console.WriteLine();
 
         var seq = BuildAccessSequence();
@@ -80,10 +82,10 @@ public static class DenseStoreSpikeHarness
         // We verify CellAddress.TryGetColumnRow already satisfies this (char-indexed single pass, char-overload
         // ToUpperInvariant, no substring/Parse => zero alloc) AND provide a span-based packed-long variant
         // (ParseIdToPacked) to compare head-to-head. The span/packed number is the one that decides the veto.
-        var parseLib = ProbeIdParse(seq, useSpan: false);   // CellAddress.TryGetColumnRow(string)
-        var parseSpan = ProbeIdParse(seq, useSpan: true);   // ParseIdToPacked(ReadOnlySpan<char>) -> long
+        var parseLib = ProbeIdParse(seq, useSpan: false); // CellAddress.TryGetColumnRow(string)
+        var parseSpan = ProbeIdParse(seq, useSpan: true); // ParseIdToPacked(ReadOnlySpan<char>) -> long
         var nameOnlyMs = ProbeNameResolutionOnly(seq);
-        var derivationMs = parseSpan.Ms + nameOnlyMs;       // derivation total in the packed-bits format
+        var derivationMs = parseSpan.Ms + nameOnlyMs; // derivation total in the packed-bits format
 
         // ------------------------------------------------------------------ the three contenders, full shape
         var baseline = ProbeBaselineDictionary(seq);
@@ -104,16 +106,30 @@ public static class DenseStoreSpikeHarness
         var sparse = ProbeSparsity();
 
         // ================================================================== report
-        Console.WriteLine("-- derivation tax (on-the-fly string -> (col,row) + name -> handle, full 1.0M traffic) --");
-        Console.WriteLine("   OWNER DIRECTIVE: span + bit math, zero temp alloc, packed-long address, shift/mask page index.");
-        Console.WriteLine($"  id parse — CellAddress.TryGetColumnRow(string) : {parseLib.Ms,8:N1} ms  ({parseLib.ChurnMb:N2} MB churn)");
-        Console.WriteLine($"  id parse — span ParseIdToPacked -> long        : {parseSpan.Ms,8:N1} ms  ({parseSpan.ChurnMb:N2} MB churn)");
-        Console.WriteLine($"  name resolve — ConcurrentDictionary OrdinalIC  : {nameOnlyMs,8:N1} ms");
-        Console.WriteLine($"  derivation total (span parse + name)           : {derivationMs,8:N1} ms   <- veto (i) number");
-        Console.WriteLine($"  (both parsers are zero-alloc single-pass; lib TryGetColumnRow already satisfies the directive)");
+        Console.WriteLine(
+            "-- derivation tax (on-the-fly string -> (col,row) + name -> handle, full 1.0M traffic) --"
+        );
+        Console.WriteLine(
+            "   OWNER DIRECTIVE: span + bit math, zero temp alloc, packed-long address, shift/mask page index."
+        );
+        Console.WriteLine(
+            $"  id parse — CellAddress.TryGetColumnRow(string) : {parseLib.Ms, 8:N1} ms  ({parseLib.ChurnMb:N2} MB churn)"
+        );
+        Console.WriteLine(
+            $"  id parse — span ParseIdToPacked -> long        : {parseSpan.Ms, 8:N1} ms  ({parseSpan.ChurnMb:N2} MB churn)"
+        );
+        Console.WriteLine(
+            $"  name resolve — ConcurrentDictionary OrdinalIC  : {nameOnlyMs, 8:N1} ms"
+        );
+        Console.WriteLine(
+            $"  derivation total (span parse + name)           : {derivationMs, 8:N1} ms   <- veto (i) number"
+        );
+        Console.WriteLine(
+            $"  (both parsers are zero-alloc single-pass; lib TryGetColumnRow already satisfies the directive)"
+        );
         Console.WriteLine();
 
-        Console.WriteLine($"{"Variant",-42}{"ms",10}{"MB churn",12}{"MB heap",12}");
+        Console.WriteLine($"{"Variant", -42}{"ms", 10}{"MB churn", 12}{"MB heap", 12}");
         Console.WriteLine(new string('-', 76));
         Row("baseline ConcurrentDictionary<(str,str)>", baseline);
         Row("dense (a) seqlock  + derivation", denseA);
@@ -121,9 +137,15 @@ public static class DenseStoreSpikeHarness
         Row("dense (a) seqlock  (pre-derived)", denseApre);
         Row("dense (b) plain    (pre-derived)", denseBpre);
         Console.WriteLine(new string('-', 76));
-        Console.WriteLine("  MB churn = GC.GetTotalAllocatedBytes, byte-accurate (this is the plan's target metric:");
-        Console.WriteLine("  baseline ~162MB -> target 10-20MB). MB heap = GetTotalMemory upper bound; it over-reports");
-        Console.WriteLine("  the store's 24KB page arrays ~2x (GC reservation), so trust churn for the store footprint.");
+        Console.WriteLine(
+            "  MB churn = GC.GetTotalAllocatedBytes, byte-accurate (this is the plan's target metric:"
+        );
+        Console.WriteLine(
+            "  baseline ~162MB -> target 10-20MB). MB heap = GetTotalMemory upper bound; it over-reports"
+        );
+        Console.WriteLine(
+            "  the store's 24KB page arrays ~2x (GC reservation), so trust churn for the store footprint."
+        );
         Console.WriteLine();
 
         // VETO i — derivation cost vs the gain.
@@ -135,49 +157,79 @@ public static class DenseStoreSpikeHarness
         var taxDeltaB = denseB.Ms - denseBpre.Ms;
         var taxDeltaA = denseA.Ms - denseApre.Ms;
 
-        Console.WriteLine("== VETO (i) — does on-the-fly derivation eat the gain? (threshold 15%) ==");
-        Console.WriteLine($"  gain (b) = baseline {baseline.Ms:N1} - dense(b) {denseB.Ms:N1} = {gainB:N1} ms");
-        Console.WriteLine($"  gain (a) = baseline {baseline.Ms:N1} - dense(a) {denseA.Ms:N1} = {gainA:N1} ms");
+        Console.WriteLine(
+            "== VETO (i) — does on-the-fly derivation eat the gain? (threshold 15%) =="
+        );
+        Console.WriteLine(
+            $"  gain (b) = baseline {baseline.Ms:N1} - dense(b) {denseB.Ms:N1} = {gainB:N1} ms"
+        );
+        Console.WriteLine(
+            $"  gain (a) = baseline {baseline.Ms:N1} - dense(a) {denseA.Ms:N1} = {gainA:N1} ms"
+        );
         Console.WriteLine($"  derivation standalone            : {derivationMs:N1} ms");
-        Console.WriteLine($"  derivation as %% of gain (b)      : {derivShareOfGainB:N1}%  ({(derivShareOfGainB > 15 ? "OVER 15% -> AST numerization enters" : "under 15% -> additive store OK")})");
+        Console.WriteLine(
+            $"  derivation as %% of gain (b)      : {derivShareOfGainB:N1}%  ({(derivShareOfGainB > 15 ? "OVER 15% -> AST numerization enters" : "under 15% -> additive store OK")})"
+        );
         Console.WriteLine($"  derivation as %% of gain (a)      : {derivShareOfGainA:N1}%");
-        Console.WriteLine($"  cross-check tax = full - prederived: (b) {taxDeltaB:N1} ms, (a) {taxDeltaA:N1} ms");
+        Console.WriteLine(
+            $"  cross-check tax = full - prederived: (b) {taxDeltaB:N1} ms, (a) {taxDeltaA:N1} ms"
+        );
         Console.WriteLine();
 
         // VETO ii — how much does (a) leave on the table vs (b)?
         var aVsB = denseA.Ms - denseB.Ms;
         var aVsBpre = denseApre.Ms - denseBpre.Ms;
         Console.WriteLine("== VETO (ii) — concurrent (a) cost vs single-threaded (b) ceiling ==");
-        Console.WriteLine($"  (a) - (b) with derivation   : {aVsB:N1} ms  ({(denseB.Ms > 0 ? aVsB / denseB.Ms * 100 : 0):N1}% over (b))");
-        Console.WriteLine($"  (a) - (b) pre-derived (pure): {aVsBpre:N1} ms  ({(denseBpre.Ms > 0 ? aVsBpre / denseBpre.Ms * 100 : 0):N1}% over (b))");
-        Console.WriteLine("  -> the seqlock+CAS overhead on 600k writes + version read on 1.0M reads is the price of");
-        Console.WriteLine("     keeping evaluation concurrent; (b) is the ceiling if evaluation is declared single-threaded.");
+        Console.WriteLine(
+            $"  (a) - (b) with derivation   : {aVsB:N1} ms  ({(denseB.Ms > 0 ? aVsB / denseB.Ms * 100 : 0):N1}% over (b))"
+        );
+        Console.WriteLine(
+            $"  (a) - (b) pre-derived (pure): {aVsBpre:N1} ms  ({(denseBpre.Ms > 0 ? aVsBpre / denseBpre.Ms * 100 : 0):N1}% over (b))"
+        );
+        Console.WriteLine(
+            "  -> the seqlock+CAS overhead on 600k writes + version read on 1.0M reads is the price of"
+        );
+        Console.WriteLine(
+            "     keeping evaluation concurrent; (b) is the ceiling if evaluation is declared single-threaded."
+        );
         Console.WriteLine();
 
         // Visited-bit.
         Console.WriteLine("== VISITED-BIT (cycle guard) — 600k enter/exit ==");
-        Console.WriteLine($"  HashSet<(string,string)> Add+Remove : {visited.HashSetMs,8:N1} ms  ({visited.HashSetChurnMb:N1} MB churn)");
-        Console.WriteLine($"  per-slot bit  set+clear             : {visited.BitMs,8:N1} ms  ({visited.BitChurnMb:N1} MB churn)");
+        Console.WriteLine(
+            $"  HashSet<(string,string)> Add+Remove : {visited.HashSetMs, 8:N1} ms  ({visited.HashSetChurnMb:N1} MB churn)"
+        );
+        Console.WriteLine(
+            $"  per-slot bit  set+clear             : {visited.BitMs, 8:N1} ms  ({visited.BitChurnMb:N1} MB churn)"
+        );
         Console.WriteLine();
 
         // Sparsity.
-        Console.WriteLine("== SPARSITY — 10k cells over columns A..ZZ, rows up to 1,000,000 (byte-accurate analytic) ==");
+        Console.WriteLine(
+            "== SPARSITY — 10k cells over columns A..ZZ, rows up to 1,000,000 (byte-accurate analytic) =="
+        );
         foreach (var s in sparse)
         {
             Console.WriteLine(
-                $"  {s.Label,-18}: touched {s.TouchedPages,5} pages -> dense {s.DenseTotalMb,7:N2} MB "
-                    + $"(pages {s.PageDataMb,6:N2} + ptr-arrays {s.PointerMb,5:N2}); baseline dict ~{s.BaselineDictMb:N2} MB"
+                $"  {s.Label, -18}: touched {s.TouchedPages, 5} pages -> dense {s.DenseTotalMb, 7:N2} MB "
+                    + $"(pages {s.PageDataMb, 6:N2} + ptr-arrays {s.PointerMb, 5:N2}); baseline dict ~{s.BaselineDictMb:N2} MB"
             );
         }
-        Console.WriteLine("  NOTE: page granularity is 1024 ROWS PER COLUMN. Cells clustered within pages stay cheap;");
-        Console.WriteLine("  cells scattered one-per-page inflate the dense store (each touched page is ~24 KB of slots).");
-        Console.WriteLine("  >>> RISK for Phase 1: pathological row-scatter DOES balloon the store; real sheets cluster.");
+        Console.WriteLine(
+            "  NOTE: page granularity is 1024 ROWS PER COLUMN. Cells clustered within pages stay cheap;"
+        );
+        Console.WriteLine(
+            "  cells scattered one-per-page inflate the dense store (each touched page is ~24 KB of slots)."
+        );
+        Console.WriteLine(
+            "  >>> RISK for Phase 1: pathological row-scatter DOES balloon the store; real sheets cluster."
+        );
         Console.WriteLine();
     }
 
     private static void Row(string label, Measured m)
     {
-        Console.WriteLine($"{label,-42}{m.Ms,10:N1}{m.ChurnMb,12:N1}{m.RetainedMb,14:N1}");
+        Console.WriteLine($"{label, -42}{m.Ms, 10:N1}{m.ChurnMb, 12:N1}{m.RetainedMb, 14:N1}");
     }
 
     // ============================================================ access sequence
@@ -186,13 +238,13 @@ public static class DenseStoreSpikeHarness
     // 600k distinct cells (400k S: C{r},D{r}; 200k Data: A{v},B{v}) -> 600k first-touch misses, 400k hits.
     private sealed class AccessSequence
     {
-        public required string[] Name;     // sheet name per access ("S" / "Data")
-        public required string[] Id;        // cell id per access ("C123", "A45", ...)
-        public required int[] Handle;       // pre-derived sheet handle
-        public required int[] Col;          // pre-derived 1-based column
-        public required int[] Row;          // pre-derived 1-based row
-        public required double[] Value;      // deterministic value stored/read for that cell
-        public required double ExpectedSum;  // sum every correct variant must reproduce
+        public required string[] Name; // sheet name per access ("S" / "Data")
+        public required string[] Id; // cell id per access ("C123", "A45", ...)
+        public required int[] Handle; // pre-derived sheet handle
+        public required int[] Col; // pre-derived 1-based column
+        public required int[] Row; // pre-derived 1-based row
+        public required double[] Value; // deterministic value stored/read for that cell
+        public required double ExpectedSum; // sum every correct variant must reproduce
         public required int MaxColS;
         public required int MaxColData;
     }
@@ -222,11 +274,11 @@ public static class DenseStoreSpikeHarness
         for (var r = 1; r <= FormulaRows; r++)
         {
             var v = (r % DataRows) + 1;
-            Add(FormulaSheet, HandleS, "C" + r, 3, r);    // C = column 3
-            Add(DataSheet, HandleData, "A" + v, 1, v);    // A = column 1
-            Add(DataSheet, HandleData, "B" + v, 2, v);    // B = column 2
-            Add(FormulaSheet, HandleS, "D" + r, 4, r);    // D = column 4
-            Add(DataSheet, HandleData, "B" + v, 2, v);    // repeat -> hit
+            Add(FormulaSheet, HandleS, "C" + r, 3, r); // C = column 3
+            Add(DataSheet, HandleData, "A" + v, 1, v); // A = column 1
+            Add(DataSheet, HandleData, "B" + v, 2, v); // B = column 2
+            Add(FormulaSheet, HandleS, "D" + r, 4, r); // D = column 4
+            Add(DataSheet, HandleData, "B" + v, 2, v); // repeat -> hit
         }
 
         // Expected sum = sum over every access of the value that cell holds (hit reads it back, miss stores it).
@@ -378,7 +430,12 @@ public static class DenseStoreSpikeHarness
 
     // ============================================================ measured contenders
 
-    private readonly record struct Measured(double Ms, double ChurnMb, double RetainedMb, double Sum);
+    private readonly record struct Measured(
+        double Ms,
+        double ChurnMb,
+        double RetainedMb,
+        double Sum
+    );
 
     private static Measured ProbeBaselineDictionary(AccessSequence seq)
     {
@@ -503,12 +560,19 @@ public static class DenseStoreSpikeHarness
         return new StorePair(null, p);
     }
 
-    private static double RunPlain(PlainStore store, AccessSequence seq, ConcurrentDictionary<string, int> nameDict, bool derive)
+    private static double RunPlain(
+        PlainStore store,
+        AccessSequence seq,
+        ConcurrentDictionary<string, int> nameDict,
+        bool derive
+    )
     {
         double s = 0;
         for (var i = 0; i < seq.Id.Length; i++)
         {
-            int h, c, r;
+            int h,
+                c,
+                r;
             if (derive)
             {
                 h = nameDict[seq.Name[i]];
@@ -542,12 +606,19 @@ public static class DenseStoreSpikeHarness
         return s;
     }
 
-    private static double RunSeq(SeqStore store, AccessSequence seq, ConcurrentDictionary<string, int> nameDict, bool derive)
+    private static double RunSeq(
+        SeqStore store,
+        AccessSequence seq,
+        ConcurrentDictionary<string, int> nameDict,
+        bool derive
+    )
     {
         double s = 0;
         for (var i = 0; i < seq.Id.Length; i++)
         {
-            int h, c, r;
+            int h,
+                c,
+                r;
             if (derive)
             {
                 h = nameDict[seq.Name[i]];
@@ -583,7 +654,12 @@ public static class DenseStoreSpikeHarness
 
     // ============================================================ visited-bit (design item 3)
 
-    private readonly record struct VisitedResult(double HashSetMs, double HashSetChurnMb, double BitMs, double BitChurnMb);
+    private readonly record struct VisitedResult(
+        double HashSetMs,
+        double HashSetChurnMb,
+        double BitMs,
+        double BitChurnMb
+    );
 
     private static VisitedResult ProbeVisitedGuard()
     {
@@ -696,8 +772,10 @@ public static class DenseStoreSpikeHarness
         var maxRow = 0;
         foreach (var (c, r) in cellsAt)
         {
-            if (c > maxCol) maxCol = c;
-            if (r > maxRow) maxRow = r;
+            if (c > maxCol)
+                maxCol = c;
+            if (r > maxRow)
+                maxRow = r;
         }
 
         // Dense paged store — byte-accurate analytic footprint (see Footprint()).
@@ -946,7 +1024,8 @@ public static class DenseStoreSpikeHarness
             }
 
             // Per page: Values (1024 * sizeof(ComputedValue)) + Present + Visited bitmaps (16 ulongs each).
-            long perPage = PageRows * (long)Unsafe.SizeOf<ComputedValue>() + 2L * (PageRows / 64) * 8;
+            long perPage =
+                PageRows * (long)Unsafe.SizeOf<ComputedValue>() + 2L * (PageRows / 64) * 8;
             return (pages, pages * perPage, pointer);
         }
     }
@@ -1038,7 +1117,7 @@ public static class DenseStoreSpikeHarness
     {
         public readonly ComputedValue[] Values = new ComputedValue[PageRows];
         public readonly ulong[] Present = new ulong[PageRows / 64];
-        private int _version;   // even = stable, odd = a writer is mid-update
+        private int _version; // even = stable, odd = a writer is mid-update
         private int _writeLock; // 0 = free, 1 = held (single-writer gate for the page)
 
         // Lock-free seqlock read: retry if a writer is (or was) active mid-read.
@@ -1070,9 +1149,7 @@ public static class DenseStoreSpikeHarness
         {
             // Single-writer gate (page granularity): concurrent writers to the same page serialize here; writers
             // to different pages never contend. Writes are the 600k minority and already do expensive AST work.
-            while (Interlocked.CompareExchange(ref _writeLock, 1, 0) != 0)
-            {
-            }
+            while (Interlocked.CompareExchange(ref _writeLock, 1, 0) != 0) { }
 
             var v = _version;
             Volatile.Write(ref _version, v + 1); // -> odd: readers will retry

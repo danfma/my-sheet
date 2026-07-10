@@ -69,7 +69,9 @@ public sealed partial record Base(Expression[] Arguments) : Function
 
         var text = new string(buffer[position..]);
 
-        return ComputedValue.Text(text.Length < (int)padding ? text.PadLeft((int)padding, '0') : text);
+        return ComputedValue.Text(
+            text.Length < (int)padding ? text.PadLeft((int)padding, '0') : text
+        );
     }
 }
 
@@ -131,8 +133,19 @@ public sealed partial record Roman(Expression[] Arguments) : Function
 {
     private static readonly (int Value, string Numeral)[] ClassicNumerals =
     [
-        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
-        (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
     ];
 
     public override ComputedValue Evaluate(EvaluationContext context)
@@ -262,15 +275,16 @@ public sealed partial record Arabic(Expression[] Arguments) : Function
         return ComputedValue.Number(negative ? -total : total);
     }
 
-    private static int RomanDigit(char character) => char.ToUpperInvariant(character) switch
-    {
-        'I' => 1,
-        'V' => 5,
-        'X' => 10,
-        'L' => 50,
-        'C' => 100,
-        'D' => 500,
-        'M' => 1000,
-        _ => -1,
-    };
+    private static int RomanDigit(char character) =>
+        char.ToUpperInvariant(character) switch
+        {
+            'I' => 1,
+            'V' => 5,
+            'X' => 10,
+            'L' => 50,
+            'C' => 100,
+            'D' => 500,
+            'M' => 1000,
+            _ => -1,
+        };
 }

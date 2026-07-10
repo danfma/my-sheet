@@ -167,7 +167,12 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             {
                 for (var column = 1; column <= table.ColumnCount; column++)
                 {
-                    if (ValueCoercion.AreEqual(table.CellComputedValueAt(context, 1, column), lookup))
+                    if (
+                        ValueCoercion.AreEqual(
+                            table.CellComputedValueAt(context, 1, column),
+                            lookup
+                        )
+                    )
                     {
                         matchColumn = column;
                         break;
@@ -230,9 +235,10 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
         }
 
         var lookupVector = ArgumentFlattening.ExpandCached(Arguments[1], context, out _);
-        var resultVector = Arguments.Length == 3
-            ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
-            : lookupVector;
+        var resultVector =
+            Arguments.Length == 3
+                ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
+                : lookupVector;
 
         return Find(lookup, lookupVector, resultVector);
     }
@@ -255,14 +261,17 @@ public sealed partial record Column(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
         // A reference to a missing sheet is a structural #REF!, not a column position.
-        ReferenceGuard.MissingSheet(Arguments, context) is { } missing
+        ReferenceGuard.MissingSheet(Arguments, context)
+            is { } missing
             ? ComputedValue.Error(missing)
             : Arguments switch
             {
                 [CellReference cell] => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
                 [RangeReference range] => ComputedValue.Number(range.LeftColumn),
                 // COLUMN() with no argument uses the cell currently being evaluated, when one is known.
-                [] when context.CellId is { } id => ComputedValue.Number(CellAddress.Parse(id).Column),
+                [] when context.CellId is { } id => ComputedValue.Number(
+                    CellAddress.Parse(id).Column
+                ),
                 _ => ComputedValue.Error(Error.Value),
             };
 }
@@ -275,10 +284,16 @@ public sealed partial record Columns(Expression[] Arguments) : Function
     // open one; anything else is 1.
     public override ComputedValue Evaluate(EvaluationContext context) =>
         // A reference to a missing sheet is a structural #REF!, not an empty (0-column) extent.
-        ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing
+        ReferenceGuard.MissingSheet(Arguments[0], context)
+            is { } missing
             ? ComputedValue.Error(missing)
             : ComputedValue.Number(
-                NamedReferences.TryResolveReference(Arguments[0], context, out var reference, boundOpenRanges: false)
+                NamedReferences.TryResolveReference(
+                    Arguments[0],
+                    context,
+                    out var reference,
+                    boundOpenRanges: false
+                )
                     ? reference switch
                     {
                         RangeReference range => range.ColumnCount,

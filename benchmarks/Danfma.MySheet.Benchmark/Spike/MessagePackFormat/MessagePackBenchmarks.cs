@@ -55,7 +55,8 @@ public class MessagePackBenchmarks
 
     // ── Deserialize ─────────────────────────────────────────────────────────────────────────────────
     [Benchmark(Baseline = true), BenchmarkCategory("Deserialize")]
-    public Workbook MemoryPack_Deserialize() => SpikeSerializers.MemoryPackDeserialize(_memoryPackBytes);
+    public Workbook MemoryPack_Deserialize() =>
+        SpikeSerializers.MemoryPackDeserialize(_memoryPackBytes);
 
     [Benchmark, BenchmarkCategory("Deserialize")]
     public MWorkbook MessagePack_Deserialize() =>

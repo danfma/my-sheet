@@ -15,14 +15,18 @@ public sealed partial class MWorkbook : IMessagePackSerializationCallbackReceive
     public Dictionary<string, MSheet> Sheets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     [Key(1)]
-    public Dictionary<string, MExpr> DefinedNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, MExpr> DefinedNames { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public void OnBeforeSerialize() { }
 
     public void OnAfterDeserialize()
     {
         Sheets = new Dictionary<string, MSheet>(Sheets, StringComparer.OrdinalIgnoreCase);
-        DefinedNames = new Dictionary<string, MExpr>(DefinedNames, StringComparer.OrdinalIgnoreCase);
+        DefinedNames = new Dictionary<string, MExpr>(
+            DefinedNames,
+            StringComparer.OrdinalIgnoreCase
+        );
     }
 }
 

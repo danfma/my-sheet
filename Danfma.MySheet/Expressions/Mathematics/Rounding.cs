@@ -76,10 +76,7 @@ public sealed partial record MRound(Expression[] Arguments) : Function
             return ComputedValue.Number(0);
         }
 
-        var quotient = Math.Round(
-            ExcelMath.Snap(number / multiple),
-            MidpointRounding.AwayFromZero
-        );
+        var quotient = Math.Round(ExcelMath.Snap(number / multiple), MidpointRounding.AwayFromZero);
 
         return ComputedValue.Number(quotient * multiple);
     }
@@ -95,7 +92,10 @@ public sealed partial record Ceiling(Expression[] Arguments) : Function
             return ComputedValue.Error(numberError);
         }
 
-        if (Arguments[1].Evaluate(context).CoerceToNumber(out var significance) is { } significanceError)
+        if (
+            Arguments[1].Evaluate(context).CoerceToNumber(out var significance) is
+            { } significanceError
+        )
         {
             return ComputedValue.Error(significanceError);
         }
@@ -131,7 +131,8 @@ public sealed partial record CeilingMath(Expression[] Arguments) : Function
 
         if (
             Arguments.Length >= 2
-            && Arguments[1].Evaluate(context).CoerceToNumber(out significance) is { } significanceError
+            && Arguments[1].Evaluate(context).CoerceToNumber(out significance)
+                is { } significanceError
         )
         {
             return ComputedValue.Error(significanceError);
@@ -188,7 +189,10 @@ public sealed partial record Floor(Expression[] Arguments) : Function
             return ComputedValue.Error(numberError);
         }
 
-        if (Arguments[1].Evaluate(context).CoerceToNumber(out var significance) is { } significanceError)
+        if (
+            Arguments[1].Evaluate(context).CoerceToNumber(out var significance) is
+            { } significanceError
+        )
         {
             return ComputedValue.Error(significanceError);
         }
@@ -224,7 +228,8 @@ public sealed partial record FloorMath(Expression[] Arguments) : Function
 
         if (
             Arguments.Length >= 2
-            && Arguments[1].Evaluate(context).CoerceToNumber(out significance) is { } significanceError
+            && Arguments[1].Evaluate(context).CoerceToNumber(out significance)
+                is { } significanceError
         )
         {
             return ComputedValue.Error(significanceError);
@@ -304,7 +309,11 @@ public sealed partial record Odd(Expression[] Arguments) : Function
 /// </summary>
 file static class PreciseRounding
 {
-    public static ComputedValue Evaluate(Expression[] arguments, EvaluationContext context, bool roundUp)
+    public static ComputedValue Evaluate(
+        Expression[] arguments,
+        EvaluationContext context,
+        bool roundUp
+    )
     {
         if (arguments[0].Evaluate(context).CoerceToNumber(out var number) is { } numberError)
         {
@@ -315,7 +324,8 @@ file static class PreciseRounding
 
         if (
             arguments.Length == 2
-            && arguments[1].Evaluate(context).CoerceToNumber(out significance) is { } significanceError
+            && arguments[1].Evaluate(context).CoerceToNumber(out significance)
+                is { } significanceError
         )
         {
             return ComputedValue.Error(significanceError);

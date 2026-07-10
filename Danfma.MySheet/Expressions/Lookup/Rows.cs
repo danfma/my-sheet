@@ -10,10 +10,16 @@ public sealed partial record Rows(Expression[] Arguments) : Function
     // or a scalar) is 1. boundOpenRanges:false keeps the open reference so the extent rule applies.
     public override ComputedValue Evaluate(EvaluationContext context) =>
         // A reference to a missing sheet is a structural #REF!, not an empty (0-row) extent.
-        ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing
+        ReferenceGuard.MissingSheet(Arguments[0], context)
+            is { } missing
             ? ComputedValue.Error(missing)
             : ComputedValue.Number(
-                NamedReferences.TryResolveReference(Arguments[0], context, out var reference, boundOpenRanges: false)
+                NamedReferences.TryResolveReference(
+                    Arguments[0],
+                    context,
+                    out var reference,
+                    boundOpenRanges: false
+                )
                     ? reference switch
                     {
                         RangeReference range => range.RowCount,

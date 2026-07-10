@@ -20,13 +20,19 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         // Single-range (no separate sum_range) numeric `=k` criterion → O(1) via the numeric-equality map,
         // whose per-key Sum is exactly Σ of the matching cells' own numeric values. Any other shape scans
         // the cached snapshot(s) linearly (no cell re-read).
-        if (Arguments.Length < 3 && snapshot is not null && criteria.TryGetNumericEquality(out var key))
+        if (
+            Arguments.Length < 3
+            && snapshot is not null
+            && criteria.TryGetNumericEquality(out var key)
+        )
         {
             return ComputedValue.Number(snapshot.NumericEquality(key).Sum);
         }
 
         var sumRange =
-            Arguments.Length == 3 ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _) : range;
+            Arguments.Length == 3
+                ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
+                : range;
 
         var total = 0.0;
         var length = Math.Min(range.Count, sumRange.Count);

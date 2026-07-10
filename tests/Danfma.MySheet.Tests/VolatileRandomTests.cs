@@ -81,7 +81,9 @@ public class VolatileRandomTests
             var draws = new double[5];
             for (var i = 0; i < draws.Length; i++)
             {
-                draws[i] = workbook.GetCellValue("Sheet1", "A1").AsObject() is double d ? d : double.NaN;
+                draws[i] = workbook.GetCellValue("Sheet1", "A1").AsObject() is double d
+                    ? d
+                    : double.NaN;
                 workbook.Recalculate();
             }
 
@@ -141,7 +143,9 @@ public class VolatileRandomTests
     {
         var workbook = Seeded(1);
         workbook["Sheet1"]["A1"] = ExpressionParser.Parse("=RANDBETWEEN(6,1)", workbook["Sheet1"]);
-        await Assert.That(workbook.GetCellValue("Sheet1", "A1").AsObject()).IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(workbook.GetCellValue("Sheet1", "A1").AsObject())
+            .IsEqualTo(ErrorValue.Number);
     }
 
     [Test]
@@ -150,7 +154,10 @@ public class VolatileRandomTests
         // Page-silent design decision (the plan's default): truncate toward zero, then draw inclusively.
         // RANDBETWEEN(1.9, 3.2) truncates to [1, 3].
         var workbook = Seeded(17);
-        workbook["Sheet1"]["A1"] = ExpressionParser.Parse("=RANDBETWEEN(1.9,3.2)", workbook["Sheet1"]);
+        workbook["Sheet1"]["A1"] = ExpressionParser.Parse(
+            "=RANDBETWEEN(1.9,3.2)",
+            workbook["Sheet1"]
+        );
 
         for (var i = 0; i < 200; i++)
         {
@@ -169,12 +176,17 @@ public class VolatileRandomTests
         static double[] Draw(int seed)
         {
             var workbook = Seeded(seed);
-            workbook["Sheet1"]["A1"] = ExpressionParser.Parse("=RANDBETWEEN(1,1000000)", workbook["Sheet1"]);
+            workbook["Sheet1"]["A1"] = ExpressionParser.Parse(
+                "=RANDBETWEEN(1,1000000)",
+                workbook["Sheet1"]
+            );
 
             var draws = new double[6];
             for (var i = 0; i < draws.Length; i++)
             {
-                draws[i] = workbook.GetCellValue("Sheet1", "A1").AsObject() is double d ? d : double.NaN;
+                draws[i] = workbook.GetCellValue("Sheet1", "A1").AsObject() is double d
+                    ? d
+                    : double.NaN;
                 workbook.Recalculate();
             }
 

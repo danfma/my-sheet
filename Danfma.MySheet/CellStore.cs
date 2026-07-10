@@ -110,7 +110,13 @@ internal sealed class CellStore : IReadOnlyDictionary<string, Expression>
     // The single write path: canonical A1 goes to the dense map, everything else to the overflow map.
     // Reports whether a NEW dense (A1) cell was inserted — the only case the structural index must learn —
     // along with its coordinates (valid only when the flag is set).
-    internal void Set(string id, Expression expr, out bool addedDenseCell, out int column, out int row)
+    internal void Set(
+        string id,
+        Expression expr,
+        out bool addedDenseCell,
+        out int column,
+        out int row
+    )
     {
         if (TryParseCanonical(id, out column, out row))
         {
@@ -266,9 +272,7 @@ internal sealed class CellStoreFormatter : MemoryPackFormatter<CellStore>
         // formatter stops registering that dictionary formatter — yet Serialize/Deserialize delegate to it for
         // the byte-identical wire. Register it here so the delegation never depends on another member (e.g.
         // Workbook.DefinedNames) happening to carry the same type.
-        if (
-            !MemoryPackFormatterProvider.IsRegistered<Dictionary<string, Expression>>()
-        )
+        if (!MemoryPackFormatterProvider.IsRegistered<Dictionary<string, Expression>>())
         {
             MemoryPackFormatterProvider.Register(
                 new global::MemoryPack.Formatters.DictionaryFormatter<string, Expression>()

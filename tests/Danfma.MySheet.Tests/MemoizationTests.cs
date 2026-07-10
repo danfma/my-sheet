@@ -107,7 +107,8 @@ public class MemoizationTests
         }
 
         var result =
-            Workbook.RunWithLargeStack(() => sheet[$"A{depth}"].Evaluate(workbook).AsObject()) as double?;
+            Workbook.RunWithLargeStack(() => sheet[$"A{depth}"].Evaluate(workbook).AsObject())
+            as double?;
 
         await Assert.That(result).IsEqualTo((double)depth);
     }
@@ -162,6 +163,8 @@ public class MemoizationTests
         // A plain sweep on the calling thread would overflow; ComputeAll runs on a large stack.
         workbook.ComputeAll();
 
-        await Assert.That(workbook.GetCellValue("Sheet1", $"A{depth}").AsObject()).IsEqualTo((double)depth);
+        await Assert
+            .That(workbook.GetCellValue("Sheet1", $"A{depth}").AsObject())
+            .IsEqualTo((double)depth);
     }
 }

@@ -91,7 +91,9 @@ public class SheetNameInterningTests
         wb.Sheets.Add("Data")["A1"] = new NumberValue(1);
         var main = wb.Sheets.Add("Main");
         main["C1"] = ExpressionParser.Parse("=Data!A1", main);
-        var restored = MemoryPackSerializer.Deserialize<Workbook>(MemoryPackSerializer.Serialize(wb))!;
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(
+            MemoryPackSerializer.Serialize(wb)
+        )!;
         var loaded = (CellReference)restored.Sheets["Main"]["C1"];
 
         // Same intern pool on both paths: a parsed name and a loaded name are the SAME reference.
@@ -109,7 +111,9 @@ public class SheetNameInterningTests
             main["C" + i] = ExpressionParser.Parse("=Data!A1", main);
         }
 
-        var restored = MemoryPackSerializer.Deserialize<Workbook>(MemoryPackSerializer.Serialize(wb))!;
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(
+            MemoryPackSerializer.Serialize(wb)
+        )!;
         var loadedMain = restored.Sheets["Main"];
 
         var first = ((CellReference)loadedMain["C1"]).SheetName;

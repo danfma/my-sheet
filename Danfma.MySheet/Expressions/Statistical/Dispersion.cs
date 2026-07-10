@@ -278,8 +278,11 @@ public sealed partial record Skew(Expression[] Arguments) : Function
 
         var n = values.Count;
 
-        if (n < 3 || StatisticsMath.SampleVariance(values, out var variance) is not null
-            || variance == 0)
+        if (
+            n < 3
+            || StatisticsMath.SampleVariance(values, out var variance) is not null
+            || variance == 0
+        )
         {
             return ComputedValue.Error(Error.DivZero);
         }
@@ -312,8 +315,11 @@ public sealed partial record SkewP(Expression[] Arguments) : Function
 
         var n = values.Count;
 
-        if (n < 3 || StatisticsMath.PopulationVariance(values, out var variance) is not null
-            || variance == 0)
+        if (
+            n < 3
+            || StatisticsMath.PopulationVariance(values, out var variance) is not null
+            || variance == 0
+        )
         {
             return ComputedValue.Error(Error.DivZero);
         }
@@ -347,8 +353,11 @@ public sealed partial record Kurt(Expression[] Arguments) : Function
 
         var n = values.Count;
 
-        if (n < 4 || StatisticsMath.SampleVariance(values, out var variance) is not null
-            || variance == 0)
+        if (
+            n < 4
+            || StatisticsMath.SampleVariance(values, out var variance) is not null
+            || variance == 0
+        )
         {
             return ComputedValue.Error(Error.DivZero);
         }
@@ -391,8 +400,6 @@ public sealed partial record Standardize(Expression[] Arguments) : Function
             return ComputedValue.Error(sdError);
         }
 
-        return sd <= 0
-            ? ComputedValue.Error(Error.Num)
-            : ComputedValue.Number((x - mean) / sd);
+        return sd <= 0 ? ComputedValue.Error(Error.Num) : ComputedValue.Number((x - mean) / sd);
     }
 }

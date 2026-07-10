@@ -35,8 +35,14 @@ internal static class LogicalReduction
             // text and blank cells and evaluates only the logical/numeric entries.
             if (argument is Reference)
             {
-                if (Accumulate(ArgumentFlattening.ExpandComputedValues(argument, context), ref trueCount, ref total)
-                    is { } referenceError)
+                if (
+                    Accumulate(
+                        ArgumentFlattening.ExpandComputedValues(argument, context),
+                        ref trueCount,
+                        ref total
+                    ) is
+                    { } referenceError
+                )
                 {
                     return referenceError;
                 }
@@ -50,7 +56,10 @@ internal static class LogicalReduction
             // ignore-text rule as a literal reference.
             if (computed.Kind == ComputedValueKind.Reference)
             {
-                if (Accumulate(computed.EnumerateValues(context), ref trueCount, ref total) is { } valueError)
+                if (
+                    Accumulate(computed.EnumerateValues(context), ref trueCount, ref total) is
+                    { } valueError
+                )
                 {
                     return valueError;
                 }

@@ -24,7 +24,8 @@ public class DynamicRangeTests
         // INDEX(A1:A3,2) -> A2 ; span A2:A3
         var range = new DynamicRange(
             ExpressionParser.Parse("=INDEX(A1:A3,2)", sheet),
-            new CellReference("A3", "Sheet1"));
+            new CellReference("A3", "Sheet1")
+        );
 
         var ok = range.TryResolveReference(new EvaluationContext(workbook), out var reference);
 
@@ -37,7 +38,10 @@ public class DynamicRangeTests
     [Test]
     public async Task SerializationRoundTrip_PreservesEndpoints()
     {
-        var range = new DynamicRange(new CellReference("A1", "Sheet1"), new CellReference("A3", "Sheet1"));
+        var range = new DynamicRange(
+            new CellReference("A1", "Sheet1"),
+            new CellReference("A3", "Sheet1")
+        );
         var bytes = MemoryPackSerializer.Serialize<Expression>(range);
         var back = (DynamicRange)MemoryPackSerializer.Deserialize<Expression>(bytes)!;
 

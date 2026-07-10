@@ -79,25 +79,37 @@ public class DenseValueStoreTests
         var store = new SheetValueStore();
         var handle = store.HandleFor("Grid");
 
-        const int columns = 64;   // spans multiple column groups (groups are 64 wide)
-        const int rows = 4096;    // spans multiple 1024-row pages per column
+        const int columns = 64; // spans multiple column groups (groups are 64 wide)
+        const int rows = 4096; // spans multiple 1024-row pages per column
 
-        Parallel.For(1, columns + 1, col =>
-        {
-            for (var row = 1; row <= rows; row++)
+        Parallel.For(
+            1,
+            columns + 1,
+            col =>
             {
-                store.SetDense(handle, col, row, ComputedValue.Number(col * 1_000_000d + row), tainted: false);
+                for (var row = 1; row <= rows; row++)
+                {
+                    store.SetDense(
+                        handle,
+                        col,
+                        row,
+                        ComputedValue.Number(col * 1_000_000d + row),
+                        tainted: false
+                    );
+                }
             }
-        });
+        );
 
         var mismatches = 0;
         for (var col = 1; col <= columns; col++)
         {
             for (var row = 1; row <= rows; row++)
             {
-                if (!store.TryGetDense(handle, col, row, out var value)
+                if (
+                    !store.TryGetDense(handle, col, row, out var value)
                     || !value.TryGetNumber(out var number)
-                    || number != col * 1_000_000d + row)
+                    || number != col * 1_000_000d + row
+                )
                 {
                     mismatches++;
                 }
@@ -188,8 +200,10 @@ public class DenseValueStoreTests
             {
                 while (Volatile.Read(ref done) == 0)
                 {
-                    if (store.TryGetDense(handle, col, 1, out var value)
-                        && (!value.TryGetNumber(out var n) || n != 111d))
+                    if (
+                        store.TryGetDense(handle, col, 1, out var value)
+                        && (!value.TryGetNumber(out var n) || n != 111d)
+                    )
                     {
                         Interlocked.Exchange(ref torn, 1);
                         return;
@@ -206,7 +220,11 @@ public class DenseValueStoreTests
         var mismatches = 0;
         for (var row = 2; row <= 1023; row++)
         {
-            if (!store.TryGetDense(handle, col, row, out var v) || !v.TryGetNumber(out var x) || x != row)
+            if (
+                !store.TryGetDense(handle, col, row, out var v)
+                || !v.TryGetNumber(out var x)
+                || x != row
+            )
             {
                 mismatches++;
             }
@@ -350,29 +368,36 @@ public class DenseValueStoreTests
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
         sheet["A1"] = ExpressionParser.Parse("=SLOW()", sheet);
-        workbook.RegisterFunction("SLOW", (_, _) =>
-        {
-            Thread.SpinWait(2000);
-            return 7d;
-        });
+        workbook.RegisterFunction(
+            "SLOW",
+            (_, _) =>
+            {
+                Thread.SpinWait(2000);
+                return 7d;
+            }
+        );
 
         var refErrors = 0;
         var wrong = 0;
 
-        Parallel.For(0, 64, _ =>
-        {
-            // All threads hit the uncached cell at once (SLOW spins to widen the overlap), so several evaluate
-            // it concurrently — the exact benign race the thread-local guard must not flag as a cycle.
-            var value = workbook.GetCellValue("Sheet1", "A1");
-            if (value.TryGetError(out var error) && error == Error.Ref)
+        Parallel.For(
+            0,
+            64,
+            _ =>
             {
-                Interlocked.Increment(ref refErrors);
+                // All threads hit the uncached cell at once (SLOW spins to widen the overlap), so several evaluate
+                // it concurrently — the exact benign race the thread-local guard must not flag as a cycle.
+                var value = workbook.GetCellValue("Sheet1", "A1");
+                if (value.TryGetError(out var error) && error == Error.Ref)
+                {
+                    Interlocked.Increment(ref refErrors);
+                }
+                else if (!value.TryGetNumber(out var number) || number != 7d)
+                {
+                    Interlocked.Increment(ref wrong);
+                }
             }
-            else if (!value.TryGetNumber(out var number) || number != 7d)
-            {
-                Interlocked.Increment(ref wrong);
-            }
-        });
+        );
 
         await Assert.That(refErrors).IsEqualTo(0);
         await Assert.That(wrong).IsEqualTo(0);
@@ -397,8 +422,8 @@ public class DenseValueStoreTests
 
         var s1 = workbook.GetCellValue("Sheet1", "S1").ToDouble();
         var v1 = workbook.GetCellValue("Sheet1", "V1").ToDouble();
-        await Assert.That(s1).IsEqualTo(1.0);          // STABLE1 ran once for S1
-        await Assert.That(stableTicks).IsEqualTo(2);   // and once for V1
+        await Assert.That(s1).IsEqualTo(1.0); // STABLE1 ran once for S1
+        await Assert.That(stableTicks).IsEqualTo(2); // and once for V1
 
         // New epoch + a later clock: only the volatile cell drops and recomputes; the stable one stays cached.
         var late = new DateTime(2020, 6, 15, 12, 0, 0, DateTimeKind.Local);
@@ -411,7 +436,7 @@ public class DenseValueStoreTests
 
         var v1Again = workbook.GetCellValue("Sheet1", "V1").ToDouble();
         await Assert.That(v1Again).IsGreaterThan(v1); // volatile re-sampled the later clock
-        await Assert.That(stableTicks).IsEqualTo(3);  // V1 recomputed → STABLE1 ran once more
+        await Assert.That(stableTicks).IsEqualTo(3); // V1 recomputed → STABLE1 ran once more
     }
 
     [Test]
@@ -447,8 +472,8 @@ public class DenseValueStoreTests
 
         for (var i = 0; i < cells; i++)
         {
-            var col = random.Next(1, 703);       // A..ZZ
-            var row = random.Next(1, 1_000_001);  // up to 1,000,000
+            var col = random.Next(1, 703); // A..ZZ
+            var row = random.Next(1, 1_000_001); // up to 1,000,000
             var value = col * 2_000_000d + row;
             store.SetDense(handle, col, row, ComputedValue.Number(value), tainted: false);
             expected[(col, row)] = value; // last write wins, mirrors the store
@@ -461,17 +486,23 @@ public class DenseValueStoreTests
         await Assert.That(sparseCells).IsGreaterThan(9_000);
 
         // Analytic footprint ceiling: dense pages (~24.6 KB each) + a small dictionary — far under 20 MB.
-        var pageBytes = (long)pages
-            * (SheetValueStore.DiagnosticPageRows * 24L + SheetValueStore.DiagnosticPageRows / 64 * 8L);
+        var pageBytes =
+            (long)pages
+            * (
+                SheetValueStore.DiagnosticPageRows * 24L
+                + SheetValueStore.DiagnosticPageRows / 64 * 8L
+            );
         await Assert.That(pageBytes).IsLessThan(20L * 1024 * 1024);
 
         // Every distinct cell is still served correctly (dense pages OR the sparse dict).
         var mismatches = 0;
         foreach (var ((col, row), value) in expected)
         {
-            if (!store.TryGetDense(handle, col, row, out var got)
+            if (
+                !store.TryGetDense(handle, col, row, out var got)
                 || !got.TryGetNumber(out var number)
-                || number != value)
+                || number != value
+            )
             {
                 mismatches++;
             }
@@ -495,8 +526,8 @@ public class DenseValueStoreTests
 
         var (pages, sparseCells) = store.Diagnostics(handle);
 
-        await Assert.That(sparseCells).IsEqualTo(0);          // never diverted
-        await Assert.That(pages).IsLessThanOrEqualTo(6);       // ~5 pages of 1024 rows
+        await Assert.That(sparseCells).IsEqualTo(0); // never diverted
+        await Assert.That(pages).IsLessThanOrEqualTo(6); // ~5 pages of 1024 rows
         await Assert.That(store.TryGetDense(handle, 1, 5000, out var last)).IsTrue();
         await Assert.That(last.ToDouble()).IsEqualTo(5000.0);
     }

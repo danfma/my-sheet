@@ -48,12 +48,22 @@ internal static class MirrorConverter
             // References
             CellReference r => new MCellReference(r.Id, r.SheetName),
             RangeReference r => new MRangeReference(r.StartId, r.EndId, r.SheetName),
-            OpenRangeReference r => new MOpenRangeReference(r.ColMin, r.ColMax, r.RowMin, r.RowMax, r.SheetName),
+            OpenRangeReference r => new MOpenRangeReference(
+                r.ColMin,
+                r.ColMax,
+                r.RowMin,
+                r.RowMax,
+                r.SheetName
+            ),
             UnionReference r => new MUnionReference(Map(r.Areas)),
             NameReference r => new MNameReference(r.Name),
 
             // Operations
-            BinaryOperation b => new MBinaryOperation(b.Operator, ToMirror(b.Left), ToMirror(b.Right)),
+            BinaryOperation b => new MBinaryOperation(
+                b.Operator,
+                ToMirror(b.Left),
+                ToMirror(b.Right)
+            ),
             UnaryOperation u => new MUnaryOperation(u.Operator, ToMirror(u.Operand)),
 
             // Aggregates / functions (subset)

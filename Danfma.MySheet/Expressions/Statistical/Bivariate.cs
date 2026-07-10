@@ -207,9 +207,17 @@ file static class BivariateMoments
     {
         moments = default;
 
-        if (PairwiseRanges.Expand(
-                xArgument, yArgument, context, Error.NA, PairwisePolicy.IgnorePair, out var pairs)
-            is { } error)
+        if (
+            PairwiseRanges.Expand(
+                xArgument,
+                yArgument,
+                context,
+                Error.NA,
+                PairwisePolicy.IgnorePair,
+                out var pairs
+            ) is
+            { } error
+        )
         {
             return error;
         }

@@ -14,5 +14,4 @@ public sealed partial record FunctionCall(string Name, Expression[] Arguments) :
         context.Workbook.TryGetFunction(Name, out var function)
             ? function(Arguments, context.Workbook)
             : ComputedValue.Error(Error.Name);
-
 }

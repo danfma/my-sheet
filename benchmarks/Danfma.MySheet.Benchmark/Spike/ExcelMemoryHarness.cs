@@ -31,31 +31,45 @@ public static class ExcelMemoryHarness
 
         // Scenario E — our ExcelExport (build a fresh .xlsx from scratch). Also produces the input file the
         // load-based scenarios reuse.
-        Measure("MySheet ExcelExport (fresh save)", () =>
-        {
-            workbook.SaveAsExcel(bigXlsx, new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly });
-        });
+        Measure(
+            "MySheet ExcelExport (fresh save)",
+            () =>
+            {
+                workbook.SaveAsExcel(
+                    bigXlsx,
+                    new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly }
+                );
+            }
+        );
         Console.WriteLine($"  -> produced {new FileInfo(bigXlsx).Length / 1024 / 1024} MB xlsx");
 
         // Scenario A — Aspose load + save (the user's baseline: "open in Excel, save with Aspose").
         var asposeOut = Path.Combine(tmp, "aspose-out.xlsx");
-        Measure("Aspose load + save", () =>
-        {
-            var wb = new AsposeWorkbook(bigXlsx);
-            wb.Save(asposeOut);
-        });
+        Measure(
+            "Aspose load + save",
+            () =>
+            {
+                var wb = new AsposeWorkbook(bigXlsx);
+                wb.Save(asposeOut);
+            }
+        );
 
         // Scenario M — our ExcelMerge into a copy of the same file (loads the existing DOM, writes values).
         var mergeTarget = Path.Combine(tmp, "merge-target.xlsx");
         File.Copy(bigXlsx, mergeTarget, overwrite: true);
-        Measure("MySheet ExcelMerge (into existing)", () =>
-        {
-            workbook.MergeIntoExcel(mergeTarget);
-        });
+        Measure(
+            "MySheet ExcelMerge (into existing)",
+            () =>
+            {
+                workbook.MergeIntoExcel(mergeTarget);
+            }
+        );
         // The merge wrote the same computed values the export did, so the merged file must match the export.
         VerifyRoundTrip(bigXlsx, mergeTarget);
 
-        Console.WriteLine("\nDone. (Aspose evaluation mode may cap/altér output; memory profile is still indicative.)");
+        Console.WriteLine(
+            "\nDone. (Aspose evaluation mode may cap/altér output; memory profile is still indicative.)"
+        );
     }
 
     // Confirms the rewritten file still opens and matches the original on a sample of cells and structure.
@@ -81,7 +95,8 @@ public static class ExcelMemoryHarness
                 var va = sa.Cells[r, c].StringValue;
                 var vb = sb.Cells[r, c].StringValue;
                 sampled++;
-                if (va != vb) mismatches++;
+                if (va != vb)
+                    mismatches++;
             }
         }
 
@@ -104,10 +119,14 @@ public static class ExcelMemoryHarness
             while (!Volatile.Read(ref stop))
             {
                 var now = GC.GetTotalMemory(false);
-                if (now > peak) peak = now;
+                if (now > peak)
+                    peak = now;
                 Thread.Sleep(2);
             }
-        }) { IsBackground = true };
+        })
+        {
+            IsBackground = true,
+        };
 
         var allocBefore = GC.GetTotalAllocatedBytes(precise: true);
         var sw = Stopwatch.StartNew();
@@ -123,10 +142,10 @@ public static class ExcelMemoryHarness
         var liveAfter = GC.GetTotalMemory(true);
 
         Console.WriteLine(
-            $"{label,-40}  time {sw.Elapsed.TotalSeconds,6:N2}s  "
-                + $"allocated {Mb(allocAfter - allocBefore),8}  "
-                + $"peak-live {Mb(peak),8}  "
-                + $"retained {Mb(liveAfter),8}"
+            $"{label, -40}  time {sw.Elapsed.TotalSeconds, 6:N2}s  "
+                + $"allocated {Mb(allocAfter - allocBefore), 8}  "
+                + $"peak-live {Mb(peak), 8}  "
+                + $"retained {Mb(liveAfter), 8}"
         );
     }
 

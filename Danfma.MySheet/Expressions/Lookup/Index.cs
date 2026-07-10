@@ -78,7 +78,10 @@ public sealed partial record Index(Expression[] Arguments) : Function
     // selected element is computed (no ComputedValue[] materialized). Mirrors the concrete-range branch's
     // row/column resolution: a 3-arg call takes (row, column); a 2-arg call maps the lone index to the array's
     // only axis (column for a single row, row otherwise). Out of bounds → #REF!.
-    private ComputedValue IndexIntoArray(ArrayEvaluation.ArrayStream array, EvaluationContext context)
+    private ComputedValue IndexIntoArray(
+        ArrayEvaluation.ArrayStream array,
+        EvaluationContext context
+    )
     {
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
         {
@@ -121,7 +124,10 @@ public sealed partial record Index(Expression[] Arguments) : Function
     // open). INDEX(ROW($A:$A), n) therefore returns top+n-1 directly — no column is materialized, honoring
     // the grid-less model (an open bottom has no fixed 1,048,576 cap). n < 1, or n past a bounded bottom,
     // is #REF!. A 3-arg form must select the single column (column 1).
-    private ComputedValue IndexIntoOpenRowNumbers(OpenRangeReference open, EvaluationContext context)
+    private ComputedValue IndexIntoOpenRowNumbers(
+        OpenRangeReference open,
+        EvaluationContext context
+    )
     {
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
         {
@@ -210,7 +216,10 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         // Mirrors RangeReference.CellComputedValueAt's normalization: StartId is not guaranteed to be the
         // top-left corner (e.g. A3:A1 has StartId="A3"), so the origin is the range's normalized top-left.
-        var target = new CellAddress(range.LeftColumn + (int)column - 1, range.TopRow + (int)row - 1);
+        var target = new CellAddress(
+            range.LeftColumn + (int)column - 1,
+            range.TopRow + (int)row - 1
+        );
         reference = new CellReference(target.ToId(), range.SheetName);
         return true;
     }

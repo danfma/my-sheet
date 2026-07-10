@@ -3,13 +3,13 @@ using System.Text;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Expressions.Dates;
 using Danfma.MySheet.Expressions.Financial;
-using Compat = Danfma.MySheet.Expressions.Compatibility;
 using Danfma.MySheet.Expressions.Information;
 using Danfma.MySheet.Expressions.Logical;
 using Danfma.MySheet.Expressions.Lookup;
 using Danfma.MySheet.Expressions.Mathematics;
 using Danfma.MySheet.Expressions.Statistical;
 using Danfma.MySheet.Expressions.Text;
+using Compat = Danfma.MySheet.Expressions.Compatibility;
 
 namespace Danfma.MySheet.Parsing;
 
@@ -45,7 +45,12 @@ public static class FormulaWriter
         return builder.ToString();
     }
 
-    private static void Write(StringBuilder builder, Expression expression, string context, int minPrecedence)
+    private static void Write(
+        StringBuilder builder,
+        Expression expression,
+        string context,
+        int minPrecedence
+    )
     {
         var parenthesize = Precedence(expression) < minPrecedence;
 

@@ -7,7 +7,8 @@ public sealed partial record Row(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
         // A reference to a missing sheet is a structural #REF!, not a row position.
-        ReferenceGuard.MissingSheet(Arguments, context) is { } missing
+        ReferenceGuard.MissingSheet(Arguments, context)
+            is { } missing
             ? ComputedValue.Error(missing)
             : Arguments switch
             {
@@ -17,5 +18,4 @@ public sealed partial record Row(Expression[] Arguments) : Function
                 [] when context.CellId is { } id => ComputedValue.Number(CellAddress.Parse(id).Row),
                 _ => ComputedValue.Error(Error.Value),
             };
-
 }

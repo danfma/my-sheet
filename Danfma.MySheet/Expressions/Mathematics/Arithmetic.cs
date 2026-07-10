@@ -40,7 +40,10 @@ public sealed partial record Quotient(Expression[] Arguments) : Function
             return ComputedValue.Error(numeratorError);
         }
 
-        if (Arguments[1].Evaluate(context).CoerceToNumber(out var denominator) is { } denominatorError)
+        if (
+            Arguments[1].Evaluate(context).CoerceToNumber(out var denominator) is
+            { } denominatorError
+        )
         {
             return ComputedValue.Error(denominatorError);
         }
@@ -202,8 +205,6 @@ public sealed partial record SeriesSum(Expression[] Arguments) : Function
             index++;
         }
 
-        return double.IsFinite(sum)
-            ? ComputedValue.Number(sum)
-            : ComputedValue.Error(Error.Num);
+        return double.IsFinite(sum) ? ComputedValue.Number(sum) : ComputedValue.Error(Error.Num);
     }
 }

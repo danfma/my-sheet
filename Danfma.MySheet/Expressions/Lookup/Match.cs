@@ -77,9 +77,10 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // position among the qualifying values, exactly like the linear scan below).
         if (snapshot is not null)
         {
-            var indexed = matchType > 0
-                ? snapshot.ApproximateAscendingPosition(lookup)
-                : snapshot.ApproximateDescendingPosition(lookup);
+            var indexed =
+                matchType > 0
+                    ? snapshot.ApproximateAscendingPosition(lookup)
+                    : snapshot.ApproximateDescendingPosition(lookup);
 
             return indexed >= 1 ? ComputedValue.Number(indexed) : ComputedValue.Error(Error.NA);
         }

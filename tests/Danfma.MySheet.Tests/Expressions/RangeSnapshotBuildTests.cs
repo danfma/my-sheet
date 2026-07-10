@@ -197,7 +197,9 @@ public class RangeSnapshotBuildTests
         var context = new EvaluationContext(workbook);
 
         var first = RangeSnapshot.Build(range, context);
-        await Assert.That(first.Values[149].TryGetNumber(out var before) && before == 150d).IsTrue();
+        await Assert
+            .That(first.Values[149].TryGetNumber(out var before) && before == 150d)
+            .IsTrue();
 
         // Mutate a cell and drop the value cache: the next Build must see the new value (block-copy reads the
         // repopulated page, not a stale slot).
@@ -205,7 +207,9 @@ public class RangeSnapshotBuildTests
         workbook.InvalidateCache();
 
         var second = RangeSnapshot.Build(range, context);
-        await Assert.That(second.Values[149].TryGetNumber(out var after) && after == 99999d).IsTrue();
+        await Assert
+            .That(second.Values[149].TryGetNumber(out var after) && after == 99999d)
+            .IsTrue();
     }
 
     [Test]
@@ -238,7 +242,9 @@ public class RangeSnapshotBuildTests
 
     // === Helpers =========================================================================================
 
-    private static (Workbook Workbook, Sheet Sheet, RangeReference Range) BuildRectangleWorkbook(bool warmAll)
+    private static (Workbook Workbook, Sheet Sheet, RangeReference Range) BuildRectangleWorkbook(
+        bool warmAll
+    )
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Data");
@@ -288,7 +294,11 @@ public class RangeSnapshotBuildTests
     }
 
     // The oracle: expand the closed range cell-by-cell via the public GetCellValue in column-major order.
-    private static List<ComputedValue> ExpectedColumnMajor(Workbook workbook, Sheet sheet, RangeReference range)
+    private static List<ComputedValue> ExpectedColumnMajor(
+        Workbook workbook,
+        Sheet sheet,
+        RangeReference range
+    )
     {
         var start = CellAddress.Parse(range.StartId);
         var end = CellAddress.Parse(range.EndId);
@@ -302,7 +312,9 @@ public class RangeSnapshotBuildTests
         {
             for (var row = minRow; row <= maxRow; row++)
             {
-                values.Add(workbook.GetCellValue(range.SheetName, new CellAddress(column, row).ToId()));
+                values.Add(
+                    workbook.GetCellValue(range.SheetName, new CellAddress(column, row).ToId())
+                );
             }
         }
 

@@ -18,6 +18,8 @@ public sealed partial record If(Expression[] Arguments) : Function
             return Arguments[1].Evaluate(context);
         }
 
-        return Arguments.Length == 3 ? Arguments[2].Evaluate(context) : ComputedValue.Boolean(false);
+        return Arguments.Length == 3
+            ? Arguments[2].Evaluate(context)
+            : ComputedValue.Boolean(false);
     }
 }

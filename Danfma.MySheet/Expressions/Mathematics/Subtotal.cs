@@ -234,8 +234,8 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
                     : ComputedValue.Number(Math.Sqrt(sampleSd));
 
             case 8: // STDEV.P
-                return StatisticsMath.PopulationVariance(numbers, out var populationSd)
-                    is { } sdpError
+                return
+                    StatisticsMath.PopulationVariance(numbers, out var populationSd) is { } sdpError
                     ? ComputedValue.Error(sdpError)
                     : ComputedValue.Number(Math.Sqrt(populationSd));
 
@@ -252,14 +252,15 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
             }
 
             case 10: // VAR.S
-                return StatisticsMath.SampleVariance(numbers, out var sampleVariance)
-                    is { } varError
+                return
+                    StatisticsMath.SampleVariance(numbers, out var sampleVariance) is { } varError
                     ? ComputedValue.Error(varError)
                     : ComputedValue.Number(sampleVariance);
 
             default: // 11: VAR.P
-                return StatisticsMath.PopulationVariance(numbers, out var populationVariance)
-                    is { } varpError
+                return
+                    StatisticsMath.PopulationVariance(numbers, out var populationVariance)
+                        is { } varpError
                     ? ComputedValue.Error(varpError)
                     : ComputedValue.Number(populationVariance);
         }

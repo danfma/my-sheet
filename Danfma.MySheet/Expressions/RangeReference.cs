@@ -11,7 +11,8 @@ public sealed partial record RangeReference(
 ) : Reference
 {
     // A range has no scalar value: used outside a function that accepts ranges it is a #VALUE! error.
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Error(Error.Value);
 
     // Backwards-compatible entry point used by tests and external callers.
     public IEnumerable<Expression> Expand(Workbook workbook) =>
@@ -138,7 +139,8 @@ internal readonly struct RangeValueSequence(
 
     IEnumerator<ComputedValue> IEnumerable<ComputedValue>.GetEnumerator() => GetEnumerator();
 
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+        GetEnumerator();
 
     /// <summary>The mutable struct cursor: column-major (row-inner) over the rectangle, computing each value
     /// during <see cref="MoveNext"/> so evaluation order matches the previous <c>yield</c> path exactly.</summary>

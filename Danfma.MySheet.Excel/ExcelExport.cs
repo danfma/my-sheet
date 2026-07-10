@@ -35,7 +35,11 @@ public sealed record ExcelExportOptions
 public static class ExcelExport
 {
     /// <summary>Saves the workbook as an .xlsx file.</summary>
-    public static void SaveAsExcel(this Workbook workbook, string path, ExcelExportOptions? options = null)
+    public static void SaveAsExcel(
+        this Workbook workbook,
+        string path,
+        ExcelExportOptions? options = null
+    )
     {
         using var stream = File.Create(path);
 
@@ -43,7 +47,11 @@ public static class ExcelExport
     }
 
     /// <summary>Saves the workbook as an .xlsx document into a writable stream.</summary>
-    public static void SaveAsExcel(this Workbook workbook, Stream stream, ExcelExportOptions? options = null)
+    public static void SaveAsExcel(
+        this Workbook workbook,
+        Stream stream,
+        ExcelExportOptions? options = null
+    )
     {
         var mode = (options ?? new ExcelExportOptions()).FormulaMode;
         var orderedSheets = workbook.Sheets.Values.OrderBy(sheet => sheet.Index).ToArray();
@@ -54,7 +62,10 @@ public static class ExcelExport
         // memoized store plus the (distinct-string-bounded) shared-string table stay resident.
         Workbook.RunWithLargeStack(() =>
         {
-            using var document = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
+            using var document = SpreadsheetDocument.Create(
+                stream,
+                SpreadsheetDocumentType.Workbook
+            );
 
             var workbookPart = document.AddWorkbookPart();
             var sharedStrings = new SharedStringRegistry();
@@ -75,7 +86,14 @@ public static class ExcelExport
 
             foreach (var (id, name) in sheetEntries)
             {
-                sheetList.AppendChild(new XlsxSheet { Id = id, SheetId = sheetId++, Name = name });
+                sheetList.AppendChild(
+                    new XlsxSheet
+                    {
+                        Id = id,
+                        SheetId = sheetId++,
+                        Name = name,
+                    }
+                );
             }
 
             workbookPart.Workbook = xlsxWorkbook;
@@ -138,7 +156,9 @@ public static class ExcelExport
 
         // OpenXML requires rows in order and cells in column order within the row.
         var orderedCells = sheet
-            .Select(entry => (entry.Key, Position: CellId.Parse(entry.Key), Expression: entry.Value))
+            .Select(entry =>
+                (entry.Key, Position: CellId.Parse(entry.Key), Expression: entry.Value)
+            )
             .OrderBy(cell => cell.Position.Row)
             .ThenBy(cell => cell.Position.Column);
 
@@ -179,7 +199,11 @@ public static class ExcelExport
 
                 attributes.Clear();
                 attributes.Add(
-                    new OpenXmlAttribute("r", "", ((uint)position.Row).ToString(CultureInfo.InvariantCulture))
+                    new OpenXmlAttribute(
+                        "r",
+                        "",
+                        ((uint)position.Row).ToString(CultureInfo.InvariantCulture)
+                    )
                 );
                 writer.WriteStartElement(rowTag, attributes);
                 currentRow = position.Row;
@@ -227,10 +251,16 @@ public static class ExcelExport
     private readonly record struct CellContent(string? DataType, string? Value);
 
     // A literal cell value. Text goes through the shared-string table (t="s", <v> is the index).
-    private static CellContent LiteralContent(in ComputedValue value, SharedStringRegistry sharedStrings) =>
+    private static CellContent LiteralContent(
+        in ComputedValue value,
+        SharedStringRegistry sharedStrings
+    ) =>
         value.Kind switch
         {
-            ComputedValueKind.Number => new(null, value.ToDouble().ToString(CultureInfo.InvariantCulture)),
+            ComputedValueKind.Number => new(
+                null,
+                value.ToDouble().ToString(CultureInfo.InvariantCulture)
+            ),
             ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
             ComputedValueKind.Text => new(
                 "s",
@@ -247,7 +277,10 @@ public static class ExcelExport
     private static CellContent CachedContent(in ComputedValue value) =>
         value.Kind switch
         {
-            ComputedValueKind.Number => new(null, value.ToDouble().ToString(CultureInfo.InvariantCulture)),
+            ComputedValueKind.Number => new(
+                null,
+                value.ToDouble().ToString(CultureInfo.InvariantCulture)
+            ),
             ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
             ComputedValueKind.Text => new("str", value.ToText()),
             ComputedValueKind.Error => new("e", ErrorText(value)),

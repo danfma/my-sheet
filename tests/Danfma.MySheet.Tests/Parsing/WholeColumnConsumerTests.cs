@@ -12,7 +12,9 @@ namespace Danfma.MySheet.Tests.Parsing;
 /// </summary>
 public class WholeColumnConsumerTests
 {
-    private static (Workbook Workbook, Sheet Sheet) Sheet(params (string Id, Expression Value)[] cells)
+    private static (Workbook Workbook, Sheet Sheet) Sheet(
+        params (string Id, Expression Value)[] cells
+    )
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
@@ -108,7 +110,9 @@ public class WholeColumnConsumerTests
             ("B2", String("two"))
         );
 
-        await Assert.That(Eval("=VLOOKUP(2,A:B,2,FALSE)", sheet, workbook) as string).IsEqualTo("two");
+        await Assert
+            .That(Eval("=VLOOKUP(2,A:B,2,FALSE)", sheet, workbook) as string)
+            .IsEqualTo("two");
     }
 
     [Test]

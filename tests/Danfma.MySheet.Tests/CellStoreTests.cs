@@ -79,7 +79,9 @@ public class CellStoreTests
     public async Task RoundTrip_PreservesCellsAndEvaluatesIdentically()
     {
         var wb = BuildWireFixture();
-        var restored = MemoryPackSerializer.Deserialize<Workbook>(MemoryPackSerializer.Serialize(wb))!;
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(
+            MemoryPackSerializer.Serialize(wb)
+        )!;
 
         var main = restored.Sheets["Main"];
 
@@ -91,7 +93,9 @@ public class CellStoreTests
 
         await Assert.That(main["B2"].Evaluate(restored).AsObject() as double?).IsEqualTo(60.0);
         await Assert.That(main["B11"].Evaluate(restored).AsObject() as double?).IsEqualTo(30.0);
-        await Assert.That(restored.GetCellValue("Main", "AA100").AsObject() as double?).IsEqualTo(42.0);
+        await Assert
+            .That(restored.GetCellValue("Main", "AA100").AsObject() as double?)
+            .IsEqualTo(42.0);
     }
 
     [Test]
@@ -124,7 +128,9 @@ public class CellStoreTests
         sheet["A0"] = new NumberValue(4);
         sheet["A1"] = new NumberValue(5); // canonical, distinct from "a1"/"A01"
 
-        var restored = MemoryPackSerializer.Deserialize<Workbook>(MemoryPackSerializer.Serialize(wb))!;
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(
+            MemoryPackSerializer.Serialize(wb)
+        )!;
         var s = restored.Sheets["S"];
 
         await Assert.That(s.Count).IsEqualTo(5);

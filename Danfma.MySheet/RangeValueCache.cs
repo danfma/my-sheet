@@ -160,7 +160,10 @@ internal sealed class RangeSnapshot
     /// (a lock-free store read) or the on-demand evaluation of a miss — the exact semantics, and the exact
     /// column-major order, of the enumerator this replaced.
     /// </summary>
-    private static ComputedValue[] BuildRectangle(RangeReference rectangle, EvaluationContext context)
+    private static ComputedValue[] BuildRectangle(
+        RangeReference rectangle,
+        EvaluationContext context
+    )
     {
         var start = CellAddress.Parse(rectangle.StartId);
         var end = CellAddress.Parse(rectangle.EndId);
@@ -373,9 +376,8 @@ internal sealed class RangeSnapshot
 
         for (var i = count - 1; i >= 0; i--)
         {
-            suffix[i] = i == count - 1
-                ? entries[i].Position
-                : Math.Max(suffix[i + 1], entries[i].Position);
+            suffix[i] =
+                i == count - 1 ? entries[i].Position : Math.Max(suffix[i + 1], entries[i].Position);
         }
 
         return new SortedIndex

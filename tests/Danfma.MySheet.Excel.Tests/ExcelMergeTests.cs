@@ -34,7 +34,10 @@ public class ExcelMergeTests
         data["C1"] = ExpressionParser.Parse("=\"te\"&\"xt\"", data);
         data["D1"] = ExpressionParser.Parse("=1/0", data);
 
-        workbook.Sheets.Add("Missing")["A1"] = ExpressionParser.Parse("=1", workbook.Sheets["Missing"]);
+        workbook.Sheets.Add("Missing")["A1"] = ExpressionParser.Parse(
+            "=1",
+            workbook.Sheets["Missing"]
+        );
 
         return workbook;
     }
@@ -78,7 +81,10 @@ public class ExcelMergeTests
         // The template→report flow is deliberately NOT an overload: copy the pristine template
         // yourself, then merge into the copy. This test documents the recipe.
         var templatePath = CreateTargetFile();
-        var reportPath = Path.Combine(Path.GetTempPath(), $"mysheet-report-{Guid.NewGuid():N}.xlsx");
+        var reportPath = Path.Combine(
+            Path.GetTempPath(),
+            $"mysheet-report-{Guid.NewGuid():N}.xlsx"
+        );
 
         try
         {
@@ -211,7 +217,9 @@ public class ExcelMergeTests
             await Assert.That(data.Cell("A1").Style.Font.Bold).IsTrue();
 
             // Merged ranges and untouched cells are intact.
-            await Assert.That(data.MergedRanges.Select(r => r.RangeAddress.ToString())).Contains("B2:D2");
+            await Assert
+                .That(data.MergedRanges.Select(r => r.RangeAddress.ToString()))
+                .Contains("B2:D2");
             await Assert.That(data.Cell("F6").GetString()).IsEqualTo("untouched");
         }
         finally
@@ -235,7 +243,10 @@ public class ExcelMergeTests
 
             BuildWorkbook().MergeIntoExcel(path); // overrides Data!A2, dropping its formula
 
-            using var merged = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(path, false);
+            using var merged = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(
+                path,
+                false
+            );
             await Assert.That(merged.WorkbookPart!.CalculationChainPart).IsNull();
         }
         finally

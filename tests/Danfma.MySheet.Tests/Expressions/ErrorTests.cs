@@ -36,7 +36,9 @@ public class ErrorTests
     public async Task RoundTrips_ThroughErrorValueNode()
     {
         // Error -> ErrorValue (nó de AST) -> Error, preservando a identidade.
-        await Assert.That(Error.FromDisplay(Error.DivZero.ToErrorValue().ErrorCode)).IsEqualTo(Error.DivZero);
+        await Assert
+            .That(Error.FromDisplay(Error.DivZero.ToErrorValue().ErrorCode))
+            .IsEqualTo(Error.DivZero);
         await Assert.That(Error.FromDisplay(Error.NA.ToErrorValue().ErrorCode)).IsEqualTo(Error.NA);
     }
 }

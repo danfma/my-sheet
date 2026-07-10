@@ -130,7 +130,9 @@ public class RangeValueCacheEquivalenceTests
         await Assert.That(workbook.TryGetRangeSnapshot(big, context) is null).IsTrue();
         var built = workbook.TryGetRangeSnapshot(big, context);
         await Assert.That(built is not null).IsTrue();
-        await Assert.That(ReferenceEquals(workbook.TryGetRangeSnapshot(big, context), built)).IsTrue();
+        await Assert
+            .That(ReferenceEquals(workbook.TryGetRangeSnapshot(big, context), built))
+            .IsTrue();
 
         // A sub-threshold range is never even marked, so it never admits no matter how often it is read.
         await Assert.That(workbook.TryGetRangeSnapshot(small, context) is null).IsTrue();
@@ -156,7 +158,9 @@ public class RangeValueCacheEquivalenceTests
     {
         var (workbook, sheet) = Build(Scenario.WithErrors);
 
-        foreach (var formula in new[] { "=SMALL(Data!A:A,5)", "=SUM(Data!A:A)", "=MEDIAN(Data!A:A)" })
+        foreach (
+            var formula in new[] { "=SMALL(Data!A:A,5)", "=SUM(Data!A:A)", "=MEDIAN(Data!A:A)" }
+        )
         {
             var expected = Evaluate(workbook, sheet, formula, useCache: false);
             var cached = EvaluateBuilt(workbook, sheet, formula);

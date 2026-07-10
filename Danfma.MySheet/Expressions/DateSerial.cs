@@ -58,7 +58,12 @@ internal static class DateSerial
     /// </list>
     /// year &lt; 0 or ≥ 10000, or any result outside 1900..9999, returns <see cref="Error.Num"/>.
     /// </summary>
-    public static Error? FromComponents(double yearArg, double monthArg, double dayArg, out double serial)
+    public static Error? FromComponents(
+        double yearArg,
+        double monthArg,
+        double dayArg,
+        out double serial
+    )
     {
         serial = 0d;
 

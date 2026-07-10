@@ -13,13 +13,13 @@ public readonly struct Error : IEquatable<Error>
     // Índice = código. Ordem espelha os valores clássicos do Excel.
     private static readonly string[] Displays =
     [
-        "#NULL!",   // 0
-        "#DIV/0!",  // 1
-        "#VALUE!",  // 2
-        "#REF!",    // 3
-        "#NAME?",   // 4
-        "#NUM!",    // 5
-        "#N/A",     // 6
+        "#NULL!", // 0
+        "#DIV/0!", // 1
+        "#VALUE!", // 2
+        "#REF!", // 3
+        "#NAME?", // 4
+        "#NUM!", // 5
+        "#N/A", // 6
     ];
 
     private readonly int _code;
@@ -56,27 +56,29 @@ public readonly struct Error : IEquatable<Error>
     internal static Error FromCode(int code) => new(code);
 
     /// <summary>Mapeia o código string de um <see cref="ErrorValue"/> (nó de AST) para o <see cref="Error"/>.</summary>
-    internal static Error FromDisplay(string display) => display switch
-    {
-        "#NULL!" => Null,
-        "#DIV/0!" => DivZero,
-        "#VALUE!" => Value,
-        "#REF!" => Ref,
-        "#NAME?" => Name,
-        "#NUM!" => Num,
-        "#N/A" => NA,
-        _ => Value,
-    };
+    internal static Error FromDisplay(string display) =>
+        display switch
+        {
+            "#NULL!" => Null,
+            "#DIV/0!" => DivZero,
+            "#VALUE!" => Value,
+            "#REF!" => Ref,
+            "#NAME?" => Name,
+            "#NUM!" => Num,
+            "#N/A" => NA,
+            _ => Value,
+        };
 
     /// <summary>Converte para o nó de AST <see cref="ErrorValue"/>, reusando os singletons quando existem.</summary>
-    internal ErrorValue ToErrorValue() => _code switch
-    {
-        1 => ErrorValue.DivByZero,
-        2 => ErrorValue.NotValue,
-        3 => ErrorValue.Reference,
-        4 => ErrorValue.Name,
-        5 => ErrorValue.Number,
-        6 => ErrorValue.NotAvailable,
-        _ => new ErrorValue(Display),
-    };
+    internal ErrorValue ToErrorValue() =>
+        _code switch
+        {
+            1 => ErrorValue.DivByZero,
+            2 => ErrorValue.NotValue,
+            3 => ErrorValue.Reference,
+            4 => ErrorValue.Name,
+            5 => ErrorValue.Number,
+            6 => ErrorValue.NotAvailable,
+            _ => new ErrorValue(Display),
+        };
 }

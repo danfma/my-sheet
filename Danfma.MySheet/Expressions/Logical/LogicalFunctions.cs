@@ -8,13 +8,15 @@ namespace Danfma.MySheet.Expressions.Logical;
 [MemoryPackable]
 public sealed partial record TrueFunction(Expression[] Arguments) : Function
 {
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Boolean(true);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Boolean(true);
 }
 
 [MemoryPackable]
 public sealed partial record FalseFunction(Expression[] Arguments) : Function
 {
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Boolean(false);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Boolean(false);
 }
 
 [MemoryPackable]
@@ -31,12 +33,17 @@ public sealed partial record Xor(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        if (LogicalReduction.Reduce(Arguments, context, out var trueCount, out var total) is { } error)
+        if (
+            LogicalReduction.Reduce(Arguments, context, out var trueCount, out var total) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
 
-        return total == 0 ? ComputedValue.Error(Error.Value) : ComputedValue.Boolean(trueCount % 2 == 1);
+        return total == 0
+            ? ComputedValue.Error(Error.Value)
+            : ComputedValue.Boolean(trueCount % 2 == 1);
     }
 }
 
@@ -101,6 +108,8 @@ public sealed partial record Switch(Expression[] Arguments) : Function
             }
         }
 
-        return i < Arguments.Length ? Arguments[i].Evaluate(context) : ComputedValue.Error(Error.NA);
+        return i < Arguments.Length
+            ? Arguments[i].Evaluate(context)
+            : ComputedValue.Error(Error.NA);
     }
 }

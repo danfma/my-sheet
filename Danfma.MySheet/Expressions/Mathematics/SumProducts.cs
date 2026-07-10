@@ -98,10 +98,17 @@ file static class SumOfPairs
         Func<double, double, double> term
     )
     {
-        if (PairwiseRanges.Expand(
-                arguments[0], arguments[1], context, Error.NA, PairwisePolicy.IgnorePair,
-                out var pairs)
-            is { } error)
+        if (
+            PairwiseRanges.Expand(
+                arguments[0],
+                arguments[1],
+                context,
+                Error.NA,
+                PairwisePolicy.IgnorePair,
+                out var pairs
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }

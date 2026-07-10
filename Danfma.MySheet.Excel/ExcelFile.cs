@@ -39,7 +39,10 @@ public static class ExcelFile
         // Iterating workbook.xml's sheet list in document order makes our Sheet.Index match Excel's tab order.
         foreach (var sheetElement in workbookPart.Workbook?.Sheets?.Elements<XlsxSheet>() ?? [])
         {
-            if (sheetElement.Name?.Value is not { } name || sheetElement.Id?.Value is not { } relationshipId)
+            if (
+                sheetElement.Name?.Value is not { } name
+                || sheetElement.Id?.Value is not { } relationshipId
+            )
             {
                 continue;
             }
@@ -69,7 +72,9 @@ public static class ExcelFile
 
     private static void LoadDefinedNames(WorkbookPart workbookPart, Workbook workbook)
     {
-        foreach (var definedName in workbookPart.Workbook?.DefinedNames?.Elements<DefinedName>() ?? [])
+        foreach (
+            var definedName in workbookPart.Workbook?.DefinedNames?.Elements<DefinedName>() ?? []
+        )
         {
             if (definedName.Name?.Value is not { } name)
             {
@@ -122,8 +127,10 @@ public static class ExcelFile
         // <v> is ignored). A shared-formula master also registers its text for the group.
         if (cell.CellFormula?.Text is { Length: > 0 } formula)
         {
-            if (cell.CellFormula.FormulaType?.Value == CellFormulaValues.Shared
-                && cell.CellFormula.SharedIndex?.Value is { } masterIndex)
+            if (
+                cell.CellFormula.FormulaType?.Value == CellFormulaValues.Shared
+                && cell.CellFormula.SharedIndex?.Value is { } masterIndex
+            )
             {
                 sharedFormulas[masterIndex] = (id, formula);
             }
@@ -136,9 +143,11 @@ public static class ExcelFile
         // A shared-formula slave carries no text: expand it from its master, shifting relative references
         // by the cell delta — exactly what Excel does. Without a known master it falls back to the cached
         // literal below.
-        if (cell.CellFormula?.FormulaType?.Value == CellFormulaValues.Shared
+        if (
+            cell.CellFormula?.FormulaType?.Value == CellFormulaValues.Shared
             && cell.CellFormula.SharedIndex?.Value is { } slaveIndex
-            && sharedFormulas.TryGetValue(slaveIndex, out var master))
+            && sharedFormulas.TryGetValue(slaveIndex, out var master)
+        )
         {
             var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
 
@@ -170,7 +179,9 @@ public static class ExcelFile
 
         if (type is null || type == CellValues.Number)
         {
-            return new NumberValue(double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture));
+            return new NumberValue(
+                double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture)
+            );
         }
 
         if (type == CellValues.SharedString)
@@ -180,7 +191,9 @@ public static class ExcelFile
 
         if (type == CellValues.Boolean)
         {
-            return new BooleanValue(raw is "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase));
+            return new BooleanValue(
+                raw is "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+            );
         }
 
         if (type == CellValues.Error)
@@ -192,7 +205,12 @@ public static class ExcelFile
         {
             // ISO-8601 dates (strict-mode files) are converted to the same serial-number form Excel uses
             // in transitional files, keeping "dates are serial numbers" consistent across both.
-            return DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            return DateTime.TryParse(
+                raw,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var date
+            )
                 ? new NumberValue(date.ToOADate())
                 : new StringValue(raw);
         }

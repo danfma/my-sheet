@@ -16,7 +16,10 @@ public sealed partial record Or(Expression[] Arguments) : Function
         // Excel semantics (shared with AND/XOR): text and blank cells reached through a reference/array
         // are ignored; #VALUE! only when nothing evaluable survives. OR is TRUE iff at least one
         // evaluable logical value is TRUE.
-        if (LogicalReduction.Reduce(Arguments, context, out var trueCount, out var total) is { } error)
+        if (
+            LogicalReduction.Reduce(Arguments, context, out var trueCount, out var total) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }

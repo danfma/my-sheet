@@ -11,12 +11,14 @@ internal static class MessagePackSizeReport
     {
         Console.WriteLine("== MessagePack format spike — byte sizes ==\n");
 
-        foreach (var size in new[]
-                 {
-                     MessagePackPayloads.Size.Small,
-                     MessagePackPayloads.Size.Medium,
-                     MessagePackPayloads.Size.Large,
-                 })
+        foreach (
+            var size in new[]
+            {
+                MessagePackPayloads.Size.Small,
+                MessagePackPayloads.Size.Medium,
+                MessagePackPayloads.Size.Large,
+            }
+        )
         {
             Report(size);
         }
@@ -51,7 +53,7 @@ internal static class MessagePackSizeReport
     private static void Row(string name, int bytes, int baseline)
     {
         var pct = 100.0 * bytes / baseline;
-        Console.WriteLine($"  {name,-26} {bytes,12:N0} B   {pct,6:0.0}% of MemoryPack");
+        Console.WriteLine($"  {name, -26} {bytes, 12:N0} B   {pct, 6:0.0}% of MemoryPack");
     }
 
     // Round-trip both formats and confirm they reconstruct the same logical content, so the size numbers

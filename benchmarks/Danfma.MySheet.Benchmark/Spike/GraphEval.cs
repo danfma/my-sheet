@@ -10,10 +10,10 @@ namespace Danfma.MySheet.Benchmark.Spike;
 
 public enum CellOp : byte
 {
-    Literal,      // número literal (folha)
-    LiteralText,  // texto numérico "2" (dados mistos)
-    Add,          // = DepA + DepB (caminhos cruzados/compartilhados)
-    SumRange,     // = SUM(RangeStart..RangeEnd) (range sobre células cacheadas)
+    Literal, // número literal (folha)
+    LiteralText, // texto numérico "2" (dados mistos)
+    Add, // = DepA + DepB (caminhos cruzados/compartilhados)
+    SumRange, // = SUM(RangeStart..RangeEnd) (range sobre células cacheadas)
 }
 
 public readonly struct CellSpec
@@ -46,18 +46,29 @@ public static class GraphBuilder
 
             if (i < BaseLeaves)
             {
-                cells[i] = i % 16 == 0
-                    ? new CellSpec { Op = CellOp.LiteralText }        // dados mistos: texto numérico
-                    : new CellSpec { Op = CellOp.Literal, Literal = (i % 10) + 1 };
+                cells[i] =
+                    i % 16 == 0
+                        ? new CellSpec { Op = CellOp.LiteralText } // dados mistos: texto numérico
+                        : new CellSpec { Op = CellOp.Literal, Literal = (i % 10) + 1 };
             }
             else if (i % 32 == 0)
             {
-                cells[i] = new CellSpec { Op = CellOp.SumRange, RangeStart = i - 16, RangeEnd = i - 1 };
+                cells[i] = new CellSpec
+                {
+                    Op = CellOp.SumRange,
+                    RangeStart = i - 16,
+                    RangeEnd = i - 1,
+                };
             }
             else
             {
                 // Caminho cruzado: predecessor imediato (cadeia) + hub compartilhado (fan-in).
-                cells[i] = new CellSpec { Op = CellOp.Add, DepA = i - 1, DepB = i % BaseLeaves };
+                cells[i] = new CellSpec
+                {
+                    Op = CellOp.Add,
+                    DepA = i - 1,
+                    DepB = i % BaseLeaves,
+                };
             }
         }
 
@@ -90,10 +101,11 @@ public sealed class ObjEngine
         ref readonly var spec = ref _cells[i];
         object? computed = spec.Op switch
         {
-            CellOp.Literal => spec.Literal,          // box
-            CellOp.LiteralText => "2",                 // referência (sem box)
-            CellOp.Add => SpikeCoercion.ToNumber(Get(spec.DepA)) + SpikeCoercion.ToNumber(Get(spec.DepB)), // box
-            CellOp.SumRange => SumRange(in spec),      // box
+            CellOp.Literal => spec.Literal, // box
+            CellOp.LiteralText => "2", // referência (sem box)
+            CellOp.Add => SpikeCoercion.ToNumber(Get(spec.DepA))
+                + SpikeCoercion.ToNumber(Get(spec.DepB)), // box
+            CellOp.SumRange => SumRange(in spec), // box
             _ => null,
         };
 
@@ -153,7 +165,9 @@ public sealed class CvEngine
         {
             CellOp.Literal => CellValue.Number(spec.Literal),
             CellOp.LiteralText => CellValue.Text("2"),
-            CellOp.Add => CellValue.Number(SpikeCoercion.ToNumber(Get(spec.DepA)) + SpikeCoercion.ToNumber(Get(spec.DepB))),
+            CellOp.Add => CellValue.Number(
+                SpikeCoercion.ToNumber(Get(spec.DepA)) + SpikeCoercion.ToNumber(Get(spec.DepB))
+            ),
             CellOp.SumRange => CellValue.Number(SumRange(in spec)),
             _ => CellValue.Blank,
         };

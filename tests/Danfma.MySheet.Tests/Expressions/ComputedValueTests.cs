@@ -52,7 +52,9 @@ public class ComputedValueTests
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
         var range = Range("A1", "A2", sheet);
-        await Assert.That(ComputedValue.Reference(range).TryGetReference(out var reference)).IsTrue();
+        await Assert
+            .That(ComputedValue.Reference(range).TryGetReference(out var reference))
+            .IsTrue();
         await Assert.That(reference).IsEqualTo(range);
         await Assert.That(ComputedValue.Number(1).TryGetReference(out _)).IsFalse();
     }
@@ -105,7 +107,9 @@ public class ComputedValueTests
         await Assert.That((bool)ComputedValue.Boolean(false).AsObject()!).IsFalse();
         await Assert.That(ComputedValue.Text("t").AsObject()).IsEqualTo("t");
         await Assert.That(ComputedValue.Blank.AsObject()).IsNull();
-        await Assert.That(ComputedValue.Error(Error.Value).AsObject()).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(ComputedValue.Error(Error.Value).AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]
@@ -118,7 +122,10 @@ public class ComputedValueTests
         sheet["B1"] = Number(3);
         sheet["B2"] = Number(4);
 
-        var values = ComputedValue.Reference(Range("A1", "B2", sheet)).EnumerateValues(workbook).ToList();
+        var values = ComputedValue
+            .Reference(Range("A1", "B2", sheet))
+            .EnumerateValues(workbook)
+            .ToList();
 
         await Assert.That(values.Count).IsEqualTo(4);
         await Assert.That(values.Sum(v => v.ToDouble())).IsEqualTo(10.0);

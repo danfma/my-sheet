@@ -8,7 +8,12 @@ namespace Danfma.MySheet.Benchmark.Spike.MessagePackFormat;
 // math, LET) — MirrorConverter throws otherwise, so a payload can never drift outside the measured subset.
 public static class MessagePackPayloads
 {
-    public enum Size { Small, Medium, Large }
+    public enum Size
+    {
+        Small,
+        Medium,
+        Large,
+    }
 
     public static Workbook Build(Size size) =>
         size switch

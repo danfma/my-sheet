@@ -94,7 +94,8 @@ public static class K1ComputeProfileHarness
         Console.WriteLine(
             $"Runtime {Environment.Version}, cores {Environment.ProcessorCount}. "
                 + $"Shape: Data {DataRows:N0}x2, S {FormulaRows * 2:N0} formulas. "
-                + "Each probe best-of-5 (min); GC.Collect between trials; alloc via GetTotalAllocatedBytes(true).");
+                + "Each probe best-of-5 (min); GC.Collect between trials; alloc via GetTotalAllocatedBytes(true)."
+        );
         Console.WriteLine();
 
         // Pre-build the id strings ONCE, outside every measured region, so a probe can sweep the engine without
@@ -161,7 +162,9 @@ public static class K1ComputeProfileHarness
         double Mb(long b) => b / 1048576d;
 
         Console.WriteLine("-- raw probe numbers (per one compute sweep) --");
-        Console.WriteLine($"A  live sweep, harness builds \"C\"+r inline   : {Mb(allocA), 8:N1} MB");
+        Console.WriteLine(
+            $"A  live sweep, harness builds \"C\"+r inline   : {Mb(allocA), 8:N1} MB"
+        );
         Console.WriteLine($"B  id-string building only (no engine)        : {Mb(allocB), 8:N1} MB");
         Console.WriteLine($"C  cold sweep, PRE-BUILT ids (pure engine)    : {Mb(allocC), 8:N1} MB");
         Console.WriteLine($"D  warm re-sweep, PRE-BUILT ids (all hits)    : {Mb(allocD), 8:N1} MB");
@@ -187,7 +190,8 @@ public static class K1ComputeProfileHarness
         Console.WriteLine(
             $"ENGINE compute allocation (excluding the harness's \"C\"+r artifact) = C = {Mb(allocC):N1} MB, "
                 + $"of which read/eval transient = {Mb(evalTransient):N1} MB and dense-store page backing = "
-                + $"{Mb(storePages):N1} MB (retained, intrinsic to a dense store).");
+                + $"{Mb(storePages):N1} MB (retained, intrinsic to a dense store)."
+        );
     }
 
     private static long BestAlloc(Func<long> probe)

@@ -25,7 +25,11 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
 
         // Single-range numeric `=k` criterion → O(1) via the numeric-equality map (Σ/count of the matching
         // cells). Any other shape scans the cached snapshot(s) linearly (no cell re-read).
-        if (Arguments.Length < 3 && snapshot is not null && criteria.TryGetNumericEquality(out var key))
+        if (
+            Arguments.Length < 3
+            && snapshot is not null
+            && criteria.TryGetNumericEquality(out var key)
+        )
         {
             var (keySum, keyCount) = snapshot.NumericEquality(key);
             return keyCount == 0
@@ -33,9 +37,10 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
                 : ComputedValue.Number(keySum / keyCount);
         }
 
-        var averageRange = Arguments.Length == 3
-            ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
-            : range;
+        var averageRange =
+            Arguments.Length == 3
+                ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
+                : range;
 
         var total = 0.0;
         var count = 0;
@@ -50,7 +55,9 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
             }
         }
 
-        return count == 0 ? ComputedValue.Error(Error.DivZero) : ComputedValue.Number(total / count);
+        return count == 0
+            ? ComputedValue.Error(Error.DivZero)
+            : ComputedValue.Number(total / count);
     }
 }
 
@@ -77,7 +84,9 @@ public sealed partial record AverageIfs(Expression[] Arguments) : Function
             }
         }
 
-        return count == 0 ? ComputedValue.Error(Error.DivZero) : ComputedValue.Number(total / count);
+        return count == 0
+            ? ComputedValue.Error(Error.DivZero)
+            : ComputedValue.Number(total / count);
     }
 }
 

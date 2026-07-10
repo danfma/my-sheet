@@ -55,7 +55,10 @@ public class MemoryPackCompatibilityTests
 
         // Financial: =PMT(0.05/12, 360, 200000), cross-checked against the ExcelFinancialFunctions oracle.
         var expectedPmt = Financial.Pmt(0.05 / 12, 360, 200000, 0, PaymentDue.EndOfPeriod);
-        await Assert.That(Value("B9") as double? ?? double.NaN).IsEqualTo(expectedPmt).Within(Tolerance);
+        await Assert
+            .That(Value("B9") as double? ?? double.NaN)
+            .IsEqualTo(expectedPmt)
+            .Within(Tolerance);
 
         // Error: =1/0.
         await Assert.That(Value("B10")).IsEqualTo(ErrorValue.DivByZero);

@@ -12,9 +12,15 @@ public class EvaluateNativeTests
 
         await Assert.That(Number(3).Evaluate(workbook).Kind).IsEqualTo(ComputedValueKind.Number);
         await Assert.That(String("x").Evaluate(workbook).Kind).IsEqualTo(ComputedValueKind.Text);
-        await Assert.That(new BooleanValue(true).Evaluate(workbook).Kind).IsEqualTo(ComputedValueKind.Boolean);
-        await Assert.That(BlankValue.Instance.Evaluate(workbook).Kind).IsEqualTo(ComputedValueKind.Blank);
-        await Assert.That(ErrorValue.NotValue.Evaluate(workbook).Kind).IsEqualTo(ComputedValueKind.Error);
+        await Assert
+            .That(new BooleanValue(true).Evaluate(workbook).Kind)
+            .IsEqualTo(ComputedValueKind.Boolean);
+        await Assert
+            .That(BlankValue.Instance.Evaluate(workbook).Kind)
+            .IsEqualTo(ComputedValueKind.Blank);
+        await Assert
+            .That(ErrorValue.NotValue.Evaluate(workbook).Kind)
+            .IsEqualTo(ComputedValueKind.Error);
     }
 
     [Test]
@@ -29,17 +35,35 @@ public class EvaluateNativeTests
         await Assert.That(taken.ToDouble()).IsEqualTo(1.0);
 
         // IFERROR(#VALUE!, 42) → 42.
-        await Assert.That(new IfError([ErrorValue.NotValue, Number(42)]).Evaluate(workbook).ToDouble()).IsEqualTo(42.0);
+        await Assert
+            .That(new IfError([ErrorValue.NotValue, Number(42)]).Evaluate(workbook).ToDouble())
+            .IsEqualTo(42.0);
 
         // IFNA só pega #N/A; outros erros passam.
-        await Assert.That(new IfNa([ErrorValue.NotAvailable, Number(7)]).Evaluate(workbook).ToDouble()).IsEqualTo(7.0);
-        await Assert.That(new IfNa([ErrorValue.NotValue, Number(7)]).Evaluate(workbook).TryGetError(out var passed)).IsTrue();
+        await Assert
+            .That(new IfNa([ErrorValue.NotAvailable, Number(7)]).Evaluate(workbook).ToDouble())
+            .IsEqualTo(7.0);
+        await Assert
+            .That(
+                new IfNa([ErrorValue.NotValue, Number(7)])
+                    .Evaluate(workbook)
+                    .TryGetError(out var passed)
+            )
+            .IsTrue();
         await Assert.That(passed).IsEqualTo(Error.Value);
 
         // AND(TRUE, FALSE) → false; NOT(FALSE) → true.
-        await Assert.That(new And([new BooleanValue(true), new BooleanValue(false)]).Evaluate(workbook).TryGetBoolean(out var and)).IsTrue();
+        await Assert
+            .That(
+                new And([new BooleanValue(true), new BooleanValue(false)])
+                    .Evaluate(workbook)
+                    .TryGetBoolean(out var and)
+            )
+            .IsTrue();
         await Assert.That(and).IsFalse();
-        await Assert.That(new Not([new BooleanValue(false)]).Evaluate(workbook).TryGetBoolean(out var not)).IsTrue();
+        await Assert
+            .That(new Not([new BooleanValue(false)]).Evaluate(workbook).TryGetBoolean(out var not))
+            .IsTrue();
         await Assert.That(not).IsTrue();
     }
 
@@ -50,21 +74,33 @@ public class EvaluateNativeTests
 
         // Aritmética.
         await Assert.That(Add(Number(2), Number(3)).Evaluate(workbook).ToDouble()).IsEqualTo(5.0);
-        await Assert.That(Divide(Number(1), Number(0)).Evaluate(workbook).TryGetError(out var div)).IsTrue();
+        await Assert
+            .That(Divide(Number(1), Number(0)).Evaluate(workbook).TryGetError(out var div))
+            .IsTrue();
         await Assert.That(div).IsEqualTo(Error.DivZero);
 
         // Comparação cross-type (número < texto) e igualdade case-insensitive.
-        await Assert.That(GreaterThan(Number(3), Number(2)).Evaluate(workbook).TryGetBoolean(out var gt)).IsTrue();
+        await Assert
+            .That(GreaterThan(Number(3), Number(2)).Evaluate(workbook).TryGetBoolean(out var gt))
+            .IsTrue();
         await Assert.That(gt).IsTrue();
 
         // Concatenação (&) e negação unária.
         await Assert
-            .That(new BinaryOperation(BinaryOperator.Concat, String("a"), Number(1)).Evaluate(workbook).ToText())
+            .That(
+                new BinaryOperation(BinaryOperator.Concat, String("a"), Number(1))
+                    .Evaluate(workbook)
+                    .ToText()
+            )
             .IsEqualTo("a1");
         await Assert.That(Negate(Number(4)).Evaluate(workbook).ToDouble()).IsEqualTo(-4.0);
 
         // Propagação de erro através do operador.
-        await Assert.That(Add(Divide(Number(1), Number(0)), Number(1)).Evaluate(workbook).TryGetError(out _)).IsTrue();
+        await Assert
+            .That(
+                Add(Divide(Number(1), Number(0)), Number(1)).Evaluate(workbook).TryGetError(out _)
+            )
+            .IsTrue();
     }
 
     [Test]
@@ -95,7 +131,9 @@ public class EvaluateNativeTests
         await Assert.That(blank).IsEqualTo(0.0);
 
         // Texto não-numérico → #VALUE!; erro propaga.
-        await Assert.That(ComputedValue.Text("abc").CoerceToNumber(out _)!.Value).IsEqualTo(Error.Value);
+        await Assert
+            .That(ComputedValue.Text("abc").CoerceToNumber(out _)!.Value)
+            .IsEqualTo(Error.Value);
         await Assert
             .That(ComputedValue.Error(Error.DivZero).CoerceToNumber(out _)!.Value)
             .IsEqualTo(Error.DivZero);
@@ -117,6 +155,8 @@ public class EvaluateNativeTests
         await Assert.That(falsy).IsFalse();
 
         // Texto num contexto booleano → #VALUE!.
-        await Assert.That(ComputedValue.Text("x").CoerceToBool(out _)!.Value).IsEqualTo(Error.Value);
+        await Assert
+            .That(ComputedValue.Text("x").CoerceToBool(out _)!.Value)
+            .IsEqualTo(Error.Value);
     }
 }

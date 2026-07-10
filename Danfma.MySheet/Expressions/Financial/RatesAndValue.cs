@@ -253,7 +253,9 @@ public sealed partial record CumIPmt(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        return FinancialArguments.Result(BondMath.CumIPmt(rate, nper, pv, startPeriod, endPeriod, (int)type));
+        return FinancialArguments.Result(
+            BondMath.CumIPmt(rate, nper, pv, startPeriod, endPeriod, (int)type)
+        );
     }
 }
 
@@ -306,7 +308,9 @@ public sealed partial record CumPrinc(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        return FinancialArguments.Result(BondMath.CumPrinc(rate, nper, pv, startPeriod, endPeriod, (int)type));
+        return FinancialArguments.Result(
+            BondMath.CumPrinc(rate, nper, pv, startPeriod, endPeriod, (int)type)
+        );
     }
 }
 

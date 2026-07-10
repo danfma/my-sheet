@@ -53,10 +53,12 @@ public sealed partial record OpenRangeReference(
 
     // A range has no scalar value: used outside a function that accepts ranges it is a #VALUE! error,
     // exactly like a bare RangeReference.
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Error(Error.Value);
 
     /// <summary>Backwards-compatible entry point mirroring <see cref="RangeReference.Expand(Workbook)"/>.</summary>
-    public IEnumerable<Expression> Expand(Workbook workbook) => Expand(new EvaluationContext(workbook));
+    public IEnumerable<Expression> Expand(Workbook workbook) =>
+        Expand(new EvaluationContext(workbook));
 
     /// <summary>
     /// Yields the <c>(column, row)</c> of every POPULATED cell within the limits, in column-then-row order,
@@ -82,7 +84,12 @@ public sealed partial record OpenRangeReference(
         // Whole-row reference (column axis fully open, row axis bounded): drive the symmetric ROW index so
         // a whole-row read touches only its rows, never the big columns. Yields row-then-column order; with
         // no column bound to apply, every column in the row's (column-sorted) list qualifies.
-        if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
+        if (
+            ColMin is null
+            && ColMax is null
+            && RowMin is { } wholeRowMin
+            && RowMax is { } wholeRowMax
+        )
         {
             for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
@@ -109,7 +116,9 @@ public sealed partial record OpenRangeReference(
             }
 
             var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnRows, rowMin) : 0;
-            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnRows, rowMax) : columnRows.Count - 1;
+            var last = RowMax is { } rowMax
+                ? LastAtOrBelowRow(columnRows, rowMax)
+                : columnRows.Count - 1;
 
             for (var i = first; i <= last; i++)
             {
@@ -151,7 +160,9 @@ public sealed partial record OpenRangeReference(
 
         foreach (var column in index.ColumnKeys)
         {
-            if ((ColMin is not { } min || column >= min) && (ColMax is not { } max || column <= max))
+            if (
+                (ColMin is not { } min || column >= min) && (ColMax is not { } max || column <= max)
+            )
             {
                 matching.Add(column);
             }
@@ -231,7 +242,12 @@ public sealed partial record OpenRangeReference(
 
         // Whole-row shape: each covered row's list is column-sorted, so its first/last ids give the column
         // extremes directly (no column bound applies on this branch, by definition).
-        if (ColMin is null && ColMax is null && RowMin is { } wholeRowMin && RowMax is { } wholeRowMax)
+        if (
+            ColMin is null
+            && ColMax is null
+            && RowMin is { } wholeRowMin
+            && RowMax is { } wholeRowMax
+        )
         {
             for (var row = wholeRowMin; row <= wholeRowMax; row++)
             {
@@ -241,14 +257,18 @@ public sealed partial record OpenRangeReference(
                 }
 
                 any = true;
-                if (row < minRow) minRow = row;
-                if (row > maxRow) maxRow = row;
+                if (row < minRow)
+                    minRow = row;
+                if (row > maxRow)
+                    maxRow = row;
 
                 // The list is column-sorted, so its ends ARE the column extremes.
                 var firstColumn = rowColumns[0];
                 var lastColumn = rowColumns[^1];
-                if (firstColumn < minColumn) minColumn = firstColumn;
-                if (lastColumn > maxColumn) maxColumn = lastColumn;
+                if (firstColumn < minColumn)
+                    minColumn = firstColumn;
+                if (lastColumn > maxColumn)
+                    maxColumn = lastColumn;
             }
 
             return any;
@@ -264,7 +284,9 @@ public sealed partial record OpenRangeReference(
             }
 
             var first = RowMin is { } rowMin ? FirstAtOrAboveRow(columnRows, rowMin) : 0;
-            var last = RowMax is { } rowMax ? LastAtOrBelowRow(columnRows, rowMax) : columnRows.Count - 1;
+            var last = RowMax is { } rowMax
+                ? LastAtOrBelowRow(columnRows, rowMax)
+                : columnRows.Count - 1;
 
             if (first > last)
             {
@@ -272,13 +294,17 @@ public sealed partial record OpenRangeReference(
             }
 
             any = true;
-            if (column < minColumn) minColumn = column;
-            if (column > maxColumn) maxColumn = column;
+            if (column < minColumn)
+                minColumn = column;
+            if (column > maxColumn)
+                maxColumn = column;
 
             var lowRow = columnRows[first];
             var highRow = columnRows[last];
-            if (lowRow < minRow) minRow = lowRow;
-            if (highRow > maxRow) maxRow = highRow;
+            if (lowRow < minRow)
+                minRow = lowRow;
+            if (highRow > maxRow)
+                maxRow = highRow;
         }
 
         return any;
@@ -318,7 +344,13 @@ public sealed partial record OpenRangeReference(
     /// <c>null</c> when the selection is empty (no populated cell within the limits).
     /// </summary>
     internal RangeReference? ToBoundedRange(EvaluationContext context) =>
-        TryGetPopulatedBounds(context, out var minColumn, out var maxColumn, out var minRow, out var maxRow)
+        TryGetPopulatedBounds(
+            context,
+            out var minColumn,
+            out var maxColumn,
+            out var minRow,
+            out var maxRow
+        )
             ? new RangeReference(
                 new CellAddress(minColumn, minRow).ToId(),
                 new CellAddress(maxColumn, maxRow).ToId(),
@@ -332,11 +364,10 @@ public sealed partial record OpenRangeReference(
     /// reports the fixed grid height (1,048,576) — a gridless model has no such grid.
     /// </summary>
     internal int RowExtent(EvaluationContext context) =>
-        RowMin is { } min && RowMax is { } max
-            ? max - min + 1
-            : TryGetPopulatedBounds(context, out _, out _, out var minRow, out var maxRow)
-                ? maxRow - minRow + 1
-                : 0;
+        RowMin is { } min && RowMax is { } max ? max - min + 1
+        : TryGetPopulatedBounds(context, out _, out _, out var minRow, out var maxRow)
+            ? maxRow - minRow + 1
+        : 0;
 
     /// <summary>
     /// The column extent for <c>COLUMNS</c>: a bounded column axis is structural and exact
@@ -344,9 +375,8 @@ public sealed partial record OpenRangeReference(
     /// empty).
     /// </summary>
     internal int ColumnExtent(EvaluationContext context) =>
-        ColMin is { } min && ColMax is { } max
-            ? max - min + 1
-            : TryGetPopulatedBounds(context, out var minColumn, out var maxColumn, out _, out _)
-                ? maxColumn - minColumn + 1
-                : 0;
+        ColMin is { } min && ColMax is { } max ? max - min + 1
+        : TryGetPopulatedBounds(context, out var minColumn, out var maxColumn, out _, out _)
+            ? maxColumn - minColumn + 1
+        : 0;
 }

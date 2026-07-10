@@ -64,7 +64,10 @@ internal static class ArgumentFlattening
     /// Expands a single argument into an ordered list of computed values (a range yields one entry per
     /// cell). Used by the conditional aggregations to align parallel ranges by position.
     /// </summary>
-    public static List<ComputedValue> ExpandComputedValues(Expression argument, EvaluationContext context)
+    public static List<ComputedValue> ExpandComputedValues(
+        Expression argument,
+        EvaluationContext context
+    )
     {
         // A closed rectangle has known bounds: size the buffer to its exact cell count so the hot per-cell fill
         // never pays a List doubling + recopy. Open ranges/unions/scalars have no known count up front — keep the
@@ -138,6 +141,7 @@ internal static class ArgumentFlattening
             ? context.Workbook.TryGetRangeSnapshot(reference, context)
             : null;
 
-        return snapshot?.Values ?? (IReadOnlyList<ComputedValue>)ExpandComputedValues(argument, context);
+        return snapshot?.Values
+            ?? (IReadOnlyList<ComputedValue>)ExpandComputedValues(argument, context);
     }
 }

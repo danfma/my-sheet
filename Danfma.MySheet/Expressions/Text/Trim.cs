@@ -13,6 +13,8 @@ public sealed partial record Trim(Expression[] Arguments) : Function
         }
 
         // Excel TRIM strips leading/trailing spaces and collapses internal runs of spaces to one.
-        return ComputedValue.Text(string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+        return ComputedValue.Text(
+            string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        );
     }
 }

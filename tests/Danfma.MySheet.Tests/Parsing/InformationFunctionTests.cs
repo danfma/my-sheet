@@ -36,18 +36,10 @@ public class InformationFunctionTests
     {
         // support.microsoft.com "IS functions" example 2 (A4=#REF!, A6=#N/A):
         // ISERROR(#REF!)=TRUE; ISNA(#REF!)=FALSE; ISNA(#N/A)=TRUE; ISERR(#N/A)=FALSE.
-        await Assert
-            .That(Calc("=ISERROR(A4)", ("A4", ErrorValue.Reference)) as bool?)
-            .IsTrue();
-        await Assert
-            .That(Calc("=ISNA(A4)", ("A4", ErrorValue.Reference)) as bool?)
-            .IsFalse();
-        await Assert
-            .That(Calc("=ISNA(A6)", ("A6", ErrorValue.NotAvailable)) as bool?)
-            .IsTrue();
-        await Assert
-            .That(Calc("=ISERR(A6)", ("A6", ErrorValue.NotAvailable)) as bool?)
-            .IsFalse();
+        await Assert.That(Calc("=ISERROR(A4)", ("A4", ErrorValue.Reference)) as bool?).IsTrue();
+        await Assert.That(Calc("=ISNA(A4)", ("A4", ErrorValue.Reference)) as bool?).IsFalse();
+        await Assert.That(Calc("=ISNA(A6)", ("A6", ErrorValue.NotAvailable)) as bool?).IsTrue();
+        await Assert.That(Calc("=ISERR(A6)", ("A6", ErrorValue.NotAvailable)) as bool?).IsFalse();
 
         // ISERR is TRUE for every error except #N/A; non-errors are FALSE for all three.
         await Assert.That(Calc("=ISERR(1/0)") as bool?).IsTrue();
@@ -62,7 +54,9 @@ public class InformationFunctionTests
         // (values are NOT converted); ISTEXT("Region1")=TRUE; ISNONTEXT is TRUE for blanks.
         await Assert.That(Calc("=ISLOGICAL(TRUE)") as bool?).IsTrue();
         await Assert.That(Calc("=ISLOGICAL(\"TRUE\")") as bool?).IsFalse();
-        await Assert.That(Calc("=ISTEXT(A3)", ("A3", Expression.String("Region1"))) as bool?).IsTrue();
+        await Assert
+            .That(Calc("=ISTEXT(A3)", ("A3", Expression.String("Region1"))) as bool?)
+            .IsTrue();
         await Assert.That(Calc("=ISTEXT(19)") as bool?).IsFalse();
         await Assert.That(Calc("=ISNONTEXT(19)") as bool?).IsTrue();
         await Assert.That(Calc("=ISNONTEXT(\"x\")") as bool?).IsFalse();
@@ -134,7 +128,9 @@ public class InformationFunctionTests
         // support.microsoft.com N conversion table: number -> itself; TRUE -> 1; FALSE -> 0; an
         // error -> the error; anything else (text, including "7") -> 0.
         await Assert.That(Calc("=N(A2)", ("A2", Expression.Number(7))) as double?).IsEqualTo(7.0);
-        await Assert.That(Calc("=N(A3)", ("A3", Expression.String("Even"))) as double?).IsEqualTo(0.0);
+        await Assert
+            .That(Calc("=N(A3)", ("A3", Expression.String("Even"))) as double?)
+            .IsEqualTo(0.0);
         await Assert.That(Calc("=N(A4)", ("A4", new BooleanValue(true))) as double?).IsEqualTo(1.0);
         await Assert.That(Calc("=N(FALSE)") as double?).IsEqualTo(0.0);
         await Assert.That(Calc("=N(\"7\")") as double?).IsEqualTo(0.0);
@@ -159,7 +155,9 @@ public class InformationFunctionTests
     {
         // support.microsoft.com TYPE: number=1, text=2, logical=4, error=16 — TYPE(A2)=2 for text
         // "Smith"; TYPE("Mr. "&A2)=2; TYPE(2+A2)=16 (the error is inspected, not propagated).
-        await Assert.That(Calc("=TYPE(A2)", ("A2", Expression.String("Smith"))) as double?).IsEqualTo(2.0);
+        await Assert
+            .That(Calc("=TYPE(A2)", ("A2", Expression.String("Smith"))) as double?)
+            .IsEqualTo(2.0);
         await Assert
             .That(Calc("=TYPE(\"Mr. \"&A2)", ("A2", Expression.String("Smith"))) as double?)
             .IsEqualTo(2.0);
@@ -177,12 +175,22 @@ public class InformationFunctionTests
     {
         // support.microsoft.com ERROR.TYPE mapping table: #NULL!=1, #DIV/0!=2, #VALUE!=3, #REF!=4,
         // #NAME?=5, #NUM!=6, #N/A=7; anything that is not an error -> #N/A.
-        await Assert.That(Calc("=ERROR.TYPE(A2)", ("A2", new ErrorValue("#NULL!"))) as double?).IsEqualTo(1.0);
+        await Assert
+            .That(Calc("=ERROR.TYPE(A2)", ("A2", new ErrorValue("#NULL!"))) as double?)
+            .IsEqualTo(1.0);
         await Assert.That(Calc("=ERROR.TYPE(1/0)") as double?).IsEqualTo(2.0);
-        await Assert.That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.NotValue)) as double?).IsEqualTo(3.0);
-        await Assert.That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Reference)) as double?).IsEqualTo(4.0);
-        await Assert.That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Name)) as double?).IsEqualTo(5.0);
-        await Assert.That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Number)) as double?).IsEqualTo(6.0);
+        await Assert
+            .That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.NotValue)) as double?)
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Reference)) as double?)
+            .IsEqualTo(4.0);
+        await Assert
+            .That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Name)) as double?)
+            .IsEqualTo(5.0);
+        await Assert
+            .That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Number)) as double?)
+            .IsEqualTo(6.0);
         await Assert.That(Calc("=ERROR.TYPE(NA())") as double?).IsEqualTo(7.0);
         await Assert.That(Calc("=ERROR.TYPE(10)")).IsEqualTo(ErrorValue.NotAvailable);
     }

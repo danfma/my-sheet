@@ -20,7 +20,11 @@ public static class SpikeSelfCheck
         // Variante C (box-cache) equivale a A nos folds/cadeias.
         AssertNumber("SumFold(100) C", SpikeTreesBoxCache.SumFold(100).Eval(), 5050d);
         AssertNumber("CumChain(100) C", SpikeTreesBoxCache.CumChain(100).Eval(), 5050d);
-        AssertEqual("Mixed(100) A vs C", ToNumber(SpikeTrees.MixedObj(100).Eval()), ToNumber(SpikeTreesBoxCache.Mixed(100).Eval()));
+        AssertEqual(
+            "Mixed(100) A vs C",
+            ToNumber(SpikeTrees.MixedObj(100).Eval()),
+            ToNumber(SpikeTreesBoxCache.Mixed(100).Eval())
+        );
 
         // Mixed(100): A e B têm de bater entre si (numérico + texto numérico).
         var mixedA = ToNumber(SpikeTrees.MixedObj(100).Eval());
@@ -32,8 +36,16 @@ public static class SpikeSelfCheck
         AssertNumber("Text add B", new AddCv(new TextCv("3"), new NumCv(4)).Eval(), 7d);
 
         // Propagação de erro: [1, #erro(3), 2] curto-circuita para o erro de código 3 nas duas variantes.
-        AssertError("Error propagation A", new SumObj([new NumObj(1), new ErrObj(3), new NumObj(2)]).Eval(), 3);
-        AssertError("Error propagation B", new SumCv([new NumCv(1), new ErrCv(3), new NumCv(2)]).Eval(), 3);
+        AssertError(
+            "Error propagation A",
+            new SumObj([new NumObj(1), new ErrObj(3), new NumObj(2)]).Eval(),
+            3
+        );
+        AssertError(
+            "Error propagation B",
+            new SumCv([new NumCv(1), new ErrCv(3), new NumCv(2)]).Eval(),
+            3
+        );
 
         // Sonda de profundidade: CumChain(3000) recursiona 3000 níveis. Se sobrevive aqui (stack default),
         // o worker do BenchmarkDotNet (mesma stack default) também sobrevive → sem stack overflow no run.
@@ -55,14 +67,19 @@ public static class SpikeSelfCheck
 
         AssertEqual("Graph ExtractAll object? vs CellValue", objChecksum, cvChecksum);
 
-        Console.WriteLine("Spike self-check OK — object?, box-cache e CellValue equivalentes (inclui sonda de profundidade 3000 e grafo memoizado 5000).");
+        Console.WriteLine(
+            "Spike self-check OK — object?, box-cache e CellValue equivalentes (inclui sonda de profundidade 3000 e grafo memoizado 5000)."
+        );
     }
 
-    private static double ToNumber(object? value) => value switch
-    {
-        double d => d,
-        _ => throw new InvalidOperationException($"Esperado número, veio {value?.GetType().Name ?? "null"}."),
-    };
+    private static double ToNumber(object? value) =>
+        value switch
+        {
+            double d => d,
+            _ => throw new InvalidOperationException(
+                $"Esperado número, veio {value?.GetType().Name ?? "null"}."
+            ),
+        };
 
     private static double ToNumber(CellValue value) =>
         value.TryGetNumber(out var n)
@@ -87,7 +104,9 @@ public static class SpikeSelfCheck
     {
         if (actual is not SpikeError { } error || error.Code != expectedCode)
         {
-            throw new InvalidOperationException($"{label}: esperado erro código {expectedCode}, veio {actual}.");
+            throw new InvalidOperationException(
+                $"{label}: esperado erro código {expectedCode}, veio {actual}."
+            );
         }
     }
 
@@ -95,7 +114,9 @@ public static class SpikeSelfCheck
     {
         if (!actual.TryGetError(out var code) || code != expectedCode)
         {
-            throw new InvalidOperationException($"{label}: esperado erro código {expectedCode}, veio {actual.Kind}.");
+            throw new InvalidOperationException(
+                $"{label}: esperado erro código {expectedCode}, veio {actual.Kind}."
+            );
         }
     }
 }

@@ -52,7 +52,9 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             var lookupCursor = RangeValueCursor.Open(Arguments[1], context);
             var returnCursor = RangeValueCursor.Open(Arguments[2], context);
 
-            while (lookupCursor.MoveNext(out var candidate) && returnCursor.MoveNext(out var result))
+            while (
+                lookupCursor.MoveNext(out var candidate) && returnCursor.MoveNext(out var result)
+            )
             {
                 if (ValueCoercion.AreEqual(candidate, lookup))
                 {
@@ -63,8 +65,10 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return NotFound(context);
         }
 
-        var lookupArray = lookupSnapshot?.Values
-            ?? (IReadOnlyList<ComputedValue>)ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
+        var lookupArray =
+            lookupSnapshot?.Values
+            ?? (IReadOnlyList<ComputedValue>)
+                ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
         var returnArray = ArgumentFlattening.ExpandCached(Arguments[2], context, out _);
 
         var count = Math.Min(lookupArray.Count, returnArray.Count);

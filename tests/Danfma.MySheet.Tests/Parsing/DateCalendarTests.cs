@@ -13,7 +13,8 @@ public class DateCalendarTests
     private const double Tolerance = 1e-8;
 
     private static object? Calc(string formula) =>
-        ExpressionParser.Parse(formula, new Workbook().Sheets.Add("Sheet1"))
+        ExpressionParser
+            .Parse(formula, new Workbook().Sheets.Add("Sheet1"))
             .Evaluate(new Workbook())
             .AsObject();
 
@@ -48,7 +49,9 @@ public class DateCalendarTests
     {
         // DERIVED from the European rule (MS-OI29500): both endpoints' day-31 → 30, no next-month roll.
         // 1/1/2011→12/31/2011: (12-1)*30 + (30-1) = 359.
-        await Assert.That(Num(Calc("=DAYS360(DATE(2011,1,1),DATE(2011,12,31),TRUE)"))).IsEqualTo(359d);
+        await Assert
+            .That(Num(Calc("=DAYS360(DATE(2011,1,1),DATE(2011,12,31),TRUE)")))
+            .IsEqualTo(359d);
     }
 
     // --- EDATE / EOMONTH. ---
@@ -131,11 +134,19 @@ public class DateCalendarTests
         // DATEDIF page golden: ("1/1/2001","1/1/2003","Y")=2; ("6/1/2001","8/15/2002","D")=440;
         // (…,"YD")=75.
         await Assert.That(Num(Calc("=DATEDIF(DATE(2001,1,1),DATE(2003,1,1),\"Y\")"))).IsEqualTo(2d);
-        await Assert.That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"D\")"))).IsEqualTo(440d);
-        await Assert.That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"YD\")"))).IsEqualTo(75d);
+        await Assert
+            .That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"D\")")))
+            .IsEqualTo(440d);
+        await Assert
+            .That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"YD\")")))
+            .IsEqualTo(75d);
         // DERIVED from the definitions: complete months "M"=14; months ignoring years "YM"=2.
-        await Assert.That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"M\")"))).IsEqualTo(14d);
-        await Assert.That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"YM\")"))).IsEqualTo(2d);
+        await Assert
+            .That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"M\")")))
+            .IsEqualTo(14d);
+        await Assert
+            .That(Num(Calc("=DATEDIF(DATE(2001,6,1),DATE(2002,8,15),\"YM\")")))
+            .IsEqualTo(2d);
     }
 
     [Test]
@@ -143,9 +154,13 @@ public class DateCalendarTests
     {
         // "MD" (day difference, months/years ignored) — officially warned as unreliable; here a clean case:
         // 1-Jan → 15-Mar, days 15-1 = 14 (DERIVED).
-        await Assert.That(Num(Calc("=DATEDIF(DATE(2001,1,1),DATE(2001,3,15),\"MD\")"))).IsEqualTo(14d);
+        await Assert
+            .That(Num(Calc("=DATEDIF(DATE(2001,1,1),DATE(2001,3,15),\"MD\")")))
+            .IsEqualTo(14d);
         // DATEDIF page: start_date > end_date → #NUM!.
-        await Assert.That(Calc("=DATEDIF(DATE(2003,1,1),DATE(2001,1,1),\"Y\")")).IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=DATEDIF(DATE(2003,1,1),DATE(2001,1,1),\"Y\")"))
+            .IsEqualTo(ErrorValue.Number);
     }
 
     // --- YEARFRAC: the 5 bases (0,1,3 are page golden; 2,4 derived from the same day counts). ---
@@ -155,17 +170,34 @@ public class DateCalendarTests
     {
         // YEARFRAC page (A2=1/1/2012, A3=7/30/2012): basis 0 (omitted)=0.58055556; basis 1=0.57650273
         // (366-day leap basis); basis 3=0.57808219 (365-day).
-        await Assert.That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30))"))).IsEqualTo(0.58055556d).Within(Tolerance);
-        await Assert.That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),1)"))).IsEqualTo(0.57650273d).Within(Tolerance);
-        await Assert.That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),3)"))).IsEqualTo(0.57808219d).Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30))")))
+            .IsEqualTo(0.58055556d)
+            .Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),1)")))
+            .IsEqualTo(0.57650273d)
+            .Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),3)")))
+            .IsEqualTo(0.57808219d)
+            .Within(Tolerance);
         // DERIVED from the same actual/30-360 day counts: basis 2 = 211/360; basis 4 = 209/360.
-        await Assert.That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),2)"))).IsEqualTo(211d / 360d).Within(Tolerance);
-        await Assert.That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),4)"))).IsEqualTo(209d / 360d).Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),2)")))
+            .IsEqualTo(211d / 360d)
+            .Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),4)")))
+            .IsEqualTo(209d / 360d)
+            .Within(Tolerance);
     }
 
     [Test]
     public async Task YearFrac_InvalidBasisIsNum()
     {
-        await Assert.That(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),5)")).IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=YEARFRAC(DATE(2012,1,1),DATE(2012,7,30),5)"))
+            .IsEqualTo(ErrorValue.Number);
     }
 }

@@ -64,10 +64,10 @@ public static class K1EndToEndHarness
 {
     private const string DataSheet = "Data";
     private const string FormulaSheet = "S";
-    private const int DataRows = 100_000;   // Data!A/B populated rows
+    private const int DataRows = 100_000; // Data!A/B populated rows
     private const int FormulaRows = 200_000; // C{r} and D{r} each -> 400k formulas
-    private const int ShowEvery = 7;         // ~1 in 7 A-cells are "Show"
-    private const int Trials = 3;            // best-of-N; N reported in the header
+    private const int ShowEvery = 7; // ~1 in 7 A-cells are "Show"
+    private const int Trials = 3; // best-of-N; N reported in the header
 
     private readonly struct Phase
     {
@@ -90,15 +90,18 @@ public static class K1EndToEndHarness
             $"Runtime: {Environment.Version}, cores {Environment.ProcessorCount}. Aspose.Cells "
                 + $"{CellsHelper.GetVersion()} ({licenseNote}). Load: Data {DataRows:N0} rows x 2 cols "
                 + $"(A text Show/Hide ~1/{ShowEvery}, B numbers) + S {FormulaRows * 2:N0} formulas (2 skeletons, "
-                + "cross-sheet). ~600k cells / 400k formulas. Best-of-" + Trials + " (min) per phase; "
-                + "GC.Collect between engines/trials; allocation via GC.GetTotalAllocatedBytes(precise:true).");
+                + "cross-sheet). ~600k cells / 400k formulas. Best-of-"
+                + Trials
+                + " (min) per phase; "
+                + "GC.Collect between engines/trials; allocation via GC.GetTotalAllocatedBytes(precise:true)."
+        );
         Console.WriteLine();
 
         // Best (min) time and best (min) alloc per phase, tracked independently across trials.
-        var msBuild = new double[2];      // [0]=MySheet [1]=Aspose
+        var msBuild = new double[2]; // [0]=MySheet [1]=Aspose
         var msCompute = new double[2];
-        var msExtractA = new double[2];   // MySheet (a) ComputedValue ; Aspose DoubleValue
-        var msExtractB = new double[1];   // MySheet (b) AsObject only
+        var msExtractA = new double[2]; // MySheet (a) ComputedValue ; Aspose DoubleValue
+        var msExtractB = new double[1]; // MySheet (b) AsObject only
         var byBuild = new long[2];
         var byCompute = new long[2];
         var byExtractA = new long[2];
@@ -164,14 +167,16 @@ public static class K1EndToEndHarness
         if (mysheetCount != asposeCount)
         {
             throw new InvalidOperationException(
-                $"Formula-cell COUNT diverged: MySheet {mysheetCount} vs Aspose {asposeCount}.");
+                $"Formula-cell COUNT diverged: MySheet {mysheetCount} vs Aspose {asposeCount}."
+            );
         }
 
         if (Math.Abs(mysheetAggregate - asposeAggregate) > 1e-9)
         {
             throw new InvalidOperationException(
                 $"Aggregate DIVERGED beyond 1e-9: MySheet {mysheetAggregate:R} vs Aspose {asposeAggregate:R} "
-                    + $"(delta {mysheetAggregate - asposeAggregate:R}). The comparison would be lying.");
+                    + $"(delta {mysheetAggregate - asposeAggregate:R}). The comparison would be lying."
+            );
         }
 
         // ---- Table ----
@@ -180,7 +185,9 @@ public static class K1EndToEndHarness
         var totalBytesMySheet = SumClamp(byBuild[0], byCompute[0], byExtractA[0]);
         var totalBytesAspose = SumClamp(byBuild[1], byCompute[1], byExtractA[1]);
 
-        Console.WriteLine($"{"Phase",-26} {"Engine",-10} {"ms (best)",12} {"MB alloc (best)",18}");
+        Console.WriteLine(
+            $"{"Phase", -26} {"Engine", -10} {"ms (best)", 12} {"MB alloc (best)", 18}"
+        );
         Console.WriteLine(new string('-', 68));
         Row("build+fill", "MySheet", msBuild[0], byBuild[0]);
         Row("build+fill", "Aspose", msBuild[1], byBuild[1]);
@@ -195,25 +202,28 @@ public static class K1EndToEndHarness
         Console.WriteLine();
 
         var timeGap = totalAspose > 0 ? totalMySheet / totalAspose : double.NaN;
-        var allocGap = totalBytesAspose > 0 ? (double)totalBytesMySheet / totalBytesAspose : double.NaN;
+        var allocGap =
+            totalBytesAspose > 0 ? (double)totalBytesMySheet / totalBytesAspose : double.NaN;
         Console.WriteLine($"TOTAL gap (MySheet/Aspose): time {timeGap:N2}x, alloc {allocGap:N2}x.");
 
         var boxingMs = msExtractB[0] - msExtractA[0];
         var boxingMb = (byExtractB[0] - byExtractA[0]) / (1024d * 1024d);
         Console.WriteLine(
             $"AsObject() boxing lever (MySheet extract b - a): +{boxingMs:N1} ms, +{boxingMb:N1} MB over "
-                + $"{mysheetCount:N0} formula cells.");
+                + $"{mysheetCount:N0} formula cells."
+        );
         Console.WriteLine();
         Console.WriteLine(
             $"Equivalence sanity: aggregate MySheet {mysheetAggregate:R} == Aspose {asposeAggregate:R} "
                 + $"(delta {Math.Abs(mysheetAggregate - asposeAggregate):R} <= 1e-9); "
-                + $"count {mysheetCount:N0} == {asposeCount:N0}. OK.");
+                + $"count {mysheetCount:N0} == {asposeCount:N0}. OK."
+        );
     }
 
     private static void Row(string phase, string engine, double ms, long bytes)
     {
         var mb = bytes == long.MaxValue ? double.NaN : bytes / (1024d * 1024d);
-        Console.WriteLine($"{phase,-26} {engine,-10} {ms,12:N1} {mb,18:N1}");
+        Console.WriteLine($"{phase, -26} {engine, -10} {ms, 12:N1} {mb, 18:N1}");
     }
 
     private static long SumClamp(params long[] values)
@@ -254,7 +264,9 @@ public static class K1EndToEndHarness
         {
             var v = (r % DataRows) + 1;
             s["C" + r] = ExpressionParser.Parse(
-                $"=IF(Data!A{v}=\"Show\",Data!B{v}*2,Data!B{v}/2)", s);
+                $"=IF(Data!A{v}=\"Show\",Data!B{v}*2,Data!B{v}/2)",
+                s
+            );
             s["D" + r] = ExpressionParser.Parse($"=Data!B{v}*2+1", s);
         }
 
@@ -300,7 +312,8 @@ public static class K1EndToEndHarness
     //   (a) ComputedValue direct — TryGetNumber, no boxing.
     //   (b) via AsObject() — the object? bridge that boxes each numeric scalar.
     private static (Phase A, Phase B, double Aggregate, long Count) MeasureMySheetExtract(
-        MySheetWorkbook workbook)
+        MySheetWorkbook workbook
+    )
     {
         const int reps = 5;
 
@@ -328,7 +341,8 @@ public static class K1EndToEndHarness
             if (Math.Abs(aggregate - aggB) > 1e-9 || count != cntB)
             {
                 throw new InvalidOperationException(
-                    $"MySheet extract variants disagree: direct={aggregate}/{count} vs AsObject={aggB}/{cntB}.");
+                    $"MySheet extract variants disagree: direct={aggregate}/{count} vs AsObject={aggB}/{cntB}."
+                );
             }
         }
 
@@ -419,7 +433,7 @@ public static class K1EndToEndHarness
         for (var v = 1; v <= DataRows; v++)
         {
             dataCells[v - 1, 0].PutValue(v % ShowEvery == 1 ? "Show" : "Hide"); // A (col 0)
-            dataCells[v - 1, 1].PutValue((double)v);                            // B (col 1)
+            dataCells[v - 1, 1].PutValue((double)v); // B (col 1)
         }
 
         var sCells = s.Cells;
@@ -428,7 +442,7 @@ public static class K1EndToEndHarness
         {
             var v = (r % DataRows) + 1;
             sCells[r - 1, 2].Formula = $"=IF(Data!A{v}=\"Show\",Data!B{v}*2,Data!B{v}/2)"; // C (col 2)
-            sCells[r - 1, 3].Formula = $"=Data!B{v}*2+1";                                  // D (col 3)
+            sCells[r - 1, 3].Formula = $"=Data!B{v}*2+1"; // D (col 3)
         }
 
         sw.Stop();
@@ -450,7 +464,9 @@ public static class K1EndToEndHarness
 
     // Aspose extract via cell.DoubleValue — the non-boxing numeric accessor (mirror of MySheet variant a).
     // Warmed once then best-of-R (min), same methodology as the MySheet extract, so the extract rows compare.
-    private static (Phase, double Aggregate, long Count) MeasureAsposeExtract(AsposeWorkbook workbook)
+    private static (Phase, double Aggregate, long Count) MeasureAsposeExtract(
+        AsposeWorkbook workbook
+    )
     {
         const int reps = 5;
         var cells = workbook.Worksheets[1].Cells;

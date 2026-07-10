@@ -64,7 +64,9 @@ public sealed partial record Irr(Expression[] Arguments) : Function
         }
 
         var result = TimeValueOfMoney.Solve(Npv, guess);
-        return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
+        return double.IsFinite(result)
+            ? ComputedValue.Number(result)
+            : ComputedValue.Error(Error.Num);
     }
 
     private static bool HasSignChange(List<double> flows)

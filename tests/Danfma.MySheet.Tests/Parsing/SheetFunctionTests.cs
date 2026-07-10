@@ -12,7 +12,10 @@ public class SheetFunctionTests
         workbook.Sheets.Add("Sheet2"); // index 1
 
         await Assert
-            .That(ExpressionParser.Parse("=SHEET(\"Sheet2\")", sheet1).Evaluate(workbook).AsObject() as double?)
+            .That(
+                ExpressionParser.Parse("=SHEET(\"Sheet2\")", sheet1).Evaluate(workbook).AsObject()
+                    as double?
+            )
             .IsEqualTo(2.0);
 
         // SHEET() with no argument uses the cell's own sheet (reached through a reference).

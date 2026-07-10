@@ -72,7 +72,8 @@ internal readonly struct WeekendSchedule(bool[] weekend)
                 days[(first + 1) % 7] = true;
                 break;
 
-            case >= 11 and <= 17:
+            case >= 11
+            and <= 17:
                 days[weekendNumber - 11] = true; // 11 → Sunday(0) … 17 → Saturday(6)
                 break;
 
@@ -182,7 +183,10 @@ public sealed partial record NetworkDays(Expression[] Arguments) : Function
 
         var holidays = new HashSet<int>();
 
-        if (Arguments.Length == 3 && WorkdayMath.CollectHolidays(Arguments[2], context, holidays) is { } holidayError)
+        if (
+            Arguments.Length == 3
+            && WorkdayMath.CollectHolidays(Arguments[2], context, holidays) is { } holidayError
+        )
         {
             return ComputedValue.Error(holidayError);
         }
@@ -220,7 +224,8 @@ public sealed partial record NetworkDaysIntl(Expression[] Arguments) : Function
 
         if (
             Arguments.Length >= 3
-            && WeekendSchedule.FromArgument(Arguments[2].Evaluate(context), out schedule) is { } weekendError
+            && WeekendSchedule.FromArgument(Arguments[2].Evaluate(context), out schedule)
+                is { } weekendError
         )
         {
             return ComputedValue.Error(weekendError);
@@ -238,7 +243,10 @@ public sealed partial record NetworkDaysIntl(Expression[] Arguments) : Function
 
         var holidays = new HashSet<int>();
 
-        if (Arguments.Length == 4 && WorkdayMath.CollectHolidays(Arguments[3], context, holidays) is { } holidayError)
+        if (
+            Arguments.Length == 4
+            && WorkdayMath.CollectHolidays(Arguments[3], context, holidays) is { } holidayError
+        )
         {
             return ComputedValue.Error(holidayError);
         }
@@ -279,7 +287,10 @@ public sealed partial record Workday(Expression[] Arguments) : Function
 
         var holidays = new HashSet<int>();
 
-        if (Arguments.Length == 3 && WorkdayMath.CollectHolidays(Arguments[2], context, holidays) is { } holidayError)
+        if (
+            Arguments.Length == 3
+            && WorkdayMath.CollectHolidays(Arguments[2], context, holidays) is { } holidayError
+        )
         {
             return ComputedValue.Error(holidayError);
         }
@@ -358,7 +369,8 @@ public sealed partial record WorkdayIntl(Expression[] Arguments) : Function
 
         if (
             Arguments.Length >= 3
-            && WeekendSchedule.FromArgument(Arguments[2].Evaluate(context), out schedule) is { } weekendError
+            && WeekendSchedule.FromArgument(Arguments[2].Evaluate(context), out schedule)
+                is { } weekendError
         )
         {
             return ComputedValue.Error(weekendError);
@@ -371,7 +383,10 @@ public sealed partial record WorkdayIntl(Expression[] Arguments) : Function
 
         var holidays = new HashSet<int>();
 
-        if (Arguments.Length == 4 && WorkdayMath.CollectHolidays(Arguments[3], context, holidays) is { } holidayError)
+        if (
+            Arguments.Length == 4
+            && WorkdayMath.CollectHolidays(Arguments[3], context, holidays) is { } holidayError
+        )
         {
             return ComputedValue.Error(holidayError);
         }

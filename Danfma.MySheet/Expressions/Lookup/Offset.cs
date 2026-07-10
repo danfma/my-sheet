@@ -16,7 +16,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 out var startRow,
                 out var height,
                 out var width
-            ) is { } error
+            ) is
+            { } error
         )
         {
             return ComputedValue.Error(error);
@@ -25,7 +26,10 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         // 1x1: dereference directly, no CellReference allocation (matches the original).
         if (height == 1 && width == 1)
         {
-            return context.Workbook.GetCellValue(sheetName, new CellAddress(startColumn, startRow).ToId());
+            return context.Workbook.GetCellValue(
+                sheetName,
+                new CellAddress(startColumn, startRow).ToId()
+            );
         }
 
         return ComputedValue.Reference(BuildRange(sheetName, startColumn, startRow, height, width));
@@ -41,7 +45,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 out var startRow,
                 out var height,
                 out var width
-            ) is not null
+            )
+            is not null
         )
         {
             reference = null;
@@ -135,7 +140,13 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         return null;
     }
 
-    private static RangeReference BuildRange(string sheetName, int startColumn, int startRow, int height, int width) =>
+    private static RangeReference BuildRange(
+        string sheetName,
+        int startColumn,
+        int startRow,
+        int height,
+        int width
+    ) =>
         new(
             new CellAddress(startColumn, startRow).ToId(),
             new CellAddress(startColumn + width - 1, startRow + height - 1).ToId(),

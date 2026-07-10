@@ -14,7 +14,10 @@ public class MissingSheetInteropTests
     [Test]
     public async Task Load_FormulaReferencingMissingSheet_EvaluatesToRef()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"mysheet-missingsheet-{Guid.NewGuid():N}.xlsx");
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"mysheet-missingsheet-{Guid.NewGuid():N}.xlsx"
+        );
 
         try
         {

@@ -69,7 +69,9 @@ public class LogicalFunctionTests
             .IsFalse(); // TRUE + 0(FALSE) + TRUE = two TRUEs -> even -> FALSE
 
         await Assert
-            .That(Calc("=XOR(A1:A2)", ("A1", Expression.String("a")), ("A2", Expression.String("b"))))
+            .That(
+                Calc("=XOR(A1:A2)", ("A1", Expression.String("a")), ("A2", Expression.String("b")))
+            )
             .IsEqualTo(ErrorValue.NotValue);
     }
 
@@ -287,7 +289,9 @@ public class LogicalFunctionTests
             .That(Calc("=SWITCH(99,1,\"Sunday\",2,\"Monday\",3,\"Tuesday\")"))
             .IsEqualTo(ErrorValue.NotAvailable);
         await Assert
-            .That(Calc("=SWITCH(99,1,\"Sunday\",2,\"Monday\",3,\"Tuesday\",\"No match\")") as string)
+            .That(
+                Calc("=SWITCH(99,1,\"Sunday\",2,\"Monday\",3,\"Tuesday\",\"No match\")") as string
+            )
             .IsEqualTo("No match");
         await Assert
             .That(Calc("=SWITCH(2,1,\"Sunday\",7,\"Saturday\",\"weekday\")") as string)

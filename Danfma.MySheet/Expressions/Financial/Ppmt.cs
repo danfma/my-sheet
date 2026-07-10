@@ -56,6 +56,8 @@ public sealed partial record Ppmt(Expression[] Arguments) : Function
         var payment = TimeValueOfMoney.Pmt(rate, nper, pv, fv, normalizedType);
         var interest = TimeValueOfMoney.IPmt(rate, per, nper, pv, fv, normalizedType);
         var result = payment - interest;
-        return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
+        return double.IsFinite(result)
+            ? ComputedValue.Number(result)
+            : ComputedValue.Error(Error.Num);
     }
 }

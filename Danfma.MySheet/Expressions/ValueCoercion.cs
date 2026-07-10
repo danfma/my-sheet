@@ -32,7 +32,12 @@ internal static class ValueCoercion
 
             case ComputedValueKind.Text
                 when value.TryGetText(out var text)
-                    && double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed):
+                    && double.TryParse(
+                        text,
+                        NumberStyles.Any,
+                        CultureInfo.InvariantCulture,
+                        out var parsed
+                    ):
                 number = parsed;
                 return null;
 

@@ -103,7 +103,9 @@ public class TextManipulationTests
     {
         // support.microsoft.com REPLACE: REPLACE("abcdefghijk",6,5,"*")="abcde*k";
         // REPLACE("2009",3,2,"10")="2010"; REPLACE("123456",1,3,"@")="@456".
-        await Assert.That(Calc("=REPLACE(\"abcdefghijk\",6,5,\"*\")") as string).IsEqualTo("abcde*k");
+        await Assert
+            .That(Calc("=REPLACE(\"abcdefghijk\",6,5,\"*\")") as string)
+            .IsEqualTo("abcde*k");
         await Assert.That(Calc("=REPLACE(\"2009\",3,2,\"10\")") as string).IsEqualTo("2010");
         await Assert.That(Calc("=REPLACE(\"123456\",1,3,\"@\")") as string).IsEqualTo("@456");
         // Positions are 1-based; start_num < 1 or negative num_chars -> #VALUE! (Excel behavior;
@@ -140,7 +142,9 @@ public class TextManipulationTests
             .IsEqualTo("Sales cost");
         await Assert.That(Calc("=SUBSTITUTE(\"aaa\",\"a\",\"b\",5)") as string).IsEqualTo("aaa");
         await Assert.That(Calc("=SUBSTITUTE(\"abc\",\"\",\"x\")") as string).IsEqualTo("abc");
-        await Assert.That(Calc("=SUBSTITUTE(\"abc\",\"a\",\"x\",0)")).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUBSTITUTE(\"abc\",\"a\",\"x\",0)"))
+            .IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]

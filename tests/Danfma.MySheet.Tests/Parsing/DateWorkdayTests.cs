@@ -49,8 +49,12 @@ public class DateWorkdayTests
     {
         // NETWORKDAYS.INTL page:
         //   (2006,1,1)→(2006,1,31) = 22; (2006,2,28)→(2006,1,31) = -21 (end before start).
-        await Assert.That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31))"))).IsEqualTo(22d);
-        await Assert.That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,2,28),DATE(2006,1,31))"))).IsEqualTo(-21d);
+        await Assert
+            .That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31))")))
+            .IsEqualTo(22d);
+        await Assert
+            .That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,2,28),DATE(2006,1,31))")))
+            .IsEqualTo(-21d);
     }
 
     [Test]
@@ -60,18 +64,35 @@ public class DateWorkdayTests
         //   weekend 7 (Fri/Sat): (2006,1,1)→(2006,2,1) = 22;
         //   weekend "0010001" (Wed+Sun): (2006,1,1)→(2006,2,1) = 20.
         (string, string)[] holidays = [("H2", "=DATE(2006,1,2)"), ("H3", "=DATE(2006,1,16)")];
-        await Assert.That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,2,1),7,H2:H3)", holidays))).IsEqualTo(22d);
-        await Assert.That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,2,1),\"0010001\",H2:H3)", holidays))).IsEqualTo(20d);
+        await Assert
+            .That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,2,1),7,H2:H3)", holidays)))
+            .IsEqualTo(22d);
+        await Assert
+            .That(
+                Num(
+                    Calc(
+                        "=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,2,1),\"0010001\",H2:H3)",
+                        holidays
+                    )
+                )
+            )
+            .IsEqualTo(20d);
         // "1111111" (every day a weekend) always returns 0 (NETWORKDAYS.INTL page).
-        await Assert.That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31),\"1111111\")"))).IsEqualTo(0d);
+        await Assert
+            .That(Num(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31),\"1111111\")")))
+            .IsEqualTo(0d);
     }
 
     [Test]
     public async Task NetworkDaysIntl_InvalidWeekendArgs()
     {
         // Invalid weekend number → #NUM!; malformed weekend string → #VALUE!.
-        await Assert.That(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31),8)")).IsEqualTo(ErrorValue.Number);
-        await Assert.That(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31),\"00X0011\")")).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31),8)"))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=NETWORKDAYS.INTL(DATE(2006,1,1),DATE(2006,1,31),\"00X0011\")"))
+            .IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]
@@ -81,10 +102,14 @@ public class DateWorkdayTests
         // → 5/5/2009. Compared as dates (the page's serials render as dates).
         (string, string)[] holidays =
         [
-            ("W4", "=DATE(2008,11,26)"), ("W5", "=DATE(2008,12,4)"), ("W6", "=DATE(2009,1,21)"),
+            ("W4", "=DATE(2008,11,26)"),
+            ("W5", "=DATE(2008,12,4)"),
+            ("W6", "=DATE(2009,1,21)"),
         ];
         await Assert.That(Calc("=WORKDAY(DATE(2008,10,1),151)=DATE(2009,4,30)") as bool?).IsTrue();
-        await Assert.That(Calc("=WORKDAY(DATE(2008,10,1),151,W4:W6)=DATE(2009,5,5)", holidays) as bool?).IsTrue();
+        await Assert
+            .That(Calc("=WORKDAY(DATE(2008,10,1),151,W4:W6)=DATE(2009,5,5)", holidays) as bool?)
+            .IsTrue();
     }
 
     [Test]
@@ -93,7 +118,9 @@ public class DateWorkdayTests
         // WORKDAY.INTL page: (2012,1,1),90,11 (Sunday-only weekend) → serial 41013 (= 4/14/2012);
         //   (2012,1,1),30,17 (Saturday-only) → 2/5/2012; (2012,1,1),30,0 → #NUM! (invalid weekend number).
         await Assert.That(Num(Calc("=WORKDAY.INTL(DATE(2012,1,1),90,11)"))).IsEqualTo(41013d);
-        await Assert.That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,17)=DATE(2012,2,5)") as bool?).IsTrue();
+        await Assert
+            .That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,17)=DATE(2012,2,5)") as bool?)
+            .IsTrue();
         await Assert.That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,0)")).IsEqualTo(ErrorValue.Number);
     }
 
@@ -101,7 +128,9 @@ public class DateWorkdayTests
     public async Task WorkdayIntl_AllWeekendIsNum()
     {
         // WORKDAY.INTL with every day off has no day to land on → #NUM! (unlike NETWORKDAYS.INTL → 0).
-        await Assert.That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,\"1111111\")")).IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,\"1111111\")"))
+            .IsEqualTo(ErrorValue.Number);
     }
 
     [Test]

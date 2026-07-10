@@ -40,8 +40,14 @@ public class MathAggregateTests
     {
         (string, object)[] groceries =
         [
-            ("C2", 2.5), ("C3", 4.25), ("C4", 8.0), ("C5", 3.11),
-            ("D2", 4), ("D3", 3), ("D4", 1), ("D5", 5),
+            ("C2", 2.5),
+            ("C3", 4.25),
+            ("C4", 8.0),
+            ("C5", 3.11),
+            ("D2", 4),
+            ("D3", 3),
+            ("D4", 1),
+            ("D5", 5),
         ];
 
         var product = Num(Calc("=SUMPRODUCT(C2:C5,D2:D5)", groceries));
@@ -56,8 +62,12 @@ public class MathAggregateTests
         // Regra documentada: "SUMPRODUCT treats non-numeric array entries as if they were zeros."
         (string, object)[] cells =
         [
-            ("A1", 2), ("A2", "x"), ("A3", 4),
-            ("B1", 10), ("B2", 20), ("B3", 30),
+            ("A1", 2),
+            ("A2", "x"),
+            ("A3", 4),
+            ("B1", 10),
+            ("B2", 20),
+            ("B3", 30),
         ];
 
         await Assert.That(Num(Calc("=SUMPRODUCT(A1:A3,B1:B3)", cells))).IsEqualTo(140.0);
@@ -73,9 +83,7 @@ public class MathAggregateTests
         // SUMPRODUCT returns the #VALUE! error value."
         (string, object)[] cells = [("A1", 1), ("A2", 2), ("B1", 3)];
 
-        await Assert
-            .That(Calc("=SUMPRODUCT(A1:A2,B1:B3)", cells))
-            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=SUMPRODUCT(A1:A2,B1:B3)", cells)).IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]
@@ -86,13 +94,15 @@ public class MathAggregateTests
         // first error in that order wins.
         (string, object)[] cells =
         [
-            ("A1", 2), ("A2", "=1/0"), ("A3", 4),
-            ("B1", 10), ("B2", 20), ("B3", 30),
+            ("A1", 2),
+            ("A2", "=1/0"),
+            ("A3", 4),
+            ("B1", 10),
+            ("B2", 20),
+            ("B3", 30),
         ];
 
-        await Assert
-            .That(Calc("=SUMPRODUCT(A1:A3,B1:B3)", cells))
-            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=SUMPRODUCT(A1:A3,B1:B3)", cells)).IsEqualTo(ErrorValue.DivByZero);
     }
 
     [Test]
@@ -100,15 +110,9 @@ public class MathAggregateTests
     {
         // Dimension validation runs ahead of the value scan: a length mismatch is #VALUE! even when
         // a cell error is also present in one of the arrays.
-        (string, object)[] cells =
-        [
-            ("A1", 1), ("A2", "=1/0"),
-            ("B1", 3), ("B2", 4), ("B3", 5),
-        ];
+        (string, object)[] cells = [("A1", 1), ("A2", "=1/0"), ("B1", 3), ("B2", 4), ("B3", 5)];
 
-        await Assert
-            .That(Calc("=SUMPRODUCT(A1:A2,B1:B3)", cells))
-            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=SUMPRODUCT(A1:A2,B1:B3)", cells)).IsEqualTo(ErrorValue.NotValue);
     }
 
     // --- SUMX2MY2 / SUMX2PY2 / SUMXMY2 — golden: páginas oficiais (9e599cc5, 826b60b4,
@@ -116,8 +120,20 @@ public class MathAggregateTests
 
     private static readonly (string, object)[] PairData =
     [
-        ("A2", 2), ("A3", 3), ("A4", 9), ("A5", 1), ("A6", 8), ("A7", 7), ("A8", 5),
-        ("B2", 6), ("B3", 5), ("B4", 11), ("B5", 7), ("B6", 5), ("B7", 4), ("B8", 4),
+        ("A2", 2),
+        ("A3", 3),
+        ("A4", 9),
+        ("A5", 1),
+        ("A6", 8),
+        ("A7", 7),
+        ("A8", 5),
+        ("B2", 6),
+        ("B3", 5),
+        ("B4", 11),
+        ("B5", 7),
+        ("B6", 5),
+        ("B7", 4),
+        ("B8", 4),
     ];
 
     [Test]
@@ -145,8 +161,12 @@ public class MathAggregateTests
         // (diferente do SUMPRODUCT, que zera a entrada).
         (string, object)[] cells =
         [
-            ("A1", 3), ("A2", "x"), ("A3", 5),
-            ("B1", 1), ("B2", 100), ("B3", 2),
+            ("A1", 3),
+            ("A2", "x"),
+            ("A3", 5),
+            ("B1", 1),
+            ("B2", 100),
+            ("B3", 2),
         ];
 
         // Só os pares (3,1) e (5,2): (9-1) + (25-4) = 29.
@@ -158,7 +178,10 @@ public class MathAggregateTests
 
     private static readonly (string, object)[] SubtotalData =
     [
-        ("A2", 120), ("A3", 10), ("A4", 150), ("A5", 23),
+        ("A2", 120),
+        ("A3", 10),
+        ("A4", 150),
+        ("A5", 23),
     ];
 
     [Test]
@@ -237,7 +260,11 @@ public class MathAggregateTests
         // function_num fora de 1-11/101-111 -> #VALUE!.
         await Assert.That(Calc("=SUBTOTAL(0,A2:A5)", SubtotalData)).IsEqualTo(ErrorValue.NotValue);
         await Assert.That(Calc("=SUBTOTAL(12,A2:A5)", SubtotalData)).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(Calc("=SUBTOTAL(100,A2:A5)", SubtotalData)).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(Calc("=SUBTOTAL(112,A2:A5)", SubtotalData)).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUBTOTAL(100,A2:A5)", SubtotalData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUBTOTAL(112,A2:A5)", SubtotalData))
+            .IsEqualTo(ErrorValue.NotValue);
     }
 }

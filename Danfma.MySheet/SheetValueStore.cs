@@ -94,7 +94,9 @@ internal sealed class SheetValueStore
 
     // Sheet name -> dense handle (case-insensitive, like Workbook.Sheets — the name's owner). A handle is a
     // stable index into _slabs/_names for this store's life; assigned once per name under _dirLock.
-    private readonly ConcurrentDictionary<string, int> _handles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> _handles = new(
+        StringComparer.OrdinalIgnoreCase
+    );
     private readonly object _dirLock = new();
     private int _handleCount;
     private SheetSlab?[] _slabs = new SheetSlab?[4];
@@ -259,7 +261,9 @@ internal sealed class SheetValueStore
 
         if (tainted)
         {
-            (_overflowTainted ??= new ConcurrentDictionary<(string, string), byte>())[(sheetName, id)] = 0;
+            (_overflowTainted ??= new ConcurrentDictionary<(string, string), byte>())[
+                (sheetName, id)
+            ] = 0;
         }
     }
 
@@ -531,7 +535,8 @@ internal sealed class SheetValueStore
         // Density verdict, evaluated under _grow just before allocating a NEW page. Stay dense until enough
         // pages exist to judge, then require the average occupancy to clear the floor.
         private bool ShouldStayDense() =>
-            _pages < _geo.WarmupPages || Volatile.Read(ref _cells) >= (long)_pages * _geo.MinCellsPerPage;
+            _pages < _geo.WarmupPages
+            || Volatile.Read(ref _cells) >= (long)_pages * _geo.MinCellsPerPage;
 
         private Column GetOrAddColumnLocked(int col)
         {
@@ -630,7 +635,13 @@ internal sealed class SheetValueStore
         /// <see cref="Column.TryBlockCopy"/>). A column with any covered row diverted to the sparse dictionary
         /// (no page) fails the page pre-check and returns false, so the caller's per-cell fallback — which reads
         /// the sparse dictionary too — serves it.</summary>
-        public bool TryBlockCopyColumn(int col, int minRow, int maxRow, ComputedValue[] dest, int destBase)
+        public bool TryBlockCopyColumn(
+            int col,
+            int minRow,
+            int maxRow,
+            ComputedValue[] dest,
+            int destBase
+        )
         {
             var column = FindColumn(col);
             return column is not null && column.TryBlockCopy(minRow, maxRow, dest, destBase);
@@ -873,7 +884,7 @@ internal sealed class SheetValueStore
         private ComputedValue[] _values;
         private ulong[] _present; // one 64-bit word per 64 slots
         private readonly int _maxSlots; // promotion ceiling = RowPageSize (a page never grows past its row span)
-        private int _version;   // even = stable, odd = a writer is mid-update
+        private int _version; // even = stable, odd = a writer is mid-update
         private int _writeLock; // 0 = free, 1 = held (single-writer gate)
 
         internal Page(int initialSlots, int maxSlots)
@@ -896,7 +907,8 @@ internal sealed class SheetValueStore
             {
                 var values = Volatile.Read(ref _values);
                 var present = Volatile.Read(ref _present);
-                return (long)values.Length * Unsafe.SizeOf<ComputedValue>() + (long)present.Length * 8;
+                return (long)values.Length * Unsafe.SizeOf<ComputedValue>()
+                    + (long)present.Length * 8;
             }
         }
 
@@ -944,9 +956,7 @@ internal sealed class SheetValueStore
             var word = slot >> 6;
             var bit = 1UL << (slot & 63);
 
-            while (Interlocked.CompareExchange(ref _writeLock, 1, 0) != 0)
-            {
-            }
+            while (Interlocked.CompareExchange(ref _writeLock, 1, 0) != 0) { }
 
             try
             {
@@ -1006,9 +1016,7 @@ internal sealed class SheetValueStore
             var word = slot >> 6;
             var bit = 1UL << (slot & 63);
 
-            while (Interlocked.CompareExchange(ref _writeLock, 1, 0) != 0)
-            {
-            }
+            while (Interlocked.CompareExchange(ref _writeLock, 1, 0) != 0) { }
 
             try
             {
@@ -1066,7 +1074,10 @@ internal sealed class SheetValueStore
                 // must be fully set (~0UL). A word is "all covered slots present" when required == present&required.
                 var lowBit = word == loWord ? sLo & 63 : 0;
                 var highBit = word == hiWord ? sHi & 63 : 63;
-                var required = highBit == 63 ? ~0UL << lowBit : ((1UL << (highBit + 1)) - 1) & (~0UL << lowBit);
+                var required =
+                    highBit == 63
+                        ? ~0UL << lowBit
+                        : ((1UL << (highBit + 1)) - 1) & (~0UL << lowBit);
 
                 if ((Volatile.Read(ref present[word]) & required) != required)
                 {

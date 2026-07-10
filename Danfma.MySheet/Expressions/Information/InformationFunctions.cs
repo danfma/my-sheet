@@ -10,7 +10,8 @@ namespace Danfma.MySheet.Expressions.Information;
 [MemoryPackable]
 public sealed partial record Na(Expression[] Arguments) : Function
 {
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.NA);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Error(Error.NA);
 }
 
 [MemoryPackable]
@@ -124,8 +125,8 @@ public sealed partial record IsFormula(Expression[] Arguments) : Function
 
         return ComputedValue.Boolean(
             context.Workbook.Sheets.TryGetValue(sheetName, out var sheet)
-            && sheet.TryGetValue(cellId, out var expression)
-            && expression is not ValueExpression
+                && sheet.TryGetValue(cellId, out var expression)
+                && expression is not ValueExpression
         );
     }
 }

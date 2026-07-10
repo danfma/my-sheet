@@ -10,14 +10,18 @@ public class UnaryOperationTests
     [Test]
     public async Task Negate_NegatesNumber()
     {
-        await Assert.That(Negate(Number(2)).Evaluate(Workbook).AsObject() as double?).IsEqualTo(-2.0);
+        await Assert
+            .That(Negate(Number(2)).Evaluate(Workbook).AsObject() as double?)
+            .IsEqualTo(-2.0);
     }
 
     [Test]
     public async Task Negate_Stacked_CancelsOut()
     {
         // -(-2) == 2
-        await Assert.That(Negate(Negate(Number(2))).Evaluate(Workbook).AsObject() as double?).IsEqualTo(2.0);
+        await Assert
+            .That(Negate(Negate(Number(2))).Evaluate(Workbook).AsObject() as double?)
+            .IsEqualTo(2.0);
     }
 
     [Test]

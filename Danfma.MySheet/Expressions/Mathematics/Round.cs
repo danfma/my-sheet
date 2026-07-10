@@ -19,6 +19,8 @@ public sealed partial record Round(Expression[] Arguments) : Function
 
         var factor = Math.Pow(10, digits);
 
-        return ComputedValue.Number(Math.Round(number * factor, MidpointRounding.AwayFromZero) / factor);
+        return ComputedValue.Number(
+            Math.Round(number * factor, MidpointRounding.AwayFromZero) / factor
+        );
     }
 }

@@ -14,10 +14,12 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
     {
         reference = null;
 
-        if (!Start.TryResolveReference(context, out var start)
+        if (
+            !Start.TryResolveReference(context, out var start)
             || !End.TryResolveReference(context, out var end)
             || !TryBox(start!, out var startBox)
-            || !TryBox(end!, out var endBox))
+            || !TryBox(end!, out var endBox)
+        )
         {
             return false;
         }
@@ -40,7 +42,8 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
         reference = new RangeReference(
             new CellAddress(minColumn, minRow).ToId(),
             new CellAddress(maxColumn, maxRow).ToId(),
-            startSheet);
+            startSheet
+        );
         return true;
     }
 
@@ -73,8 +76,11 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
                 var s = CellAddress.Parse(range.StartId);
                 var e = CellAddress.Parse(range.EndId);
                 box = new Box(
-                    Math.Min(s.Column, e.Column), Math.Min(s.Row, e.Row),
-                    Math.Max(s.Column, e.Column), Math.Max(s.Row, e.Row));
+                    Math.Min(s.Column, e.Column),
+                    Math.Min(s.Row, e.Row),
+                    Math.Max(s.Column, e.Column),
+                    Math.Max(s.Row, e.Row)
+                );
                 return true;
             default:
                 box = default;

@@ -17,7 +17,10 @@ internal static class ExcelMath
     /// <summary>Rounds to 14 significant digits (round-trip through "G14").</summary>
     public static double Snap(double value) =>
         double.IsFinite(value) && value != 0
-            ? double.Parse(value.ToString("G14", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)
+            ? double.Parse(
+                value.ToString("G14", CultureInfo.InvariantCulture),
+                CultureInfo.InvariantCulture
+            )
             : value;
 
     /// <summary>Truncation toward zero at a digit position (TRUNC/ROUNDDOWN semantics).</summary>

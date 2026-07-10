@@ -42,8 +42,14 @@ public class LookupReferenceFunctionTests
         // =CHOOSE(2,A2,A3,A4,A5) -> "2nd"; =CHOOSE(4,B2,B3,B4,B5) -> "Bolts" (exemplos da página).
         (string, object)[] cells =
         [
-            ("A2", "1st"), ("A3", "2nd"), ("A4", "3rd"), ("A5", "Finished"),
-            ("B2", "Nails"), ("B3", "Screws"), ("B4", "Nuts"), ("B5", "Bolts"),
+            ("A2", "1st"),
+            ("A3", "2nd"),
+            ("A4", "3rd"),
+            ("A5", "Finished"),
+            ("B2", "Nails"),
+            ("B3", "Screws"),
+            ("B4", "Nuts"),
+            ("B5", "Bolts"),
         ];
 
         await Assert.That(Calc("=CHOOSE(2,A2,A3,A4,A5)", cells)).IsEqualTo("2nd");
@@ -93,10 +99,8 @@ public class LookupReferenceFunctionTests
         // references as well as single values"); o range escolhido expande no consumidor.
         await Assert
             .That(
-                Calc(
-                    "=SUM(CHOOSE(2,A1:A2,B1:B2))",
-                    ("A1", 1), ("A2", 2), ("B1", 10), ("B2", 20)
-                ) as double?
+                Calc("=SUM(CHOOSE(2,A1:A2,B1:B2))", ("A1", 1), ("A2", 2), ("B1", 10), ("B2", 20))
+                    as double?
             )
             .IsEqualTo(30.0);
     }
@@ -106,10 +110,18 @@ public class LookupReferenceFunctionTests
 
     private static readonly (string, object)[] HLookupTable =
     [
-        ("A1", "Axles"), ("B1", "Bearings"), ("C1", "Bolts"),
-        ("A2", 4), ("B2", 4), ("C2", 9),
-        ("A3", 5), ("B3", 7), ("C3", 10),
-        ("A4", 6), ("B4", 8), ("C4", 11),
+        ("A1", "Axles"),
+        ("B1", "Bearings"),
+        ("C1", "Bolts"),
+        ("A2", 4),
+        ("B2", 4),
+        ("C2", 9),
+        ("A3", 5),
+        ("B3", 7),
+        ("C3", 10),
+        ("A4", 6),
+        ("B4", 8),
+        ("C4", 11),
     ];
 
     [Test]
@@ -165,8 +177,16 @@ public class LookupReferenceFunctionTests
 
     private static readonly (string, object)[] LookupVectors =
     [
-        ("A2", 4.14), ("A3", 4.19), ("A4", 5.17), ("A5", 5.77), ("A6", 6.39),
-        ("B2", "red"), ("B3", "orange"), ("B4", "yellow"), ("B5", "green"), ("B6", "blue"),
+        ("A2", 4.14),
+        ("A3", 4.19),
+        ("A4", 5.17),
+        ("A5", 5.77),
+        ("A6", 6.39),
+        ("B2", "red"),
+        ("B3", "orange"),
+        ("B4", "yellow"),
+        ("B5", "green"),
+        ("B6", "blue"),
     ];
 
     [Test]
@@ -184,7 +204,8 @@ public class LookupReferenceFunctionTests
     {
         // =LOOKUP(0,A2:A6,B2:B6) -> #N/A: "If lookup_value is smaller than the smallest value in
         // lookup_vector, LOOKUP returns the #N/A error value" (exemplo + regra da página).
-        await Assert.That(Calc("=LOOKUP(0,A2:A6,B2:B6)", LookupVectors))
+        await Assert
+            .That(Calc("=LOOKUP(0,A2:A6,B2:B6)", LookupVectors))
             .IsEqualTo(ErrorValue.NotAvailable);
     }
 
@@ -204,8 +225,14 @@ public class LookupReferenceFunctionTests
         // a/b/c/d na linha 1, valores 1/2/3/4 na linha 2 -> LOOKUP("c") casa "c" e retorna 3.
         (string, object)[] wide =
         [
-            ("A1", "a"), ("B1", "b"), ("C1", "c"), ("D1", "d"),
-            ("A2", 1), ("B2", 2), ("C2", 3), ("D2", 4),
+            ("A1", "a"),
+            ("B1", "b"),
+            ("C1", "c"),
+            ("D1", "d"),
+            ("A2", 1),
+            ("B2", 2),
+            ("C2", 3),
+            ("D2", 4),
         ];
 
         await Assert.That(Calc("=LOOKUP(\"c\",A1:D2)", wide) as double?).IsEqualTo(3.0);
@@ -219,9 +246,12 @@ public class LookupReferenceFunctionTests
         // valores 1/2/3 -> "bump" não é exato; o maior valor <= "bump" é "b" -> 2.
         (string, object)[] tall =
         [
-            ("A1", "a"), ("B1", 1),
-            ("A2", "b"), ("B2", 2),
-            ("A3", "c"), ("B3", 3),
+            ("A1", "a"),
+            ("B1", 1),
+            ("A2", "b"),
+            ("B2", 2),
+            ("A3", "c"),
+            ("B3", 3),
         ];
 
         await Assert.That(Calc("=LOOKUP(\"bump\",A1:B3)", tall) as double?).IsEqualTo(2.0);
@@ -273,7 +303,11 @@ public class LookupReferenceFunctionTests
 
     private static readonly (string, object)[] Fruits =
     [
-        ("C3", "Apple"), ("C4", "Grape"), ("C5", "Pear"), ("C6", "Banana"), ("C7", "Cherry"),
+        ("C3", "Apple"),
+        ("C4", "Grape"),
+        ("C5", "Pear"),
+        ("C6", "Banana"),
+        ("C7", "Cherry"),
     ];
 
     [Test]
@@ -291,7 +325,9 @@ public class LookupReferenceFunctionTests
         // ("Cz" -> "Cedar Falls"), aqui como POSIÇÃO 1-based (regressão 3460bb3).
         (string, object)[] towns =
         [
-            ("A1", "Bradbury Creek"), ("A2", "Cedar Falls"), ("A3", "Dunmore"),
+            ("A1", "Bradbury Creek"),
+            ("A2", "Cedar Falls"),
+            ("A3", "Dunmore"),
         ];
 
         await Assert.That(Calc("=XMATCH(\"Cz\",A1:A3,-1)", towns) as double?).IsEqualTo(2.0);
@@ -424,8 +460,6 @@ public class LookupReferenceFunctionTests
     [Test]
     public async Task FormulaText_RangeArgument_ReadsTheTopLeftCell()
     {
-        await Assert
-            .That(Calc("=FORMULATEXT(A2:A4)", ("A2", "=1+1"), ("A3", 5)))
-            .IsEqualTo("=1+1");
+        await Assert.That(Calc("=FORMULATEXT(A2:A4)", ("A2", "=1+1"), ("A3", 5))).IsEqualTo("=1+1");
     }
 }

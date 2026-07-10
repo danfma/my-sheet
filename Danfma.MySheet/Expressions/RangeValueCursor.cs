@@ -69,7 +69,9 @@ internal struct RangeValueCursor
         switch (argument)
         {
             case RangeReference rectangle:
-                return new RangeValueCursor(rectangle.ExpandComputedValues(context).GetEnumerator());
+                return new RangeValueCursor(
+                    rectangle.ExpandComputedValues(context).GetEnumerator()
+                );
 
             case OpenRangeReference open:
                 return new RangeValueCursor(open.ExpandComputedValues(context).GetEnumerator());

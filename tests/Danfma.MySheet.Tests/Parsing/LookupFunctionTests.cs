@@ -42,9 +42,11 @@ public class LookupFunctionTests
     {
         // support.microsoft.com VLOOKUP: col_index_num < 1 -> #VALUE!; greater than the number of
         // columns in table_array -> #REF!. Mirrors the HLOOKUP row_index_num rule (wave 3 finding).
-        await Assert.That(Calc("=VLOOKUP(1,A1:B2,0)", ("A1", 1), ("B1", 2)) as ErrorValue)
+        await Assert
+            .That(Calc("=VLOOKUP(1,A1:B2,0)", ("A1", 1), ("B1", 2)) as ErrorValue)
             .IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(Calc("=VLOOKUP(1,A1:B2,3)", ("A1", 1), ("B1", 2)) as ErrorValue)
+        await Assert
+            .That(Calc("=VLOOKUP(1,A1:B2,3)", ("A1", 1), ("B1", 2)) as ErrorValue)
             .IsEqualTo(ErrorValue.Reference);
     }
 
@@ -128,9 +130,7 @@ public class LookupFunctionTests
         ];
 
         // Largest key <= "Cz" is "Cedar Falls" at position 2 (was #VALUE!/#N/A before the fix).
-        await Assert
-            .That(CalcMixed("=MATCH(\"Cz\",A1:A3,1)", column) as double?)
-            .IsEqualTo(2.0);
+        await Assert.That(CalcMixed("=MATCH(\"Cz\",A1:A3,1)", column) as double?).IsEqualTo(2.0);
 
         // Exact text key under approximate mode.
         await Assert

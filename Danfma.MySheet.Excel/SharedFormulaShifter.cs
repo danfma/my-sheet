@@ -85,7 +85,13 @@ internal static partial class SharedFormulaShifter
 
     // Reads one identifier-like token and either shifts it (a standalone cell reference) or copies it as
     // is (function name, LET name, sheet name before '!', etc.).
-    private static int CopyOrShiftToken(string formula, int start, StringBuilder builder, int deltaRow, int deltaColumn)
+    private static int CopyOrShiftToken(
+        string formula,
+        int start,
+        StringBuilder builder,
+        int deltaRow,
+        int deltaColumn
+    )
     {
         var end = start;
 

@@ -111,7 +111,9 @@ public sealed partial record BinaryOperation(
             BinaryOperator.Add => ComputedValue.Number(l + r),
             BinaryOperator.Subtract => ComputedValue.Number(l - r),
             BinaryOperator.Multiply => ComputedValue.Number(l * r),
-            BinaryOperator.Divide => r == 0 ? ComputedValue.Error(Error.DivZero) : ComputedValue.Number(l / r),
+            BinaryOperator.Divide => r == 0
+                ? ComputedValue.Error(Error.DivZero)
+                : ComputedValue.Number(l / r),
             BinaryOperator.Power => ComputedValue.Number(Math.Pow(l, r)),
             _ => throw new ArgumentOutOfRangeException(nameof(@operator), @operator, null),
         };

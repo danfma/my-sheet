@@ -43,7 +43,10 @@ public class TrigonometryTests
         // |number| >= 2^27 → #NUM!.
         await Assert.That(Num(Calc("=COT(30)"))).IsEqualTo(-0.156).Within(1e-3);
         await Assert.That(Num(Calc("=COT(45)"))).IsEqualTo(0.617).Within(1e-3);
-        await Assert.That(Num(Calc("=COT(1)"))).IsEqualTo(Math.Cos(1) / Math.Sin(1)).Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=COT(1)")))
+            .IsEqualTo(Math.Cos(1) / Math.Sin(1))
+            .Within(Tolerance);
         await Assert.That(Calc("=COT(0)")).IsEqualTo(ErrorValue.DivByZero);
         await Assert.That(Calc("=COT(134217728)")).IsEqualTo(ErrorValue.Number);
     }
@@ -97,7 +100,10 @@ public class TrigonometryTests
     {
         // support.microsoft.com ACOT: ACOT(2)=0.4636; result lies in (0, pi).
         await Assert.That(Num(Calc("=ACOT(2)"))).IsEqualTo(0.4636).Within(1e-4);
-        await Assert.That(Num(Calc("=ACOT(-2)"))).IsEqualTo(Math.PI / 2 - Math.Atan(-2)).Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=ACOT(-2)")))
+            .IsEqualTo(Math.PI / 2 - Math.Atan(-2))
+            .Within(Tolerance);
         await Assert.That(Num(Calc("=ACOT(0)"))).IsEqualTo(Math.PI / 2).Within(Tolerance);
     }
 

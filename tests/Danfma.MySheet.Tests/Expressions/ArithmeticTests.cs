@@ -96,9 +96,17 @@ public class ArithmeticTests
     {
         // Excel rule shared with SUM: text in referenced cells is ignored; numeric text passed
         // directly is coerced.
-        await Assert.That(
-            Num(Calc("=PRODUCT(A1:A2)", ("A1", new NumberValue(5)), ("A2", new StringValue("x"))))
-        ).IsEqualTo(5.0);
+        await Assert
+            .That(
+                Num(
+                    Calc(
+                        "=PRODUCT(A1:A2)",
+                        ("A1", new NumberValue(5)),
+                        ("A2", new StringValue("x"))
+                    )
+                )
+            )
+            .IsEqualTo(5.0);
         await Assert.That(Num(Calc("=PRODUCT(\"2\",3)"))).IsEqualTo(6.0);
     }
 
@@ -107,9 +115,11 @@ public class ArithmeticTests
     {
         // support.microsoft.com SUMSQ: SUMSQ(3,4)=25.
         await Assert.That(Num(Calc("=SUMSQ(3,4)"))).IsEqualTo(25.0);
-        await Assert.That(
-            Num(Calc("=SUMSQ(A1:A2)", ("A1", new NumberValue(3)), ("A2", new NumberValue(4))))
-        ).IsEqualTo(25.0);
+        await Assert
+            .That(
+                Num(Calc("=SUMSQ(A1:A2)", ("A1", new NumberValue(3)), ("A2", new NumberValue(4))))
+            )
+            .IsEqualTo(25.0);
     }
 
     [Test]
@@ -140,7 +150,10 @@ public class ArithmeticTests
             ("B4", new NumberValue(-0.001388889)),
         };
 
-        await Assert.That(Num(Calc("=SERIESSUM(A1,0,2,B1:B4)", cells))).IsEqualTo(0.707103).Within(1e-6);
+        await Assert
+            .That(Num(Calc("=SERIESSUM(A1,0,2,B1:B4)", cells)))
+            .IsEqualTo(0.707103)
+            .Within(1e-6);
     }
 
     [Test]
@@ -148,9 +161,15 @@ public class ArithmeticTests
     {
         // support.microsoft.com SERIESSUM: "If any argument is nonnumeric, SERIESSUM returns the
         // #VALUE! error value."
-        await Assert.That(
-            Calc("=SERIESSUM(1,0,1,B1:B2)", ("B1", new NumberValue(1)), ("B2", new StringValue("x")))
-        ).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(
+                Calc(
+                    "=SERIESSUM(1,0,1,B1:B2)",
+                    ("B1", new NumberValue(1)),
+                    ("B2", new StringValue("x"))
+                )
+            )
+            .IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]

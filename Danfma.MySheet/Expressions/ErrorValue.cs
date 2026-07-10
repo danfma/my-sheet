@@ -15,7 +15,8 @@ public sealed partial record ErrorValue(string ErrorCode) : ValueExpression
     // error singleton is the natural name for #NUM! and the factory stays reachable via Expression.
     public static new readonly ErrorValue Number = new("#NUM!");
 
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(AsError());
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Error(AsError());
 
     /// <summary>Identidade do erro como <see cref="Error"/> (código struct alloc-free).</summary>
     internal Error AsError() => Error.FromDisplay(ErrorCode);

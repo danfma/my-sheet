@@ -7,11 +7,20 @@ namespace Danfma.MySheet.Expressions.Financial;
 /// </summary>
 internal static class FinancialArguments
 {
-    public static Error? Number(Expression[] arguments, int index, EvaluationContext context, out double value) =>
-        arguments[index].Evaluate(context).CoerceToNumber(out value);
+    public static Error? Number(
+        Expression[] arguments,
+        int index,
+        EvaluationContext context,
+        out double value
+    ) => arguments[index].Evaluate(context).CoerceToNumber(out value);
 
     /// <summary>Coerces the argument to a numeric serial and converts it to a whole-day date.</summary>
-    public static Error? Date(Expression[] arguments, int index, EvaluationContext context, out DateTime date)
+    public static Error? Date(
+        Expression[] arguments,
+        int index,
+        EvaluationContext context,
+        out DateTime date
+    )
     {
         date = default;
 
@@ -24,7 +33,12 @@ internal static class FinancialArguments
     }
 
     /// <summary>Validates the coupon frequency argument: only 1 (annual), 2 (semi-annual), 4 (quarterly).</summary>
-    public static Error? Frequency(Expression[] arguments, int index, EvaluationContext context, out int frequency)
+    public static Error? Frequency(
+        Expression[] arguments,
+        int index,
+        EvaluationContext context,
+        out int frequency
+    )
     {
         frequency = 0;
 
@@ -121,7 +135,11 @@ internal static class FinancialArguments
     /// Flattens an argument (expanding ranges) into a list of numbers, ignoring text/logical/blank cells the
     /// way IRR and NPV do. Returns the first error encountered, or <c>null</c> on success.
     /// </summary>
-    public static Error? NumberList(Expression argument, EvaluationContext context, List<double> values)
+    public static Error? NumberList(
+        Expression argument,
+        EvaluationContext context,
+        List<double> values
+    )
     {
         foreach (var value in ArgumentFlattening.ExpandComputedValues(argument, context))
         {

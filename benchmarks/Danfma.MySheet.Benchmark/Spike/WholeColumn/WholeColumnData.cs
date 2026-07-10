@@ -159,7 +159,9 @@ internal sealed class WholeColumnData
     }
 
     // The LazyColumnIndex: one pass over the string keys → column -> ids. Rebuilt on invalidation.
-    public static Dictionary<int, List<string>> BuildColumnIndex(Dictionary<string, Expression> cells)
+    public static Dictionary<int, List<string>> BuildColumnIndex(
+        Dictionary<string, Expression> cells
+    )
     {
         var index = new Dictionary<int, List<string>>();
         foreach (var id in cells.Keys)

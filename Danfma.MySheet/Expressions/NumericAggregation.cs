@@ -200,7 +200,11 @@ internal static class NumericAggregation
         return error;
     }
 
-    private static void AddReferenced<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
+    private static void AddReferenced<TFold>(
+        in ComputedValue value,
+        ref TFold fold,
+        ref Error? error
+    )
         where TFold : struct, INumericFold
     {
         if (value.TryGetError(out var referencedError))
@@ -215,7 +219,11 @@ internal static class NumericAggregation
         // Referenced text, logicals and blanks are ignored, matching Excel.
     }
 
-    private static void AddReferencedA<TFold>(in ComputedValue value, ref TFold fold, ref Error? error)
+    private static void AddReferencedA<TFold>(
+        in ComputedValue value,
+        ref TFold fold,
+        ref Error? error
+    )
         where TFold : struct, INumericFold
     {
         if (value.TryGetError(out var referencedError))
@@ -265,7 +273,14 @@ internal static class NumericAggregation
 
             case ComputedValueKind.Text:
                 value.TryGetText(out var text);
-                if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                if (
+                    double.TryParse(
+                        text,
+                        NumberStyles.Any,
+                        CultureInfo.InvariantCulture,
+                        out var parsed
+                    )
+                )
                 {
                     fold.Accept(parsed);
                 }

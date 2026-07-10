@@ -73,7 +73,9 @@ public sealed partial record Days360(Expression[] Arguments) : Function
             return ComputedValue.Error(endRange);
         }
 
-        var days = european ? DayCount.Euro360Days(start.Date, end.Date) : UsDays360(start.Date, end.Date);
+        var days = european
+            ? DayCount.Euro360Days(start.Date, end.Date)
+            : UsDays360(start.Date, end.Date);
 
         return ComputedValue.Number(days);
     }
@@ -83,8 +85,12 @@ public sealed partial record Days360(Expression[] Arguments) : Function
     // the 1st of the next month.
     private static int UsDays360(DateTime start, DateTime end)
     {
-        int d1 = start.Day, m1 = start.Month, y1 = start.Year;
-        int d2 = end.Day, m2 = end.Month, y2 = end.Year;
+        int d1 = start.Day,
+            m1 = start.Month,
+            y1 = start.Year;
+        int d2 = end.Day,
+            m2 = end.Month,
+            y2 = end.Year;
 
         if (d1 == DateTime.DaysInMonth(y1, m1))
         {

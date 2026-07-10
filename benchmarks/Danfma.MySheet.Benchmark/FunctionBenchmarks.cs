@@ -1,11 +1,11 @@
+using Aspose.Cells;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using Danfma.MySheet;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
-using Aspose.Cells;
-using AsposeWorkbook = Aspose.Cells.Workbook;
 using AsposeCell = Aspose.Cells.Cell;
+using AsposeWorkbook = Aspose.Cells.Workbook;
 
 namespace Danfma.MySheet.Benchmark;
 
@@ -89,26 +89,40 @@ public class FunctionBenchmarks
     }
 
     // --- One field per family/size pair -------------------------------------------------------------------
-    private MyTarget _sumifsSmallMy = null!, _sumifsLargeMy = null!;
-    private AsTarget _sumifsSmallAs = null!, _sumifsLargeAs = null!;
+    private MyTarget _sumifsSmallMy = null!,
+        _sumifsLargeMy = null!;
+    private AsTarget _sumifsSmallAs = null!,
+        _sumifsLargeAs = null!;
 
-    private MyTarget _sumproductSmallMy = null!, _sumproductLargeMy = null!;
-    private AsTarget _sumproductSmallAs = null!, _sumproductLargeAs = null!;
+    private MyTarget _sumproductSmallMy = null!,
+        _sumproductLargeMy = null!;
+    private AsTarget _sumproductSmallAs = null!,
+        _sumproductLargeAs = null!;
 
-    private MyTarget _countifOpenSmallMy = null!, _countifOpenLargeMy = null!;
-    private AsTarget _countifOpenSmallAs = null!, _countifOpenLargeAs = null!;
+    private MyTarget _countifOpenSmallMy = null!,
+        _countifOpenLargeMy = null!;
+    private AsTarget _countifOpenSmallAs = null!,
+        _countifOpenLargeAs = null!;
 
-    private MyTarget _countifClosedSmallMy = null!, _countifClosedLargeMy = null!;
-    private AsTarget _countifClosedSmallAs = null!, _countifClosedLargeAs = null!;
+    private MyTarget _countifClosedSmallMy = null!,
+        _countifClosedLargeMy = null!;
+    private AsTarget _countifClosedSmallAs = null!,
+        _countifClosedLargeAs = null!;
 
-    private MyTarget _arraySmallMy = null!, _arrayLargeMy = null!;
-    private AsTarget _arraySmallAs = null!, _arrayLargeAs = null!;
+    private MyTarget _arraySmallMy = null!,
+        _arrayLargeMy = null!;
+    private AsTarget _arraySmallAs = null!,
+        _arrayLargeAs = null!;
 
-    private MyTarget _xlookupSmallMy = null!, _xlookupLargeMy = null!;
-    private AsTarget _xlookupSmallAs = null!, _xlookupLargeAs = null!;
+    private MyTarget _xlookupSmallMy = null!,
+        _xlookupLargeMy = null!;
+    private AsTarget _xlookupSmallAs = null!,
+        _xlookupLargeAs = null!;
 
-    private MyTarget _matchIntSmallMy = null!, _matchIntLargeMy = null!;
-    private AsTarget _matchIntSmallAs = null!, _matchIntLargeAs = null!;
+    private MyTarget _matchIntSmallMy = null!,
+        _matchIntLargeMy = null!;
+    private AsTarget _matchIntSmallAs = null!,
+        _matchIntLargeAs = null!;
 
     private MyTarget _ifPassthroughMy = null!;
     private AsTarget _ifPassthroughAs = null!;
@@ -139,11 +153,27 @@ public class FunctionBenchmarks
         (_sumproductSmallMy, _sumproductSmallAs) = BuildSumproduct(SmallN, "SUMPRODUCT/200");
         (_sumproductLargeMy, _sumproductLargeAs) = BuildSumproduct(LargeN, "SUMPRODUCT/50k");
 
-        (_countifOpenSmallMy, _countifOpenSmallAs) = BuildCountif(SmallN, open: true, "COUNTIF-open/200");
-        (_countifOpenLargeMy, _countifOpenLargeAs) = BuildCountif(LargeN, open: true, "COUNTIF-open/50k");
+        (_countifOpenSmallMy, _countifOpenSmallAs) = BuildCountif(
+            SmallN,
+            open: true,
+            "COUNTIF-open/200"
+        );
+        (_countifOpenLargeMy, _countifOpenLargeAs) = BuildCountif(
+            LargeN,
+            open: true,
+            "COUNTIF-open/50k"
+        );
 
-        (_countifClosedSmallMy, _countifClosedSmallAs) = BuildCountif(SmallN, open: false, "COUNTIF-closed/200");
-        (_countifClosedLargeMy, _countifClosedLargeAs) = BuildCountif(LargeN, open: false, "COUNTIF-closed/50k");
+        (_countifClosedSmallMy, _countifClosedSmallAs) = BuildCountif(
+            SmallN,
+            open: false,
+            "COUNTIF-closed/200"
+        );
+        (_countifClosedLargeMy, _countifClosedLargeAs) = BuildCountif(
+            LargeN,
+            open: false,
+            "COUNTIF-closed/50k"
+        );
 
         (_arraySmallMy, _arraySmallAs) = BuildArray(SmallN, "Array-INDEX-SMALL/200");
         (_arrayLargeMy, _arrayLargeAs) = BuildArray(LargeN, "Array-INDEX-SMALL/50k");
@@ -317,7 +347,8 @@ public class FunctionBenchmarks
             asWs.Cells[$"C{r}"].PutValue(amount);
         }
 
-        var formula = $"=SUMIFS(C2:C{last},A2:A{last},\"G3\",B2:B{last},\"R2\",C2:C{last},\">=50\")";
+        var formula =
+            $"=SUMIFS(C2:C{last},A2:A{last},\"G3\",B2:B{last},\"R2\",C2:C{last},\">=50\")";
         return Finish(my, sheet, asWb, asWs, formula, name);
     }
 
@@ -330,7 +361,9 @@ public class FunctionBenchmarks
 
         for (var r = 2; r <= last; r++)
         {
-            double a = (r % 7) + 1, b = (r % 5) + 1, c = (r % 3) + 1;
+            double a = (r % 7) + 1,
+                b = (r % 5) + 1,
+                c = (r % 3) + 1;
             sheet[$"A{r}"] = new NumberValue(a);
             sheet[$"B{r}"] = new NumberValue(b);
             sheet[$"C{r}"] = new NumberValue(c);
@@ -384,7 +417,13 @@ public class FunctionBenchmarks
         sheet[Target] = expr;
         asWs.Cells[Target].SetArrayFormula(formula, 1, 1);
 
-        var myTarget = new MyTarget { Workbook = my, Sheet = SheetName, Cell = Target, Expression = expr };
+        var myTarget = new MyTarget
+        {
+            Workbook = my,
+            Sheet = SheetName,
+            Cell = Target,
+            Expression = expr,
+        };
         var asTarget = new AsTarget { Workbook = asWb, Cell = asWs.Cells[Target] };
         myTarget.Warm();
         AssertEquivalent(name, myTarget, asTarget);
@@ -523,13 +562,25 @@ public class FunctionBenchmarks
 
     // Wire the (normal) target formula on both engines, assert equivalence, return the pair.
     private static (MyTarget, AsTarget) Finish(
-        Workbook my, Sheet sheet, AsposeWorkbook asWb, Worksheet asWs, string formula, string name)
+        Workbook my,
+        Sheet sheet,
+        AsposeWorkbook asWb,
+        Worksheet asWs,
+        string formula,
+        string name
+    )
     {
         var expr = ExpressionParser.Parse(formula, sheet);
         sheet[Target] = expr;
         asWs.Cells[Target].Formula = formula;
 
-        var myTarget = new MyTarget { Workbook = my, Sheet = SheetName, Cell = Target, Expression = expr };
+        var myTarget = new MyTarget
+        {
+            Workbook = my,
+            Sheet = SheetName,
+            Cell = Target,
+            Expression = expr,
+        };
         var asTarget = new AsTarget { Workbook = asWb, Cell = asWs.Cells[Target] };
         myTarget.Warm();
         AssertEquivalent(name, myTarget, asTarget);
@@ -547,7 +598,8 @@ public class FunctionBenchmarks
             if (Math.Abs(a - b) > 1e-6 * Math.Max(1.0, Math.Abs(b)))
             {
                 throw new InvalidOperationException(
-                    $"[{name}] engine disagreement: MySheet={a} vs Aspose={b}");
+                    $"[{name}] engine disagreement: MySheet={a} vs Aspose={b}"
+                );
             }
             return;
         }
@@ -557,7 +609,8 @@ public class FunctionBenchmarks
         if (!string.Equals(ms, xs, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"[{name}] engine disagreement: MySheet='{ms ?? "<null>"}' vs Aspose='{xs ?? "<null>"}'");
+                $"[{name}] engine disagreement: MySheet='{ms ?? "<null>"}' vs Aspose='{xs ?? "<null>"}'"
+            );
         }
     }
 
@@ -565,12 +618,24 @@ public class FunctionBenchmarks
     {
         switch (value)
         {
-            case double d: number = d; return true;
-            case float f: number = f; return true;
-            case int i: number = i; return true;
-            case long l: number = l; return true;
-            case decimal m: number = (double)m; return true;
-            default: number = 0; return false;
+            case double d:
+                number = d;
+                return true;
+            case float f:
+                number = f;
+                return true;
+            case int i:
+                number = i;
+                return true;
+            case long l:
+                number = l;
+                return true;
+            case decimal m:
+                number = (double)m;
+                return true;
+            default:
+                number = 0;
+                return false;
         }
     }
 

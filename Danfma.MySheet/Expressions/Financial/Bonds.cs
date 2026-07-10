@@ -51,7 +51,9 @@ public sealed partial record Price(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        return FinancialArguments.Result(BondMath.Price(settlement, maturity, rate, yld, redemption, frequency, basis));
+        return FinancialArguments.Result(
+            BondMath.Price(settlement, maturity, rate, yld, redemption, frequency, basis)
+        );
     }
 }
 
@@ -101,7 +103,9 @@ public sealed partial record Yield(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        return FinancialArguments.Result(BondMath.Yield(settlement, maturity, rate, price, redemption, frequency, basis));
+        return FinancialArguments.Result(
+            BondMath.Yield(settlement, maturity, rate, price, redemption, frequency, basis)
+        );
     }
 }
 
@@ -109,19 +113,25 @@ public sealed partial record Yield(Expression[] Arguments) : Function
 public sealed partial record Duration(Expression[] Arguments) : Function
 {
     // DURATION(settlement, maturity, coupon, yld, frequency, [basis]) — Macaulay duration in years.
-    public override ComputedValue Evaluate(EvaluationContext context) => DurationMath.Evaluate(Arguments, context, modified: false);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        DurationMath.Evaluate(Arguments, context, modified: false);
 }
 
 [MemoryPackable]
 public sealed partial record MDuration(Expression[] Arguments) : Function
 {
     // MDURATION(settlement, maturity, coupon, yld, frequency, [basis]) — modified Macaulay duration.
-    public override ComputedValue Evaluate(EvaluationContext context) => DurationMath.Evaluate(Arguments, context, modified: true);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        DurationMath.Evaluate(Arguments, context, modified: true);
 }
 
 internal static class DurationMath
 {
-    public static ComputedValue Evaluate(Expression[] arguments, EvaluationContext context, bool modified)
+    public static ComputedValue Evaluate(
+        Expression[] arguments,
+        EvaluationContext context,
+        bool modified
+    )
     {
         if (FinancialArguments.Date(arguments, 0, context, out var settlement) is { } e0)
         {
@@ -158,6 +168,8 @@ internal static class DurationMath
             return ComputedValue.Error(Error.Num);
         }
 
-        return FinancialArguments.Result(BondMath.Duration(settlement, maturity, coupon, yld, frequency, basis, modified));
+        return FinancialArguments.Result(
+            BondMath.Duration(settlement, maturity, coupon, yld, frequency, basis, modified)
+        );
     }
 }

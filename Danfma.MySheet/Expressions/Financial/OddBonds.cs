@@ -10,33 +10,41 @@ namespace Danfma.MySheet.Expressions.Financial;
 public sealed partial record OddFPrice(Expression[] Arguments) : Function
 {
     // ODDFPRICE(settlement, maturity, issue, first_coupon, rate, yld, redemption, frequency, [basis]).
-    public override ComputedValue Evaluate(EvaluationContext context) => OddFirst.Evaluate(Arguments, context, yield: false);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        OddFirst.Evaluate(Arguments, context, yield: false);
 }
 
 [MemoryPackable]
 public sealed partial record OddFYield(Expression[] Arguments) : Function
 {
     // ODDFYIELD(settlement, maturity, issue, first_coupon, rate, pr, redemption, frequency, [basis]).
-    public override ComputedValue Evaluate(EvaluationContext context) => OddFirst.Evaluate(Arguments, context, yield: true);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        OddFirst.Evaluate(Arguments, context, yield: true);
 }
 
 [MemoryPackable]
 public sealed partial record OddLPrice(Expression[] Arguments) : Function
 {
     // ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, [basis]).
-    public override ComputedValue Evaluate(EvaluationContext context) => OddLast.Evaluate(Arguments, context, yield: false);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        OddLast.Evaluate(Arguments, context, yield: false);
 }
 
 [MemoryPackable]
 public sealed partial record OddLYield(Expression[] Arguments) : Function
 {
     // ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, [basis]).
-    public override ComputedValue Evaluate(EvaluationContext context) => OddLast.Evaluate(Arguments, context, yield: true);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        OddLast.Evaluate(Arguments, context, yield: true);
 }
 
 internal static class OddFirst
 {
-    public static ComputedValue Evaluate(Expression[] arguments, EvaluationContext context, bool yield)
+    public static ComputedValue Evaluate(
+        Expression[] arguments,
+        EvaluationContext context,
+        bool yield
+    )
     {
         if (FinancialArguments.Date(arguments, 0, context, out var settlement) is { } e0)
         {
@@ -95,8 +103,28 @@ internal static class OddFirst
         }
 
         var value = yield
-            ? BondMath.OddFYield(settlement, maturity, issue, firstCoupon, rate, priceOrYield, redemption, frequency, basis)
-            : BondMath.OddFPrice(settlement, maturity, issue, firstCoupon, rate, priceOrYield, redemption, frequency, basis);
+            ? BondMath.OddFYield(
+                settlement,
+                maturity,
+                issue,
+                firstCoupon,
+                rate,
+                priceOrYield,
+                redemption,
+                frequency,
+                basis
+            )
+            : BondMath.OddFPrice(
+                settlement,
+                maturity,
+                issue,
+                firstCoupon,
+                rate,
+                priceOrYield,
+                redemption,
+                frequency,
+                basis
+            );
 
         return FinancialArguments.Result(value);
     }
@@ -104,7 +132,11 @@ internal static class OddFirst
 
 internal static class OddLast
 {
-    public static ComputedValue Evaluate(Expression[] arguments, EvaluationContext context, bool yield)
+    public static ComputedValue Evaluate(
+        Expression[] arguments,
+        EvaluationContext context,
+        bool yield
+    )
     {
         if (FinancialArguments.Date(arguments, 0, context, out var settlement) is { } e0)
         {
@@ -146,7 +178,12 @@ internal static class OddLast
             return ComputedValue.Error(e7);
         }
 
-        if (!(lastInterest < settlement && settlement < maturity) || rate < 0 || priceOrYield < 0 || redemption < 0)
+        if (
+            !(lastInterest < settlement && settlement < maturity)
+            || rate < 0
+            || priceOrYield < 0
+            || redemption < 0
+        )
         {
             return ComputedValue.Error(Error.Num);
         }

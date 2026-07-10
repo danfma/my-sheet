@@ -23,8 +23,8 @@ public enum ComputedValueKind : byte
 /// </summary>
 public readonly struct ComputedValue
 {
-    private readonly double _num;    // Number | Boolean(0/1) | Error(código)
-    private readonly object? _ref;   // Text(string) | Reference(Reference) — null nos escalares
+    private readonly double _num; // Number | Boolean(0/1) | Error(código)
+    private readonly object? _ref; // Text(string) | Reference(Reference) — null nos escalares
     private readonly ComputedValueKind _kind;
 
     private ComputedValue(double num, object? reference, ComputedValueKind kind)
@@ -38,12 +38,14 @@ public readonly struct ComputedValue
 
     public static ComputedValue Number(double value) => new(value, null, ComputedValueKind.Number);
 
-    public static ComputedValue Boolean(bool value) => new(value ? 1d : 0d, null, ComputedValueKind.Boolean);
+    public static ComputedValue Boolean(bool value) =>
+        new(value ? 1d : 0d, null, ComputedValueKind.Boolean);
 
     public static ComputedValue Text(string? value) =>
         value is null ? Blank : new(0d, value, ComputedValueKind.Text);
 
-    public static ComputedValue Error(Error error) => new(error.Code, null, ComputedValueKind.Error);
+    public static ComputedValue Error(Error error) =>
+        new(error.Code, null, ComputedValueKind.Error);
 
     public static ComputedValue Reference(Reference reference) =>
         new(0d, reference, ComputedValueKind.Reference);
@@ -137,7 +139,9 @@ public readonly struct ComputedValue
         _kind == ComputedValueKind.Number ? _num : throw NotOfKind(ComputedValueKind.Number);
 
     public bool ToBoolean() =>
-        _kind == ComputedValueKind.Boolean ? _num != 0d : throw NotOfKind(ComputedValueKind.Boolean);
+        _kind == ComputedValueKind.Boolean
+            ? _num != 0d
+            : throw NotOfKind(ComputedValueKind.Boolean);
 
     public string ToText() =>
         _kind == ComputedValueKind.Text ? (string)_ref! : throw NotOfKind(ComputedValueKind.Text);
@@ -193,14 +197,14 @@ public readonly struct ComputedValue
         EnumerateValues(new EvaluationContext(workbook));
 
     /// <summary>Ponte para o mundo <c>object?</c> (interop / call sites legados). Boxa escalares numéricos.</summary>
-    public object? AsObject() => _kind switch
-    {
-        ComputedValueKind.Number => _num,
-        ComputedValueKind.Boolean => _num != 0d,
-        ComputedValueKind.Text => _ref,
-        ComputedValueKind.Error => MySheet.Error.FromCode((int)_num).ToErrorValue(),
-        ComputedValueKind.Reference => _ref,
-        _ => null,
-    };
-
+    public object? AsObject() =>
+        _kind switch
+        {
+            ComputedValueKind.Number => _num,
+            ComputedValueKind.Boolean => _num != 0d,
+            ComputedValueKind.Text => _ref,
+            ComputedValueKind.Error => MySheet.Error.FromCode((int)_num).ToErrorValue(),
+            ComputedValueKind.Reference => _ref,
+            _ => null,
+        };
 }

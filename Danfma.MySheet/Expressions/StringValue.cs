@@ -6,5 +6,4 @@ namespace Danfma.MySheet.Expressions;
 public sealed partial record StringValue(string Value) : ValueExpression
 {
     public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Text(Value);
-
 }

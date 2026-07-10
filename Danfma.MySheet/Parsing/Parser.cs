@@ -2,13 +2,13 @@ using System.Globalization;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Expressions.Dates;
 using Danfma.MySheet.Expressions.Financial;
-using Compat = Danfma.MySheet.Expressions.Compatibility;
 using Danfma.MySheet.Expressions.Information;
 using Danfma.MySheet.Expressions.Logical;
 using Danfma.MySheet.Expressions.Lookup;
 using Danfma.MySheet.Expressions.Mathematics;
 using Danfma.MySheet.Expressions.Statistical;
 using Danfma.MySheet.Expressions.Text;
+using Compat = Danfma.MySheet.Expressions.Compatibility;
 
 namespace Danfma.MySheet.Parsing;
 
@@ -526,7 +526,8 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
                 row = address.Row;
                 return true;
 
-            case NameReference name when CellAddress.TryParseColumn(name.Name, out var parsedColumn):
+            case NameReference name
+                when CellAddress.TryParseColumn(name.Name, out var parsedColumn):
                 column = parsedColumn;
                 row = null;
                 return true;
@@ -605,7 +606,10 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
                 )
                 {
                     // Report at the RIGHT endpoint — that is the malformed side in this branch.
-                    throw new ParseException("Expected a cell reference after '!'", second.Position);
+                    throw new ParseException(
+                        "Expected a cell reference after '!'",
+                        second.Position
+                    );
                 }
 
                 return string.Equals(

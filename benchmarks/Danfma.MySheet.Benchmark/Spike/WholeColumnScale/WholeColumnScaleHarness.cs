@@ -61,14 +61,23 @@ public static class WholeColumnScaleHarness
 
     private static void RunReduced()
     {
-        Console.WriteLine($"-- REDUCED: {ReducedDataCells:N0} data cells × {ReducedFormulas:N0} formulas --");
-        Console.WriteLine($"{"Formula",-14} {"BigColumn (ms)",16} {"NarrowColumn (ms)",18}");
+        Console.WriteLine(
+            $"-- REDUCED: {ReducedDataCells:N0} data cells × {ReducedFormulas:N0} formulas --"
+        );
+        Console.WriteLine($"{"Formula", -14} {"BigColumn (ms)", 16} {"NarrowColumn (ms)", 18}");
 
         foreach (var formula in Enum.GetValues<ScaleFormula>())
         {
             var big = TimeOnce(ReducedDataCells, ReducedFormulas, formula, ScaleTarget.BigColumn);
-            var narrow = TimeOnce(ReducedDataCells, ReducedFormulas, formula, ScaleTarget.NarrowColumn);
-            Console.WriteLine($"{formula,-14} {big.Milliseconds,16:N1} {narrow.Milliseconds,18:N1}");
+            var narrow = TimeOnce(
+                ReducedDataCells,
+                ReducedFormulas,
+                formula,
+                ScaleTarget.NarrowColumn
+            );
+            Console.WriteLine(
+                $"{formula, -14} {big.Milliseconds, 16:N1} {narrow.Milliseconds, 18:N1}"
+            );
         }
     }
 
@@ -78,9 +87,11 @@ public static class WholeColumnScaleHarness
     // a peak-managed-heap line close the run; wrap the process in `/usr/bin/time -l` for peak RSS.
     private static void RunFullMeasured()
     {
-        Console.WriteLine($"-- FULL (MEASURED): {FullDataCells:N0} data cells × {FullFormulas:N0} formulas --");
         Console.WriteLine(
-            $"{"Formula",-14} {"Big (ms)",12} {"Big cache (MB)",16} {"Narrow (ms)",14} {"Narrow cache (MB)",18}"
+            $"-- FULL (MEASURED): {FullDataCells:N0} data cells × {FullFormulas:N0} formulas --"
+        );
+        Console.WriteLine(
+            $"{"Formula", -14} {"Big (ms)", 12} {"Big cache (MB)", 16} {"Narrow (ms)", 14} {"Narrow cache (MB)", 18}"
         );
 
         var totalMs = 0.0;
@@ -88,14 +99,24 @@ public static class WholeColumnScaleHarness
 
         foreach (var formula in Enum.GetValues<ScaleFormula>())
         {
-            var big = MeasureWithMemory(FullDataCells, FullFormulas, formula, ScaleTarget.BigColumn);
-            var narrow = MeasureWithMemory(FullDataCells, FullFormulas, formula, ScaleTarget.NarrowColumn);
+            var big = MeasureWithMemory(
+                FullDataCells,
+                FullFormulas,
+                formula,
+                ScaleTarget.BigColumn
+            );
+            var narrow = MeasureWithMemory(
+                FullDataCells,
+                FullFormulas,
+                formula,
+                ScaleTarget.NarrowColumn
+            );
             totalMs += big.Milliseconds + narrow.Milliseconds;
             peakHeap = Math.Max(peakHeap, Math.Max(big.PeakHeapBytes, narrow.PeakHeapBytes));
 
             Console.WriteLine(
-                $"{formula,-14} {big.Milliseconds,12:N1} {big.CacheBytes / 1_048_576.0,16:N1} "
-                    + $"{narrow.Milliseconds,14:N1} {narrow.CacheBytes / 1_048_576.0,18:N1}"
+                $"{formula, -14} {big.Milliseconds, 12:N1} {big.CacheBytes / 1_048_576.0, 16:N1} "
+                    + $"{narrow.Milliseconds, 14:N1} {narrow.CacheBytes / 1_048_576.0, 18:N1}"
             );
         }
 
@@ -115,16 +136,21 @@ public static class WholeColumnScaleHarness
                 + $"{FullSampleFormulas:N0} sampled formulas, extrapolated ×{factor:N0} → {FullFormulas:N0} formulas --"
         );
         Console.WriteLine(
-            $"{"Formula",-14} {"Big sample (ms)",16} {"Big est. (s)",14} {"Narrow sample (ms)",20} {"Narrow est. (s)",16}"
+            $"{"Formula", -14} {"Big sample (ms)", 16} {"Big est. (s)", 14} {"Narrow sample (ms)", 20} {"Narrow est. (s)", 16}"
         );
 
         foreach (var formula in Enum.GetValues<ScaleFormula>())
         {
             var big = TimeOnce(FullDataCells, FullSampleFormulas, formula, ScaleTarget.BigColumn);
-            var narrow = TimeOnce(FullDataCells, FullSampleFormulas, formula, ScaleTarget.NarrowColumn);
+            var narrow = TimeOnce(
+                FullDataCells,
+                FullSampleFormulas,
+                formula,
+                ScaleTarget.NarrowColumn
+            );
             Console.WriteLine(
-                $"{formula,-14} {big.Milliseconds,16:N1} {big.Milliseconds * factor / 1000.0,14:N1} "
-                    + $"{narrow.Milliseconds,20:N1} {narrow.Milliseconds * factor / 1000.0,16:N1}"
+                $"{formula, -14} {big.Milliseconds, 16:N1} {big.Milliseconds * factor / 1000.0, 14:N1} "
+                    + $"{narrow.Milliseconds, 20:N1} {narrow.Milliseconds * factor / 1000.0, 16:N1}"
             );
         }
     }
@@ -136,7 +162,12 @@ public static class WholeColumnScaleHarness
         ScaleTarget target
     )
     {
-        var (workbook, formulaIds) = WholeColumnScaleData.Build(dataCells, formulaCount, formula, target);
+        var (workbook, formulaIds) = WholeColumnScaleData.Build(
+            dataCells,
+            formulaCount,
+            formula,
+            target
+        );
 
         // The structural index / value cache both start cold; drop them so the pass is a true from-cold
         // measurement (this is the load-once-read-once cycle the user reported).
@@ -149,7 +180,11 @@ public static class WholeColumnScaleHarness
         return (stopwatch.Elapsed.TotalMilliseconds, checksum);
     }
 
-    private readonly record struct MeasuredBlock(double Milliseconds, long CacheBytes, long PeakHeapBytes);
+    private readonly record struct MeasuredBlock(
+        double Milliseconds,
+        long CacheBytes,
+        long PeakHeapBytes
+    );
 
     private static MeasuredBlock MeasureWithMemory(
         int dataCells,
@@ -158,7 +193,12 @@ public static class WholeColumnScaleHarness
         ScaleTarget target
     )
     {
-        var (workbook, formulaIds) = WholeColumnScaleData.Build(dataCells, formulaCount, formula, target);
+        var (workbook, formulaIds) = WholeColumnScaleData.Build(
+            dataCells,
+            formulaCount,
+            formula,
+            target
+        );
         workbook.InvalidateCache();
 
         // Settle the workbook so the delta isolates what the EVALUATION pass allocates and retains (the cell

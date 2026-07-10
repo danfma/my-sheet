@@ -121,7 +121,8 @@ public class MissingSheetReferenceTests
     public async Task Match_MissingSheet_IsRef() => await AssertRef("=MATCH(1, Ghost!A:A)");
 
     [Test]
-    public async Task XLookup_MissingSheet_IsRef() => await AssertRef("=XLOOKUP(1, Ghost!A:A, Main!B:B)");
+    public async Task XLookup_MissingSheet_IsRef() =>
+        await AssertRef("=XLOOKUP(1, Ghost!A:A, Main!B:B)");
 
     [Test]
     public async Task XMatch_MissingSheet_IsRef() => await AssertRef("=XMATCH(1, Ghost!A:A)");
@@ -135,26 +136,31 @@ public class MissingSheetReferenceTests
     // A BOUNDED ghost range (not just a whole-column open range): the lookup would otherwise scan its cells,
     // skip the per-cell #REF! keys, and degrade to #N/A. It must short-circuit to #REF! structurally.
     [Test]
-    public async Task VLookup_BoundedMissingSheet_IsRef() => await AssertRef("=VLOOKUP(1, Ghost!A1:B5, 2)");
+    public async Task VLookup_BoundedMissingSheet_IsRef() =>
+        await AssertRef("=VLOOKUP(1, Ghost!A1:B5, 2)");
 
     [Test]
-    public async Task HLookup_BoundedMissingSheet_IsRef() => await AssertRef("=HLOOKUP(1, Ghost!A1:B5, 2)");
+    public async Task HLookup_BoundedMissingSheet_IsRef() =>
+        await AssertRef("=HLOOKUP(1, Ghost!A1:B5, 2)");
 
     [Test]
-    public async Task TextJoin_MissingSheet_IsRef() => await AssertRef("=TEXTJOIN(\",\", TRUE, Ghost!A:A)");
+    public async Task TextJoin_MissingSheet_IsRef() =>
+        await AssertRef("=TEXTJOIN(\",\", TRUE, Ghost!A:A)");
 
     [Test]
     public async Task Concat_MissingSheet_IsRef() => await AssertRef("=CONCAT(Ghost!A:A)");
 
     [Test]
-    public async Task Concatenate_MissingSheet_IsRef() => await AssertRef("=CONCATENATE(Ghost!A:A)");
+    public async Task Concatenate_MissingSheet_IsRef() =>
+        await AssertRef("=CONCATENATE(Ghost!A:A)");
 
     [Test]
     public async Task Npv_ValuesMissingSheet_IsRef() => await AssertRef("=NPV(0.1, Ghost!A:A)");
 
     // The rate argument is itself a reference to a missing sheet — a structural #REF! before any math.
     [Test]
-    public async Task Npv_RateMissingSheet_IsRef() => await AssertRef("=NPV(Ghost!A1, Main!A1)", ("A1", "=10"));
+    public async Task Npv_RateMissingSheet_IsRef() =>
+        await AssertRef("=NPV(Ghost!A1, Main!A1)", ("A1", "=10"));
 
     [Test]
     public async Task Irr_MissingSheet_IsRef() => await AssertRef("=IRR(Ghost!A:A)");
@@ -163,13 +169,15 @@ public class MissingSheetReferenceTests
     public async Task Mirr_MissingSheet_IsRef() => await AssertRef("=MIRR(Ghost!A:A, 0.1, 0.1)");
 
     [Test]
-    public async Task XNpv_MissingSheet_IsRef() => await AssertRef("=XNPV(0.1, Ghost!A:A, Main!B:B)");
+    public async Task XNpv_MissingSheet_IsRef() =>
+        await AssertRef("=XNPV(0.1, Ghost!A:A, Main!B:B)");
 
     [Test]
     public async Task XIrr_MissingSheet_IsRef() => await AssertRef("=XIRR(Ghost!A:A, Main!B:B)");
 
     [Test]
-    public async Task FvSchedule_MissingSheet_IsRef() => await AssertRef("=FVSCHEDULE(100, Ghost!A:A)");
+    public async Task FvSchedule_MissingSheet_IsRef() =>
+        await AssertRef("=FVSCHEDULE(100, Ghost!A:A)");
 
     [Test]
     public async Task NetworkDays_HolidaysMissingSheet_IsRef() =>
@@ -180,7 +188,8 @@ public class MissingSheetReferenceTests
         await AssertRef("=WORKDAY(Main!A1, 5, Ghost!C:C)", ("A1", "=1"));
 
     [Test]
-    public async Task SeriesSum_MissingSheet_IsRef() => await AssertRef("=SERIESSUM(2, 1, 1, Ghost!A:A)");
+    public async Task SeriesSum_MissingSheet_IsRef() =>
+        await AssertRef("=SERIESSUM(2, 1, 1, Ghost!A:A)");
 
     [Test]
     public async Task And_MissingSheet_IsRef() => await AssertRef("=AND(Ghost!A:A)");
@@ -232,7 +241,13 @@ public class MissingSheetReferenceTests
     [Test]
     public async Task SumProduct_ExistingSheet_IsNumber()
     {
-        var value = Eval("=SUMPRODUCT(A1:A2, B1:B2)", ("A1", "=1"), ("A2", "=2"), ("B1", "=3"), ("B2", "=4"));
+        var value = Eval(
+            "=SUMPRODUCT(A1:A2, B1:B2)",
+            ("A1", "=1"),
+            ("A2", "=2"),
+            ("B1", "=3"),
+            ("B2", "=4")
+        );
 
         await Assert.That(value.TryGetNumber(out var number)).IsTrue();
         await Assert.That(number).IsEqualTo(11.0); // 1*3 + 2*4
@@ -243,8 +258,12 @@ public class MissingSheetReferenceTests
     {
         var value = Eval(
             "=CORREL(A1:A3, B1:B3)",
-            ("A1", "=1"), ("A2", "=2"), ("A3", "=3"),
-            ("B1", "=2"), ("B2", "=4"), ("B3", "=6")
+            ("A1", "=1"),
+            ("A2", "=2"),
+            ("A3", "=3"),
+            ("B1", "=2"),
+            ("B2", "=4"),
+            ("B3", "=6")
         );
 
         await Assert.That(value.TryGetNumber(out var number)).IsTrue();

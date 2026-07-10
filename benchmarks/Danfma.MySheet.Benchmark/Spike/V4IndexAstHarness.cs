@@ -49,11 +49,18 @@ public static class V4IndexAstHarness
     // end-to-end "Load a cold workbook then first open-range touch" so the ceiling is framed honestly.
     public static void IndexRebuild()
     {
-        Console.WriteLine("== THEME 1.1 — structural-index rebuild ceiling (pure build, no eval) ==");
+        Console.WriteLine(
+            "== THEME 1.1 — structural-index rebuild ceiling (pure build, no eval) =="
+        );
         Console.WriteLine(
             $"Runtime: {Environment.Version}. Sheet = N cells spread over {ColumnsForShape} columns "
-                + "(realistic multi-column open-range target). Best-of-" + Best + " min ms.");
-        Console.WriteLine($"{"Cells",12} {"Bucketize+sortAll ms",22} {"col-map only ms",18} {"bytes/cell (retained)",22}");
+                + "(realistic multi-column open-range target). Best-of-"
+                + Best
+                + " min ms."
+        );
+        Console.WriteLine(
+            $"{"Cells", 12} {"Bucketize+sortAll ms", 22} {"col-map only ms", 18} {"bytes/cell (retained)", 22}"
+        );
 
         foreach (var n in new[] { 100_000, 600_000, 1_000_000 })
         {
@@ -96,7 +103,7 @@ public static class V4IndexAstHarness
             GC.KeepAlive(idx);
             var perCell = (double)(afterR - baseR) / n;
 
-            Console.WriteLine($"{n,12:N0} {best,22:N2} {bestColOnly,18:N2} {perCell,22:N2}");
+            Console.WriteLine($"{n, 12:N0} {best, 22:N2} {bestColOnly, 18:N2} {perCell, 22:N2}");
         }
     }
 
@@ -112,8 +119,13 @@ public static class V4IndexAstHarness
         Console.WriteLine("== THEME 1.2 — index persistence prototype (numeric form) ==");
         Console.WriteLine(
             "Per sheet: column -> ascending int rows. Encoding: [colCount][ per col: col int32, "
-                + "rowCount int32, rows int32[] ]. Brotli(Optimal) over the whole blob. Best-of-" + Best + ".");
-        Console.WriteLine($"{"Cells",12} {"raw KB",10} {"brotli KB",11} {"serialize ms",13} {"deser+valid ms",15} {"rebuild ms",12}");
+                + "rowCount int32, rows int32[] ]. Brotli(Optimal) over the whole blob. Best-of-"
+                + Best
+                + "."
+        );
+        Console.WriteLine(
+            $"{"Cells", 12} {"raw KB", 10} {"brotli KB", 11} {"serialize ms", 13} {"deser+valid ms", 15} {"rebuild ms", 12}"
+        );
 
         foreach (var n in new[] { 100_000, 600_000, 1_000_000 })
         {
@@ -151,7 +163,9 @@ public static class V4IndexAstHarness
                 sw.Stop();
                 if (!ok)
                 {
-                    throw new InvalidOperationException($"validation failed: {count} != {totalCells}");
+                    throw new InvalidOperationException(
+                        $"validation failed: {count} != {totalCells}"
+                    );
                 }
                 validatedCount = count;
                 deserMs = Math.Min(deserMs, sw.Elapsed.TotalMilliseconds);
@@ -175,8 +189,9 @@ public static class V4IndexAstHarness
             }
 
             Console.WriteLine(
-                $"{n,12:N0} {raw.Length / 1024.0,10:N1} {brotli.Length / 1024.0,11:N1} "
-                    + $"{serMs,13:N2} {deserMs,15:N2} {rebuildMs,12:N2}");
+                $"{n, 12:N0} {raw.Length / 1024.0, 10:N1} {brotli.Length / 1024.0, 11:N1} "
+                    + $"{serMs, 13:N2} {deserMs, 15:N2} {rebuildMs, 12:N2}"
+            );
             _ = validatedCount;
         }
     }
@@ -202,7 +217,8 @@ public static class V4IndexAstHarness
 
         Console.WriteLine(
             $"Data cells {dataCells:N0}, formula cells {formulaCells:N0}, CellReference nodes {refNodes:N0}. "
-                + $"Full model retained: {totalRetained / 1024.0 / 1024.0:N1} MB.");
+                + $"Full model retained: {totalRetained / 1024.0 / 1024.0:N1} MB."
+        );
         Console.WriteLine();
 
         // (1) _cells key strings: collect every id key of every sheet into an array; measure retained. These
@@ -228,22 +244,38 @@ public static class V4IndexAstHarness
         // FRESH allocation per node in the current parser (the tokenizer substring), so it counts per node.
         long astIdBytes = 0;
         long astSheetBytes = 0;
-        var refIds = CollectCellReferenceStrings(wb, out astIdBytes, out astSheetBytes, out var distinctSheetNames);
+        var refIds = CollectCellReferenceStrings(
+            wb,
+            out astIdBytes,
+            out astSheetBytes,
+            out var distinctSheetNames
+        );
 
-        Console.WriteLine("string family (theoretical bytes, object-header model 16+4+2·len, 8-aligned):");
-        Console.WriteLine($"    {"family",-38} {"count",12} {"MB",10} {"note",-18}");
-        Console.WriteLine($"    {"(1) _cells keys",-38} {keys.Count,12:N0} {cellKeyBytes / 1024.0 / 1024.0,10:N1} {"NON-BREAKING",-18}");
-        Console.WriteLine($"    {"(2a) CellReference.Id",-38} {refIds,12:N0} {astIdBytes / 1024.0 / 1024.0,10:N1} {"breaking (wire)",-18}");
-        Console.WriteLine($"    {"(2b) CellReference.SheetName (per node)",-38} {refIds,12:N0} {astSheetBytes / 1024.0 / 1024.0,10:N1} {"breaking (wire)",-18}");
+        Console.WriteLine(
+            "string family (theoretical bytes, object-header model 16+4+2·len, 8-aligned):"
+        );
+        Console.WriteLine($"    {"family", -38} {"count", 12} {"MB", 10} {"note", -18}");
+        Console.WriteLine(
+            $"    {"(1) _cells keys", -38} {keys.Count, 12:N0} {cellKeyBytes / 1024.0 / 1024.0, 10:N1} {"NON-BREAKING", -18}"
+        );
+        Console.WriteLine(
+            $"    {"(2a) CellReference.Id", -38} {refIds, 12:N0} {astIdBytes / 1024.0 / 1024.0, 10:N1} {"breaking (wire)", -18}"
+        );
+        Console.WriteLine(
+            $"    {"(2b) CellReference.SheetName (per node)", -38} {refIds, 12:N0} {astSheetBytes / 1024.0 / 1024.0, 10:N1} {"breaking (wire)", -18}"
+        );
         Console.WriteLine(
             $"    -> NON-BREAKING lever (_cells keys): {cellKeyBytes / 1024.0 / 1024.0:N1} MB; "
-                + $"BREAKING lever (AST Id+SheetName): {(astIdBytes + astSheetBytes) / 1024.0 / 1024.0:N1} MB.");
-        Console.WriteLine($"    (distinct sheet-name strings actually alive if interned: {distinctSheetNames}.)");
+                + $"BREAKING lever (AST Id+SheetName): {(astIdBytes + astSheetBytes) / 1024.0 / 1024.0:N1} MB."
+        );
+        Console.WriteLine(
+            $"    (distinct sheet-name strings actually alive if interned: {distinctSheetNames}.)"
+        );
 
         var cellCount = keys.Count;
         keys = null!; // release so the dictionaries below are the SOLE owners of their key strings.
         GC.KeepAlive(wb);
-        wb = null!;   // release the model too: the key-representation probe must own its strings alone.
+        wb = null!; // release the model too: the key-representation probe must own its strings alone.
 
         // Empirical isolation of the _cells key representation: same values, string key vs (int,int) key.
         // The string dict GENERATES its keys inline (sole owner), so freeing them in the numeric case is a
@@ -281,10 +313,18 @@ public static class V4IndexAstHarness
         GC.KeepAlive(intDict);
 
         Console.WriteLine();
-        Console.WriteLine("_cells key representation, MEASURED retained (dict is sole key owner, entries included):");
-        Console.WriteLine($"    Dictionary<string,Expr>   {stringBytes / 1024.0 / 1024.0,8:N1} MB  ({(double)stringBytes / cellCount:N1} B/cell)");
-        Console.WriteLine($"    Dictionary<(int,int),Expr>{intBytes / 1024.0 / 1024.0,8:N1} MB  ({(double)intBytes / cellCount:N1} B/cell)");
-        Console.WriteLine($"    -> non-breaking key swap saves {(stringBytes - intBytes) / 1024.0 / 1024.0:N1} MB ({(double)stringBytes / Math.Max(intBytes, 1):N2}x).");
+        Console.WriteLine(
+            "_cells key representation, MEASURED retained (dict is sole key owner, entries included):"
+        );
+        Console.WriteLine(
+            $"    Dictionary<string,Expr>   {stringBytes / 1024.0 / 1024.0, 8:N1} MB  ({(double)stringBytes / cellCount:N1} B/cell)"
+        );
+        Console.WriteLine(
+            $"    Dictionary<(int,int),Expr>{intBytes / 1024.0 / 1024.0, 8:N1} MB  ({(double)intBytes / cellCount:N1} B/cell)"
+        );
+        Console.WriteLine(
+            $"    -> non-breaking key swap saves {(stringBytes - intBytes) / 1024.0 / 1024.0:N1} MB ({(double)stringBytes / Math.Max(intBytes, 1):N2}x)."
+        );
     }
 
     // =====================================================================================================
@@ -320,7 +360,9 @@ public static class V4IndexAstHarness
             GC.KeepAlive(sink);
         }
 
-        Console.WriteLine($"formulas: {count:N0}. Total parse: {totalMs:N0} ms, churn {totalChurn / 1024.0 / 1024.0:N1} MB ({(double)totalChurn / count:N0} B/formula).");
+        Console.WriteLine(
+            $"formulas: {count:N0}. Total parse: {totalMs:N0} ms, churn {totalChurn / 1024.0 / 1024.0:N1} MB ({(double)totalChurn / count:N0} B/formula)."
+        );
 
         // Isolate the per-reference string ops. Each K1 formula holds refs like Data!A{v}, Data!B{v}. Count
         // the reference tokens and measure the churn of just the string work the parser does per reference:
@@ -335,8 +377,8 @@ public static class V4IndexAstHarness
             string sink = null!;
             foreach (var (id, sheetName) in refTokens)
             {
-                sink = id.ToUpperInvariant();   // NormalizeCellId's allocation
-                sink = new string(sheetName);   // the fresh SheetName the tokenizer substring produces
+                sink = id.ToUpperInvariant(); // NormalizeCellId's allocation
+                sink = new string(sheetName); // the fresh SheetName the tokenizer substring produces
             }
             var churn = GC.GetTotalAllocatedBytes(true) - before;
             strChurn = Math.Min(strChurn, churn);
@@ -345,10 +387,12 @@ public static class V4IndexAstHarness
 
         Console.WriteLine(
             $"reference nodes: {refCount:N0}. Id/sheet string ops churn (isolated): "
-                + $"{strChurn / 1024.0 / 1024.0:N1} MB = {(double)strChurn / Math.Max(totalChurn, 1) * 100:N0}% of total parse churn.");
+                + $"{strChurn / 1024.0 / 1024.0:N1} MB = {(double)strChurn / Math.Max(totalChurn, 1) * 100:N0}% of total parse churn."
+        );
         Console.WriteLine(
             "NOTE: warm-start (persisted values) skips the ENTIRE parse+compute on Load; this churn only "
-                + "applies to a cold Load or an initial build — the numeric AST competes with warm-start here.");
+                + "applies to a cold Load or an initial build — the numeric AST competes with warm-start here."
+        );
     }
 
     // =====================================================================================================
@@ -409,8 +453,10 @@ public static class V4IndexAstHarness
         }
 
         Console.WriteLine($"(A) populate {n:N0} cells (string keys already alive):");
-        Console.WriteLine($"    string-keyed insert {strMs,8:N1} ms  (churn {strChurn / 1024.0 / 1024.0:N1} MB)");
-        Console.WriteLine($"    (int,int)-keyed     {intMs,8:N1} ms");
+        Console.WriteLine(
+            $"    string-keyed insert {strMs, 8:N1} ms  (churn {strChurn / 1024.0 / 1024.0:N1} MB)"
+        );
+        Console.WriteLine($"    (int,int)-keyed     {intMs, 8:N1} ms");
 
         // (B) ToId on a miss: the aggregate cost if every one of the K1 formula cells took a dense miss (the
         // first compute of a range-expanded reference). Measure ToId over n coords.
@@ -432,10 +478,13 @@ public static class V4IndexAstHarness
             GC.KeepAlive(sink);
         }
 
-        Console.WriteLine($"(B) CellAddress.ToId over {n:N0} misses: {toIdMs,6:N1} ms, churn {toIdChurn / 1024.0 / 1024.0:N1} MB.");
+        Console.WriteLine(
+            $"(B) CellAddress.ToId over {n:N0} misses: {toIdMs, 6:N1} ms, churn {toIdChurn / 1024.0 / 1024.0:N1} MB."
+        );
         Console.WriteLine(
             "    NOTE: single-cell references (Data!B{v}) take the no-alloc TryGetColumnRow path in "
-                + "GetCellValue — ToId only fires on a RANGE-expansion miss, once per cell per epoch.");
+                + "GetCellValue — ToId only fires on a RANGE-expansion miss, once per cell per epoch."
+        );
     }
 
     // ---------------------------------------------------------------------------------- shape builders
@@ -488,7 +537,10 @@ public static class V4IndexAstHarness
         for (var r = 1; r <= formulaRows; r++)
         {
             var v = (r % dataRows) + 1;
-            s["C" + r] = ExpressionParser.Parse($"=IF(Data!A{v}=\"Show\",Data!B{v}*2,Data!B{v}/2)", s);
+            s["C" + r] = ExpressionParser.Parse(
+                $"=IF(Data!A{v}=\"Show\",Data!B{v}*2,Data!B{v}/2)",
+                s
+            );
             s["D" + r] = ExpressionParser.Parse($"=Data!B{v}*2+1", s);
             refs += 4; // C has 3 CellReferences, D has 1
         }
@@ -539,7 +591,11 @@ public static class V4IndexAstHarness
     // Sizes the Id and SheetName strings a CellReference tree holds. Also counts distinct sheet names (what
     // interning could collapse them to). Returns the reference-node count.
     private static long CollectCellReferenceStrings(
-        Workbook wb, out long idBytes, out long sheetBytes, out int distinctSheetNames)
+        Workbook wb,
+        out long idBytes,
+        out long sheetBytes,
+        out int distinctSheetNames
+    )
     {
         const int dataRows = 100_000;
         const int formulaRows = 200_000;

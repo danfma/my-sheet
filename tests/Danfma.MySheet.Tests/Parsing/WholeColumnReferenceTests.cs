@@ -11,7 +11,9 @@ namespace Danfma.MySheet.Tests.Parsing;
 /// </summary>
 public class WholeColumnReferenceTests
 {
-    private static (Workbook Workbook, Sheet Sheet) Sheet(params (string Id, Expression Value)[] cells)
+    private static (Workbook Workbook, Sheet Sheet) Sheet(
+        params (string Id, Expression Value)[] cells
+    )
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
@@ -116,11 +118,7 @@ public class WholeColumnReferenceTests
     [Test]
     public async Task SumIf_WholeColumn_Filters()
     {
-        var (workbook, sheet) = Sheet(
-            ("A1", Number(3)),
-            ("A2", Number(7)),
-            ("A3", Number(10))
-        );
+        var (workbook, sheet) = Sheet(("A1", Number(3)), ("A2", Number(7)), ("A3", Number(10)));
 
         await Assert.That(Eval("=SUMIF(A:A,\">5\")", sheet, workbook)).IsEqualTo(17.0);
     }
@@ -152,7 +150,11 @@ public class WholeColumnReferenceTests
     public async Task Sum_MixedUpperRowBound_IgnoresBelowEnd()
     {
         // A:A10 covers column A up to row 10; A11 is excluded.
-        var (workbook, sheet) = Sheet(("A5", Number(5)), ("A10", Number(10)), ("A11", Number(1000)));
+        var (workbook, sheet) = Sheet(
+            ("A5", Number(5)),
+            ("A10", Number(10)),
+            ("A11", Number(1000))
+        );
 
         await Assert.That(Eval("=SUM(A:A10)", sheet, workbook)).IsEqualTo(15.0);
     }

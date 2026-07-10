@@ -23,8 +23,8 @@ public enum CellValueKind : byte
 /// </summary>
 public readonly struct CellValue
 {
-    private readonly double _num;    // Number | Boolean(0/1) | Error(código) | Blank(ignorado)
-    private readonly object? _ref;   // Text(string) | Reference — null nos escalares
+    private readonly double _num; // Number | Boolean(0/1) | Error(código) | Blank(ignorado)
+    private readonly object? _ref; // Text(string) | Reference — null nos escalares
     private readonly CellValueKind _kind;
 
     private CellValue(double num, object? reference, CellValueKind kind)
@@ -74,11 +74,12 @@ public readonly struct CellValue
     }
 
     /// <summary>Ponte para call sites que ainda esperam <c>object?</c> (migração gradual futura).</summary>
-    public object? AsObject() => _kind switch
-    {
-        CellValueKind.Number => _num,
-        CellValueKind.Boolean => _num != 0d,
-        CellValueKind.Blank => null,
-        _ => _ref,
-    };
+    public object? AsObject() =>
+        _kind switch
+        {
+            CellValueKind.Number => _num,
+            CellValueKind.Boolean => _num != 0d,
+            CellValueKind.Blank => null,
+            _ => _ref,
+        };
 }

@@ -37,8 +37,14 @@ public class StatisticalConditionalTests
 
     private static readonly (string, object)[] Commissions =
     [
-        ("A2", 100000), ("A3", 200000), ("A4", 300000), ("A5", 400000),
-        ("B2", 7000), ("B3", 14000), ("B4", 21000), ("B5", 28000),
+        ("A2", 100000),
+        ("A3", 200000),
+        ("A4", 300000),
+        ("A5", 400000),
+        ("B2", 7000),
+        ("B3", 14000),
+        ("B4", 21000),
+        ("B5", 28000),
     ];
 
     [Test]
@@ -74,9 +80,16 @@ public class StatisticalConditionalTests
         // 45678/23789/-4789/0/9678; "=*West" -> 16733.5 e "<>*(New Office)" -> 18589.
         (string, object)[] regions =
         [
-            ("A2", "East"), ("A3", "West"), ("A4", "North"),
-            ("A5", "South (New Office)"), ("A6", "MidWest"),
-            ("B2", 45678), ("B3", 23789), ("B4", -4789), ("B5", 0), ("B6", 9678),
+            ("A2", "East"),
+            ("A3", "West"),
+            ("A4", "North"),
+            ("A5", "South (New Office)"),
+            ("A6", "MidWest"),
+            ("B2", 45678),
+            ("B3", 23789),
+            ("B4", -4789),
+            ("B5", 0),
+            ("B6", 9678),
         ];
 
         await Assert
@@ -94,11 +107,30 @@ public class StatisticalConditionalTests
 
     private static readonly (string, object)[] Homes =
     [
-        ("B2", 230000), ("B3", 197000), ("B4", 345678), ("B5", 321900), ("B6", 450000), ("B7", 395000),
-        ("C2", "Issaquah"), ("C3", "Bellevue"), ("C4", "Bellevue"), ("C5", "Issaquah"),
-        ("C6", "Bellevue"), ("C7", "Bellevue"),
-        ("D2", 3), ("D3", 2), ("D4", 4), ("D5", 2), ("D6", 5), ("D7", 4),
-        ("E2", "No"), ("E3", "Yes"), ("E4", "Yes"), ("E5", "Yes"), ("E6", "Yes"), ("E7", "No"),
+        ("B2", 230000),
+        ("B3", 197000),
+        ("B4", 345678),
+        ("B5", 321900),
+        ("B6", 450000),
+        ("B7", 395000),
+        ("C2", "Issaquah"),
+        ("C3", "Bellevue"),
+        ("C4", "Bellevue"),
+        ("C5", "Issaquah"),
+        ("C6", "Bellevue"),
+        ("C7", "Bellevue"),
+        ("D2", 3),
+        ("D3", 2),
+        ("D4", 4),
+        ("D5", 2),
+        ("D6", 5),
+        ("D7", 4),
+        ("E2", "No"),
+        ("E3", "Yes"),
+        ("E4", "Yes"),
+        ("E5", "Yes"),
+        ("E6", "Yes"),
+        ("E7", "No"),
     ];
 
     [Test]
@@ -107,10 +139,14 @@ public class StatisticalConditionalTests
         // =AVERAGEIFS(B2:B7,C2:C7,"Bellevue",D2:D7,">2",E2:E7,"Yes") -> 397839;
         // =AVERAGEIFS(B2:B7,C2:C7,"Issaquah",D2:D7,"<=3",E2:E7,"No") -> 230000.
         await Assert
-            .That(Num(Calc("=AVERAGEIFS(B2:B7,C2:C7,\"Bellevue\",D2:D7,\">2\",E2:E7,\"Yes\")", Homes)))
+            .That(
+                Num(Calc("=AVERAGEIFS(B2:B7,C2:C7,\"Bellevue\",D2:D7,\">2\",E2:E7,\"Yes\")", Homes))
+            )
             .IsEqualTo(397839.0);
         await Assert
-            .That(Num(Calc("=AVERAGEIFS(B2:B7,C2:C7,\"Issaquah\",D2:D7,\"<=3\",E2:E7,\"No\")", Homes)))
+            .That(
+                Num(Calc("=AVERAGEIFS(B2:B7,C2:C7,\"Issaquah\",D2:D7,\"<=3\",E2:E7,\"No\")", Homes))
+            )
             .IsEqualTo(230000.0);
     }
 
@@ -122,7 +158,10 @@ public class StatisticalConditionalTests
             .That(
                 Calc(
                     "=AVERAGEIFS(C2:C5,C2:C5,\">95\")",
-                    ("C2", 85), ("C3", 80), ("C4", 93), ("C5", 75)
+                    ("C2", 85),
+                    ("C3", 80),
+                    ("C4", 93),
+                    ("C5", 75)
                 )
             )
             .IsEqualTo(ErrorValue.DivByZero);
@@ -147,8 +186,18 @@ public class StatisticalConditionalTests
         // Exemplo 1: grades 89/93/96/85/91/88 com pesos 1/2/2/3/1/1 -> MAXIFS(A2:A7,B2:B7,1) = 91.
         (string, object)[] grades =
         [
-            ("A2", 89), ("A3", 93), ("A4", 96), ("A5", 85), ("A6", 91), ("A7", 88),
-            ("B2", 1), ("B3", 2), ("B4", 2), ("B5", 3), ("B6", 1), ("B7", 1),
+            ("A2", 89),
+            ("A3", 93),
+            ("A4", 96),
+            ("A5", 85),
+            ("A6", 91),
+            ("A7", 88),
+            ("B2", 1),
+            ("B3", 2),
+            ("B4", 2),
+            ("B5", 3),
+            ("B6", 1),
+            ("B7", 1),
         ];
 
         await Assert.That(Num(Calc("=MAXIFS(A2:A7,B2:B7,1)", grades))).IsEqualTo(91.0);
@@ -157,9 +206,24 @@ public class StatisticalConditionalTests
         // -> MAXIFS(A2:A7,B2:B7,"b",D2:D7,">100") = 50.
         (string, object)[] levels =
         [
-            ("A2", 10), ("A3", 1), ("A4", 100), ("A5", 1), ("A6", 1), ("A7", 50),
-            ("B2", "b"), ("B3", "a"), ("B4", "a"), ("B5", "b"), ("B6", "a"), ("B7", "b"),
-            ("D2", 100), ("D3", 100), ("D4", 200), ("D5", 300), ("D6", 100), ("D7", 400),
+            ("A2", 10),
+            ("A3", 1),
+            ("A4", 100),
+            ("A5", 1),
+            ("A6", 1),
+            ("A7", 50),
+            ("B2", "b"),
+            ("B3", "a"),
+            ("B4", "a"),
+            ("B5", "b"),
+            ("B6", "a"),
+            ("B7", "b"),
+            ("D2", 100),
+            ("D3", 100),
+            ("D4", 200),
+            ("D5", 300),
+            ("D6", 100),
+            ("D7", 400),
         ];
 
         await Assert
@@ -173,17 +237,27 @@ public class StatisticalConditionalTests
         // Exemplo 6 (sem match -> 0) e exemplo 5 (shapes diferentes -> #VALUE!) da página.
         (string, object)[] cells =
         [
-            ("A2", 10), ("A3", 1), ("A4", 100), ("A5", 1), ("A6", 1),
-            ("B2", "b"), ("B3", "a"), ("B4", "a"), ("B5", "b"), ("B6", "a"),
-            ("D2", 100), ("D3", 100), ("D4", 200), ("D5", 300), ("D6", 100),
+            ("A2", 10),
+            ("A3", 1),
+            ("A4", 100),
+            ("A5", 1),
+            ("A6", 1),
+            ("B2", "b"),
+            ("B3", "a"),
+            ("B4", "a"),
+            ("B5", "b"),
+            ("B6", "a"),
+            ("D2", 100),
+            ("D3", 100),
+            ("D4", 200),
+            ("D5", 300),
+            ("D6", 100),
         ];
 
         await Assert
             .That(Num(Calc("=MAXIFS(A2:A6,B2:B6,\"a\",D2:D6,\">200\")", cells)))
             .IsEqualTo(0.0);
-        await Assert
-            .That(Calc("=MAXIFS(A2:A5,B2:C6,\"a\")", cells))
-            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=MAXIFS(A2:A5,B2:C6,\"a\")", cells)).IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]
@@ -192,8 +266,18 @@ public class StatisticalConditionalTests
         // Exemplo 1: grades 89/93/96/85/91/88 com pesos 1/2/2/3/1/1 -> MINIFS(A2:A7,B2:B7,1) = 88.
         (string, object)[] grades =
         [
-            ("A2", 89), ("A3", 93), ("A4", 96), ("A5", 85), ("A6", 91), ("A7", 88),
-            ("B2", 1), ("B3", 2), ("B4", 2), ("B5", 3), ("B6", 1), ("B7", 1),
+            ("A2", 89),
+            ("A3", 93),
+            ("A4", 96),
+            ("A5", 85),
+            ("A6", 91),
+            ("A7", 88),
+            ("B2", 1),
+            ("B3", 2),
+            ("B4", 2),
+            ("B5", 3),
+            ("B6", 1),
+            ("B7", 1),
         ];
 
         await Assert.That(Num(Calc("=MINIFS(A2:A7,B2:B7,1)", grades))).IsEqualTo(88.0);
@@ -202,9 +286,24 @@ public class StatisticalConditionalTests
         // -> MINIFS(A2:A7,B2:B7,"b",D2:D7,">100") = 13.
         (string, object)[] levels =
         [
-            ("A2", 10), ("A3", 11), ("A4", 12), ("A5", 13), ("A6", 14), ("A7", 15),
-            ("B2", "b"), ("B3", "a"), ("B4", "a"), ("B5", "b"), ("B6", "b"), ("B7", "b"),
-            ("D2", 100), ("D3", 100), ("D4", 200), ("D5", 300), ("D6", 300), ("D7", 400),
+            ("A2", 10),
+            ("A3", 11),
+            ("A4", 12),
+            ("A5", 13),
+            ("A6", 14),
+            ("A7", 15),
+            ("B2", "b"),
+            ("B3", "a"),
+            ("B4", "a"),
+            ("B5", "b"),
+            ("B6", "b"),
+            ("B7", "b"),
+            ("D2", 100),
+            ("D3", 100),
+            ("D4", 200),
+            ("D5", 300),
+            ("D6", 300),
+            ("D7", 400),
         ];
 
         await Assert
@@ -225,7 +324,11 @@ public class StatisticalConditionalTests
                 Num(
                     Calc(
                         "=AVERAGEA(A2:A6)",
-                        ("A2", 10), ("A3", 7), ("A4", 9), ("A5", 2), ("A6", "Not available")
+                        ("A2", 10),
+                        ("A3", 7),
+                        ("A4", 9),
+                        ("A5", 2),
+                        ("A6", "Not available")
                     )
                 )
             )
@@ -241,7 +344,11 @@ public class StatisticalConditionalTests
                 Num(
                     Calc(
                         "=MAXA(A2:A6)",
-                        ("A2", 0), ("A3", 0.2), ("A4", 0.5), ("A5", 0.4), ("A6", true)
+                        ("A2", 0),
+                        ("A3", 0.2),
+                        ("A4", 0.5),
+                        ("A5", 0.4),
+                        ("A6", true)
                     )
                 )
             )
@@ -257,7 +364,11 @@ public class StatisticalConditionalTests
                 Num(
                     Calc(
                         "=MINA(A2:A6)",
-                        ("A2", false), ("A3", 0.2), ("A4", 0.5), ("A5", 0.4), ("A6", 0.8)
+                        ("A2", false),
+                        ("A3", 0.2),
+                        ("A4", 0.5),
+                        ("A5", 0.4),
+                        ("A6", 0.8)
                     )
                 )
             )

@@ -29,7 +29,9 @@ public static class DenseStorePageSizeHarness
 
     public static void Run()
     {
-        Console.WriteLine("== Dense value store — row-page size sweep (OWNER DIRECTIVE 2026-07-04) ==");
+        Console.WriteLine(
+            "== Dense value store — row-page size sweep (OWNER DIRECTIVE 2026-07-04) =="
+        );
         Console.WriteLine(
             $"Runtime {Environment.Version}. Column group fixed at {GroupSize}. "
                 + $"sizeof(ComputedValue) = {Unsafe.SizeOf<ComputedValue>()} B. Best-of-{Trials} (min); "
@@ -46,8 +48,12 @@ public static class DenseStorePageSizeHarness
 
         foreach (var shape in shapes)
         {
-            Console.WriteLine($"-- {shape.Name}  ({shape.Cells.Length:N0} cells, {shape.Accesses:N0} accesses) --");
-            Console.WriteLine($"   {"page rows",-10}{"sweep ms",12}{"store KB",14}{"useful KB",12}{"waste x",10}");
+            Console.WriteLine(
+                $"-- {shape.Name}  ({shape.Cells.Length:N0} cells, {shape.Accesses:N0} accesses) --"
+            );
+            Console.WriteLine(
+                $"   {"page rows", -10}{"sweep ms", 12}{"store KB", 14}{"useful KB", 12}{"waste x", 10}"
+            );
             Console.WriteLine("   " + new string('-', 56));
 
             var usefulKb = shape.Cells.Length * (double)Unsafe.SizeOf<ComputedValue>() / 1024d;
@@ -57,16 +63,22 @@ public static class DenseStorePageSizeHarness
                 var (ms, storeBytes) = Measure(shape, pageShift);
                 var storeKb = storeBytes / 1024d;
                 Console.WriteLine(
-                    $"   {1 << pageShift,-10}{ms,12:N2}{storeKb,14:N1}{usefulKb,12:N1}{storeKb / usefulKb,10:N1}"
+                    $"   {1 << pageShift, -10}{ms, 12:N2}{storeKb, 14:N1}{usefulKb, 12:N1}{storeKb / usefulKb, 10:N1}"
                 );
             }
 
             Console.WriteLine();
         }
 
-        Console.WriteLine("NOTE: 'store KB' = allocated pages (pageRows*24 + presence) + all pointer arrays;");
-        Console.WriteLine("'useful KB' = cells * 24 B; 'waste x' = store / useful. Read it against sweep ms:");
-        Console.WriteLine("smaller pages cut the small-sheet waste but add pointer/page overhead per row block.");
+        Console.WriteLine(
+            "NOTE: 'store KB' = allocated pages (pageRows*24 + presence) + all pointer arrays;"
+        );
+        Console.WriteLine(
+            "'useful KB' = cells * 24 B; 'waste x' = store / useful. Read it against sweep ms:"
+        );
+        Console.WriteLine(
+            "smaller pages cut the small-sheet waste but add pointer/page overhead per row block."
+        );
     }
 
     private static (double Ms, long StoreBytes) Measure(Shape shape, int pageShift)

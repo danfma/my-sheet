@@ -9,7 +9,8 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record UnionReference(Expression[] Areas) : Reference
 {
-    public override ComputedValue Evaluate(EvaluationContext context) => ComputedValue.Error(Error.Value);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        ComputedValue.Error(Error.Value);
 
     /// <summary>The allocation-free <see cref="ComputedValue"/> view of every area's cells.</summary>
     internal IEnumerable<ComputedValue> ExpandComputedValues(EvaluationContext context)
@@ -40,5 +41,4 @@ public sealed partial record UnionReference(Expression[] Areas) : Reference
             }
         }
     }
-
 }

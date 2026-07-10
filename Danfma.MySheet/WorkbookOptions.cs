@@ -106,11 +106,21 @@ public sealed class ValueStoreOptions
     internal void Validate()
     {
         ValidatePowerOfTwo(RowPageSize, MinRowPageSize, MaxRowPageSize, nameof(RowPageSize));
-        ValidatePowerOfTwo(ColumnGroupSize, MinColumnGroupSize, MaxColumnGroupSize, nameof(ColumnGroupSize));
+        ValidatePowerOfTwo(
+            ColumnGroupSize,
+            MinColumnGroupSize,
+            MaxColumnGroupSize,
+            nameof(ColumnGroupSize)
+        );
 
         // InitialPageSlots is bounded above by RowPageSize (a page never grows past its logical row span) — a
         // dynamic ceiling, so it is validated after RowPageSize is known to be valid.
-        ValidatePowerOfTwo(InitialPageSlots, MinInitialPageSlots, RowPageSize, nameof(InitialPageSlots));
+        ValidatePowerOfTwo(
+            InitialPageSlots,
+            MinInitialPageSlots,
+            RowPageSize,
+            nameof(InitialPageSlots)
+        );
 
         if (SparsityWarmupPages is < 1 or > MaxSparsityWarmupPages)
         {

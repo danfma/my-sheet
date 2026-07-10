@@ -95,7 +95,11 @@ internal static class StatisticsMath
     /// PERCENTILE.INC over an ascending sorted list: linear interpolation at position <c>k·(n−1)</c>
     /// (0-based). Empty list or <c>k</c> outside <c>[0, 1]</c> → <c>#NUM!</c>.
     /// </summary>
-    public static Error? PercentileInclusive(IReadOnlyList<double> sorted, double k, out double result)
+    public static Error? PercentileInclusive(
+        IReadOnlyList<double> sorted,
+        double k,
+        out double result
+    )
     {
         result = 0;
 
@@ -108,9 +112,10 @@ internal static class StatisticsMath
         var lower = (int)Math.Floor(position);
         var fraction = position - lower;
 
-        result = fraction == 0
-            ? sorted[lower]
-            : sorted[lower] + fraction * (sorted[lower + 1] - sorted[lower]);
+        result =
+            fraction == 0
+                ? sorted[lower]
+                : sorted[lower] + fraction * (sorted[lower + 1] - sorted[lower]);
 
         return null;
     }
@@ -120,7 +125,11 @@ internal static class StatisticsMath
     /// <c>k·(n+1)</c>. Empty list, <c>k</c> outside <c>(0, 1)</c>, or a rank outside <c>[1, n]</c>
     /// (unreachable percentile) → <c>#NUM!</c>.
     /// </summary>
-    public static Error? PercentileExclusive(IReadOnlyList<double> sorted, double k, out double result)
+    public static Error? PercentileExclusive(
+        IReadOnlyList<double> sorted,
+        double k,
+        out double result
+    )
     {
         result = 0;
 
@@ -139,9 +148,10 @@ internal static class StatisticsMath
         var lower = (int)Math.Floor(rank);
         var fraction = rank - lower;
 
-        result = fraction == 0
-            ? sorted[lower - 1]
-            : sorted[lower - 1] + fraction * (sorted[lower] - sorted[lower - 1]);
+        result =
+            fraction == 0
+                ? sorted[lower - 1]
+                : sorted[lower - 1] + fraction * (sorted[lower] - sorted[lower - 1]);
 
         return null;
     }

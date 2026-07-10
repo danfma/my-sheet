@@ -31,8 +31,7 @@ public static class StructuralIndexLifetimeHarness
     // 200 cells; the rest fills OTHER columns, so COUNTIF(A:A) always scans only the 200 — the per-epoch time
     // must stay ~flat as the sheet grows (the lifetime index is built once and survives InvalidateCache).
     // Reused by AsposeCompareHarness so both sides sweep the identical sizes.
-    internal static readonly int[] SheetSizes =
-        [10_200, 20_200, 40_200, 100_200, 200_200, 500_200];
+    internal static readonly int[] SheetSizes = [10_200, 20_200, 40_200, 100_200, 200_200, 500_200];
 
     public static void Run()
     {
@@ -44,7 +43,7 @@ public static class StructuralIndexLifetimeHarness
                 + "Expected ~flat across sheet sizes (index built once, survives InvalidateCache)."
         );
         Console.WriteLine();
-        Console.WriteLine($"{"Sheet cells",12} {"Mean ms/iter",14} {"First-read ms",14}");
+        Console.WriteLine($"{"Sheet cells", 12} {"Mean ms/iter", 14} {"First-read ms", 14}");
 
         foreach (var size in SheetSizes)
         {
@@ -55,7 +54,7 @@ public static class StructuralIndexLifetimeHarness
             (workbook, calc) = Build(size);
             var mean = MeanPerIteration(workbook, calc);
 
-            Console.WriteLine($"{size,12:N0} {mean,14:N3} {firstRead,14:N3}");
+            Console.WriteLine($"{size, 12:N0} {mean, 14:N3} {firstRead, 14:N3}");
         }
     }
 
@@ -141,5 +140,6 @@ public static class StructuralIndexLifetimeHarness
         return name;
     }
 
-    private static Expressions.Expression Number(double value) => new Expressions.NumberValue(value);
+    private static Expressions.Expression Number(double value) =>
+        new Expressions.NumberValue(value);
 }

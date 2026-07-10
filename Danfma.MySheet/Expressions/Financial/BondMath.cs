@@ -32,7 +32,8 @@ internal static class BondMath
     // Actual calendar days between two dates (order: after - before), reusing the wave-5 helper.
     internal static int Days(DateTime after, DateTime before) => DayCount.ActualDays(before, after);
 
-    private static bool IsLastDayOfMonth(DateTime d) => d.Day == DateTime.DaysInMonth(d.Year, d.Month);
+    private static bool IsLastDayOfMonth(DateTime d) =>
+        d.Day == DateTime.DaysInMonth(d.Year, d.Month);
 
     private static bool LastFeb(DateTime d) => d.Month == 2 && IsLastDayOfMonth(d);
 
@@ -94,7 +95,9 @@ internal static class BondMath
     internal static DateTime ChangeMonth(DateTime d, int numMonths, bool returnLastDay)
     {
         var t = d.AddMonths(numMonths);
-        return returnLastDay ? new DateTime(t.Year, t.Month, DateTime.DaysInMonth(t.Year, t.Month)) : t;
+        return returnLastDay
+            ? new DateTime(t.Year, t.Month, DateTime.DaysInMonth(t.Year, t.Month))
+            : t;
     }
 
     private static (DateTime front, DateTime trailing, double acc) DatesAggregate1(
@@ -131,13 +134,24 @@ internal static class BondMath
         bool returnLastMonth
     )
     {
-        var (p, n, _) = DatesAggregate1(startDate, endDate, numMonths, returnLastMonth, (_, _) => 0d, 0d);
+        var (p, n, _) = DatesAggregate1(
+            startDate,
+            endDate,
+            numMonths,
+            returnLastMonth,
+            (_, _) => 0d,
+            0d
+        );
         return (p, n);
     }
 
     private static int Freq2Months(double freq) => 12 / (int)freq;
 
-    private static (DateTime pcd, DateTime ncd) FindCouponDates(DateTime settl, DateTime mat, double freq)
+    private static (DateTime pcd, DateTime ncd) FindCouponDates(
+        DateTime settl,
+        DateTime mat,
+        double freq
+    )
     {
         var endMonth = IsLastDayOfMonth(mat);
         var numMonths = -Freq2Months(freq);
@@ -185,7 +199,8 @@ internal static class BondMath
         var ncd = CoupNcd(settl, mat, freq);
         return basis switch
         {
-            0 => Diff360Us(pcd, ncd, Method360.ModifyBothDates) - Diff360Us(pcd, settl, Method360.ModifyStartDate),
+            0 => Diff360Us(pcd, ncd, Method360.ModifyBothDates)
+                - Diff360Us(pcd, settl, Method360.ModifyStartDate),
             4 => DayCount.Euro360Days(settl, ncd),
             _ => Days(ncd, settl),
         };
@@ -226,7 +241,10 @@ internal static class BondMath
 
     private static bool LessOrEqualToAYearApart(DateTime d1, DateTime d2) =>
         d1.Year == d2.Year
-        || (d2.Year == d1.Year + 1 && (d1.Month > d2.Month || (d1.Month == d2.Month && d1.Day >= d2.Day)));
+        || (
+            d2.Year == d1.Year + 1
+            && (d1.Month > d2.Month || (d1.Month == d2.Month && d1.Day >= d2.Day))
+        );
 
     private static bool IsFeb29Between(DateTime d1, DateTime d2)
     {
@@ -317,7 +335,10 @@ internal static class BondMath
             return k * freq * e / dsr;
         }
 
-        return TimeValueOfMoney.Solve(y => Price(settl, mat, rate, y, redemption, freq, basis) - pr, 0.05);
+        return TimeValueOfMoney.Solve(
+            y => Price(settl, mat, rate, y, redemption, freq, basis) - pr,
+            0.05
+        );
     }
 
     internal static double Duration(
@@ -359,8 +380,13 @@ internal static class BondMath
 
     // ---- accrued interest ----
 
-    internal static double AccrIntM(DateTime issue, DateTime settl, double rate, double par, int basis) =>
-        par * rate * (DaysBetween(basis, issue, settl, true) / DaysInYear(basis, issue, settl));
+    internal static double AccrIntM(
+        DateTime issue,
+        DateTime settl,
+        double rate,
+        double par,
+        int basis
+    ) => par * rate * (DaysBetween(basis, issue, settl, true) / DaysInYear(basis, issue, settl));
 
     internal static double AccrInt(
         DateTime issue,
@@ -419,20 +445,39 @@ internal static class BondMath
             return issue <= p ? calcMethod : d / cd;
         }
 
-        var (_, _, a) = DatesAggregate1(pcd, issue, numMonthsNeg, endMonthBond, Aggregate, days / coupDays0);
+        var (_, _, a) = DatesAggregate1(
+            pcd,
+            issue,
+            numMonthsNeg,
+            endMonthBond,
+            Aggregate,
+            days / coupDays0
+        );
         return par * rate / freq * a;
     }
 
     // ---- simple discount / interest bonds ----
 
-    internal static double IntRate(DateTime s, DateTime m, double investment, double redemption, int basis)
+    internal static double IntRate(
+        DateTime s,
+        DateTime m,
+        double investment,
+        double redemption,
+        int basis
+    )
     {
         double dim = DaysBetween(basis, s, m, true),
             b = DaysInYear(basis, s, m);
         return (redemption - investment) / investment * b / dim;
     }
 
-    internal static double Received(DateTime s, DateTime m, double investment, double discount, int basis)
+    internal static double Received(
+        DateTime s,
+        DateTime m,
+        double investment,
+        double discount,
+        int basis
+    )
     {
         double dim = DaysBetween(basis, s, m, true),
             b = DaysInYear(basis, s, m);
@@ -446,21 +491,40 @@ internal static class BondMath
         return (-pr / redemption + 1d) * b / dim;
     }
 
-    internal static double PriceDisc(DateTime s, DateTime m, double discount, double redemption, int basis)
+    internal static double PriceDisc(
+        DateTime s,
+        DateTime m,
+        double discount,
+        double redemption,
+        int basis
+    )
     {
         double dim = DaysBetween(basis, s, m, true),
             b = DaysInYear(basis, s, m);
         return redemption - discount * redemption * dim / b;
     }
 
-    internal static double YieldDisc(DateTime s, DateTime m, double pr, double redemption, int basis)
+    internal static double YieldDisc(
+        DateTime s,
+        DateTime m,
+        double pr,
+        double redemption,
+        int basis
+    )
     {
         double dim = DaysBetween(basis, s, m, true),
             b = DaysInYear(basis, s, m);
         return (redemption - pr) / pr * b / dim;
     }
 
-    internal static double PriceMat(DateTime s, DateTime m, DateTime issue, double rate, double yld, int basis)
+    internal static double PriceMat(
+        DateTime s,
+        DateTime m,
+        DateTime issue,
+        double rate,
+        double yld,
+        int basis
+    )
     {
         double b = DaysInYear(basis, issue, s),
             dim = DaysBetween(basis, issue, m, true),
@@ -469,7 +533,14 @@ internal static class BondMath
         return (100d + dim / b * rate * 100d) / (1d + dsm / b * yld) - a / b * rate * 100d;
     }
 
-    internal static double YieldMat(DateTime s, DateTime m, DateTime issue, double rate, double pr, int basis)
+    internal static double YieldMat(
+        DateTime s,
+        DateTime m,
+        DateTime issue,
+        double rate,
+        double pr,
+        int basis
+    )
     {
         double b = DaysInYear(basis, issue, s),
             dim = DaysBetween(basis, issue, m, true),
@@ -491,7 +562,9 @@ internal static class BondMath
         {
             var price = (100d - discount * 100d * dsm / 360d) / 100d;
             var days = dsm == 366d ? 366d : 365d;
-            var term2 = Math.Sqrt(Math.Pow(dsm / days, 2d) - (2d * dsm / days - 1d) * (1d - 1d / price));
+            var term2 = Math.Sqrt(
+                Math.Pow(dsm / days, 2d) - (2d * dsm / days - 1d) * (1d - 1d / price)
+            );
             var term3 = 2d * dsm / days - 1d;
             return 2d * (term2 - dsm / days) / term3;
         }
@@ -620,7 +693,13 @@ internal static class BondMath
         TotalDepr(cost, salvage, life, endPeriod, factor, straightLine)
         - TotalDepr(cost, salvage, life, startPeriod, factor, straightLine);
 
-    internal static double Ddb(double cost, double salvage, double life, double period, double factor)
+    internal static double Ddb(
+        double cost,
+        double salvage,
+        double life,
+        double period,
+        double factor
+    )
     {
         if ((int)period == 0)
         {
@@ -688,7 +767,15 @@ internal static class BondMath
             return 0d;
         }
 
-        var (firstDepr, _) = FirstDeprLinc(cost, datePurchased, firstPeriod, salvage, rate, assetLifeTemp, basis);
+        var (firstDepr, _) = FirstDeprLinc(
+            cost,
+            datePurchased,
+            firstPeriod,
+            salvage,
+            rate,
+            assetLifeTemp,
+            basis
+        );
 
         if (period == 0d)
         {
@@ -744,7 +831,15 @@ internal static class BondMath
         }
 
         var deprR = rate * DeprCoeff(assetLife);
-        var (fdl, life) = FirstDeprLinc(cost, datePurchased, firstPeriod, salvage, deprR, assetLife, basis);
+        var (fdl, life) = FirstDeprLinc(
+            cost,
+            datePurchased,
+            firstPeriod,
+            salvage,
+            deprR,
+            assetLife,
+            basis
+        );
         var firstDepr = ExcelRound(fdl, excelCompliant);
 
         if (period == 0d)
@@ -774,9 +869,10 @@ internal static class BondMath
                 deprRate = 1d;
             }
 
-            depr = remainCost < salvage
-                ? (remainCost - salvage < 0 ? 0 : remainCost - salvage)
-                : deprTemp;
+            depr =
+                remainCost < salvage
+                    ? (remainCost - salvage < 0 ? 0 : remainCost - salvage)
+                    : deprTemp;
             remainCost -= depr;
         }
     }
@@ -842,7 +938,11 @@ internal static class BondMath
         return sum;
     }
 
-    internal static double Mirr(IReadOnlyList<double> cashFlows, double financeRate, double reinvestRate)
+    internal static double Mirr(
+        IReadOnlyList<double> cashFlows,
+        double financeRate,
+        double reinvestRate
+    )
     {
         double n = cashFlows.Count;
         var positives = new List<double>(cashFlows.Count);
@@ -855,13 +955,18 @@ internal static class BondMath
         }
 
         return Math.Pow(
-                -NpvPeriodic(reinvestRate, positives) * Math.Pow(1d + reinvestRate, n)
+                -NpvPeriodic(reinvestRate, positives)
+                    * Math.Pow(1d + reinvestRate, n)
                     / (NpvPeriodic(financeRate, negatives) * (1d + financeRate)),
                 1d / (n - 1d)
             ) - 1d;
     }
 
-    internal static double XNpv(double rate, IReadOnlyList<double> cashFlows, IReadOnlyList<DateTime> dates)
+    internal static double XNpv(
+        double rate,
+        IReadOnlyList<double> cashFlows,
+        IReadOnlyList<DateTime> dates
+    )
     {
         var d0 = dates[0];
         double sum = 0;
@@ -874,8 +979,11 @@ internal static class BondMath
         return sum;
     }
 
-    internal static double XIrr(IReadOnlyList<double> cashFlows, IReadOnlyList<DateTime> dates, double guess) =>
-        TimeValueOfMoney.Solve(rate => XNpv(rate, cashFlows, dates), guess);
+    internal static double XIrr(
+        IReadOnlyList<double> cashFlows,
+        IReadOnlyList<DateTime> dates,
+        double guess
+    ) => TimeValueOfMoney.Solve(rate => XNpv(rate, cashFlows, dates), guess);
 
     private static void Dollar(
         double value,
@@ -920,8 +1028,10 @@ internal static class BondMath
 
     private static double LoanIPmt(double rate, double per, double nper, double pv, int type)
     {
-        var result = -(pv * LoanFvFactor(rate, per - 1d) * rate
-            + LoanPmt(rate, nper, pv, 0) * (LoanFvFactor(rate, per - 1d) - 1d));
+        var result = -(
+            pv * LoanFvFactor(rate, per - 1d) * rate
+            + LoanPmt(rate, nper, pv, 0) * (LoanFvFactor(rate, per - 1d) - 1d)
+        );
         return type == 0 ? result : result / (1d + rate);
     }
 
@@ -990,18 +1100,33 @@ internal static class BondMath
         return DaysNotNeg(basis, s, e);
     }
 
-    private static double CoupNumberOdd(DateTime mat, DateTime settl, int numMonths, bool isWholeNumber)
+    private static double CoupNumberOdd(
+        DateTime mat,
+        DateTime settl,
+        int numMonths,
+        bool isWholeNumber
+    )
     {
         var couponsTemp = isWholeNumber ? 0d : 1d;
         var endOfMonthTemp = IsLastDayOfMonth(mat);
         var endOfMonth =
-            !endOfMonthTemp && mat.Month != 2 && mat.Day > 28 && mat.Day < DateTime.DaysInMonth(mat.Year, mat.Month)
+            !endOfMonthTemp
+            && mat.Month != 2
+            && mat.Day > 28
+            && mat.Day < DateTime.DaysInMonth(mat.Year, mat.Month)
                 ? IsLastDayOfMonth(settl)
                 : endOfMonthTemp;
         var startDate = ChangeMonth(settl, 0, endOfMonth);
         var coupons = settl < startDate ? couponsTemp + 1d : couponsTemp;
         var date = ChangeMonth(startDate, numMonths, endOfMonth);
-        var (_, _, result) = DatesAggregate1(date, mat, numMonths, endOfMonth, (_, _) => 1d, coupons);
+        var (_, _, result) = DatesAggregate1(
+            date,
+            mat,
+            numMonths,
+            endOfMonth,
+            (_, _) => 1d,
+            coupons
+        );
         return result;
     }
 
@@ -1123,7 +1248,8 @@ internal static class BondMath
         var denum = px / 4d + years * px / 2d + years * 100d;
         var guess = num / denum;
         return TimeValueOfMoney.Solve(
-            yld => pr - OddFPrice(settl, mat, issue, firstCoupon, rate, yld, redemption, freq, basis),
+            yld =>
+                pr - OddFPrice(settl, mat, issue, firstCoupon, rate, yld, redemption, freq, basis),
             guess
         );
     }
@@ -1153,11 +1279,10 @@ internal static class BondMath
             var lateCoupon = ChangeMonth(earlyCoupon, numMonths, false);
             var nl = DaysNotNegHack(basis, earlyCoupon, lateCoupon);
             var dci = index < (int)nc ? nl : DaysNotNegHack(basis, earlyCoupon, mat);
-            var a = lateCoupon < settl
-                ? dci
-                : earlyCoupon < settl
-                    ? DaysNotNeg(basis, earlyCoupon, settl)
-                    : 0d;
+            var a =
+                lateCoupon < settl ? dci
+                : earlyCoupon < settl ? DaysNotNeg(basis, earlyCoupon, settl)
+                : 0d;
             var startDate = settl > earlyCoupon ? settl : earlyCoupon;
             var endDate = mat < lateCoupon ? mat : lateCoupon;
             var dsc = DaysNotNeg(basis, startDate, endDate);

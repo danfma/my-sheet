@@ -12,7 +12,17 @@ public sealed partial record CoupPcd(Expression[] Arguments) : Function
     // COUPPCD(settlement, maturity, frequency, [basis]) — previous coupon date before settlement (serial).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (FinancialArguments.CouponInputs(Arguments, context, out var s, out var m, out var f, out _) is { } error)
+        if (
+            FinancialArguments.CouponInputs(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var f,
+                out _
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -27,7 +37,17 @@ public sealed partial record CoupNcd(Expression[] Arguments) : Function
     // COUPNCD(settlement, maturity, frequency, [basis]) — next coupon date after settlement (serial).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (FinancialArguments.CouponInputs(Arguments, context, out var s, out var m, out var f, out _) is { } error)
+        if (
+            FinancialArguments.CouponInputs(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var f,
+                out _
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -42,7 +62,17 @@ public sealed partial record CoupNum(Expression[] Arguments) : Function
     // COUPNUM(settlement, maturity, frequency, [basis]) — number of coupons between settlement and maturity.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (FinancialArguments.CouponInputs(Arguments, context, out var s, out var m, out var f, out _) is { } error)
+        if (
+            FinancialArguments.CouponInputs(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var f,
+                out _
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -57,7 +87,17 @@ public sealed partial record CoupDays(Expression[] Arguments) : Function
     // COUPDAYS(settlement, maturity, frequency, [basis]) — days in the coupon period containing settlement.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (FinancialArguments.CouponInputs(Arguments, context, out var s, out var m, out var f, out var b) is { } error)
+        if (
+            FinancialArguments.CouponInputs(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var f,
+                out var b
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -72,7 +112,17 @@ public sealed partial record CoupDayBs(Expression[] Arguments) : Function
     // COUPDAYBS(settlement, maturity, frequency, [basis]) — days from the period start to settlement.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (FinancialArguments.CouponInputs(Arguments, context, out var s, out var m, out var f, out var b) is { } error)
+        if (
+            FinancialArguments.CouponInputs(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var f,
+                out var b
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -87,7 +137,17 @@ public sealed partial record CoupDaysNc(Expression[] Arguments) : Function
     // COUPDAYSNC(settlement, maturity, frequency, [basis]) — days from settlement to the next coupon.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (FinancialArguments.CouponInputs(Arguments, context, out var s, out var m, out var f, out var b) is { } error)
+        if (
+            FinancialArguments.CouponInputs(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var f,
+                out var b
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }

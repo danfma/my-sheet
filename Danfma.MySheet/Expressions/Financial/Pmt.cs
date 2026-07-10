@@ -42,6 +42,8 @@ public sealed partial record Pmt(Expression[] Arguments) : Function
         }
 
         var result = TimeValueOfMoney.Pmt(rate, nper, pv, fv, type != 0 ? 1 : 0);
-        return double.IsFinite(result) ? ComputedValue.Number(result) : ComputedValue.Error(Error.Num);
+        return double.IsFinite(result)
+            ? ComputedValue.Number(result)
+            : ComputedValue.Error(Error.Num);
     }
 }

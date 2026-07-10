@@ -47,7 +47,9 @@ public class MiniCseConsumerTests
     public async Task Average_OfIfArray_AveragesOnlyNumbers()
     {
         // =AVERAGE(IF(B2:B5="Show",ROW(B2:B5))) → [FALSE,3,FALSE,5] → mean{3,5} = 4
-        await Assert.That(Num(OnShowHide("=AVERAGE(IF(B2:B5=\"Show\",ROW(B2:B5)))"))).IsEqualTo(4.0);
+        await Assert
+            .That(Num(OnShowHide("=AVERAGE(IF(B2:B5=\"Show\",ROW(B2:B5)))")))
+            .IsEqualTo(4.0);
     }
 
     [Test]
@@ -64,15 +66,21 @@ public class MiniCseConsumerTests
     public async Task Small_OfIfArray_FirstAndSecondVisibleRow()
     {
         // =SMALL(IF(B2:B5="Show",ROW(B2:B5)),k) → visible rows {3,5}
-        await Assert.That(Num(OnShowHide("=SMALL(IF(B2:B5=\"Show\",ROW(B2:B5)),1)"))).IsEqualTo(3.0);
-        await Assert.That(Num(OnShowHide("=SMALL(IF(B2:B5=\"Show\",ROW(B2:B5)),2)"))).IsEqualTo(5.0);
+        await Assert
+            .That(Num(OnShowHide("=SMALL(IF(B2:B5=\"Show\",ROW(B2:B5)),1)")))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnShowHide("=SMALL(IF(B2:B5=\"Show\",ROW(B2:B5)),2)")))
+            .IsEqualTo(5.0);
     }
 
     [Test]
     public async Task Large_OfIfArray_KthLargestVisibleRow()
     {
         // =LARGE(IF(B2:B5="Show",ROW(B2:B5)),1) → largest of {3,5} = 5
-        await Assert.That(Num(OnShowHide("=LARGE(IF(B2:B5=\"Show\",ROW(B2:B5)),1)"))).IsEqualTo(5.0);
+        await Assert
+            .That(Num(OnShowHide("=LARGE(IF(B2:B5=\"Show\",ROW(B2:B5)),1)")))
+            .IsEqualTo(5.0);
     }
 
     [Test]
@@ -97,9 +105,13 @@ public class MiniCseConsumerTests
         object? Calc(string formula) =>
             ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
 
-        await Assert.That(Calc("=SMALL(IF(B2:B5=\"Show\",A2:A5),1)")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Calc("=SMALL(IF(B2:B5=\"Show\",A2:A5),1)"))
+            .IsEqualTo(ErrorValue.DivByZero);
         // LARGE takes the same path (min-heap); the trailing error propagates identically.
-        await Assert.That(Calc("=LARGE(IF(B2:B5=\"Show\",A2:A5),1)")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Calc("=LARGE(IF(B2:B5=\"Show\",A2:A5),1)"))
+            .IsEqualTo(ErrorValue.DivByZero);
     }
 
     // --- INDEX over a materialized array first argument ---

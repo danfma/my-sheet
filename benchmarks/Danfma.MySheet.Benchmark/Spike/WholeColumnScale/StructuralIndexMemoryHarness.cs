@@ -60,11 +60,19 @@ public static class StructuralIndexMemoryHarness
         var stringBytes = afterString - beforeBaseline;
         GC.KeepAlive(stringBuckets);
 
-        Console.WriteLine("(a) index retained RAM (marginal, shared id strings excluded — GC delta):");
-        Console.WriteLine($"    {"representation",-28} {"retained KB",12} {"bytes/cell",12}");
-        Console.WriteLine($"    {"BEFORE List<string> (refs)",-28} {stringBytes / 1024.0,12:N1} {(double)stringBytes / Cells,12:N2}");
-        Console.WriteLine($"    {"AFTER  List<int>",-28} {intBytes / 1024.0,12:N1} {(double)intBytes / Cells,12:N2}");
-        Console.WriteLine($"    -> in-RAM structure shrinks {(double)stringBytes / intBytes:N2}x (8-byte ref slot -> 4-byte int slot).");
+        Console.WriteLine(
+            "(a) index retained RAM (marginal, shared id strings excluded — GC delta):"
+        );
+        Console.WriteLine($"    {"representation", -28} {"retained KB", 12} {"bytes/cell", 12}");
+        Console.WriteLine(
+            $"    {"BEFORE List<string> (refs)", -28} {stringBytes / 1024.0, 12:N1} {(double)stringBytes / Cells, 12:N2}"
+        );
+        Console.WriteLine(
+            $"    {"AFTER  List<int>", -28} {intBytes / 1024.0, 12:N1} {(double)intBytes / Cells, 12:N2}"
+        );
+        Console.WriteLine(
+            $"    -> in-RAM structure shrinks {(double)stringBytes / intBytes:N2}x (8-byte ref slot -> 4-byte int slot)."
+        );
 
         // SERIALIZABLE form: if the index OWNED its coordinates (the persistence-spike question), the string form
         // pays the id text + object header per cell; the int form pays 4 bytes. This is the ~10x the plan cites.
@@ -129,10 +137,12 @@ public static class StructuralIndexMemoryHarness
         });
 
         Console.WriteLine("(b) open-range hot loop over A:A (warm dense hits), best-of-7 ms:");
-        Console.WriteLine($"    {"path",-34} {"ms",10}");
-        Console.WriteLine($"    {"OLD  parse id per cell + dense",-34} {oldMs,10:N3}");
-        Console.WriteLine($"    {"NEW  numeric pair -> dense",-34} {newMs,10:N3}");
-        Console.WriteLine($"    -> the per-id parse died: {(oldMs - newMs) / oldMs * 100:N0}% off the enumeration ({oldMs / Math.Max(newMs, 1e-9):N2}x).");
+        Console.WriteLine($"    {"path", -34} {"ms", 10}");
+        Console.WriteLine($"    {"OLD  parse id per cell + dense", -34} {oldMs, 10:N3}");
+        Console.WriteLine($"    {"NEW  numeric pair -> dense", -34} {newMs, 10:N3}");
+        Console.WriteLine(
+            $"    -> the per-id parse died: {(oldMs - newMs) / oldMs * 100:N0}% off the enumeration ({oldMs / Math.Max(newMs, 1e-9):N2}x)."
+        );
         Console.WriteLine($"    sums equal: {Math.Abs(oldSum - newSum) < 1e-6} ({oldSum:N0}).");
     }
 

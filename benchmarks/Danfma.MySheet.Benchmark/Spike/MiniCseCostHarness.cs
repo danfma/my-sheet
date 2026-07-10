@@ -41,7 +41,7 @@ public static class MiniCseCostHarness
         );
         Console.WriteLine();
         Console.WriteLine(
-            $"{"Rows",7} {"ARRAY µs",12} {"SCALAR µs",12} {"array/scalar",13} {"BH25 µs",12}"
+            $"{"Rows", 7} {"ARRAY µs", 12} {"SCALAR µs", 12} {"array/scalar", 13} {"BH25 µs", 12}"
         );
 
         double? arrayAt194 = null;
@@ -66,7 +66,7 @@ public static class MiniCseCostHarness
             }
 
             Console.WriteLine(
-                $"{size,7:N0} {array,12:N3} {scalar,12:N3} {array / scalar,13:N2} {bh25,12:N3}"
+                $"{size, 7:N0} {array, 12:N3} {scalar, 12:N3} {array / scalar, 13:N2} {bh25, 12:N3}"
             );
         }
 
@@ -80,11 +80,9 @@ public static class MiniCseCostHarness
             );
 
             Console.WriteLine();
-            Console.WriteLine(
-                $"O(range) check — rows grew {10_000 / 194.0:N1}× (194→10k):"
-            );
-            Console.WriteLine($"  ARRAY  {arrayAt10k / a194,6:N1}× slower");
-            Console.WriteLine($"  BH25   {bh25At10k / b194,6:N1}× slower");
+            Console.WriteLine($"O(range) check — rows grew {10_000 / 194.0:N1}× (194→10k):");
+            Console.WriteLine($"  ARRAY  {arrayAt10k / a194, 6:N1}× slower");
+            Console.WriteLine($"  BH25   {bh25At10k / b194, 6:N1}× slower");
             Console.WriteLine("  (≈ linear ⇒ O(range); the array path adds no super-linear cost).");
         }
     }

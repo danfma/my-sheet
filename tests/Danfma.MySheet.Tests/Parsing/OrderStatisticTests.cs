@@ -92,8 +92,16 @@ public class OrderStatisticTests
         // Dados A2:B6 = {3,5,3,5,4} / {4,2,4,6,7}: LARGE(...,3) -> 5; LARGE(...,7) -> 4.
         (string, object)[] cells =
         [
-            ("A2", 3), ("A3", 5), ("A4", 3), ("A5", 5), ("A6", 4),
-            ("B2", 4), ("B3", 2), ("B4", 4), ("B5", 6), ("B6", 7),
+            ("A2", 3),
+            ("A3", 5),
+            ("A4", 3),
+            ("A5", 5),
+            ("A6", 4),
+            ("B2", 4),
+            ("B3", 2),
+            ("B4", 4),
+            ("B5", 6),
+            ("B6", 7),
         ];
 
         await Assert.That(Num(Calc("=LARGE(A2:B6,3)", cells))).IsEqualTo(5.0);
@@ -236,9 +244,7 @@ public class OrderStatisticTests
         await Assert
             .That(Calc("=PERCENTRANK.INC(A2:A11,99)", cells))
             .IsEqualTo(ErrorValue.NotAvailable);
-        await Assert
-            .That(Calc("=PERCENTRANK.INC(A2:A11,2,0)", cells))
-            .IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=PERCENTRANK.INC(A2:A11,2,0)", cells)).IsEqualTo(ErrorValue.Number);
     }
 
     // --- PERCENTRANK.EXC — golden: página oficial "PERCENTRANK.EXC function":
@@ -312,7 +318,9 @@ public class OrderStatisticTests
         // =TRIMMEAN(A2:A12,0.2) com {4,5,6,7,2,3,4,5,1,2,3} -> 3.778 (INT(11·0.2/2)=1 cortado de
         // cada ponta; 34/9 = 3.777…).
         await Assert
-            .That(Num(Calc("=TRIMMEAN(A2:A12,0.2)", Column("A", 2, 4, 5, 6, 7, 2, 3, 4, 5, 1, 2, 3))))
+            .That(
+                Num(Calc("=TRIMMEAN(A2:A12,0.2)", Column("A", 2, 4, 5, 6, 7, 2, 3, 4, 5, 1, 2, 3)))
+            )
             .IsEqualTo(34.0 / 9.0)
             .Within(Tolerance);
     }

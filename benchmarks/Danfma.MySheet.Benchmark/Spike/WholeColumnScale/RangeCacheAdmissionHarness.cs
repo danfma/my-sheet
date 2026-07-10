@@ -34,7 +34,9 @@ public static class RangeCacheAdmissionHarness
                 + "Each scenario: one full pass, cache DISABLED (pre-cache) vs ENABLED (current tree)."
         );
         Console.WriteLine();
-        Console.WriteLine($"{"Scenario",-20} {"Disabled (ms)",15} {"Enabled (ms)",14} {"Enabled/Disabled",18}");
+        Console.WriteLine(
+            $"{"Scenario", -20} {"Disabled (ms)", 15} {"Enabled (ms)", 14} {"Enabled/Disabled", 18}"
+        );
 
         Report("SlidingWindows", BuildSlidingWindows());
         Report("BoundedMatchOnce", BuildBoundedMatchOnce());
@@ -47,7 +49,7 @@ public static class RangeCacheAdmissionHarness
         var disabled = BestOf(built.Workbook, built.Ids, disabled: true);
         var enabled = BestOf(built.Workbook, built.Ids, disabled: false);
         var ratio = disabled > 0 ? enabled / disabled : 0;
-        Console.WriteLine($"{name,-20} {disabled,15:N1} {enabled,14:N1} {ratio,18:N2}x");
+        Console.WriteLine($"{name, -20} {disabled, 15:N1} {enabled, 14:N1} {ratio, 18:N2}x");
     }
 
     private static double BestOf(Workbook workbook, string[] ids, bool disabled)
@@ -149,7 +151,9 @@ public static class RangeCacheAdmissionHarness
         var disabled = InvalidateLoopBestOf(workbook, epochs, disabled: true);
         var enabled = InvalidateLoopBestOf(workbook, epochs, disabled: false);
         var ratio = disabled > 0 ? enabled / disabled : 0;
-        Console.WriteLine($"{"InvalidateLoop",-20} {disabled,15:N1} {enabled,14:N1} {ratio,18:N2}x");
+        Console.WriteLine(
+            $"{"InvalidateLoop", -20} {disabled, 15:N1} {enabled, 14:N1} {ratio, 18:N2}x"
+        );
     }
 
     private static double InvalidateLoopBestOf(Workbook workbook, int epochs, bool disabled)
@@ -188,5 +192,6 @@ public static class RangeCacheAdmissionHarness
         GC.KeepAlive(checksum);
     }
 
-    private static Expressions.Expression Number(double value) => new Expressions.NumberValue(value);
+    private static Expressions.Expression Number(double value) =>
+        new Expressions.NumberValue(value);
 }

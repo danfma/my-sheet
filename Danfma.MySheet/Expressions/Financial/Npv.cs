@@ -54,7 +54,13 @@ public sealed partial record Npv(Expression[] Arguments) : Function
                     break;
 
                 case CellReference cell:
-                    AddReferenced(cell.Evaluate(context), denominator, ref discount, ref sum, ref error);
+                    AddReferenced(
+                        cell.Evaluate(context),
+                        denominator,
+                        ref discount,
+                        ref sum,
+                        ref error
+                    );
                     break;
 
                 case UnionReference union:
@@ -84,7 +90,9 @@ public sealed partial record Npv(Expression[] Arguments) : Function
             }
         }
 
-        return error is { } propagated ? ComputedValue.Error(propagated) : ComputedValue.Number(sum);
+        return error is { } propagated
+            ? ComputedValue.Error(propagated)
+            : ComputedValue.Number(sum);
     }
 
     private static void AddReferenced(
@@ -140,7 +148,14 @@ public sealed partial record Npv(Expression[] Arguments) : Function
 
             case ComputedValueKind.Text:
                 value.TryGetText(out var text);
-                if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+                if (
+                    double.TryParse(
+                        text,
+                        NumberStyles.Any,
+                        CultureInfo.InvariantCulture,
+                        out var parsed
+                    )
+                )
                 {
                     discount *= denominator;
                     sum += parsed / discount;

@@ -21,7 +21,10 @@ public class IndirectTests
     }
 
     private static object? Calc(Workbook workbook, Sheet sheet, string formula) =>
-        ExpressionParser.Parse(formula, sheet).Evaluate(new EvaluationContext(workbook, sheet.Name)).AsObject();
+        ExpressionParser
+            .Parse(formula, sheet)
+            .Evaluate(new EvaluationContext(workbook, sheet.Name))
+            .AsObject();
 
     [Test]
     public async Task Indirect_A1Style_ResolvesCell()
@@ -58,7 +61,9 @@ public class IndirectTests
     public async Task Indirect_InvalidText_IsRefError()
     {
         var (wb, sheet) = Grid();
-        await Assert.That(Calc(wb, sheet, "=INDIRECT(\"not a ref\")")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=INDIRECT(\"not a ref\")"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     [Test]
@@ -66,7 +71,9 @@ public class IndirectTests
     {
         // MySheet supports A1 style only; a1 = FALSE (R1C1) is #REF!.
         var (wb, sheet) = Grid(("A1", 5));
-        await Assert.That(Calc(wb, sheet, "=INDIRECT(\"A1\", FALSE)")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=INDIRECT(\"A1\", FALSE)"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     [Test]

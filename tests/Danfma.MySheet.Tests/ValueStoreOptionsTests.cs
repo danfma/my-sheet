@@ -55,7 +55,7 @@ public class ValueStoreOptionsTests
         }
 
         sheet["B1"] = ExpressionParser.Parse("=SUM(A1:A600)", sheet); // 600*601/2 = 180300
-        sheet["C1"] = ExpressionParser.Parse("=A300*2", sheet);       // reads across a page boundary
+        sheet["C1"] = ExpressionParser.Parse("=A300*2", sheet); // reads across a page boundary
 
         await Assert.That(workbook.GetCellValue("S", "B1").ToDouble()).IsEqualTo(180300.0);
         await Assert.That(workbook.GetCellValue("S", "C1").ToDouble()).IsEqualTo(600.0);
@@ -189,7 +189,9 @@ public class ValueStoreOptionsTests
     {
         // 2000 cells/page is impossible with a 1024-row page — rejected as out of range.
         await Assert
-            .That(() => new Workbook(Options(new ValueStoreOptions { SparsityMinCellsPerPage = 2000 })))
+            .That(() =>
+                new Workbook(Options(new ValueStoreOptions { SparsityMinCellsPerPage = 2000 }))
+            )
             .Throws<ArgumentException>();
     }
 
@@ -278,7 +280,9 @@ public class ValueStoreOptionsTests
             }
         );
 
-        var loaded = MemoryPackSerializer.Deserialize<Workbook>(MemoryPackSerializer.Serialize(custom))!;
+        var loaded = MemoryPackSerializer.Deserialize<Workbook>(
+            MemoryPackSerializer.Serialize(custom)
+        )!;
 
         // The custom options are gone (runtime config, not persisted): the restored workbook uses the defaults,
         // with no NullReferenceException from the bypassed field initializer (the F1 lesson).

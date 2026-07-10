@@ -59,10 +59,13 @@ public static class RangeSequenceProbeHarness
 
     public static void Run(string[] args)
     {
-        Console.WriteLine("== Range read strategies over the dense paged store (owner question 2026-07-04) ==");
+        Console.WriteLine(
+            "== Range read strategies over the dense paged store (owner question 2026-07-04) =="
+        );
         Console.WriteLine(
             $"Runtime {Environment.Version}. sizeof(ComputedValue) = {Unsafe.SizeOf<ComputedValue>()} bytes. "
-                + $"Best-of-{Trials} (min); GC.Collect between trials; alloc = GetTotalAllocatedBytes(true).");
+                + $"Best-of-{Trials} (min); GC.Collect between trials; alloc = GetTotalAllocatedBytes(true)."
+        );
         Console.WriteLine();
 
         SingleColumn();
@@ -70,14 +73,18 @@ public static class RangeSequenceProbeHarness
         HalfPresent();
         SnapshotBuild();
 
-        Console.WriteLine("Done. All numbers are min-of-7 on a warmed (fully-present unless noted) range.");
+        Console.WriteLine(
+            "Done. All numbers are min-of-7 on a warmed (fully-present unless noted) range."
+        );
     }
 
     // ============================================================ single dense column A1:A100000
     private static void SingleColumn()
     {
         const int rows = 100_000;
-        Console.WriteLine($"-- SINGLE COLUMN  Data!A1:A{rows}  ({rows:N0} contiguous numeric cells, all present) --");
+        Console.WriteLine(
+            $"-- SINGLE COLUMN  Data!A1:A{rows}  ({rows:N0} contiguous numeric cells, all present) --"
+        );
 
         // Grounding: a REAL warmed Workbook, the true ExpandComputedValues fold.
         var wb = BuildWarmColumn(rows);
@@ -110,14 +117,23 @@ public static class RangeSequenceProbeHarness
             ("A  string round-trip  (real store)", a),
             ("B  numeric per-cell   (real store)", b),
             ("C  page-span visitor  (replica)", c),
-            ("D  ReadOnlySequence   (replica)", d));
+            ("D  ReadOnlySequence   (replica)", d)
+        );
 
         var gainB = v0.Ms > 0 ? (a.Ms - b.Ms) / a.Ms * 100 : 0;
         var gainC = a.Ms > 0 ? (a.Ms - c.Ms) / a.Ms * 100 : 0;
-        Console.WriteLine($"   A->B  (kill string round-trip)   : {a.Ms - b.Ms,7:N2} ms faster, {a.Mb - b.Mb,6:N2} MB less  ({gainB:N0}% of A)");
-        Console.WriteLine($"   A->C  (page-span over B)         : {a.Ms - c.Ms,7:N2} ms faster                ({gainC:N0}% of A)");
-        Console.WriteLine($"   B->C  (span vs numeric per-cell) : {b.Ms - c.Ms,7:N2} ms faster (the marginal span win)");
-        Console.WriteLine($"   C->D  (sequence-obj overhead)    : {d.Ms - c.Ms,7:N2} ms, {d.Mb - c.Mb,6:N2} MB (segment objects)");
+        Console.WriteLine(
+            $"   A->B  (kill string round-trip)   : {a.Ms - b.Ms, 7:N2} ms faster, {a.Mb - b.Mb, 6:N2} MB less  ({gainB:N0}% of A)"
+        );
+        Console.WriteLine(
+            $"   A->C  (page-span over B)         : {a.Ms - c.Ms, 7:N2} ms faster                ({gainC:N0}% of A)"
+        );
+        Console.WriteLine(
+            $"   B->C  (span vs numeric per-cell) : {b.Ms - c.Ms, 7:N2} ms faster (the marginal span win)"
+        );
+        Console.WriteLine(
+            $"   C->D  (sequence-obj overhead)    : {d.Ms - c.Ms, 7:N2} ms, {d.Mb - c.Mb, 6:N2} MB (segment objects)"
+        );
         Console.WriteLine();
     }
 
@@ -126,7 +142,9 @@ public static class RangeSequenceProbeHarness
     {
         const int cols = 10;
         const int rowsPer = 10_000;
-        Console.WriteLine($"-- RECTANGLE  {cols} cols x {rowsPer:N0} rows = {cols * rowsPer:N0} cells (pages are vertical per column) --");
+        Console.WriteLine(
+            $"-- RECTANGLE  {cols} cols x {rowsPer:N0} rows = {cols * rowsPer:N0} cells (pages are vertical per column) --"
+        );
 
         var store = new SheetValueStore();
         var handle = store.HandleFor(DataSheet);
@@ -154,9 +172,14 @@ public static class RangeSequenceProbeHarness
         Table(
             ("A  string round-trip  (real store)", a),
             ("B  numeric per-cell   (real store)", b),
-            ("C  page-span per column (replica)", c));
-        Console.WriteLine("   -> a rectangle is a SEQUENCE of column runs; each column's pages are contiguous segments,");
-        Console.WriteLine("      so a per-column span visitor (or a ReadOnlySequence spanning one column) is the fit.");
+            ("C  page-span per column (replica)", c)
+        );
+        Console.WriteLine(
+            "   -> a rectangle is a SEQUENCE of column runs; each column's pages are contiguous segments,"
+        );
+        Console.WriteLine(
+            "      so a per-column span visitor (or a ReadOnlySequence spanning one column) is the fit."
+        );
         Console.WriteLine();
     }
 
@@ -164,9 +187,15 @@ public static class RangeSequenceProbeHarness
     private static void HalfPresent()
     {
         const int rows = 100_000;
-        Console.WriteLine($"-- HALF-PRESENT  Data!A1:A{rows} with only EVEN rows computed (odd rows NOT present) --");
-        Console.WriteLine("   The span sees the page but the presence bitmap says a slot is empty: it must be EVALUATED");
-        Console.WriteLine("   on demand (the current path's GetCellValue does exactly this). A raw span cannot.");
+        Console.WriteLine(
+            $"-- HALF-PRESENT  Data!A1:A{rows} with only EVEN rows computed (odd rows NOT present) --"
+        );
+        Console.WriteLine(
+            "   The span sees the page but the presence bitmap says a slot is empty: it must be EVALUATED"
+        );
+        Console.WriteLine(
+            "   on demand (the current path's GetCellValue does exactly this). A raw span cannot."
+        );
 
         var replica = new ReplicaColumn(rows);
         var present = 0;
@@ -180,11 +209,21 @@ public static class RangeSequenceProbeHarness
         // the honest cost when the range is NOT fully materialized: the span still visits every slot and the
         // fallback pays per hole. The win over per-cell shrinks with presence density.
         var c = Measure(() => FoldPageSpanWithHoles(replica, rows, out _), out _);
-        Console.WriteLine($"   present {present:N0}/{rows:N0} (50%). page-span+presence-check fold: {c.Ms:N2} ms, {c.Mb:N2} MB");
-        Console.WriteLine("   >>> When a range is NOT fully present the span still has to branch per slot and something");
-        Console.WriteLine("       must evaluate the holes; a raw block-copy/SIMD fold is only valid on a PROVEN-full page.");
-        Console.WriteLine("       Fully-materialized cases: 2nd+ read of the same range in an epoch; a pure DATA range");
-        Console.WriteLine("       (plain numbers, present after first touch); post-RangeSnapshot.Build (already an array).");
+        Console.WriteLine(
+            $"   present {present:N0}/{rows:N0} (50%). page-span+presence-check fold: {c.Ms:N2} ms, {c.Mb:N2} MB"
+        );
+        Console.WriteLine(
+            "   >>> When a range is NOT fully present the span still has to branch per slot and something"
+        );
+        Console.WriteLine(
+            "       must evaluate the holes; a raw block-copy/SIMD fold is only valid on a PROVEN-full page."
+        );
+        Console.WriteLine(
+            "       Fully-materialized cases: 2nd+ read of the same range in an epoch; a pure DATA range"
+        );
+        Console.WriteLine(
+            "       (plain numbers, present after first touch); post-RangeSnapshot.Build (already an array)."
+        );
         Console.WriteLine();
     }
 
@@ -192,7 +231,9 @@ public static class RangeSequenceProbeHarness
     private static void SnapshotBuild()
     {
         const int rows = 100_000;
-        Console.WriteLine($"-- RangeSnapshot.Build materialize ComputedValue[{rows}] (Layer-2, the once-per-epoch cost) --");
+        Console.WriteLine(
+            $"-- RangeSnapshot.Build materialize ComputedValue[{rows}] (Layer-2, the once-per-epoch cost) --"
+        );
 
         var wb = BuildWarmColumn(rows);
         var range = new RangeReference("A1", "A" + rows, DataSheet);
@@ -205,17 +246,20 @@ public static class RangeSequenceProbeHarness
         }
 
         // Current: List<ComputedValue> fed by ExpandComputedValues, then ToArray (exactly RangeSnapshot.Build).
-        var cur = Measure(() =>
-        {
-            var list = new List<ComputedValue>();
-            foreach (var v in range.ExpandComputedValues(ctx))
+        var cur = Measure(
+            () =>
             {
-                list.Add(v);
-            }
+                var list = new List<ComputedValue>();
+                foreach (var v in range.ExpandComputedValues(ctx))
+                {
+                    list.Add(v);
+                }
 
-            var arr = list.ToArray();
-            return arr.Length;
-        }, out _);
+                var arr = list.ToArray();
+                return arr.Length;
+            },
+            out _
+        );
 
         // Block-copy: pre-sized array, Array.Copy each page's contiguous slice (valid only fully-present).
         var blk = Measure(() => replica.CopyTo(rows).Length, out _);
@@ -227,9 +271,14 @@ public static class RangeSequenceProbeHarness
         Table(
             ("Build current (List + ExpandComputedValues + ToArray)", cur),
             ("Build block-copy pages -> ComputedValue[] (full only)", blk),
-            ("Build REAL RangeSnapshot.Build (shipped code)", real));
-        Console.WriteLine($"   -> block-copy is {(blk.Ms > 0 ? cur.Ms / blk.Ms : 0):N1}x faster and {cur.Mb - blk.Mb:N1} MB less on a full range;");
-        Console.WriteLine("      it is the single clearest win, but only when every slot in the covered pages is present.");
+            ("Build REAL RangeSnapshot.Build (shipped code)", real)
+        );
+        Console.WriteLine(
+            $"   -> block-copy is {(blk.Ms > 0 ? cur.Ms / blk.Ms : 0):N1}x faster and {cur.Mb - blk.Mb:N1} MB less on a full range;"
+        );
+        Console.WriteLine(
+            "      it is the single clearest win, but only when every slot in the covered pages is present."
+        );
         Console.WriteLine();
     }
 
@@ -255,9 +304,9 @@ public static class RangeSequenceProbeHarness
         double sum = 0;
         for (var r = 1; r <= rows; r++)
         {
-            var id = new CellAddress(col, r).ToId();                 // ExpandComputedValues: StringBuilder alloc
-            CellAddress.TryGetColumnRow(id, out var c, out var rr);  // GetCellValue: re-parse
-            var h = store.HandleFor(DataSheet);                      // GetCellValue: per-cell dict lookup
+            var id = new CellAddress(col, r).ToId(); // ExpandComputedValues: StringBuilder alloc
+            CellAddress.TryGetColumnRow(id, out var c, out var rr); // GetCellValue: re-parse
+            var h = store.HandleFor(DataSheet); // GetCellValue: per-cell dict lookup
             if (store.TryGetDense(h, c, rr, out var v) && v.TryGetNumber(out var x))
             {
                 sum += x;
@@ -334,7 +383,12 @@ public static class RangeSequenceProbeHarness
             if (!column.GetPage(pi, rows, out var span, out var present))
             {
                 // whole page absent -> every row here is a hole a real path would have to evaluate
-                missing += pi == 0 ? rows >= PageMask ? PageMask : rows : Math.Min(PageRows, rows - (pi << PageShift));
+                missing +=
+                    pi == 0
+                        ? rows >= PageMask
+                            ? PageMask
+                            : rows
+                        : Math.Min(PageRows, rows - (pi << PageShift));
                 continue;
             }
 
@@ -378,7 +432,12 @@ public static class RangeSequenceProbeHarness
         return sum;
     }
 
-    private static double FoldRectNumericPerCell(SheetValueStore store, int handle, int cols, int rowsPer)
+    private static double FoldRectNumericPerCell(
+        SheetValueStore store,
+        int handle,
+        int cols,
+        int rowsPer
+    )
     {
         double sum = 0;
         for (var col = 1; col <= cols; col++)
@@ -411,7 +470,10 @@ public static class RangeSequenceProbeHarness
 
                 for (var i = 0; i < span.Length; i++)
                 {
-                    if ((present[i >> 6] & (1UL << (i & 63))) != 0 && span[i].TryGetNumber(out var x))
+                    if (
+                        (present[i >> 6] & (1UL << (i & 63))) != 0
+                        && span[i].TryGetNumber(out var x)
+                    )
                     {
                         sum += x;
                     }
@@ -488,11 +550,11 @@ public static class RangeSequenceProbeHarness
 
     private static void Table(params (string Label, M M)[] rows)
     {
-        Console.WriteLine($"   {"strategy",-52}{"ms",8}{"MB churn",12}");
+        Console.WriteLine($"   {"strategy", -52}{"ms", 8}{"MB churn", 12}");
         Console.WriteLine("   " + new string('-', 72));
         foreach (var (label, m) in rows)
         {
-            Console.WriteLine($"   {label,-52}{m.Ms,8:N2}{m.Mb,12:N2}");
+            Console.WriteLine($"   {label, -52}{m.Ms, 8:N2}{m.Mb, 12:N2}");
         }
     }
 
@@ -503,7 +565,8 @@ public static class RangeSequenceProbeHarness
             if (Math.Abs(sums[i] - sums[0]) > 1e-6)
             {
                 throw new InvalidOperationException(
-                    $"[{tag}] fold diverged: variant {i} sum {sums[i]:R} != {sums[0]:R}. Numbers would lie.");
+                    $"[{tag}] fold diverged: variant {i} sum {sums[i]:R} != {sums[0]:R}. Numbers would lie."
+                );
             }
         }
     }
@@ -542,7 +605,12 @@ public static class RangeSequenceProbeHarness
         // Closure-free page accessor: the present page's slot span (0..lastSlot) + presence bitmap. Slot index
         // equals the in-page row offset; slot 0 of page 0 is row 0 (nonexistent) and never present, so a fold
         // over the full span with the presence check is correct. Returns false when the page is absent.
-        public bool GetPage(int pageIndex, int rows, out ReadOnlySpan<ComputedValue> span, out ulong[] present)
+        public bool GetPage(
+            int pageIndex,
+            int rows,
+            out ReadOnlySpan<ComputedValue> span,
+            out ulong[] present
+        )
         {
             var page = _pages[pageIndex];
             if (page is null)

@@ -47,7 +47,10 @@ public sealed partial record AccrInt(Expression[] Arguments) : Function
         }
 
         var calcMethod = true;
-        if (Arguments.Length > 7 && Arguments[7].Evaluate(context).CoerceToBool(out calcMethod) is { } e7)
+        if (
+            Arguments.Length > 7
+            && Arguments[7].Evaluate(context).CoerceToBool(out calcMethod) is { } e7
+        )
         {
             return ComputedValue.Error(e7);
         }
@@ -58,7 +61,16 @@ public sealed partial record AccrInt(Expression[] Arguments) : Function
         }
 
         return FinancialArguments.Result(
-            BondMath.AccrInt(issue, firstInterest, settlement, rate, par, frequency, basis, calcMethod ? 1 : 0)
+            BondMath.AccrInt(
+                issue,
+                firstInterest,
+                settlement,
+                rate,
+                par,
+                frequency,
+                basis,
+                calcMethod ? 1 : 0
+            )
         );
     }
 }
@@ -109,7 +121,18 @@ public sealed partial record Disc(Expression[] Arguments) : Function
     // DISC(settlement, maturity, pr, redemption, [basis]) — discount rate of a security.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (SimpleBond.Read(Arguments, context, out var s, out var m, out var v1, out var v2, out var basis) is { } error)
+        if (
+            SimpleBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var v1,
+                out var v2,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -129,7 +152,18 @@ public sealed partial record IntRate(Expression[] Arguments) : Function
     // INTRATE(settlement, maturity, investment, redemption, [basis]) — interest rate of a discount security.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (SimpleBond.Read(Arguments, context, out var s, out var m, out var investment, out var redemption, out var basis) is { } error)
+        if (
+            SimpleBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var investment,
+                out var redemption,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -149,7 +183,18 @@ public sealed partial record Received(Expression[] Arguments) : Function
     // RECEIVED(settlement, maturity, investment, discount, [basis]) — amount received at maturity.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (SimpleBond.Read(Arguments, context, out var s, out var m, out var investment, out var discount, out var basis) is { } error)
+        if (
+            SimpleBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var investment,
+                out var discount,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -169,7 +214,18 @@ public sealed partial record PriceDisc(Expression[] Arguments) : Function
     // PRICEDISC(settlement, maturity, discount, redemption, [basis]) — price of a discounted security.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (SimpleBond.Read(Arguments, context, out var s, out var m, out var discount, out var redemption, out var basis) is { } error)
+        if (
+            SimpleBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var discount,
+                out var redemption,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -189,7 +245,18 @@ public sealed partial record YieldDisc(Expression[] Arguments) : Function
     // YIELDDISC(settlement, maturity, pr, redemption, [basis]) — annual yield of a discounted security.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (SimpleBond.Read(Arguments, context, out var s, out var m, out var pr, out var redemption, out var basis) is { } error)
+        if (
+            SimpleBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var pr,
+                out var redemption,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -209,7 +276,19 @@ public sealed partial record PriceMat(Expression[] Arguments) : Function
     // PRICEMAT(settlement, maturity, issue, rate, yld, [basis]) — price of an interest-at-maturity security.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (MaturityBond.Read(Arguments, context, out var s, out var m, out var issue, out var rate, out var v, out var basis) is { } error)
+        if (
+            MaturityBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var issue,
+                out var rate,
+                out var v,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -229,7 +308,19 @@ public sealed partial record YieldMat(Expression[] Arguments) : Function
     // YIELDMAT(settlement, maturity, issue, rate, pr, [basis]) — annual yield of an interest-at-maturity bond.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (MaturityBond.Read(Arguments, context, out var s, out var m, out var issue, out var rate, out var pr, out var basis) is { } error)
+        if (
+            MaturityBond.Read(
+                Arguments,
+                context,
+                out var s,
+                out var m,
+                out var issue,
+                out var rate,
+                out var pr,
+                out var basis
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -247,21 +338,24 @@ public sealed partial record YieldMat(Expression[] Arguments) : Function
 public sealed partial record TBillEq(Expression[] Arguments) : Function
 {
     // TBILLEQ(settlement, maturity, discount) — bond-equivalent yield of a Treasury bill.
-    public override ComputedValue Evaluate(EvaluationContext context) => TBill.Evaluate(Arguments, context, TBillKind.Eq);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        TBill.Evaluate(Arguments, context, TBillKind.Eq);
 }
 
 [MemoryPackable]
 public sealed partial record TBillPrice(Expression[] Arguments) : Function
 {
     // TBILLPRICE(settlement, maturity, discount) — price per $100 face value of a Treasury bill.
-    public override ComputedValue Evaluate(EvaluationContext context) => TBill.Evaluate(Arguments, context, TBillKind.Price);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        TBill.Evaluate(Arguments, context, TBillKind.Price);
 }
 
 [MemoryPackable]
 public sealed partial record TBillYield(Expression[] Arguments) : Function
 {
     // TBILLYIELD(settlement, maturity, pr) — yield of a Treasury bill.
-    public override ComputedValue Evaluate(EvaluationContext context) => TBill.Evaluate(Arguments, context, TBillKind.Yield);
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        TBill.Evaluate(Arguments, context, TBillKind.Yield);
 }
 
 internal enum TBillKind
@@ -273,7 +367,11 @@ internal enum TBillKind
 
 internal static class TBill
 {
-    public static ComputedValue Evaluate(Expression[] arguments, EvaluationContext context, TBillKind kind)
+    public static ComputedValue Evaluate(
+        Expression[] arguments,
+        EvaluationContext context,
+        TBillKind kind
+    )
     {
         if (FinancialArguments.Date(arguments, 0, context, out var settlement) is { } e0)
         {
@@ -404,6 +502,8 @@ internal static class MaturityBond
             return e5;
         }
 
-        return settlement >= maturity || settlement <= issue || maturity <= issue ? Error.Num : null;
+        return settlement >= maturity || settlement <= issue || maturity <= issue
+            ? Error.Num
+            : null;
     }
 }

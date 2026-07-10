@@ -25,7 +25,9 @@ public class WorkbookSaveLoadTests
             Sample().Save(path);
             var loaded = Workbook.Load(path);
 
-            await Assert.That(loaded["Sheet1"]["A3"].Evaluate(loaded).AsObject() as double?).IsEqualTo(3.0);
+            await Assert
+                .That(loaded["Sheet1"]["A3"].Evaluate(loaded).AsObject() as double?)
+                .IsEqualTo(3.0);
         }
         finally
         {
@@ -43,7 +45,9 @@ public class WorkbookSaveLoadTests
             await Sample().SaveAsync(path);
             var loaded = await Workbook.LoadAsync(path);
 
-            await Assert.That(loaded["Sheet1"]["A3"].Evaluate(loaded).AsObject() as double?).IsEqualTo(3.0);
+            await Assert
+                .That(loaded["Sheet1"]["A3"].Evaluate(loaded).AsObject() as double?)
+                .IsEqualTo(3.0);
         }
         finally
         {
@@ -72,10 +76,16 @@ public class WorkbookSaveLoadTests
             // The names survive, keep their case-insensitive lookup, and re-evaluate to the same results.
             await Assert.That(loaded.DefinedNames.Count).IsEqualTo(2);
             await Assert
-                .That(ExpressionParser.Parse("=SUM(vendas)", sheet).Evaluate(loaded).AsObject() as double?)
+                .That(
+                    ExpressionParser.Parse("=SUM(vendas)", sheet).Evaluate(loaded).AsObject()
+                        as double?
+                )
                 .IsEqualTo(60.0);
             await Assert
-                .That(ExpressionParser.Parse("=Taxa*100", sheet).Evaluate(loaded).AsObject() as double?)
+                .That(
+                    ExpressionParser.Parse("=Taxa*100", sheet).Evaluate(loaded).AsObject()
+                        as double?
+                )
                 .IsEqualTo(10.0);
         }
         finally

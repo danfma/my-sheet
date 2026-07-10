@@ -165,9 +165,7 @@ public sealed partial record RankEq(Expression[] Arguments) : Function
         }
 
         // The tied group occupies ranks (outranking+1) … (outranking+equal).
-        return ComputedValue.Number(
-            average ? outranking + (equal + 1) / 2.0 : outranking + 1
-        );
+        return ComputedValue.Number(average ? outranking + (equal + 1) / 2.0 : outranking + 1);
     }
 }
 
@@ -187,8 +185,10 @@ public sealed partial record PercentileInc(Expression[] Arguments) : Function
     // PERCENTILE.INC(array, k) — k ∈ [0, 1], linear interpolation at k·(n−1).
     internal static ComputedValue Compute(Expression[] arguments, EvaluationContext context)
     {
-        if (OrderSelection.SortedArrayAndScalar(arguments, context, out var sorted, out var k)
-            is { } error)
+        if (
+            OrderSelection.SortedArrayAndScalar(arguments, context, out var sorted, out var k) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -205,8 +205,10 @@ public sealed partial record PercentileExc(Expression[] Arguments) : Function
     // PERCENTILE.EXC(array, k) — k ∈ (0, 1), interpolation at rank k·(n+1); unreachable → #NUM!.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (OrderSelection.SortedArrayAndScalar(Arguments, context, out var sorted, out var k)
-            is { } error)
+        if (
+            OrderSelection.SortedArrayAndScalar(Arguments, context, out var sorted, out var k) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -233,8 +235,10 @@ public sealed partial record PercentRankInc(Expression[] Arguments) : Function
         bool exclusive
     )
     {
-        if (OrderSelection.SortedArrayAndScalar(arguments, context, out var sorted, out var x)
-            is { } error)
+        if (
+            OrderSelection.SortedArrayAndScalar(arguments, context, out var sorted, out var x) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -320,8 +324,15 @@ public sealed partial record QuartileInc(Expression[] Arguments) : Function
     // QUARTILE.INC(array, quart) — quart 0-4 (truncated) → PERCENTILE.INC(array, quart/4).
     internal static ComputedValue Compute(Expression[] arguments, EvaluationContext context)
     {
-        if (OrderSelection.SortedArrayAndScalar(arguments, context, out var sorted, out var quart)
-            is { } error)
+        if (
+            OrderSelection.SortedArrayAndScalar(
+                arguments,
+                context,
+                out var sorted,
+                out var quart
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -346,8 +357,15 @@ public sealed partial record QuartileExc(Expression[] Arguments) : Function
     // are unreachable in the exclusive definition → #NUM!.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (OrderSelection.SortedArrayAndScalar(Arguments, context, out var sorted, out var quart)
-            is { } error)
+        if (
+            OrderSelection.SortedArrayAndScalar(
+                Arguments,
+                context,
+                out var sorted,
+                out var quart
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
@@ -367,8 +385,15 @@ public sealed partial record TrimMean(Expression[] Arguments) : Function
     // of the sorted data before averaging.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (OrderSelection.SortedArrayAndScalar(Arguments, context, out var sorted, out var percent)
-            is { } error)
+        if (
+            OrderSelection.SortedArrayAndScalar(
+                Arguments,
+                context,
+                out var sorted,
+                out var percent
+            ) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }

@@ -165,7 +165,8 @@ internal sealed class SheetStructuralIndex
 
     // Test hooks: prove the lazy per-bucket sort (a column/row that was never read stays unsorted) and the
     // dirty-marking of an out-of-order insert (the touched bucket drops out of the sorted set until re-read).
-    internal bool IsColumnSorted(int column) => _sortedColumns is { } sorted && sorted.Contains(column);
+    internal bool IsColumnSorted(int column) =>
+        _sortedColumns is { } sorted && sorted.Contains(column);
 
     internal bool IsRowSorted(int row) => _sortedRows is { } sorted && sorted.Contains(row);
 
@@ -180,8 +181,10 @@ internal sealed class SheetStructuralIndex
         {
             lock (_columnsLock)
             {
-                if (_columns is { } columns
-                    && AddToBucket(columns, _sortedColumns!, primary: column, secondary: row))
+                if (
+                    _columns is { } columns
+                    && AddToBucket(columns, _sortedColumns!, primary: column, secondary: row)
+                )
                 {
                     ColumnAppendCount++;
                 }
@@ -192,8 +195,10 @@ internal sealed class SheetStructuralIndex
         {
             lock (_rowsLock)
             {
-                if (_rows is { } rows
-                    && AddToBucket(rows, _sortedRows!, primary: row, secondary: column))
+                if (
+                    _rows is { } rows
+                    && AddToBucket(rows, _sortedRows!, primary: row, secondary: column)
+                )
                 {
                     RowAppendCount++;
                 }
@@ -321,7 +326,13 @@ internal sealed class SheetStructuralIndex
     // step and no re-parse. Idempotent and guarded by the bucket lock, so concurrent first-accessors of the
     // same bucket serialize and only one sorts. A dirtied bucket (dropped from the sorted set by an
     // out-of-order insert) is re-sorted here on its next read, exactly as a first sort.
-    private void SortBucket(List<int> list, object gate, HashSet<int> sorted, int key, bool byColumn)
+    private void SortBucket(
+        List<int> list,
+        object gate,
+        HashSet<int> sorted,
+        int key,
+        bool byColumn
+    )
     {
         lock (gate)
         {

@@ -55,7 +55,10 @@ public sealed partial record XIrr(Expression[] Arguments) : Function
         }
 
         var guess = 0.1;
-        if (Arguments.Length > 2 && FinancialArguments.Number(Arguments, 2, context, out guess) is { } guessError)
+        if (
+            Arguments.Length > 2
+            && FinancialArguments.Number(Arguments, 2, context, out guess) is { } guessError
+        )
         {
             return ComputedValue.Error(guessError);
         }
@@ -95,7 +98,10 @@ internal static class DatedFlows
         dates = new List<DateTime>();
 
         var valueCells = ArgumentFlattening.ExpandComputedValues(arguments[valuesIndex], context);
-        var dateCells = ArgumentFlattening.ExpandComputedValues(arguments[valuesIndex + 1], context);
+        var dateCells = ArgumentFlattening.ExpandComputedValues(
+            arguments[valuesIndex + 1],
+            context
+        );
 
         if (valueCells.Count != dateCells.Count)
         {

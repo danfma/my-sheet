@@ -15,15 +15,16 @@ internal static class DayCount
 {
     /// <summary>YEARFRAC's day-count fraction for the given basis (0..4). Throws for an unknown basis; the
     /// function layer validates and maps that to <c>#NUM!</c> before calling.</summary>
-    public static double YearFraction(DateTime start, DateTime end, int basis) => basis switch
-    {
-        0 => Nasd360Days(start, end) / 360d,
-        1 => ActualDays(start, end) / AverageYearLength(start, end),
-        2 => ActualDays(start, end) / 360d,
-        3 => ActualDays(start, end) / 365d,
-        4 => Euro360Days(start, end) / 360d,
-        _ => throw new ArgumentOutOfRangeException(nameof(basis)),
-    };
+    public static double YearFraction(DateTime start, DateTime end, int basis) =>
+        basis switch
+        {
+            0 => Nasd360Days(start, end) / 360d,
+            1 => ActualDays(start, end) / AverageYearLength(start, end),
+            2 => ActualDays(start, end) / 360d,
+            3 => ActualDays(start, end) / 365d,
+            4 => Euro360Days(start, end) / 360d,
+            _ => throw new ArgumentOutOfRangeException(nameof(basis)),
+        };
 
     /// <summary>Actual calendar days between the two dates.</summary>
     public static int ActualDays(DateTime start, DateTime end) => (end.Date - start.Date).Days;
@@ -34,7 +35,8 @@ internal static class DayCount
     /// </summary>
     public static int Nasd360Days(DateTime start, DateTime end)
     {
-        int d1 = start.Day, d2 = end.Day;
+        int d1 = start.Day,
+            d2 = end.Day;
 
         // Last day of February on either endpoint is pulled to a nominal 30 (the "30-Feb" adjustment).
         var startIsFebEnd = start.Month == 2 && d1 == DateTime.DaysInMonth(start.Year, 2);

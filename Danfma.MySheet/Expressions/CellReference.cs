@@ -16,5 +16,4 @@ public sealed partial record CellReference(
     // is computed once. GetCellValue evaluates the cell with itself as the current cell.
     public override ComputedValue Evaluate(EvaluationContext context) =>
         context.Workbook.GetCellValue(SheetName, Id);
-
 }

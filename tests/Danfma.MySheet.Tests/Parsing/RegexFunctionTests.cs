@@ -46,12 +46,8 @@ public class RegexFunctionTests
         // sensitive, 1 insensitive.
         const string pattern = "\"^\\([0-9]{3}\\) [0-9]{3}-[0-9]{4}$\"";
 
-        await Assert
-            .That(Calc($"=REGEXTEST(\"(378) 555-4195\",{pattern})") as bool?)
-            .IsTrue();
-        await Assert
-            .That(Calc($"=REGEXTEST(\"+1(878) 555-8622\",{pattern})") as bool?)
-            .IsFalse();
+        await Assert.That(Calc($"=REGEXTEST(\"(378) 555-4195\",{pattern})") as bool?).IsTrue();
+        await Assert.That(Calc($"=REGEXTEST(\"+1(878) 555-8622\",{pattern})") as bool?).IsFalse();
         await Assert.That(Calc("=REGEXTEST(\"ABC\",\"[a-z]+\",1)") as bool?).IsTrue();
         await Assert.That(Calc("=REGEXTEST(\"ABC\",\"[a-z]+\",0)") as bool?).IsFalse();
     }
@@ -72,13 +68,17 @@ public class RegexFunctionTests
         // REGEXEXTRACT(A2,"[A-Z][a-z]+") = "Dylan" (return_mode 0 = first match, the default).
         var a2 = ("A2", Expression.String("DylanWilliams"));
 
-        await Assert.That(Calc("=REGEXEXTRACT(A2,\"[A-Z][a-z]+\")", a2) as string).IsEqualTo("Dylan");
+        await Assert
+            .That(Calc("=REGEXEXTRACT(A2,\"[A-Z][a-z]+\")", a2) as string)
+            .IsEqualTo("Dylan");
         await Assert
             .That(Calc("=REGEXEXTRACT(A2,\"[A-Z][a-z]+\",0)", a2) as string)
             .IsEqualTo("Dylan");
         // A phone number out of the doc's example-2 data (scalar first-match form).
         await Assert
-            .That(Calc("=REGEXEXTRACT(\"Sonia Rees (378) 555-4195\",\"[0-9()]+ [0-9-]+\")") as string)
+            .That(
+                Calc("=REGEXEXTRACT(\"Sonia Rees (378) 555-4195\",\"[0-9()]+ [0-9-]+\")") as string
+            )
             .IsEqualTo("(378) 555-4195");
     }
 
@@ -89,7 +89,9 @@ public class RegexFunctionTests
         // arrays phase (F2), so the engine reports #VALUE! for them. No match -> #N/A.
         await Assert.That(Calc("=REGEXEXTRACT(\"ab\",\"a\",1)")).IsEqualTo(ErrorValue.NotValue);
         await Assert.That(Calc("=REGEXEXTRACT(\"ab\",\"a\",2)")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(Calc("=REGEXEXTRACT(\"abc\",\"[0-9]\")")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Calc("=REGEXEXTRACT(\"abc\",\"[0-9]\")"))
+            .IsEqualTo(ErrorValue.NotAvailable);
         await Assert.That(Calc("=REGEXEXTRACT(\"a\",\"[\")")).IsEqualTo(ErrorValue.NotValue);
     }
 
@@ -106,7 +108,9 @@ public class RegexFunctionTests
             )
             .IsEqualTo("Brown, Sonia");
         await Assert
-            .That(Calc("=REGEXREPLACE(\"Sonia Rees(378) 555-4195\",\"[0-9]+-\",\"***-\")") as string)
+            .That(
+                Calc("=REGEXREPLACE(\"Sonia Rees(378) 555-4195\",\"[0-9]+-\",\"***-\")") as string
+            )
             .IsEqualTo("Sonia Rees(378) ***-4195");
     }
 
@@ -115,7 +119,9 @@ public class RegexFunctionTests
     {
         // support.microsoft.com REGEXREPLACE: occurrence 0 (default) replaces all instances; a
         // positive n replaces only the nth; a negative n counts from the end.
-        await Assert.That(Calc("=REGEXREPLACE(\"a1b2c3\",\"[0-9]\",\"*\")") as string).IsEqualTo("a*b*c*");
+        await Assert
+            .That(Calc("=REGEXREPLACE(\"a1b2c3\",\"[0-9]\",\"*\")") as string)
+            .IsEqualTo("a*b*c*");
         await Assert
             .That(Calc("=REGEXREPLACE(\"a1b2c3\",\"[0-9]\",\"*\",2)") as string)
             .IsEqualTo("a1b*c3");

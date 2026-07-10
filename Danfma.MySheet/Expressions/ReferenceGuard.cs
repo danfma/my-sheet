@@ -62,11 +62,11 @@ internal static class ReferenceGuard
                 // A defined name may stand for a reference to a missing sheet. Resolve it WITHOUT bounding
                 // the open range (bounding would scan the sheet); a resolved reference is re-checked.
                 return NamedReferences.TryResolveReference(
-                        argument,
-                        context,
-                        out var resolved,
-                        boundOpenRanges: false
-                    )
+                    argument,
+                    context,
+                    out var resolved,
+                    boundOpenRanges: false
+                )
                     ? MissingSheet(resolved, context)
                     : null;
 

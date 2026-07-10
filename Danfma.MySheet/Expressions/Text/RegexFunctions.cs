@@ -96,7 +96,9 @@ public sealed partial record RegexReplace(Expression[] Arguments) : Function
             return ComputedValue.Error(textError);
         }
 
-        if (Arguments[2].Evaluate(context).CoerceToText(out var replacement) is { } replacementError)
+        if (
+            Arguments[2].Evaluate(context).CoerceToText(out var replacement) is { } replacementError
+        )
         {
             return ComputedValue.Error(replacementError);
         }
@@ -137,7 +139,9 @@ public sealed partial record RegexReplace(Expression[] Arguments) : Function
             var match = matches[index];
 
             return ComputedValue.Text(
-                text[..match.Index] + match.Result(replacement) + text[(match.Index + match.Length)..]
+                text[..match.Index]
+                    + match.Result(replacement)
+                    + text[(match.Index + match.Length)..]
             );
         }
         catch (RegexMatchTimeoutException)

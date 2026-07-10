@@ -23,7 +23,10 @@ public class DynamicRangeEvaluationTests
     }
 
     private static object? Calc(Workbook wb, Sheet sheet, string formula) =>
-        ExpressionParser.Parse(formula, sheet).Evaluate(new EvaluationContext(wb, sheet.Name)).AsObject();
+        ExpressionParser
+            .Parse(formula, sheet)
+            .Evaluate(new EvaluationContext(wb, sheet.Name))
+            .AsObject();
 
     // Aspose oracle: SUM over the dynamic range INDEX(A1:A5,2):A4 == A2+A3+A4 == 20+30+40 == 90.
     [Test]
@@ -38,7 +41,9 @@ public class DynamicRangeEvaluationTests
     public async Task CountIf_OverDynamicRange_MatchesExcel()
     {
         var (wb, sheet) = Grid(("A1", 30), ("A2", 10), ("A3", 30), ("A4", 40), ("A5", 30));
-        await Assert.That(Calc(wb, sheet, "=COUNTIF(INDEX(A1:A5,2):A5,30)") as double?).IsEqualTo(2.0);
+        await Assert
+            .That(Calc(wb, sheet, "=COUNTIF(INDEX(A1:A5,2):A5,30)") as double?)
+            .IsEqualTo(2.0);
     }
 
     // Corner rule: reversed endpoints normalise (OFFSET(B2,0,0):A1 behaves like B2:A1 == A1:B2).
@@ -56,7 +61,9 @@ public class DynamicRangeEvaluationTests
     public async Task ArrayIndexEndpoint_IsRefError()
     {
         var (wb, sheet) = Grid(("A1", 1));
-        await Assert.That(Calc(wb, sheet, "=SUM(INDEX(ROW($A:$A),2):A1)")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=SUM(INDEX(ROW($A:$A),2):A1)"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     // Hardening: a ':' endpoint that is not reference-returning at all (a string literal) must also
@@ -87,7 +94,9 @@ public class DynamicRangeEvaluationTests
     public async Task CountFamily_DynamicRangeOverMissingSheet_IsRefError()
     {
         var (wb, sheet) = Grid(("A1", 1), ("A2", 2), ("A3", 3));
-        await Assert.That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):Sheet2!A5)")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):Sheet2!A5)"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     // Cross-sheet ':' is #REF! in Excel: Sheet2 EXISTS here, so this is not a missing-sheet case — the
@@ -101,7 +110,9 @@ public class DynamicRangeEvaluationTests
         other["A2"] = new NumberValue(9);
         other["A3"] = new NumberValue(9);
 
-        await Assert.That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):A5)")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=COUNT(INDEX(Sheet2!A1:A3,2):A5)"))
+            .IsEqualTo(ErrorValue.Reference);
         // Same-sheet control still resolves (both endpoints on Sheet1).
         await Assert.That(Calc(wb, sheet, "=SUM(INDEX(A1:A3,2):A3)") as double?).IsEqualTo(5.0);
     }
@@ -113,7 +124,9 @@ public class DynamicRangeEvaluationTests
     {
         var (wb, sheet) = Grid(("A1", 1));
         wb.Sheets.Add("Sheet2")["B2"] = new NumberValue(9);
-        await Assert.That(Calc(wb, sheet, "=SUM(Sheet1!A1:Sheet2!B2)")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=SUM(Sheet1!A1:Sheet2!B2)"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     // Static both-qualified SAME-sheet range Sheet1!A1:Sheet1!A3 is a valid range (previously threw).
@@ -139,8 +152,14 @@ public class DynamicRangeEvaluationTests
     public async Task Offset_NonPositiveHeightWidth_IsRefError()
     {
         var (wb, sheet) = Grid(("A1", 10), ("A2", 20));
-        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,0,1))")).IsEqualTo(ErrorValue.Reference);
-        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,0.9,1))")).IsEqualTo(ErrorValue.Reference);
-        await Assert.That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,1,0))")).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,0,1))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,0.9,1))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(wb, sheet, "=SUM(OFFSET(A1,0,0,1,0))"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 }

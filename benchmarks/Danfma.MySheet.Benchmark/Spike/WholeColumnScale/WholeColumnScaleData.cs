@@ -79,8 +79,14 @@ internal static class WholeColumnScaleData
         }
 
         var maxKey = target == ScaleTarget.BigColumn ? dataCells : NarrowCount;
-        var keyRef = target == ScaleTarget.BigColumn ? $"{BigKeyColumn}:{BigKeyColumn}" : $"{NarrowKeyColumn}:{NarrowKeyColumn}";
-        var textRef = target == ScaleTarget.BigColumn ? $"{BigTextColumn}:{BigTextColumn}" : $"{NarrowTextColumn}:{NarrowTextColumn}";
+        var keyRef =
+            target == ScaleTarget.BigColumn
+                ? $"{BigKeyColumn}:{BigKeyColumn}"
+                : $"{NarrowKeyColumn}:{NarrowKeyColumn}";
+        var textRef =
+            target == ScaleTarget.BigColumn
+                ? $"{BigTextColumn}:{BigTextColumn}"
+                : $"{NarrowTextColumn}:{NarrowTextColumn}";
         var tableRef = target == ScaleTarget.BigColumn ? BigTable : NarrowTable;
 
         var formulaIds = new string[formulaCount];
@@ -130,7 +136,8 @@ internal static class WholeColumnScaleData
         return checksum;
     }
 
-    private static Expressions.Expression Number(double value) => new Expressions.NumberValue(value);
+    private static Expressions.Expression Number(double value) =>
+        new Expressions.NumberValue(value);
 
     private static Expressions.Expression Text(string value) => new Expressions.StringValue(value);
 }

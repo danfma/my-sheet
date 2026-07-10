@@ -19,13 +19,15 @@ internal static class SpikeSerializers
         MemoryPackSerializer.Deserialize<Workbook>(bytes)!;
 
     // ── Candidate: MessagePack indexed keys on the mirror graph ──────────────────────────────────────
-    public static byte[] MessagePackIndexed(MWorkbook mirror) => MessagePackSerializer.Serialize(mirror);
+    public static byte[] MessagePackIndexed(MWorkbook mirror) =>
+        MessagePackSerializer.Serialize(mirror);
 
     public static MWorkbook MessagePackIndexedDeserialize(byte[] bytes) =>
         MessagePackSerializer.Deserialize<MWorkbook>(bytes);
 
     // ── Candidate variant: MessagePack + LZ4 block array ─────────────────────────────────────────────
-    public static byte[] MessagePackLz4(MWorkbook mirror) => MessagePackSerializer.Serialize(mirror, Lz4);
+    public static byte[] MessagePackLz4(MWorkbook mirror) =>
+        MessagePackSerializer.Serialize(mirror, Lz4);
 
     public static MWorkbook MessagePackLz4Deserialize(byte[] bytes) =>
         MessagePackSerializer.Deserialize<MWorkbook>(bytes, Lz4);

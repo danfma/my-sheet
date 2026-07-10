@@ -15,7 +15,12 @@ public class CriteriaStreamingTests
 
     // Deterministic data: A = group text, B = region text, C = amount (some blanks so both blank handling and
     // the numeric/text criteria mix are exercised).
-    private static (Workbook Workbook, string[] Groups, string[] Regions, double?[] Amounts) BuildData()
+    private static (
+        Workbook Workbook,
+        string[] Groups,
+        string[] Regions,
+        double?[] Amounts
+    ) BuildData()
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");

@@ -14,9 +14,15 @@ public class VolatileClockTests
     // A zone three hours behind UTC, so a UTC instant and its local rendering differ — proving NOW()/TODAY()
     // use local time, not UTC.
     private static readonly TimeZoneInfo MinusThree = TimeZoneInfo.CreateCustomTimeZone(
-        "UTC-03 (test)", TimeSpan.FromHours(-3), "UTC-03 (test)", "UTC-03 (test)");
+        "UTC-03 (test)",
+        TimeSpan.FromHours(-3),
+        "UTC-03 (test)",
+        "UTC-03 (test)"
+    );
 
-    private static (Workbook Workbook, FixedTimeProvider Clock, Sheet Sheet) NewWorkbook(DateTimeOffset utcNow)
+    private static (Workbook Workbook, FixedTimeProvider Clock, Sheet Sheet) NewWorkbook(
+        DateTimeOffset utcNow
+    )
     {
         var clock = new FixedTimeProvider(utcNow, MinusThree);
         var workbook = new Workbook { TimeProvider = clock };
@@ -26,7 +32,8 @@ public class VolatileClockTests
 
     private static double Num(ComputedValue value) => value.AsObject() is double d ? d : double.NaN;
 
-    private static double Cell(Workbook workbook, string id) => Num(workbook.GetCellValue("Sheet1", id));
+    private static double Cell(Workbook workbook, string id) =>
+        Num(workbook.GetCellValue("Sheet1", id));
 
     // --- Golden values against the injected clock ---
 
@@ -34,7 +41,9 @@ public class VolatileClockTests
     public async Task Now_IsTheLocalClockAsAnExcelSerial()
     {
         // UTC 13:30 in a UTC-3 zone is local 10:30 on the same day.
-        var (workbook, _, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, _, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet);
 
         var expected = new DateTime(2026, 7, 2, 10, 30, 0).ToOADate();
@@ -44,14 +53,19 @@ public class VolatileClockTests
     [Test]
     public async Task Today_IsTheWholeDayFloorOfNow()
     {
-        var (workbook, _, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, _, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=TODAY()", sheet);
         sheet["A2"] = ExpressionParser.Parse("=NOW()", sheet);
 
         var expected = new DateTime(2026, 7, 2).ToOADate();
         await Assert.That(Cell(workbook, "A1")).IsEqualTo(expected).Within(Tolerance);
         // TODAY() == FLOOR(NOW()) within the same epoch.
-        await Assert.That(Cell(workbook, "A1")).IsEqualTo(Math.Floor(Cell(workbook, "A2"))).Within(Tolerance);
+        await Assert
+            .That(Cell(workbook, "A1"))
+            .IsEqualTo(Math.Floor(Cell(workbook, "A2")))
+            .Within(Tolerance);
     }
 
     // --- Epoch coherence ---
@@ -59,7 +73,9 @@ public class VolatileClockTests
     [Test]
     public async Task WithoutRecalculate_TheValueIsStableEvenIfTheClockMoves()
     {
-        var (workbook, clock, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, clock, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet);
 
         var first = Cell(workbook, "A1");
@@ -72,7 +88,9 @@ public class VolatileClockTests
     [Test]
     public async Task TwoVolatileCellsAgreeWithinAnEpoch()
     {
-        var (workbook, _, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, _, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet);
         sheet["A2"] = ExpressionParser.Parse("=NOW()", sheet);
 
@@ -84,7 +102,9 @@ public class VolatileClockTests
     [Test]
     public async Task Recalculate_ResamplesTheClock()
     {
-        var (workbook, clock, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, clock, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet);
 
         var first = Cell(workbook, "A1");
@@ -98,7 +118,9 @@ public class VolatileClockTests
     [Test]
     public async Task Recalculate_RefreshesDependentsOfVolatiles_Contagion()
     {
-        var (workbook, clock, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, clock, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet); // volatile
         sheet["B1"] = ExpressionParser.Parse("=A1+1", sheet); // transitively volatile (references A1)
 
@@ -116,7 +138,9 @@ public class VolatileClockTests
     [Test]
     public async Task Recalculate_DoesNotRecomputeNonVolatileCells()
     {
-        var (workbook, _, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, _, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
 
         var evaluations = 0;
         workbook.RegisterFunction(
@@ -125,7 +149,8 @@ public class VolatileClockTests
             {
                 evaluations++;
                 return 42d;
-            });
+            }
+        );
 
         sheet["A1"] = ExpressionParser.Parse("=TICK()", sheet); // NOT volatile
         sheet["V1"] = ExpressionParser.Parse("=NOW()", sheet); // volatile, so the epoch has something to clear
@@ -141,7 +166,9 @@ public class VolatileClockTests
     [Test]
     public async Task InvalidateCache_AlsoResamplesTheClock()
     {
-        var (workbook, clock, sheet) = NewWorkbook(new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero));
+        var (workbook, clock, sheet) = NewWorkbook(
+            new DateTimeOffset(2026, 7, 2, 13, 30, 0, TimeSpan.Zero)
+        );
         sheet["A1"] = ExpressionParser.Parse("=NOW()", sheet);
 
         var first = Cell(workbook, "A1");
@@ -181,13 +208,21 @@ public class VolatileClockTests
 
             // A fixed clock on the reloaded workbook proves NOW/TODAY deserialized to the right nodes.
             reloaded.TimeProvider = new FixedTimeProvider(
-                new DateTimeOffset(2026, 7, 2, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc);
+                new DateTimeOffset(2026, 7, 2, 12, 0, 0, TimeSpan.Zero),
+                TimeZoneInfo.Utc
+            );
 
             var now = Num(reloaded.GetCellValue("Sheet1", "A1"));
             var today = Num(reloaded.GetCellValue("Sheet1", "A2"));
 
-            await Assert.That(now).IsEqualTo(new DateTime(2026, 7, 2, 12, 0, 0).ToOADate()).Within(Tolerance);
-            await Assert.That(today).IsEqualTo(new DateTime(2026, 7, 2).ToOADate()).Within(Tolerance);
+            await Assert
+                .That(now)
+                .IsEqualTo(new DateTime(2026, 7, 2, 12, 0, 0).ToOADate())
+                .Within(Tolerance);
+            await Assert
+                .That(today)
+                .IsEqualTo(new DateTime(2026, 7, 2).ToOADate())
+                .Within(Tolerance);
         }
         finally
         {

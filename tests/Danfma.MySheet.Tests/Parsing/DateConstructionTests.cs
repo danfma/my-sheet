@@ -12,7 +12,8 @@ public class DateConstructionTests
     private const double Tolerance = 1e-7;
 
     private static object? Calc(string formula) =>
-        ExpressionParser.Parse(formula, new Workbook().Sheets.Add("Sheet1"))
+        ExpressionParser
+            .Parse(formula, new Workbook().Sheets.Add("Sheet1"))
             .Evaluate(new Workbook())
             .AsObject();
 
@@ -102,7 +103,10 @@ public class DateConstructionTests
         // TIMEVALUE page: "2:24 AM"→0.10; "22-Aug-2011 6:35 AM"→0.2743 (rounded display; date part
         // discarded). 6:35 AM is exactly 23700 seconds of the day.
         await Assert.That(Num(Calc("=TIMEVALUE(\"2:24 AM\")"))).IsEqualTo(0.1d).Within(Tolerance);
-        await Assert.That(Num(Calc("=TIMEVALUE(\"22-Aug-2011 6:35 AM\")"))).IsEqualTo(23700d / 86400d).Within(Tolerance);
+        await Assert
+            .That(Num(Calc("=TIMEVALUE(\"22-Aug-2011 6:35 AM\")")))
+            .IsEqualTo(23700d / 86400d)
+            .Within(Tolerance);
     }
 
     // --- YEAR/MONTH/DAY and HOUR/MINUTE/SECOND. ---

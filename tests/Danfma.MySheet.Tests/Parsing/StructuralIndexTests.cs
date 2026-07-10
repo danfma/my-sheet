@@ -15,7 +15,9 @@ namespace Danfma.MySheet.Tests.Parsing;
 /// </summary>
 public class StructuralIndexTests
 {
-    private static (Workbook Workbook, Sheet Sheet) Sheet(params (string Id, Expression Value)[] cells)
+    private static (Workbook Workbook, Sheet Sheet) Sheet(
+        params (string Id, Expression Value)[] cells
+    )
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
@@ -330,11 +332,7 @@ public class StructuralIndexTests
         // Columns crossing the Z(26)→AA(27) boundary: numeric column order is Z,AA,AB; a lexicographic id sort
         // would place AA/AB before Z. The symmetric row buckets store the column as an int and must yield the
         // numeric order.
-        var (workbook, _) = Sheet(
-            ("AB1", Number(28)),
-            ("Z1", Number(26)),
-            ("AA1", Number(27))
-        );
+        var (workbook, _) = Sheet(("AB1", Number(28)), ("Z1", Number(26)), ("AA1", Number(27)));
 
         var read = Read(workbook, WholeRow(1));
         await Assert.That(string.Join(",", read)).IsEqualTo("Z1,AA1,AB1");

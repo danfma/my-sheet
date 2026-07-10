@@ -35,7 +35,7 @@ public static class WriteCostHarness
         Console.WriteLine(
             "[isolated] pre-generated ids + NumberValues; the loop times only `sheet[id] = expr` (the pure write path)."
         );
-        Console.WriteLine($"{"Scenario",-34} {"Best ms",10} {"Median ms",11} {"ns/set",9}");
+        Console.WriteLine($"{"Scenario", -34} {"Best ms", 10} {"Median ms", 11} {"ns/set", 9}");
 
         Report("InOrder / NoIndex", inOrder: true, liveIndex: false, realistic: false);
         Report("OutOfOrder / NoIndex", inOrder: false, liveIndex: false, realistic: false);
@@ -62,7 +62,9 @@ public static class WriteCostHarness
         Array.Sort(samples);
         var best = samples[0];
         var median = samples[Runs / 2];
-        Console.WriteLine($"{label,-24} {best,10:N1} {median,11:N1} {median * 1_000_000.0 / Cells,9:N1}");
+        Console.WriteLine(
+            $"{label, -24} {best, 10:N1} {median, 11:N1} {median * 1_000_000.0 / Cells, 9:N1}"
+        );
     }
 
     // Milliseconds spent in the fill loop. In [isolated] mode the ids and NumberValues are pre-generated and

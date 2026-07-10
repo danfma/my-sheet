@@ -81,7 +81,11 @@ public class NamedRangeInteropTests
                 await Assert.That(workbook.DefinedNames.ContainsKey("GlobalName")).IsTrue();
                 await Assert.That(workbook.DefinedNames.ContainsKey("LocalName")).IsFalse();
                 await Assert
-                    .That(workbook.DefinedNames.Keys.Any(key => key.Contains("Print", StringComparison.OrdinalIgnoreCase)))
+                    .That(
+                        workbook.DefinedNames.Keys.Any(key =>
+                            key.Contains("Print", StringComparison.OrdinalIgnoreCase)
+                        )
+                    )
                     .IsFalse();
                 await Assert.That(workbook.DefinedNames.Count).IsEqualTo(1);
             }

@@ -63,7 +63,9 @@ public class NamedRangeTests
         workbook.DefineName("Tabela", "Data!B1:C3");
 
         // VLOOKUP resolves the named table's first column and returns column 2 of the matching row.
-        await Assert.That(Eval(workbook, main, "=VLOOKUP(2,Tabela,2,FALSE)") as string).IsEqualTo("b");
+        await Assert
+            .That(Eval(workbook, main, "=VLOOKUP(2,Tabela,2,FALSE)") as string)
+            .IsEqualTo("b");
     }
 
     [Test]
@@ -80,7 +82,9 @@ public class NamedRangeTests
         data["G2"] = new StringValue("z");
         workbook.DefineName("Horizontal", "Data!E1:G2");
 
-        await Assert.That(Eval(workbook, main, "=HLOOKUP(2,Horizontal,2,FALSE)") as string).IsEqualTo("y");
+        await Assert
+            .That(Eval(workbook, main, "=HLOOKUP(2,Horizontal,2,FALSE)") as string)
+            .IsEqualTo("y");
     }
 
     [Test]
@@ -171,7 +175,9 @@ public class NamedRangeTests
         workbook.DefineName("Vendas", "Data!A1:A3");
 
         // The LET binding shadows the workbook name: Vendas is 5 here, not the range, so the result is 6.
-        await Assert.That(Eval(workbook, main, "=LET(Vendas,5,Vendas+1)") as double?).IsEqualTo(6.0);
+        await Assert
+            .That(Eval(workbook, main, "=LET(Vendas,5,Vendas+1)") as double?)
+            .IsEqualTo(6.0);
     }
 
     [Test]
@@ -220,7 +226,9 @@ public class NamedRangeTests
         var workbook = new Workbook();
 
         // "A1" collides with a cell reference; Excel reserves that shape.
-        await Assert.That(() => workbook.DefineName("A1", new NumberValue(1))).Throws<ArgumentException>();
+        await Assert
+            .That(() => workbook.DefineName("A1", new NumberValue(1)))
+            .Throws<ArgumentException>();
     }
 
     [Test]
@@ -230,8 +238,12 @@ public class NamedRangeTests
         workbook.Sheets.Add("Data");
 
         // Names are workbook-level: an unqualified range has no sheet, so it is rejected.
-        await Assert.That(() => workbook.DefineName("Vendas", "A1:A10")).Throws<ArgumentException>();
-        await Assert.That(() => workbook.DefineName("Total", "=SUM(A1:A10)")).Throws<ArgumentException>();
+        await Assert
+            .That(() => workbook.DefineName("Vendas", "A1:A10"))
+            .Throws<ArgumentException>();
+        await Assert
+            .That(() => workbook.DefineName("Total", "=SUM(A1:A10)"))
+            .Throws<ArgumentException>();
     }
 
     [Test]

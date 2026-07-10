@@ -327,9 +327,7 @@ public class WorkbookCompressionTests
             bytes[12] = 0xFF;
             File.WriteAllBytes(path, bytes);
 
-            await Assert
-                .That(() => Workbook.Load(path))
-                .Throws<InvalidDataException>();
+            await Assert.That(() => Workbook.Load(path)).Throws<InvalidDataException>();
         }
         finally
         {
@@ -382,8 +380,22 @@ public class WorkbookCompressionTests
         var optimal = TempPath();
         try
         {
-            workbook.Save(fastest, new WorkbookSaveOptions { Compression = WorkbookCompression.Brotli, CompressionLevel = System.IO.Compression.CompressionLevel.Fastest });
-            workbook.Save(optimal, new WorkbookSaveOptions { Compression = WorkbookCompression.Brotli, CompressionLevel = System.IO.Compression.CompressionLevel.Optimal });
+            workbook.Save(
+                fastest,
+                new WorkbookSaveOptions
+                {
+                    Compression = WorkbookCompression.Brotli,
+                    CompressionLevel = System.IO.Compression.CompressionLevel.Fastest,
+                }
+            );
+            workbook.Save(
+                optimal,
+                new WorkbookSaveOptions
+                {
+                    Compression = WorkbookCompression.Brotli,
+                    CompressionLevel = System.IO.Compression.CompressionLevel.Optimal,
+                }
+            );
 
             await Assert
                 .That(new FileInfo(fastest).Length)

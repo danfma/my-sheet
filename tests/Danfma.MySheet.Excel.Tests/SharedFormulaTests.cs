@@ -3,8 +3,8 @@ using Danfma.MySheet.Expressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
-using XlsxSheet = DocumentFormat.OpenXml.Spreadsheet.Sheet;
 using XlsxRow = DocumentFormat.OpenXml.Spreadsheet.Row;
+using XlsxSheet = DocumentFormat.OpenXml.Spreadsheet.Sheet;
 using XlsxWorkbook = DocumentFormat.OpenXml.Spreadsheet.Workbook;
 
 namespace Danfma.MySheet.Excel.Tests;
@@ -19,7 +19,13 @@ public class SharedFormulaTests
     private static Cell Number(string id, double value) =>
         new() { CellReference = id, CellValue = new CellValue(value.ToString()) };
 
-    private static Cell Master(string id, string formula, uint index, string range, string cached) =>
+    private static Cell Master(
+        string id,
+        string formula,
+        uint index,
+        string range,
+        string cached
+    ) =>
         new()
         {
             CellReference = id,
@@ -36,7 +42,11 @@ public class SharedFormulaTests
         new()
         {
             CellReference = id,
-            CellFormula = new CellFormula { FormulaType = CellFormulaValues.Shared, SharedIndex = index },
+            CellFormula = new CellFormula
+            {
+                FormulaType = CellFormulaValues.Shared,
+                SharedIndex = index,
+            },
             CellValue = new CellValue(cached),
         };
 
@@ -58,20 +68,33 @@ public class SharedFormulaTests
                     Master("B1", "A1*2", 0, "B1:B3", "2"),
                     Master("C1", "$A$1+A1", 1, "C1:C2", "2"),
                     Master("D1", "\"A1\"&A1", 2, "D1:D2", "A11")
-                ) { RowIndex = 1 },
+                )
+                {
+                    RowIndex = 1,
+                },
                 new XlsxRow(
                     Number("A2", 2),
                     Slave("B2", 0, "4"),
                     Slave("C2", 1, "3"),
                     Slave("D2", 2, "A12")
-                ) { RowIndex = 2 },
+                )
+                {
+                    RowIndex = 2,
+                },
                 new XlsxRow(Number("A3", 3), Slave("B3", 0, "6")) { RowIndex = 3 }
             )
         );
 
-        workbookPart.Workbook.AppendChild(new Sheets()).AppendChild(
-            new XlsxSheet { Id = workbookPart.GetIdOfPart(worksheetPart), SheetId = 1, Name = "Data" }
-        );
+        workbookPart
+            .Workbook.AppendChild(new Sheets())
+            .AppendChild(
+                new XlsxSheet
+                {
+                    Id = workbookPart.GetIdOfPart(worksheetPart),
+                    SheetId = 1,
+                    Name = "Data",
+                }
+            );
 
         return path;
     }

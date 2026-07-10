@@ -32,11 +32,7 @@ public class BivariateStatisticTests
 
     private static double Num(object? value) => value is double d ? d : double.NaN;
 
-    private static (string, object)[] Columns(
-        int firstRow,
-        double[] columnA,
-        double[] columnB
-    ) =>
+    private static (string, object)[] Columns(int firstRow, double[] columnA, double[] columnB) =>
         [
             .. columnA.Select((v, i) => ($"A{firstRow + i}", (object)v)),
             .. columnB.Select((v, i) => ($"B{firstRow + i}", (object)v)),
@@ -44,13 +40,19 @@ public class BivariateStatisticTests
 
     // Dataset compartilhado por CORREL (screenshot oficial) e COVARIANCE.P:
     // Data1 {3,2,4,5,6}, Data2 {9,7,12,15,17}.
-    private static readonly (string, object)[] CorrelData =
-        Columns(2, [3, 2, 4, 5, 6], [9, 7, 12, 15, 17]);
+    private static readonly (string, object)[] CorrelData = Columns(
+        2,
+        [3, 2, 4, 5, 6],
+        [9, 7, 12, 15, 17]
+    );
 
     // Dataset compartilhado por RSQ e STEYX: known_y {2,3,9,1,8,7,5}, known_x {6,5,11,7,5,4,4}
     // (a página do SLOPE usa o MESMO known_y impresso como datas seriais 2,3,9,1,8,7,5).
-    private static readonly (string, object)[] RegressionData =
-        Columns(3, [2, 3, 9, 1, 8, 7, 5], [6, 5, 11, 7, 5, 4, 4]);
+    private static readonly (string, object)[] RegressionData = Columns(
+        3,
+        [2, 3, 9, 1, 8, 7, 5],
+        [6, 5, 11, 7, 5, 4, 4]
+    );
 
     // --- CORREL / PEARSON ---
 
@@ -93,10 +95,7 @@ public class BivariateStatisticTests
     {
         // Regra documentada: texto/lógicos/vazios em array são ignorados — o PAR inteiro cai.
         // Com o par extra (texto, 99) o resultado tem que ser o MESMO do dataset golden.
-        (string, object)[] cells =
-        [
-            .. CorrelData, ("A7", "x"), ("B7", 99),
-        ];
+        (string, object)[] cells = [.. CorrelData, ("A7", "x"), ("B7", 99)];
 
         await Assert
             .That(Num(Calc("=CORREL(A2:A7,B2:B7)", cells)))
@@ -128,9 +127,7 @@ public class BivariateStatisticTests
             .That(Num(Calc("=COVARIANCE.S(A3:A5,B3:B5)", cells)))
             .IsEqualTo(9.666666667)
             .Within(Tolerance);
-        await Assert
-            .That(Calc("=COVARIANCE.S(A3,B3)", cells))
-            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=COVARIANCE.S(A3,B3)", cells)).IsEqualTo(ErrorValue.DivByZero);
     }
 
     // --- RSQ / SLOPE / INTERCEPT / STEYX / FORECAST.LINEAR ---
@@ -163,7 +160,9 @@ public class BivariateStatisticTests
         // =INTERCEPT(A2:A6,B2:B6) com y {2,3,9,1,8} / x {6,5,11,7,5} -> 0.0483871 (página oficial
         // "INTERCEPT function", 2a9b74e2-9d47-4772-b663-3bca70bf63ef).
         await Assert
-            .That(Num(Calc("=INTERCEPT(A2:A6,B2:B6)", Columns(2, [2, 3, 9, 1, 8], [6, 5, 11, 7, 5]))))
+            .That(
+                Num(Calc("=INTERCEPT(A2:A6,B2:B6)", Columns(2, [2, 3, 9, 1, 8], [6, 5, 11, 7, 5])))
+            )
             .IsEqualTo(0.0483871)
             .Within(Tolerance);
     }
@@ -260,8 +259,11 @@ public class BivariateStatisticTests
     // --- PROB — golden: página oficial "PROB function" (9ac30561-c81c-4259-8253-34f0a238fc49):
     // x {0,1,2,3} com probabilidades {0.2,0.3,0.1,0.4}. ---
 
-    private static readonly (string, object)[] ProbData =
-        Columns(3, [0, 1, 2, 3], [0.2, 0.3, 0.1, 0.4]);
+    private static readonly (string, object)[] ProbData = Columns(
+        3,
+        [0, 1, 2, 3],
+        [0.2, 0.3, 0.1, 0.4]
+    );
 
     [Test]
     public async Task Prob_MatchesTheGoldenExamples()

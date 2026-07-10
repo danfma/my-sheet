@@ -39,7 +39,9 @@ public static class AsposeCompareHarness
     {
         var licenseNote = TryLoadLicense();
 
-        Console.WriteLine("== MySheet 3.0 vs Aspose.Cells — whole-column COUNTIF (K1 shape, in-memory) ==");
+        Console.WriteLine(
+            "== MySheet 3.0 vs Aspose.Cells — whole-column COUNTIF (K1 shape, in-memory) =="
+        );
         Console.WriteLine(
             $"Runtime: {Environment.Version}, cores {Environment.ProcessorCount}. Aspose.Cells {CellsHelper.GetVersion()} ({licenseNote}). "
                 + $"Column A fixed at {ColumnACells} cells; {StructuralIndexLifetimeHarness.Iterations} iterations per pass "
@@ -47,7 +49,9 @@ public static class AsposeCompareHarness
                 + "Both engines fully in memory, no save/load; Aspose forced to full-recalc every epoch (no cache)."
         );
         Console.WriteLine();
-        Console.WriteLine($"{"Sheet cells",12} {"MySheet ms/iter",18} {"Aspose ms/iter",16} {"Aspose/MySheet",15}");
+        Console.WriteLine(
+            $"{"Sheet cells", 12} {"MySheet ms/iter", 18} {"Aspose ms/iter", 16} {"Aspose/MySheet", 15}"
+        );
 
         foreach (var size in StructuralIndexLifetimeHarness.SheetSizes)
         {
@@ -57,7 +61,7 @@ public static class AsposeCompareHarness
             var aspose = AsposeMeanPerIteration(size);
 
             var ratio = mysheet > 0 ? aspose / mysheet : double.NaN;
-            Console.WriteLine($"{size,12:N0} {mysheet,18:N3} {aspose,16:N3} {ratio,15:N2}");
+            Console.WriteLine($"{size, 12:N0} {mysheet, 18:N3} {aspose, 16:N3} {ratio, 15:N2}");
         }
     }
 
@@ -104,14 +108,18 @@ public static class AsposeCompareHarness
             }
 
             stopwatch.Stop();
-            best = Math.Min(best, stopwatch.Elapsed.TotalMilliseconds / StructuralIndexLifetimeHarness.Iterations);
+            best = Math.Min(
+                best,
+                stopwatch.Elapsed.TotalMilliseconds / StructuralIndexLifetimeHarness.Iterations
+            );
         }
 
         // Sanity: the COUNTIF must actually see the 200 column-A cells (guards a silently-empty build).
         if (Convert.ToInt32(calc.Cells["A1"].Value) != ColumnACells)
         {
             throw new InvalidOperationException(
-                $"Aspose COUNTIF returned {calc.Cells["A1"].Value}, expected {ColumnACells} — build shape diverged.");
+                $"Aspose COUNTIF returned {calc.Cells["A1"].Value}, expected {ColumnACells} — build shape diverged."
+            );
         }
 
         return best;
