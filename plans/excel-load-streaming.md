@@ -67,10 +67,10 @@ escravas de shared formula — o pior caminho do loader atual (regex shift textu
 Referência externa licenciada: Aspose ~936ms no arquivo real do usuário.
 
 ## Phase 1: Shared strings streaming
-Status: Not started
+Status: Complete
 
-- [ ] Criar `Danfma.MySheet.Excel/SharedStringsStreamReader.cs`: `internal static IReadOnlyList<string> Read(SharedStringTablePart? part)` — `part.GetStream()` + `XmlReader` forward-only; `uniqueCount` do `<sst>` como *hint* de presize (nunca limite); caso comum 1 `<t>` → `ReadElementContentAsString` direto; rich text → `StringBuilder` reutilizado concatenando TODOS os `<t>` sob `<si>` (paridade com `InnerText`, incluindo `<rPh>` — anotar em comentário); `<t/>` vazio → `""`; NÃO usar `IgnoreWhitespace` (preserva `xml:space`)
-- [ ] `ExcelFile.Load`: trocar `LoadSharedStrings` pelo reader novo; não tocar mais em `.SharedStringTable`
+- [x] Criar `Danfma.MySheet.Excel/SharedStringsStreamReader.cs`: `internal static IReadOnlyList<string> Read(SharedStringTablePart? part)` — `part.GetStream()` + `XmlReader` forward-only; `uniqueCount` do `<sst>` como *hint* de presize (nunca limite); caso comum 1 `<t>` → `ReadElementContentAsString` direto; rich text → `StringBuilder` reutilizado concatenando TODOS os `<t>` sob `<si>` (paridade com `InnerText`, incluindo `<rPh>` — anotar em comentário); `<t/>` vazio → `""`; NÃO usar `IgnoreWhitespace` (preserva `xml:space`)
+- [x] `ExcelFile.Load`: trocar `LoadSharedStrings` pelo reader novo; não tocar mais em `.SharedStringTable`
 
 ### Verification Plan
 - `dotnet build Danfma.MySheet.slnx -c Release` → 0 warnings
@@ -78,7 +78,11 @@ Status: Not started
 - `--excel-memory` → Scenario L: allocated/peak caem vs baseline (shared strings DOM eliminado)
 
 ### Phase Summary
-_(write when phase completes)_
+`SharedStringsStreamReader.Read` streama o sst com XmlReader forward-only (uniqueCount como hint com cap
+1<<20; caso comum 1 <t> sem StringBuilder; rich text/rPh concatenados = paridade com InnerText; xml:space
+intacto — reader nunca faz trim). `ExcelFile` não toca mais `.SharedStringTable`. Build 0 warnings, 29/29
+Excel tests. Scenario L: 5,72s → 5,33s (allocated ~igual: fixture tem só 208 strings únicas — o ganho real
+desta fase aparece em arquivos texto-pesados; o grosso do custo é o DOM de worksheet, alvo da Fase 2).
 
 ## Phase 2: Worksheet streaming (o grosso)
 Status: Not started

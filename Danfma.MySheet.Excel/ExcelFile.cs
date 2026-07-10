@@ -33,7 +33,7 @@ public static class ExcelFile
             document.WorkbookPart
             ?? throw new InvalidDataException("The document does not contain a workbook part.");
 
-        var sharedStrings = LoadSharedStrings(workbookPart);
+        var sharedStrings = SharedStringsStreamReader.Read(workbookPart.SharedStringTablePart);
         var workbook = new Workbook();
 
         // Iterating workbook.xml's sheet list in document order makes our Sheet.Index match Excel's tab order.
@@ -217,18 +217,5 @@ public static class ExcelFile
 
         // CellValues.String (a formula's cached string) and anything unrecognized read as text.
         return new StringValue(raw);
-    }
-
-    private static IReadOnlyList<string> LoadSharedStrings(WorkbookPart workbookPart)
-    {
-        var table = workbookPart.SharedStringTablePart?.SharedStringTable;
-
-        if (table is null)
-        {
-            return [];
-        }
-
-        // InnerText flattens rich-text runs into the plain concatenated string.
-        return [.. table.Elements<SharedStringItem>().Select(item => item.InnerText)];
     }
 }
