@@ -498,3 +498,4 @@ samples/synthetic-sheet-as-json.json
 samples/synthetic-input.json
 samples/k1-anonymized.json
 samples/*.myxl
+samples/*.xlsx
