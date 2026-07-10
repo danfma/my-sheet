@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.9.0"></a>
+## [3.9.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.9.0) (2026-07-10)
+
+### Features
+
+* **api:** add SheetValueReader — numeric-address bulk value reads ([745ff9a](https://www.github.com/danfma/my-sheet/commit/745ff9af107028ce849ffd78593bbefd0bf560bd))
+
 <a name="3.8.3"></a>
 ## [3.8.3](https://www.github.com/danfma/my-sheet/releases/tag/v3.8.3) (2026-07-09)
 
