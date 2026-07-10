@@ -52,16 +52,36 @@ internal struct RangeValueCursor
     }
 
     /// <summary>
-    /// Opens a cursor over one argument, preferring the cheapest backing: the admitted per-epoch snapshot
-    /// (zero-copy) → the dense positional stream for a closed rectangle (no allocation) → a single boxed
-    /// iterator for open ranges/unions/scalars.
+    /// Opens a cursor over one argument, probing the range cache itself, preferring the cheapest backing: the
+    /// admitted per-epoch snapshot (zero-copy) → the dense positional stream for a closed rectangle (no
+    /// allocation) → a single boxed iterator for open ranges/unions/scalars.
     /// </summary>
-    public static RangeValueCursor Open(Expression argument, EvaluationContext context)
-    {
-        if (
+    public static RangeValueCursor Open(Expression argument, EvaluationContext context) =>
+        Open(
+            argument,
+            context,
             argument is Reference reference
-            && context.Workbook.TryGetRangeSnapshot(reference, context) is { } snapshot
-        )
+                ? context.Workbook.TryGetRangeSnapshot(reference, context)
+                : null
+        );
+
+    /// <summary>
+    /// Same backing preference as <see cref="Open(Expression, EvaluationContext)"/>, but takes an
+    /// ALREADY-resolved snapshot probe instead of running its own. <see cref="Workbook.TryGetRangeSnapshot"/>
+    /// is stateful (second-use admission): calling it a SECOND time for the same range within one function
+    /// evaluation — e.g. once for an exact/approximate hash-path check, then again here — would itself count
+    /// as the admitting "second read" and eagerly build the snapshot on what should still be the range's
+    /// first, streaming read. A caller that already probed the snapshot (COUNTIF/MATCH/XLOOKUP's fast-path
+    /// check) MUST route that same result through here rather than calling the no-snapshot overload again.
+    /// Mirrors <see cref="PositionalRange.Open(Expression, EvaluationContext, RangeSnapshot?)"/>.
+    /// </summary>
+    public static RangeValueCursor Open(
+        Expression argument,
+        EvaluationContext context,
+        RangeSnapshot? snapshot
+    )
+    {
+        if (snapshot is not null)
         {
             return new RangeValueCursor(snapshot.Values);
         }

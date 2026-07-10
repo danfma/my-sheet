@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Danfma.MySheet.Expressions;
 
 /// <summary>
@@ -47,16 +49,37 @@ internal static class LookupMatching
     {
         var pattern = lookup.TryGetText(out var p) ? p : string.Empty;
 
+        // The pattern is resolved to a compiled Regex ONCE, ahead of the scan — not per cell. RegexCache
+        // already avoided recompiling the same pattern, but Criteria.WildcardMatch still rebuilt the "^…$"
+        // pattern STRING (a fresh StringBuilder) on every call; hoisting this out means the whole scan pays
+        // that cost exactly once regardless of how many cells it examines.
+        var regex = Criteria.BuildWildcardRegex(pattern);
+
         for (var k = 0; k < count; k++)
         {
             var i = reverse ? count - 1 - k : k;
-            if (array[i].TryGetText(out var text) && Criteria.WildcardMatch(pattern, text))
+            if (array[i].TryGetText(out var text) && IsWildcardMatch(regex, text))
             {
                 return i;
             }
         }
 
         return -1;
+    }
+
+    // Same fail-safe timeout handling as Criteria.WildcardMatch: no error channel here (XLOOKUP/XMATCH/LOOKUP
+    // wildcard scans treat this as a per-element bool), so a timeout reports "no match" for that cell rather
+    // than propagating or aborting the rest of the scan.
+    private static bool IsWildcardMatch(Regex regex, string text)
+    {
+        try
+        {
+            return regex.IsMatch(text);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     private static int Closest(

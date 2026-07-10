@@ -165,9 +165,7 @@ internal sealed class Criteria
     {
         try
         {
-            return RegexCache
-                .Get(BuildWildcardPattern(pattern), RegexOptions.IgnoreCase)
-                .IsMatch(text);
+            return BuildWildcardRegex(pattern).IsMatch(text);
         }
         catch (RegexMatchTimeoutException)
         {
@@ -176,6 +174,18 @@ internal sealed class Criteria
             return false;
         }
     }
+
+    /// <summary>
+    /// Resolves a wildcard pattern's compiled <see cref="Regex"/> ONCE, via the shared <see cref="RegexCache"/>
+    /// (so the SAME pattern reused across cells/formulas shares one compiled instance, and a repeat lookup
+    /// skips the string-building below entirely). The building block for a caller that scans many cells
+    /// against the SAME pattern — e.g. <c>LookupMatching</c>'s wildcard mode — which should call this ONCE
+    /// before the per-cell scan rather than resolving the pattern string on every <see cref="WildcardMatch"/>
+    /// call (the RegexCache lookup avoids recompiling, but the "^…$" pattern string itself was still being
+    /// rebuilt with a fresh StringBuilder per cell before this was hoisted out).
+    /// </summary>
+    internal static Regex BuildWildcardRegex(string pattern) =>
+        RegexCache.Get(BuildWildcardPattern(pattern), RegexOptions.IgnoreCase);
 
     // Translates an Excel wildcard pattern (* → any run, ? → any single char, everything else literal) into
     // an anchored .NET regex pattern. Called ONCE per text criterion (see <see cref="_regex"/>), not per cell.

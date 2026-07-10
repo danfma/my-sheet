@@ -44,9 +44,12 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
 
         // Non-admitted range → stream the memoized cells positionally (dense struct cursor for a closed
         // rectangle, one small boxed iterator for an open range/union) instead of materializing the whole
-        // vector just to count it.
+        // vector just to count it. Threads the ALREADY-probed `snapshot` (null here, since a non-null
+        // snapshot returns above) through instead of letting Open re-probe it: TryGetRangeSnapshot is the
+        // second-use ADMISSION check itself, so a second call here would eagerly build the snapshot on what
+        // must stay this range's first, streaming read — see SUMIF's identical pattern.
         var count = 0;
-        var cursor = RangeValueCursor.Open(Arguments[0], context);
+        var cursor = RangeValueCursor.Open(Arguments[0], context, snapshot);
 
         while (cursor.MoveNext(out var value))
         {

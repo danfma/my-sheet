@@ -49,8 +49,11 @@ public sealed partial record Match(Expression[] Arguments) : Function
                 }
             }
 
+            // Threads the ALREADY-probed `snapshot` through instead of letting Open re-probe it (a snapshot
+            // that answered Unsupported above is reused zero-copy; a still-null snapshot stays on its first,
+            // streaming read instead of a second probe eagerly admitting it — see SUMIF's identical pattern).
             var exactPosition = 0;
-            var exactCursor = RangeValueCursor.Open(Arguments[1], context);
+            var exactCursor = RangeValueCursor.Open(Arguments[1], context, snapshot);
 
             while (exactCursor.MoveNext(out var value))
             {
@@ -85,9 +88,11 @@ public sealed partial record Match(Expression[] Arguments) : Function
             return indexed >= 1 ? ComputedValue.Number(indexed) : ComputedValue.Error(Error.NA);
         }
 
+        // `snapshot` is guaranteed null here (a non-null snapshot always returns above), so threading it
+        // through — rather than letting Open re-probe — keeps this the range's first, streaming read.
         var position = -1;
         var index = 0;
-        var approxCursor = RangeValueCursor.Open(Arguments[1], context);
+        var approxCursor = RangeValueCursor.Open(Arguments[1], context, snapshot);
 
         while (approxCursor.MoveNext(out var value))
         {

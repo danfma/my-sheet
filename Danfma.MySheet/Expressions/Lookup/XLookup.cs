@@ -49,7 +49,11 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         // vector. The admitted lookup keeps the O(1) hash path below.
         if ((int)matchMode == 0 && searchMode >= 0 && lookupSnapshot is null)
         {
-            var lookupCursor = RangeValueCursor.Open(Arguments[1], context);
+            // `lookupSnapshot` is null here (the `is null` guard above), so threading it through — rather
+            // than letting Open re-probe Arguments[1] — keeps this the lookup range's first, streaming read
+            // instead of an eager second-use admission. Arguments[2] (the return array) was never probed, so
+            // its cursor keeps the ordinary self-probing overload.
+            var lookupCursor = RangeValueCursor.Open(Arguments[1], context, lookupSnapshot);
             var returnCursor = RangeValueCursor.Open(Arguments[2], context);
 
             while (
