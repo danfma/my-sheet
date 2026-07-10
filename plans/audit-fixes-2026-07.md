@@ -244,6 +244,40 @@ Status: Not started
 ### Phase Summary
 _(write when phase completes)_
 
+
+## Phase 8: Pressão de GC no load (Gen1/Gen2 vs Aspose) → release patch
+Status: Not started
+
+Contexto (medição externa do usuário, BDN, leitura de K1 ~500k células): Aspose (99000, 30000, 5000)
+vs MySheet (77000, 43000, 8000) em Gen0/1/2 → nossa lib aloca MENOS transiente mas PROMOVE mais
+(sobrevivência), ficando ~33% mais lenta. Causa estrutural: modelo = milhões de objetos pequenos
+(1 Expression/célula + strings + dict entries) vs modelo colunar do Aspose (poucos arrays grandes);
+custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido durante o load.
+
+- [ ] **G1 (instrumento)**: benchmark BDN com MemoryDiagnoser para o cenário ExcelFile.Load
+  (k1-synthetic.xlsx) no benchmark suite — Gen0/1/2 + tempo comparáveis aos números do usuário;
+  baseline registrada ANTES das mudanças.
+- [ ] **G2 (dedup de literais no load)**: no WorksheetStreamLoader/LoadContext, dedup de
+  `NumberValue` por valor (dicionário por load; inteiro pequenos e valores repetidos dominam dados),
+  `StringValue` 1 wrapper por instância de shared string, `BooleanValue.True/False` singletons (se já
+  não existirem). Mesma prova de segurança do FormulaCache (imutável, estado por (sheet,col,row) fora
+  do nó; MemoryPack sem reference-tracking → wire por célula idêntico). Medir com G1: meta = queda
+  visível de Gen1/Gen2 e de objetos vivos pós-load.
+- [ ] **G3 (SPIKE GATED — decisão com o usuário)**: escravas de shared formula como nó-delta
+  `(masterTree, deltaRow, deltaCol)` em vez de 360k+ árvores expandidas — como o Excel armazena.
+  Colapsa a contagem de objetos do load na maior alavanca disponível. EXIGE: união tag nova
+  (append-only OK), resolução de referências delta-aware na AVALIAÇÃO (mudança profunda), FormulaWriter
+  (ToFormula da escrava = shift on-demand), paridade com SharedFormulaDeltaTests. Especificar spike com
+  critérios ANTES de codar; avaliar com números do G1/G2 na mão.
+
+### Verification Plan
+- G1 rodado antes/depois de G2 (tabela no summary); suítes completas verdes; wire intacto
+  (MemoryPackCompatibilityTests)
+- Push + release patch (G2); G3 só após decisão
+
+### Phase Summary
+_(write when phase completes)_
+
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
 Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perder:
