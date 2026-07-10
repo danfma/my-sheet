@@ -210,6 +210,59 @@ _(write when phase completes)_
 
 Suítes finais: 1.081 core + 53 Excel, 0 falhas.
 
+
+## Phase 7: Cauda de desempenho + micro pendentes → release patch
+Status: Not started
+
+- [ ] **P3 (admissão população-aware)**: `EstimatePopulatedCells` para RangeReference fechado é cego
+  (retorna área capada) enquanto open ranges consultam o structural index para contagem exata
+  (Workbook — região movida p/ RangeValueCache.cs na 6b; era Workbook.cs:244-288). Fix: usar o
+  structural index também para retângulos fechados (contagem por interseção coluna×linhas), tornando a
+  admissão consistente e evitando snapshot de retângulo esparso. Medir: cenário de retângulo 1000×1 com
+  10 células populadas NÃO deve mais materializar 1000 slots.
+- [ ] **M1 (Parser: 2 alocações por function call)**: `ParseFunctionCall` aloca `List<Expression>` +
+  `ToArray()` nos dois ramos (Parser.cs ~:772,794,805 pré-refactor; localizar pós-6a). Avaliar: buffer
+  pooled, ou contagem em duas passadas, ou aceitar 1 alocação (o array final é retido pelo nó — só a
+  List é lixo). Meta: 1 alocação (o array) por chamada.
+- [ ] **M2 (SUBTOTAL)**: dupla materialização + `ToId()` string por célula (Subtotal.cs:~40,70-84,170).
+  Passe único, id via span/CellRef.TryFormat ou consulta numérica direta.
+- [ ] **M3 (triviais)**: NUMBERVALUE sem LINQ sobre chars (TextFormatting.cs:153,180); presize de
+  `SnapshotComputedValues` (Workbook.Serialization.cs, era Workbook.cs:855); closure do IRR (Irr.cs:52)
+  se trivial.
+- [ ] **P4 (INVESTIGAÇÃO — RangeSnapshot.Values duplica o dense store)**: o snapshot materializa cópia
+  física dos valores por época (RangeValueCache.cs:107,163-209) além dos índices derivados. Investigar
+  (estilo R2, com critério): é viável construir os índices derivados lendo o dense store sem reter
+  `Values`, mantendo os consumidores de iteração via cursor? SE a medição mostrar regressão de tempo
+  >10% nos benchmarks whole-column, REJEITAR e documentar. Rodar --whole-column-scale e --k1-endtoend
+  antes/depois.
+
+### Verification Plan
+- Suítes completas verdes; `--excel-memory`, `--k1-endtoend` e `--whole-column-scale` sem regressão
+- P3: teste do retângulo esparso; P4: decisão documentada com números
+- Push + release patch
+
+### Phase Summary
+_(write when phase completes)_
+
+## Backlog (triado da auditoria completa — válido, não planejado)
+
+Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perder:
+- **Dirty graph é ilha** (decisão de produto): integrar ao SetCell/InvalidateCache OU medir e documentar
+  o crossover rebuild O(F) vs InvalidateCache; hoje há dois mundos de invalidação paralelos.
+- **AST = modelo serializado**: spans/trivia p/ error-recovery e parser incremental exigem CST paralelo
+  (BREAKING-RISK no wire se feito nos nós). Limitação estratégica.
+- **Override de built-ins por custom functions** (decisão do usuário: adiado; seria opt-in).
+- **Tokens-por-span no Tokenizer** (~1-1,5 dia; gated na medição do usuário no ambiente real — ver
+  plans/excel-load-streaming.md Fase 8).
+- Caminhos de manutenção de época sem guarda de thread (`SheetValueStore.Clear`,
+  `EnumerateNonTainted` — contrato single-thread só em prosa; Save warm concorrente pode ler torn).
+- Boilerplate de extração de argumentos financeiros (Bonds/OddBonds/CouponSchedule — manutenção;
+  ordem de avaliação de erros é observável, abstração precisa preservá-la).
+- `ReferenceGuard.MissingSheet` re-resolve NameReference/DynamicRange que a função resolve de novo.
+- LOOKUP forma-array materializa keys+results (baixo; forma-vetor já é zero-copy).
+- Seqlock: nota de ABA teórico a 2³¹ writes (comentário, não fix).
+- Export para XmlWriter puro (unificação com merge; ganho modesto, decisão adiada na sessão de load).
+
 ## Final Recap
 
 Plano executado integralmente em 6 fases / 6 releases parciais, tudo delegado a subagentes Sonnet com
