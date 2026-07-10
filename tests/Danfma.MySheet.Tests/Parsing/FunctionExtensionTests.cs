@@ -73,6 +73,77 @@ public class FunctionExtensionTests
     }
 
     [Test]
+    public async Task CustomFunction_WithDeclaredArity_TooFewArguments_IsValueError()
+    {
+        var (workbook, sheet) = NewSheet();
+
+        // Would throw IndexOutOfRangeException on args[1] if invoked with a single argument -- the arity
+        // guard must reject the call before the delegate runs.
+        workbook.RegisterFunction(
+            "ADDTWO",
+            (args, wb) =>
+                (args[0].Evaluate(wb).AsObject() as double? ?? 0)
+                + (args[1].Evaluate(wb).AsObject() as double? ?? 0),
+            minArgs: 2,
+            maxArgs: 2
+        );
+
+        await Assert
+            .That(ExpressionParser.Parse("=ADDTWO(1)", sheet).Evaluate(workbook).AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task CustomFunction_WithDeclaredArity_TooManyArguments_IsValueError()
+    {
+        var (workbook, sheet) = NewSheet();
+        workbook.RegisterFunction("ADDTWO", (args, wb) => 0.0, minArgs: 2, maxArgs: 2);
+
+        await Assert
+            .That(ExpressionParser.Parse("=ADDTWO(1,2,3)", sheet).Evaluate(workbook).AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task CustomFunction_WithoutDeclaredArity_PreservesLegacyBehavior()
+    {
+        var (workbook, sheet) = NewSheet();
+
+        // No minArgs/maxArgs supplied: the pre-existing, unchecked behavior -- calling with too few
+        // arguments still reaches into the delegate and throws, exactly as it did before arity validation
+        // was added, instead of being caught upstream as #VALUE!.
+        workbook.RegisterFunction(
+            "ADDTWO",
+            (args, wb) => args[0].Evaluate(wb).AsObject() as double? ?? 0
+        );
+
+        await Assert
+            .That(() => ExpressionParser.Parse("=ADDTWO()", sheet).Evaluate(workbook))
+            .Throws<IndexOutOfRangeException>();
+    }
+
+    [Test]
+    public async Task CustomFunction_WithDeclaredArity_WithinRange_IsInvoked()
+    {
+        var (workbook, sheet) = NewSheet();
+        workbook.RegisterFunction(
+            "ADDTWO",
+            (args, wb) =>
+                (args[0].Evaluate(wb).AsObject() as double? ?? 0)
+                + (args[1].Evaluate(wb).AsObject() as double? ?? 0),
+            minArgs: 2,
+            maxArgs: 2
+        );
+
+        await Assert
+            .That(
+                ExpressionParser.Parse("=ADDTWO(1,2)", sheet).Evaluate(workbook).AsObject()
+                    as double?
+            )
+            .IsEqualTo(3.0);
+    }
+
+    [Test]
     public async Task CustomFunctionCall_SurvivesSerialization()
     {
         var (workbook, sheet) = NewSheet();

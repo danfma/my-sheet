@@ -21,9 +21,18 @@ public delegate ComputedValue CustomFunction(Expression[] arguments, Workbook wo
 [MemoryPackable]
 public sealed partial class Workbook
 {
+    // A registered custom function paired with its (optional) declared arity. MinArgs/MaxArgs default to
+    // "unconstrained" (0.. int.MaxValue) when a caller does not declare them, so an un-annotated registration
+    // behaves exactly as before this type existed -- see RegisterFunction's defaults.
+    internal readonly record struct CustomFunctionEntry(
+        CustomFunction Function,
+        int MinArgs,
+        int MaxArgs
+    );
+
     // Host-registered custom functions; not serialized (behavior is re-registered after deserialization).
     [MemoryPackIgnore]
-    private Dictionary<string, CustomFunction>? _functions;
+    private Dictionary<string, CustomFunctionEntry>? _functions;
 
     // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache). The dense paged
     // store addresses cells numerically (sheet handle + col/row derived on the fly from the A1 id), replacing
@@ -1026,18 +1035,54 @@ public sealed partial class Workbook
         }
     }
 
-    public void RegisterFunction(string name, CustomFunction function) =>
-        (_functions ??= new(StringComparer.OrdinalIgnoreCase))[name] = function;
+    /// <summary>
+    /// Registers (or replaces) a custom function callable from formulas as <paramref name="name"/>.
+    /// </summary>
+    /// <param name="minArgs">
+    /// Minimum argument count, inclusive. A call with fewer arguments evaluates to <c>#VALUE!</c> instead of
+    /// invoking <paramref name="function"/> -- <paramref name="function"/> itself never sees an out-of-range
+    /// call, so it does not need to bounds-check <c>arguments</c> before indexing it. Defaults to 0 (no
+    /// minimum), which combined with the default <paramref name="maxArgs"/> reproduces the unchecked behavior
+    /// from before this parameter existed.
+    /// </param>
+    /// <param name="maxArgs">Maximum argument count, inclusive. Defaults to <see cref="int.MaxValue"/> (no maximum).</param>
+    public void RegisterFunction(
+        string name,
+        CustomFunction function,
+        int minArgs = 0,
+        int maxArgs = int.MaxValue
+    ) =>
+        (_functions ??= new(StringComparer.OrdinalIgnoreCase))[name] = new CustomFunctionEntry(
+            function,
+            minArgs,
+            maxArgs
+        );
 
     public bool TryGetFunction(string name, [MaybeNullWhen(false)] out CustomFunction function)
     {
+        if (_functions is not null && _functions.TryGetValue(name, out var entry))
+        {
+            function = entry.Function;
+            return true;
+        }
+
+        function = null;
+        return false;
+    }
+
+    // FunctionCall.Evaluate's lookup: the entry carries the declared arity alongside the delegate, so the
+    // out-of-range check can run BEFORE invoking the delegate (see CustomFunctionEntry). Internal: this is
+    // wiring for evaluation, not something a host registering/looking up functions needs -- TryGetFunction
+    // above remains the public surface for that.
+    internal bool TryGetFunctionEntry(string name, out CustomFunctionEntry entry)
+    {
         if (_functions is null)
         {
-            function = null;
+            entry = default;
             return false;
         }
 
-        return _functions.TryGetValue(name, out function);
+        return _functions.TryGetValue(name, out entry);
     }
 
     /// <summary>

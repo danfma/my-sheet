@@ -10,8 +10,23 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record FunctionCall(string Name, Expression[] Arguments) : Function
 {
-    public override ComputedValue Evaluate(EvaluationContext context) =>
-        context.Workbook.TryGetFunction(Name, out var function)
-            ? function(Arguments, context.Workbook)
-            : ComputedValue.Error(Error.Name);
+    public override ComputedValue Evaluate(EvaluationContext context)
+    {
+        if (!context.Workbook.TryGetFunctionEntry(Name, out var entry))
+        {
+            return ComputedValue.Error(Error.Name);
+        }
+
+        // Arity is validated (when declared -- see Workbook.RegisterFunction) BEFORE invoking the delegate,
+        // the same way a built-in's ParseException guards a wrong argument count at parse time. A custom
+        // function's arity is only known once registered, so this guard lives here instead: an out-of-range
+        // call becomes #VALUE! instead of an unhandled IndexOutOfRangeException from inside host code that
+        // assumed its declared argument count.
+        if (Arguments.Length < entry.MinArgs || Arguments.Length > entry.MaxArgs)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        return entry.Function(Arguments, context.Workbook);
+    }
 }
