@@ -92,6 +92,19 @@ internal struct RangeValueCursor
         yield return value;
     }
 
+    /// <summary>
+    /// Opens a cursor over a reference VALUE already produced by evaluating a non-reference-typed argument
+    /// (e.g. a function call like OFFSET/INDEX/CHOOSE that yields a range) — the counterpart of the
+    /// <c>default</c> branch of <see cref="Open"/>, but takes the already-computed value instead of
+    /// re-evaluating <paramref name="computed"/>'s source expression a second time. Always the boxed-iterator
+    /// backing (the same fallback a reference VALUE gets in <see cref="Open"/>): the underlying reference is
+    /// walked via <see cref="ComputedValue.EnumerateValues(EvaluationContext)"/>.
+    /// </summary>
+    public static RangeValueCursor OpenFromReferenceValue(
+        in ComputedValue computed,
+        EvaluationContext context
+    ) => new(computed.EnumerateValues(context).GetEnumerator());
+
     /// <summary>The next value in position order (column-major, matching the materialized expansion exactly),
     /// or <c>false</c> once the range is exhausted.</summary>
     public bool MoveNext(out ComputedValue value)

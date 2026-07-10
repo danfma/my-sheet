@@ -21,10 +21,13 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         }
 
         var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
-        var range = ArgumentFlattening.ExpandCached(Arguments[0], context, out var snapshot);
+
+        var snapshot = Arguments[0] is Reference reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            : null;
 
         // Single-range numeric `=k` criterion → O(1) via the numeric-equality map (Σ/count of the matching
-        // cells). Any other shape scans the cached snapshot(s) linearly (no cell re-read).
+        // cells).
         if (
             Arguments.Length < 3
             && snapshot is not null
@@ -37,18 +40,47 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
                 : ComputedValue.Number(keySum / keyCount);
         }
 
-        var averageRange =
-            Arguments.Length == 3
-                ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
-                : range;
+        // Any other shape: a positional cursor over range (and, with an average_range, a second parallel
+        // cursor) — the admitted snapshot is indexed zero-copy, a non-admitted closed rectangle streams
+        // through the dense struct enumerator (no allocation), and only an open range/union/scalar falls
+        // back to a materialized list. Mirrors SUMIF's (range, sum_range) pair-scan. Threads the
+        // ALREADY-probed `snapshot` through instead of letting Open re-probe it: TryGetRangeSnapshot is the
+        // second-use ADMISSION check itself, so a second call here (even for the same range within this same
+        // evaluation) would eagerly build the snapshot on what must stay range's first, streaming read.
+        var range = PositionalRange.Open(Arguments[0], context, snapshot);
 
+        if (Arguments.Length < 3)
+        {
+            var singleTotal = 0.0;
+            var singleCount = 0;
+
+            for (var i = 0; i < range.Count; i++)
+            {
+                var cell = range.Next();
+
+                if (criteria.Matches(cell) && cell.TryGetNumber(out var number))
+                {
+                    singleTotal += number;
+                    singleCount++;
+                }
+            }
+
+            return singleCount == 0
+                ? ComputedValue.Error(Error.DivZero)
+                : ComputedValue.Number(singleTotal / singleCount);
+        }
+
+        var averageRange = PositionalRange.Open(Arguments[2], context);
         var total = 0.0;
         var count = 0;
         var length = Math.Min(range.Count, averageRange.Count);
 
         for (var i = 0; i < length; i++)
         {
-            if (criteria.Matches(range[i]) && averageRange[i].TryGetNumber(out var number))
+            var cell = range.Next();
+            var averageCell = averageRange.Next();
+
+            if (criteria.Matches(cell) && averageCell.TryGetNumber(out var number))
             {
                 total += number;
                 count++;

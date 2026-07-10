@@ -81,6 +81,59 @@ public class ConditionalAggregationTests
     }
 
     [Test]
+    public async Task SumIf_MismatchedSumRangeSize_UsesShorterLength()
+    {
+        // SUMIF (unlike SUMIFS) never validates equal lengths: range and sum_range are zipped positionally
+        // up to the SHORTER length (Math.Min), not Excel's offset-from-sum_range's-corner reshaping. This is
+        // MySheet's existing, frozen contract — the streaming refactor (PositionalRange) must reproduce it
+        // exactly. A3 (=3, matches ">0") is never read because sum_range B1:B2 runs out first.
+        await Assert
+            .That(
+                Calc(
+                    "=SUMIF(A1:A3,\">0\",B1:B2)",
+                    N("A1", 1),
+                    N("A2", 2),
+                    N("A3", 3),
+                    N("B1", 10),
+                    N("B2", 20)
+                ) as double?
+            )
+            .IsEqualTo(30.0);
+
+        // The reverse shape (sum_range LONGER than range) truncates the same way, from the value-range side.
+        await Assert
+            .That(
+                Calc(
+                    "=SUMIF(A1:A2,\">0\",B1:B3)",
+                    N("A1", 1),
+                    N("A2", 2),
+                    N("B1", 10),
+                    N("B2", 20),
+                    N("B3", 30)
+                ) as double?
+            )
+            .IsEqualTo(30.0);
+    }
+
+    [Test]
+    public async Task AverageIf_MismatchedAverageRangeSize_UsesShorterLength()
+    {
+        // Same frozen Math.Min contract as SUMIF, mirrored for AVERAGEIF's separate implementation.
+        await Assert
+            .That(
+                Calc(
+                    "=AVERAGEIF(A1:A3,\">0\",B1:B2)",
+                    N("A1", 1),
+                    N("A2", 2),
+                    N("A3", 3),
+                    N("B1", 10),
+                    N("B2", 20)
+                ) as double?
+            )
+            .IsEqualTo(15.0);
+    }
+
+    [Test]
     public async Task CountIfs_MultipleCriteria()
     {
         await Assert

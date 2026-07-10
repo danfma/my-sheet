@@ -42,10 +42,29 @@ internal struct PositionalRange
     /// </summary>
     public static PositionalRange Open(Expression argument, EvaluationContext context)
     {
-        if (
-            argument is Reference reference
-            && context.Workbook.TryGetRangeSnapshot(reference, context) is { } snapshot
-        )
+        var snapshot = argument is Reference reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            : null;
+
+        return Open(argument, context, snapshot);
+    }
+
+    /// <summary>
+    /// Same backing preference as <see cref="Open(Expression, EvaluationContext)"/>, but takes an
+    /// ALREADY-resolved snapshot probe instead of running its own. <see cref="Workbook.TryGetRangeSnapshot"/>
+    /// is stateful (second-use admission): calling it a SECOND time for the same range within one function
+    /// evaluation — e.g. once for a numeric-equality fast-path check, then again here — would itself count as
+    /// the admitting "second read" and eagerly build the snapshot on what should still be the range's first,
+    /// streaming read. A caller that already probed the snapshot (SUMIF/AVERAGEIF's fast-path check) MUST
+    /// route that same result through here rather than calling the no-snapshot overload again.
+    /// </summary>
+    public static PositionalRange Open(
+        Expression argument,
+        EvaluationContext context,
+        RangeSnapshot? snapshot
+    )
+    {
+        if (snapshot is not null)
         {
             return new PositionalRange(snapshot.Values);
         }

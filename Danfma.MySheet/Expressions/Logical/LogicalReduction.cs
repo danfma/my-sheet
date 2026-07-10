@@ -32,17 +32,14 @@ internal static class LogicalReduction
         foreach (var argument in arguments)
         {
             // A reference/array argument (cell, range, open range, union, cross-sheet): Excel ignores its
-            // text and blank cells and evaluates only the logical/numeric entries.
+            // text and blank cells and evaluates only the logical/numeric entries. Streamed through the same
+            // admitted-snapshot / dense-rectangle / boxed-iterator cursor COUNTIF uses — no intermediate
+            // List<ComputedValue> for a non-admitted range, and no IEnumerable boxing on top of it.
             if (argument is Reference)
             {
-                if (
-                    Accumulate(
-                        ArgumentFlattening.ExpandComputedValues(argument, context),
-                        ref trueCount,
-                        ref total
-                    ) is
-                    { } referenceError
-                )
+                var cursor = RangeValueCursor.Open(argument, context);
+
+                if (Accumulate(ref cursor, ref trueCount, ref total) is { } referenceError)
                 {
                     return referenceError;
                 }
@@ -53,13 +50,13 @@ internal static class LogicalReduction
             var computed = argument.Evaluate(context);
 
             // A function that yields a reference (OFFSET/INDEX/CHOOSE of a range, …) follows the same
-            // ignore-text rule as a literal reference.
+            // ignore-text rule as a literal reference. The value was already evaluated above, so the cursor
+            // wraps it directly rather than re-evaluating argument through RangeValueCursor.Open.
             if (computed.Kind == ComputedValueKind.Reference)
             {
-                if (
-                    Accumulate(computed.EnumerateValues(context), ref trueCount, ref total) is
-                    { } valueError
-                )
+                var cursor = RangeValueCursor.OpenFromReferenceValue(computed, context);
+
+                if (Accumulate(ref cursor, ref trueCount, ref total) is { } valueError)
                 {
                     return valueError;
                 }
@@ -92,13 +89,14 @@ internal static class LogicalReduction
         return null;
     }
 
-    private static Error? Accumulate(
-        IEnumerable<ComputedValue> values,
-        ref int trueCount,
-        ref int total
-    )
+    /// <summary>
+    /// Drains one cursor (a single argument's reference/array expansion) into the running TRUE/total tally.
+    /// Takes the cursor by <c>ref</c> so the struct's own mutable position advances in place — no boxed
+    /// <see cref="IEnumerator{T}"/> the way an <see cref="IEnumerable{T}"/> parameter would force.
+    /// </summary>
+    private static Error? Accumulate(ref RangeValueCursor cursor, ref int trueCount, ref int total)
     {
-        foreach (var value in values)
+        while (cursor.MoveNext(out var value))
         {
             switch (value.Kind)
             {

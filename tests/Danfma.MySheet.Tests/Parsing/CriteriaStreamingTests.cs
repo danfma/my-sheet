@@ -173,6 +173,32 @@ public class CriteriaStreamingTests
     }
 
     [Test]
+    public async Task SumIf_MismatchedSumRangeSize_LargeRange_TruncatesToShorterLength()
+    {
+        var (workbook, groups, _, amounts) = BuildData();
+
+        // Unlike SUMIFS, SUMIF never validates equal lengths: sum_range C1:C(N-1) is one cell short of range
+        // A1:A{N}, so only the first N-1 positions are ever read (MySheet's frozen Math.Min contract — see
+        // ConditionalAggregationTests.SumIf_MismatchedSumRangeSize_UsesShorterLength). This drives the SAME
+        // large-range streaming/admitted-snapshot cursor pair (PositionalRange) the equal-length SUMIFS
+        // shape-mismatch test above exercises for the *IFS family.
+        var formula = $"=SUMIF(A1:A{N},\"G3\",C1:C{N - 1})";
+
+        var expected = 0.0;
+        for (var r = 1; r < N; r++)
+        {
+            if (groups[r] == "G3" && amounts[r] is { } a)
+            {
+                expected += a;
+            }
+        }
+
+        // First read (non-admitted, streaming) and second read (both ranges now snapshot-admitted) must agree.
+        await Assert.That(Num(Eval(workbook, formula))).IsEqualTo(expected);
+        await Assert.That(Num(Eval(workbook, formula))).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task SumIfs_ShapeMismatch_LargeRange_IsValueError()
     {
         var (workbook, _, _, _) = BuildData();

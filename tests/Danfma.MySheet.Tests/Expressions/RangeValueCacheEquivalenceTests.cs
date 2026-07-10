@@ -65,6 +65,12 @@ public class RangeValueCacheEquivalenceTests
         "=COUNTIF(Data!A:A,0)",
         "=AVERAGEIF(Data!A:A,50)",
         "=AVERAGEIF(Data!A:A,\">100\")",
+        // AND/OR/XOR's whole-column streaming (RangeValueCursor): must agree bypass vs. non-admitted (read
+        // 1) vs. admitted-snapshot (reads 2-3), including the WithErrors scenario's mid-range #DIV/0! (the
+        // first error in scan order must win identically on every backing).
+        "=AND(Data!A:A)",
+        "=OR(Data!A:A)",
+        "=XOR(Data!A:A)",
         "=SMALL(Data!A:A,5)",
         "=LARGE(Data!A:A,5)",
         "=MEDIAN(Data!A:A)",

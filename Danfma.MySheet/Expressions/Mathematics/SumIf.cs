@@ -15,11 +15,13 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         }
 
         var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
-        var range = ArgumentFlattening.ExpandCached(Arguments[0], context, out var snapshot);
+
+        var snapshot = Arguments[0] is Reference reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            : null;
 
         // Single-range (no separate sum_range) numeric `=k` criterion → O(1) via the numeric-equality map,
-        // whose per-key Sum is exactly Σ of the matching cells' own numeric values. Any other shape scans
-        // the cached snapshot(s) linearly (no cell re-read).
+        // whose per-key Sum is exactly Σ of the matching cells' own numeric values.
         if (
             Arguments.Length < 3
             && snapshot is not null
@@ -29,17 +31,43 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
             return ComputedValue.Number(snapshot.NumericEquality(key).Sum);
         }
 
-        var sumRange =
-            Arguments.Length == 3
-                ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
-                : range;
+        // Any other shape: a positional cursor over range (and, with a sum_range, a second parallel cursor)
+        // — the admitted snapshot is indexed zero-copy, a non-admitted closed rectangle streams through the
+        // dense struct enumerator (no allocation), and only an open range/union/scalar falls back to a
+        // materialized list. Mirrors the SUMIFS pair-scan idiom (CriteriaScan/PositionalRange), specialized
+        // to SUMIF's single (range, sum_range) pair. Threads the ALREADY-probed `snapshot` through instead of
+        // letting Open re-probe it: TryGetRangeSnapshot is the second-use ADMISSION check itself, so a second
+        // call here (even for the same range within this same evaluation) would eagerly build the snapshot on
+        // what must stay range's first, streaming read.
+        var range = PositionalRange.Open(Arguments[0], context, snapshot);
 
+        if (Arguments.Length < 3)
+        {
+            var singleTotal = 0.0;
+
+            for (var i = 0; i < range.Count; i++)
+            {
+                var cell = range.Next();
+
+                if (criteria.Matches(cell) && cell.TryGetNumber(out var number))
+                {
+                    singleTotal += number;
+                }
+            }
+
+            return ComputedValue.Number(singleTotal);
+        }
+
+        var sumRange = PositionalRange.Open(Arguments[2], context);
         var total = 0.0;
         var length = Math.Min(range.Count, sumRange.Count);
 
         for (var i = 0; i < length; i++)
         {
-            if (criteria.Matches(range[i]) && sumRange[i].TryGetNumber(out var number))
+            var cell = range.Next();
+            var sumCell = sumRange.Next();
+
+            if (criteria.Matches(cell) && sumCell.TryGetNumber(out var number))
             {
                 total += number;
             }
