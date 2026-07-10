@@ -278,12 +278,30 @@ custo de mark ∝ objetos vivos + promoção de todo objeto retido nascido duran
   não existirem). Mesma prova de segurança do FormulaCache (imutável, estado por (sheet,col,row) fora
   do nó; MemoryPack sem reference-tracking → wire por célula idêntico). Medir com G1: meta = queda
   visível de Gen1/Gen2 e de objetos vivos pós-load.
-- [ ] **G3 (SPIKE APROVADO pelo usuário em 2026-07-10 — próximo passo ao retomar)**: escravas de shared formula como nó-delta
+- [x] **G3 SPIKE EXECUTADO — VEREDITO: PROMOTE** (todos os gates com folga): escravas de shared formula como nó-delta
   `(masterTree, deltaRow, deltaCol)` em vez de 360k+ árvores expandidas — como o Excel armazena.
   Colapsa a contagem de objetos do load na maior alavanca disponível. EXIGE: união tag nova
   (append-only OK), resolução de referências delta-aware na AVALIAÇÃO (mudança profunda), FormulaWriter
   (ToFormula da escrava = shift on-demand), paridade com SharedFormulaDeltaTests. Especificar spike com
   critérios ANTES de codar; avaliar com números do G1/G2 na mão.
+
+**Resultados do spike G3 (worktree agent-a6eb41a4368d55969, checkpoint 64fbf3c, base 4a10c6d):**
+load shared-formulas: 546→295ms (−46%), 251,6→102,5MB (−59%), Gen1+Gen2 18000→9000 (−50%);
+controle sem shared inalterado; compute +2,3% (<5%); paridade e round-trip .myxl verdes.
+Design: AnchoredCellReference/AnchoredRangeReference/SharedFormulaSlave (tags 319-321),
+modo ancorado no Parser, delta no EvaluationContext (WithCell zera). Pendências de produção:
+(1) auditoria de pattern-match `is CellReference` nas 305 funções (só MAX/IF/ROUND adaptadas);
+(2) DependencyExtractor conservador (AlwaysDirty); (3) AnchoredRange aloca transiente;
+(4) ganho é RAM/GC, não disco (wire ainda duplica master por escrava).
+
+**Heap profile (gcdump, processos isolados, xlsx vs .myxl do mesmo conteúdo):**
+- HIPÓTESE DAS ASTs CONFIRMADA: nós Expressions.* + Expression[] = 61,7%/60,8% do heap (A/B),
+  ~75% dos objetos vivos — igual nos dois formatos de load.
+- MEMORYPACK: suspeito real mas SECUNDÁRIO (+3,9% heap no caminho .myxl): o deserializer DESFAZ o
+  dedup de StringValue do G2 (209→60.008 wrappers, +59.799 strings, ~4,7MB) + ~64KB de sobras
+  (buffer 65.560B retido, formatters). FIX BARATO IDENTIFICADO: dedup no CellStoreFormatter.Deserialize
+  espelhando o GetOrAddString do loader → novo item M4.
+- Bônus: caminho xlsx retém ~237KB de reflexão/emit do OpenXml (one-time, irrelevante).
 
 ### Verification Plan
 - G1 rodado antes/depois de G2 (tabela no summary); suítes completas verdes; wire intacto
