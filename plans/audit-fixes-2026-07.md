@@ -57,13 +57,13 @@ orquestrador:
 Suítes: 1.059 core + 48 Excel, 0 falhas. Zero toque em wire format.
 
 ## Phase 2: Superlineares (RANK + regex cache) → release patch
-Status: Not started
+Status: Complete
 
-- [ ] **P1 (RANK O(n²))**: RANK.EQ/RANK.AVG re-escaneiam o ref por célula (OrderStatistics.cs:142-160).
+- [x] **P1 (RANK O(n²))**: RANK.EQ/RANK.AVG re-escaneiam o ref por célula (OrderStatistics.cs:142-160).
   Fix: usar o sorted-view do `RangeSnapshot` (SortedNumericValues, lower/upper bound binário) para
   derivar `outranking`/`equal` em O(log n) por célula quando snapshot admitido; fallback linear mantido.
   CUIDADO: paridade de tie-break de RANK.AVG e ordem asc/desc — congelar testes de paridade ANTES.
-- [ ] **P2 (regex recompilado)**: `ExcelRegex.Create` (RegexFunctions.cs:198), wildcard de SEARCH
+- [x] **P2 (regex recompilado)**: `ExcelRegex.Create` (RegexFunctions.cs:198), wildcard de SEARCH
   (TextManipulation.cs:165) e `Criteria.WildcardMatch` estático (Criteria.cs:148) compilam Regex por
   avaliação. Fix: cache estático bounded `ConcurrentDictionary<(string,RegexOptions),Regex>` (cap ~256
   entradas, eviction simples), mantendo o timeout. Benchmark próprio simples antes/depois (coluna
@@ -75,7 +75,18 @@ Status: Not started
 - Push + release verde
 
 ### Phase Summary
-_(write when phase completes)_
+- **P1** (3f1c133): RANK.EQ/AVG via 2 buscas binárias no sorted-view do snapshot (novo
+  `RangeSnapshot.NumericRankCounts` + LowerBound/UpperBound no idioma dos vizinhos); fórmulas
+  algebraicamente idênticas ao scan linear (EQ = outranking+1; AVG = outranking+(equal+1)/2);
+  propagação de erro com paridade (first-error-in-scan-order); ranges pequenos mantêm o linear.
+  Paridade congelada ANTES (8 testes: ties, asc/desc, #N/A, não-numéricos, travessia do threshold de
+  admissão). Bench contrafactual: coluna 5k → 740ms (revertido) vs ~25ms (fix) ≈ 20-40x.
+- **P2** (fec1742): `RegexCache` bounded (256, clear-all eviction documentada) usado por ExcelRegex,
+  SEARCH wildcard e Criteria (instância + WildcardMatch estático); timeout 1s preservado. BÔNUS de
+  segurança: Criteria/WildcardMatch NÃO tinham timeout (ReDoS real com wildcards encadeados) — agora
+  fail-safe como no-match. 50k criações mesmo pattern: 110ms → 13ms (8,2x). 6 testes novos.
+
+Suítes: 1.073 core + 48 Excel, 0 falhas. Zero wire format.
 
 ## Phase 3: Quick wins de alocação → release patch
 Status: Not started
