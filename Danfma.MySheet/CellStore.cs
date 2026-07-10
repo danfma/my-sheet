@@ -332,13 +332,109 @@ internal sealed class CellStoreFormatter : MemoryPackFormatter<CellStore>
             return;
         }
 
+        // Read-side literal sharing (write side above is untouched — the wire stays byte-identical).
+        // A .xlsx load dedupes StringValue/BooleanValue/ErrorValue via WorksheetStreamLoader's per-load
+        // caches (see that type), but a MemoryPack Deserialize materializes each dictionary entry as its
+        // own boxed record — a Save+Load round trip of an already-deduped workbook would otherwise UNDO
+        // the sharing (measured: a K1-scale file went from 209 distinct StringValue instances back to
+        // ~60,000 after one round trip). Re-canonicalize here, in a cache scoped to this call — it dies
+        // with it, exactly like WorksheetStreamLoader.LoadContext's caches die with the worksheet load.
+        //
+        // Scope is the CELL's root Expression only (what `pair.Value` is here) — a StringValue/BooleanValue
+        // nested inside a formula tree is rare enough that walking every tree to reach it isn't worth the
+        // cost, mirroring the same scope note on WorksheetStreamLoader's caches.
+        //
+        // NumberValue is deliberately NOT deduped: 445c2bd measured only ~52% duplication for number
+        // literals against the ~54-70% breakeven a dictionary needs to pay for a 24-byte NumberValue, and
+        // reverted a NumberValue cache because it made Allocated/Gen1/Gen2 WORSE, not better. That result
+        // applies identically on this read side.
+        Dictionary<string, StringValue>? stringCache = null;
+        Dictionary<string, ErrorValue>? errorCache = null;
+
         var store = new CellStore(wire.Count);
         foreach (var pair in wire)
         {
-            store.Set(pair.Key, pair.Value, out _, out _, out _);
+            store.Set(
+                pair.Key,
+                Canonicalize(pair.Value, ref stringCache, ref errorCache),
+                out _,
+                out _,
+                out _
+            );
         }
 
         value = store;
+    }
+
+    // Re-shares a cell's root literal against this Deserialize call's caches; anything else (formula
+    // trees, NumberValue, BlankValue, ...) passes through unchanged.
+    private static Expression Canonicalize(
+        Expression expr,
+        ref Dictionary<string, StringValue>? stringCache,
+        ref Dictionary<string, ErrorValue>? errorCache
+    )
+    {
+        switch (expr)
+        {
+            case StringValue stringValue:
+            {
+                var cache = stringCache ??= new Dictionary<string, StringValue>(
+                    StringComparer.Ordinal
+                );
+
+                if (cache.TryGetValue(stringValue.Value, out var canonical))
+                {
+                    return canonical;
+                }
+
+                cache[stringValue.Value] = stringValue;
+                return stringValue;
+            }
+
+            case BooleanValue booleanValue:
+                // Only two instances ever needed — reuse the singletons rather than starting a cache.
+                return booleanValue.Value ? BooleanValue.True : BooleanValue.False;
+
+            case ErrorValue errorValue:
+                return CanonicalizeError(errorValue, ref errorCache);
+
+            default:
+                return expr;
+        }
+    }
+
+    // Mirrors WorksheetStreamLoader.GetOrAddError: the common Excel error codes already have singletons
+    // on ErrorValue; only the long tail (e.g. #NULL!, #GETTING_DATA, a malformed code) needs the cache.
+    private static Expression CanonicalizeError(
+        ErrorValue errorValue,
+        ref Dictionary<string, ErrorValue>? errorCache
+    )
+    {
+        switch (errorValue.ErrorCode)
+        {
+            case "#DIV/0!":
+                return ErrorValue.DivByZero;
+            case "#VALUE!":
+                return ErrorValue.NotValue;
+            case "#REF!":
+                return ErrorValue.Reference;
+            case "#NAME?":
+                return ErrorValue.Name;
+            case "#NUM!":
+                return ErrorValue.Number;
+            case "#N/A":
+                return ErrorValue.NotAvailable;
+        }
+
+        var cache = errorCache ??= new Dictionary<string, ErrorValue>(StringComparer.Ordinal);
+
+        if (cache.TryGetValue(errorValue.ErrorCode, out var canonical))
+        {
+            return canonical;
+        }
+
+        cache[errorValue.ErrorCode] = errorValue;
+        return errorValue;
     }
 }
 

@@ -188,4 +188,51 @@ public class CellStoreTests
 
         await Assert.That(total).IsEqualTo(15.0);
     }
+
+    // Guards the CellStoreFormatter.Deserialize read-side literal sharing (perf follow-up to the K1 gcdump
+    // finding: a .xlsx load dedupes StringValue via WorksheetStreamLoader, but a Save+Load round trip through
+    // .myxl was materializing a fresh instance per cell, undoing that sharing — measured 209 -> 60,008
+    // distinct StringValue instances on the K1-synthetic fixture). Repeated text across many cells must come
+    // back as the SAME instance after a round trip, and BooleanValue/well-known ErrorValue must come back as
+    // the existing singletons.
+    [Test]
+    public async Task RoundTrip_SharesRepeatedLiteralInstances()
+    {
+        var wb = new Workbook();
+        var sheet = wb.Sheets.Add("S");
+
+        for (var row = 1; row <= 50; row++)
+        {
+            sheet["A" + row] = Expression.String("repeated-text");
+            sheet["B" + row] = row % 2 == 0 ? BooleanValue.True : BooleanValue.False;
+            sheet["C" + row] = ErrorValue.DivByZero;
+        }
+
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(
+            MemoryPackSerializer.Serialize(wb)
+        )!;
+        var restoredSheet = restored.Sheets["S"];
+
+        var stringInstances = new HashSet<Danfma.MySheet.Expressions.StringValue>(
+            ReferenceEqualityComparer.Instance
+        );
+        var booleanInstances = new HashSet<BooleanValue>(ReferenceEqualityComparer.Instance);
+        var errorInstances = new HashSet<ErrorValue>(ReferenceEqualityComparer.Instance);
+
+        for (var row = 1; row <= 50; row++)
+        {
+            stringInstances.Add((Danfma.MySheet.Expressions.StringValue)restoredSheet["A" + row]);
+            booleanInstances.Add((BooleanValue)restoredSheet["B" + row]);
+            errorInstances.Add((ErrorValue)restoredSheet["C" + row]);
+        }
+
+        await Assert.That(stringInstances.Count).IsEqualTo(1);
+        await Assert.That(booleanInstances.Count).IsEqualTo(2); // True and False singletons
+        await Assert.That(errorInstances.Count).IsEqualTo(1);
+
+        // The singletons are the actual shared instances, not merely equal values.
+        await Assert.That(booleanInstances).Contains(BooleanValue.True);
+        await Assert.That(booleanInstances).Contains(BooleanValue.False);
+        await Assert.That(errorInstances).Contains(ErrorValue.DivByZero);
+    }
 }
