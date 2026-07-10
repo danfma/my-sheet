@@ -74,7 +74,7 @@ public static class ExpressionParser
 
         if (bool.TryParse(text, out var boolean))
         {
-            return new BooleanValue(boolean);
+            return boolean ? BooleanValue.True : BooleanValue.False;
         }
 
         return new StringValue(text);

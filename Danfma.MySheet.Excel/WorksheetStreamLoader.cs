@@ -52,6 +52,20 @@ internal static class WorksheetStreamLoader
         public Dictionary<string, Expression> FormulaCache { get; } = [];
 
         /// <summary>
+        /// String literals deduped by content (Ordinal): shared strings are already unique instances
+        /// per index, but repeated cells referencing the same index (or repeated inline strings) still
+        /// allocate a fresh <see cref="StringValue"/> wrapper each time without this cache.
+        /// </summary>
+        public Dictionary<string, StringValue> StringCache { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Error literals not covered by <see cref="ErrorValue"/>'s well-known singletons (e.g. the
+        /// rare <c>#NULL!</c> or <c>#GETTING_DATA</c>, or a malformed code) — few distinct values per
+        /// file, so a small per-load cache is enough.
+        /// </summary>
+        public Dictionary<string, ErrorValue> ErrorCache { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Out-of-spec slaves seen before their master (lazy; null on the happy path). The cached
         /// literal is decoded eagerly because the &lt;v&gt; text is gone once the reader moves on.
         /// </summary>
@@ -434,7 +448,7 @@ internal static class WorksheetStreamLoader
     {
         if (type == "inlineStr")
         {
-            return new StringValue(inlineText ?? string.Empty);
+            return GetOrAddString(context, inlineText ?? string.Empty);
         }
 
         if (raw is null)
@@ -445,6 +459,11 @@ internal static class WorksheetStreamLoader
 
         if (type is null or "n")
         {
+            // Not deduped: measured. A Dictionary<double, NumberValue> here was tried and reverted —
+            // see the long comment on GetOrAddString for the numbers (BDN on the K1 fixture: number
+            // literals are only ~52% duplicate, below the ~54-70% breakeven a dictionary needs to pay
+            // for itself against a 24-byte NumberValue, and it made Allocated/Gen1/Gen2 WORSE, not
+            // better).
             return new NumberValue(
                 double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture)
             );
@@ -452,18 +471,19 @@ internal static class WorksheetStreamLoader
 
         return type switch
         {
-            "s" => new StringValue(
+            "s" => GetOrAddString(
+                context,
                 context.SharedStrings[int.Parse(raw, CultureInfo.InvariantCulture)]
             ),
-            "b" => new BooleanValue(
-                raw is "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
-            ),
-            "e" => new ErrorValue(raw),
+            "b" => raw is "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
+                ? BooleanValue.True
+                : BooleanValue.False,
+            "e" => GetOrAddError(context, raw),
             // ISO-8601 dates (strict-mode files) are converted to the same serial-number form Excel
             // uses in transitional files, keeping "dates are serial numbers" consistent across both.
             "d" => DecodeDateLiteral(context, id, raw),
             // "str" (a formula's cached string) and anything unrecognized read as text.
-            _ => new StringValue(raw),
+            _ => GetOrAddString(context, raw),
         };
     }
 
@@ -481,6 +501,51 @@ internal static class WorksheetStreamLoader
             new ExcelLoadWarning(ExcelLoadWarningKind.UnparsableDateLiteral, id, raw)
         );
 
-        return new StringValue(raw);
+        return GetOrAddString(context, raw);
+    }
+
+    // Caches are per-load (LoadContext dies with the worksheet load), so there is no cap and no
+    // cross-worksheet state: duplicate literals within one sheet are exactly the win, bounded by the
+    // sheet's own cell count. Only strings and error codes are cached this way — see the comment above
+    // the "n"/"d" NumberValue construction sites for why a same-shaped number cache was tried and
+    // reverted.
+    private static StringValue GetOrAddString(LoadContext context, string text)
+    {
+        if (!context.StringCache.TryGetValue(text, out var value))
+        {
+            value = new StringValue(text);
+            context.StringCache[text] = value;
+        }
+
+        return value;
+    }
+
+    // The common Excel error codes already have singletons on ErrorValue; only the long tail (e.g.
+    // #NULL!, #GETTING_DATA, or a malformed code) needs the per-load cache.
+    private static ErrorValue GetOrAddError(LoadContext context, string code)
+    {
+        switch (code)
+        {
+            case "#DIV/0!":
+                return ErrorValue.DivByZero;
+            case "#VALUE!":
+                return ErrorValue.NotValue;
+            case "#REF!":
+                return ErrorValue.Reference;
+            case "#NAME?":
+                return ErrorValue.Name;
+            case "#NUM!":
+                return ErrorValue.Number;
+            case "#N/A":
+                return ErrorValue.NotAvailable;
+        }
+
+        if (!context.ErrorCache.TryGetValue(code, out var value))
+        {
+            value = new ErrorValue(code);
+            context.ErrorCache[code] = value;
+        }
+
+        return value;
     }
 }
