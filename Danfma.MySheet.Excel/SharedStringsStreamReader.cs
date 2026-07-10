@@ -27,52 +27,69 @@ internal static class SharedStringsStreamReader
         var strings = new List<string>();
         var builder = new StringBuilder();
 
-        while (reader.Read())
+        reader.MoveToContent(); // the <sst> root
+
+        // uniqueCount is a capacity HINT only (third-party producers omit or mis-count it); the list
+        // still grows past it, and an absurd value is capped instead of trusted.
+        if (
+            int.TryParse(reader.GetAttribute("uniqueCount"), out var uniqueCount)
+            && uniqueCount > 0
+        )
         {
-            if (reader.NodeType != XmlNodeType.Element)
+            strings.Capacity = Math.Min(uniqueCount, 1 << 20);
+        }
+
+        if (reader.IsEmptyElement)
+        {
+            return strings;
+        }
+
+        reader.Read(); // first child of <sst>
+
+        while (!reader.EOF && !(reader.NodeType == XmlNodeType.EndElement && reader.Depth == 0))
+        {
+            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "si")
             {
-                continue;
+                strings.Add(ReadFlattenedText(reader, builder));
             }
-
-            if (reader.LocalName == "sst")
+            else if (reader.NodeType == XmlNodeType.Element)
             {
-                // uniqueCount is a capacity HINT only (third-party producers omit or mis-count it);
-                // the list still grows past it, and an absurd value is capped instead of trusted.
-                if (
-                    int.TryParse(reader.GetAttribute("uniqueCount"), out var uniqueCount)
-                    && uniqueCount > 0
-                )
-                {
-                    strings.Capacity = Math.Min(uniqueCount, 1 << 20);
-                }
-
-                continue;
+                reader.Skip();
             }
-
-            if (reader.LocalName == "si")
+            else
             {
-                strings.Add(ReadItem(reader, builder));
+                reader.Read();
             }
         }
 
         return strings;
     }
 
-    // Reads one <si>, concatenating the content of every <t> at any depth (plain, rich-text run,
-    // phonetic run) in document order. The common case (a single <t>) never touches the builder.
-    private static string ReadItem(XmlReader reader, StringBuilder builder)
+    /// <summary>
+    /// Reads the text container the reader is positioned on (<c>&lt;si&gt;</c> or <c>&lt;is&gt;</c>),
+    /// concatenating the content of every <c>&lt;t&gt;</c> at any depth in document order — the
+    /// InnerText flattening rule. Consumes through the container's end element and past it. The common
+    /// case (a single <c>&lt;t&gt;</c>) never touches the builder.
+    /// </summary>
+    internal static string ReadFlattenedText(XmlReader reader, StringBuilder builder)
     {
         if (reader.IsEmptyElement)
         {
+            reader.Read();
+
             return string.Empty;
         }
 
+        var containerDepth = reader.Depth;
         string? single = null;
         var multiple = false;
 
         reader.Read();
 
-        while (!(reader.NodeType == XmlNodeType.EndElement && reader.LocalName == "si"))
+        while (
+            !reader.EOF
+            && !(reader.NodeType == XmlNodeType.EndElement && reader.Depth == containerDepth)
+        )
         {
             if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "t")
             {
@@ -81,7 +98,7 @@ internal static class SharedStringsStreamReader
                 if (reader.IsEmptyElement)
                 {
                     text = string.Empty;
-                    reader.Read(); // move past <t/>
+                    reader.Read();
                 }
                 else
                 {
@@ -114,6 +131,8 @@ internal static class SharedStringsStreamReader
                 break;
             }
         }
+
+        reader.Read(); // past the container's end element
 
         return multiple ? builder.ToString() : single ?? string.Empty;
     }

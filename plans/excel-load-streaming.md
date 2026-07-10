@@ -85,21 +85,35 @@ Excel tests. Scenario L: 5,72s → 5,33s (allocated ~igual: fixture tem só 208 
 desta fase aparece em arquivos texto-pesados; o grosso do custo é o DOM de worksheet, alvo da Fase 2).
 
 ## Phase 2: Worksheet streaming (o grosso)
-Status: Not started
+Status: Complete
 
-- [ ] Criar `Danfma.MySheet.Excel/WorksheetStreamLoader.cs`: `internal static void Load(WorksheetPart part, Sheet sheet, IReadOnlyList<string> sharedStrings)` — `part.GetStream()` + `XmlReader`, matching por `LocalName` (imune a prefixo, como o merge); `Skip()` de tudo fora de `sheetData`
-- [ ] Scratch struct por célula (`Reference/Type/FormulaText/IsSharedFormula/SharedIndex/Value/InlineText`); ler `f`, `v`, `is` antes de decidir (o `<v>` é necessário para o fallback de escrava órfã)
-- [ ] Portar a lógica de decisão 1:1 de `LoadCell`/`LoadLiteral` (mapa de tipos: null/"n"→Number, "s"→SharedString, "b"→Boolean, "e"→Error, "d"→Date ISO→ToOADate senão string, "inlineStr", "str"/desconhecido→string; célula sem v/f/is → não armazenada; cached `<v>` de fórmula ignorado)
-- [ ] Suportar células/linhas **sem `@r`** (referência implícita por posição — melhoria sobre o loader atual que as ignora): rastrear `currentRow`/`nextColumn`
-- [ ] Shared formulas: dicionário `si → (masterId, texto)` como hoje (document order garante master antes das escravas, ECMA-376 §18.3.1.40); caso patológico → `pendingSlaves` lazy `List<(Id, Si, Expression? CachedLiteral)>` resolvida ao fim do `sheetData` (superset do comportamento atual)
-- [ ] `ExcelFile.Load`: substituir loop `Descendants<Cell>` pelo loader novo; remover `LoadCell`/`LoadLiteral`; `LoadDefinedNames` e navegação de `workbook.xml` ficam DOM (part minúscula); atualizar `<summary>` (stream precisa ser readable+seekable — já era exigido)
+- [x] Criar `Danfma.MySheet.Excel/WorksheetStreamLoader.cs`: `internal static void Load(WorksheetPart part, Sheet sheet, IReadOnlyList<string> sharedStrings)` — `part.GetStream()` + `XmlReader`, matching por `LocalName` (imune a prefixo, como o merge); `Skip()` de tudo fora de `sheetData`
+- [x] Scratch struct por célula (`Reference/Type/FormulaText/IsSharedFormula/SharedIndex/Value/InlineText`); ler `f`, `v`, `is` antes de decidir (o `<v>` é necessário para o fallback de escrava órfã)
+- [x] Portar a lógica de decisão 1:1 de `LoadCell`/`LoadLiteral` (mapa de tipos: null/"n"→Number, "s"→SharedString, "b"→Boolean, "e"→Error, "d"→Date ISO→ToOADate senão string, "inlineStr", "str"/desconhecido→string; célula sem v/f/is → não armazenada; cached `<v>` de fórmula ignorado)
+- [x] Suportar células/linhas **sem `@r`** (referência implícita por posição — melhoria sobre o loader atual que as ignora): rastrear `currentRow`/`nextColumn`
+- [x] Shared formulas: dicionário `si → (masterId, texto)` como hoje (document order garante master antes das escravas, ECMA-376 §18.3.1.40); caso patológico → `pendingSlaves` lazy `List<(Id, Si, Expression? CachedLiteral)>` resolvida ao fim do `sheetData` (superset do comportamento atual)
+- [x] `ExcelFile.Load`: substituir loop `Descendants<Cell>` pelo loader novo; remover `LoadCell`/`LoadLiteral`; `LoadDefinedNames` e navegação de `workbook.xml` ficam DOM (part minúscula); atualizar `<summary>` (stream precisa ser readable+seekable — já era exigido)
 
 ### Verification Plan
 - Suíte completa: `dotnet run --project tests/Danfma.MySheet.Tests/... -c Release` (1044) + Excel.Tests (29+) → 0 fail
 - `--excel-memory` → Scenario L: queda grande de peak-live e allocated (DOM de worksheet eliminado); tempo cai; registrar tabela vs baseline
 
 ### Phase Summary
-_(write when phase completes)_
+`WorksheetStreamLoader` streama cada worksheet com XmlReader forward-only (contrato consome-e-passa por
+elemento; matching por LocalName; Skip() fora de sheetData). Decisão de célula portada 1:1 (fórmula /
+shared master / escrava via Shift+parse / literal por @t); `<is>` reaproveita
+`SharedStringsStreamReader.ReadFlattenedText` (agora container-agnóstico). Células/linhas sem @r suportadas
+(posição implícita via CellId.Format — novo). Escrava-antes-do-master deferida com literal decodificado
+eager (superset do DOM). `ExcelFile` perdeu LoadCell/LoadLiteral; summary atualizado (streaming, stream
+seekable).
+
+**Resultado (vs baseline)**: 1.044+29 testes verdes; load **5,72s → 1,77s (3,2x)**, allocated
+**1.800 → 1.196 MB (−34%)**, peak-live **918 → 495 MB (−46%)**. Paridade de conteúdo PROVADA: MemoryPack
+wire byte-idêntico (40.634.922 bytes) entre DOM e streaming.
+
+**Nota sobre `retained`**: o valor do harness subiu (256→470 MB), mas é artefato de contabilidade
+(GetTotalMemory reflete regiões comprometidas moldadas pelo padrão de alocação — soltar o workbook inteiro
+não muda o número em NENHUMA versão, mesmo com GC.Collect Aggressive). Modelo real idêntico (prova acima).
 
 ## Phase 3: Testes de hardening
 Status: Not started

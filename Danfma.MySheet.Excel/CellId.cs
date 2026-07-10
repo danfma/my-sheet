@@ -18,4 +18,19 @@ internal static class CellId
 
         return (int.Parse(id[index..], CultureInfo.InvariantCulture), column);
     }
+
+    /// <summary>Formats 1-based (row, column) back into an "A1"-style id (inverse of Parse).</summary>
+    public static string Format(int row, int column)
+    {
+        var letters = string.Empty;
+
+        while (column > 0)
+        {
+            column--;
+            letters = (char)('A' + column % 26) + letters;
+            column /= 26;
+        }
+
+        return letters + row.ToString(CultureInfo.InvariantCulture);
+    }
 }
