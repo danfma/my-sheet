@@ -17,7 +17,12 @@ namespace Danfma.MySheet.Parsing;
 /// A Pratt (top-down operator precedence) parser turning a token stream into an
 /// <see cref="Expression"/> tree. Cell references are resolved against <c>sheetName</c>.
 /// </summary>
-internal sealed class Parser(List<Token> tokens, string sheetName)
+internal sealed class Parser(
+    List<Token> tokens,
+    string sheetName,
+    int deltaRow = 0,
+    int deltaColumn = 0
+)
 {
     // Binding powers (higher binds tighter). Unary prefix binds tighter than '^' so that
     // '-2^2' parses as '(-2)^2' == 4, matching Excel.
@@ -569,7 +574,7 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
 
         if (IsCellReference(token.Text))
         {
-            return new CellReference(NormalizeCellId(token.Text), sheetName);
+            return new CellReference(NormalizeReference(token.Text), sheetName);
         }
 
         // A bare name: a LET-bound name resolved at evaluation time (#NAME? if unbound).
@@ -642,19 +647,19 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
             throw new ParseException("Expected a cell reference after '!'", first.Position);
         }
 
-        return new CellReference(NormalizeCellId(first.Text), sheet);
+        return new CellReference(NormalizeReference(first.Text), sheet);
     }
 
     // Turns a range-endpoint token into the expression a qualified open range is built from: a cell id
     // becomes a sheet-qualified CellReference, a letters-only identifier a column NameReference, an
     // integer a row NumberValue. Validation of "letters-only column" / "integer row" happens in
     // TryEndpoint when the range is built.
-    private static bool TryEndpointToken(Token token, string sheet, out Expression endpoint)
+    private bool TryEndpointToken(Token token, string sheet, out Expression endpoint)
     {
         if (token.Type == TokenType.Identifier)
         {
             endpoint = IsCellReference(token.Text)
-                ? new CellReference(NormalizeCellId(token.Text), sheet)
+                ? new CellReference(NormalizeReference(token.Text), sheet)
                 : new NameReference(token.Text);
             return true;
         }
@@ -672,6 +677,90 @@ internal sealed class Parser(List<Token> tokens, string sheetName)
     // Strips absolute markers ('$') and upper-cases, e.g. $A$1 -> A1. The reference identifies the same
     // cell regardless of '$'; absolute/relative only matters for Excel copy/fill, which we do not do.
     private static string NormalizeCellId(string text) => StripDollars(text).ToUpperInvariant();
+
+    // Normalizes a cell-reference token, applying the shared-formula delta (if any) to its RELATIVE
+    // components — the token text still carries the '$' markers the AST drops, so this is the single
+    // point where "shift the copy like Excel" can happen on the token stream.
+    private string NormalizeReference(string text) =>
+        deltaRow == 0 && deltaColumn == 0 ? NormalizeCellId(text) : ShiftCellId(text);
+
+    // Exact-parity port of the textual shifter's token shape: ^($?)([A-Za-z]{1,3})($?)([0-9]+)$.
+    // Tokens outside that shape (extra '$', 4+ letters) were copied verbatim by the text rewrite, so
+    // here they normalize WITHOUT shifting. '$'-anchored components do not move.
+    private string ShiftCellId(string text)
+    {
+        var index = 0;
+        var columnAbsolute = text[0] == '$';
+
+        if (columnAbsolute)
+        {
+            index = 1;
+        }
+
+        var lettersStart = index;
+
+        while (index < text.Length && char.IsLetter(text[index]))
+        {
+            index++;
+        }
+
+        var letterCount = index - lettersStart;
+
+        if (letterCount is < 1 or > 3)
+        {
+            return NormalizeCellId(text);
+        }
+
+        var rowAbsolute = index < text.Length && text[index] == '$';
+
+        if (rowAbsolute)
+        {
+            index++;
+        }
+
+        var digitsStart = index;
+
+        while (index < text.Length && char.IsDigit(text[index]))
+        {
+            index++;
+        }
+
+        if (index != text.Length || index == digitsStart)
+        {
+            return NormalizeCellId(text);
+        }
+
+        var column = 0;
+
+        for (var i = lettersStart; i < lettersStart + letterCount; i++)
+        {
+            column = column * 26 + (char.ToUpperInvariant(text[i]) - 'A' + 1);
+        }
+
+        if (!columnAbsolute)
+        {
+            column += deltaColumn;
+        }
+
+        // An anchored row keeps its original digits (leading zeros included — the text rewrite echoed
+        // them verbatim); a relative one is re-rendered from the shifted number.
+        var rowText = rowAbsolute
+            ? text[digitsStart..]
+            : (
+                int.Parse(text.AsSpan(digitsStart), CultureInfo.InvariantCulture) + deltaRow
+            ).ToString(CultureInfo.InvariantCulture);
+
+        var letters = string.Empty;
+
+        while (column > 0)
+        {
+            column--;
+            letters = (char)('A' + column % 26) + letters;
+            column /= 26;
+        }
+
+        return letters + rowText;
+    }
 
     private static string StripDollars(string text) =>
         text.Contains('$') ? text.Replace("$", string.Empty) : text;

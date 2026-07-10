@@ -43,6 +43,28 @@ public static class ExpressionParser
         return new Parser(Tokenizer.Tokenize(body), sheet.Name).ParseFormula();
     }
 
+    /// <summary>
+    /// Tokenizes a formula body once so shared-formula slaves can re-parse it with per-cell deltas —
+    /// the token list is immutable in practice and reusable across every slave of the group.
+    /// </summary>
+    internal static List<Token> TokenizeFormulaBody(string body) => Tokenizer.Tokenize(body);
+
+    /// <summary>
+    /// Parses a pre-tokenized shared-formula master, shifting every RELATIVE cell reference by the
+    /// (row, column) delta — Excel's shared-formula expansion, done on the token stream instead of a
+    /// text rewrite + full re-tokenize per slave. '$'-anchored components do not move (the '$' still
+    /// lives in the token text; the AST drops it).
+    /// </summary>
+    internal static Expression ParseSharedFormulaBody(
+        List<Token> tokens,
+        Sheet sheet,
+        int deltaRow,
+        int deltaColumn
+    )
+    {
+        return new Parser(tokens, sheet.Name, deltaRow, deltaColumn).ParseFormula();
+    }
+
     private static Expression ParseLiteral(string text)
     {
         if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var number))

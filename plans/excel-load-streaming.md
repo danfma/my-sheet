@@ -156,25 +156,39 @@ FrozenDictionary; `Tokenizer` presized (len/3+4). 1.044+39 testes verdes. Scenar
 (o fixture quase não tem).
 
 ## Phase 5: Shared formulas por delta de token
-Status: Not started
+Status: Complete
 
-- [ ] ANTES: testes congelando paridade do `SharedFormulaShifter` atual (delta negativo além do limite → comportamento atual documentado, `$` misto, ref qualificada por sheet, identificador seguido de `(` ou `!`, open ranges `A:A` NÃO deslocados)
-- [ ] Master registra `List<Token>` tokenizada 1× (Token é readonly record struct — reutilizável entre escravas)
-- [ ] `Parser` ganha modo delta `(deltaRow, deltaColumn)`: nos 3 pontos onde token vira referência (Parser.cs:566-569, 641, 648-666), `NormalizeCellId` delta-aware lê `($?, letras, $?, dígitos)` do texto do token (que preserva `$`), desloca só componentes relativos
-- [ ] Escravas: parse da token list do master com delta — elimina regex+StringBuilder+string do shift E a re-tokenização por escrava
-- [ ] Aposentar `SharedFormulaShifter` (testes redirecionados) quando a paridade passar
+- [x] ANTES: testes congelando paridade do `SharedFormulaShifter` atual (delta negativo além do limite → comportamento atual documentado, `$` misto, ref qualificada por sheet, identificador seguido de `(` ou `!`, open ranges `A:A` NÃO deslocados)
+- [x] Master registra `List<Token>` tokenizada 1× (Token é readonly record struct — reutilizável entre escravas)
+- [x] `Parser` ganha modo delta `(deltaRow, deltaColumn)`: nos 3 pontos onde token vira referência (Parser.cs:566-569, 641, 648-666), `NormalizeCellId` delta-aware lê `($?, letras, $?, dígitos)` do texto do token (que preserva `$`), desloca só componentes relativos
+- [x] Escravas: parse da token list do master com delta — elimina regex+StringBuilder+string do shift E a re-tokenização por escrava
+- [x] Aposentar `SharedFormulaShifter` (testes redirecionados) quando a paridade passar
 
 ### Verification Plan
 - Testes de paridade da fase (congelados antes) passam no caminho novo; suítes completas verdes
 - `--excel-memory` Scenario L: tempo cai de novo (fixture tem grupos de shared formula reais)
 
 ### Phase Summary
-_(write when phase completes)_
+Paridade congelada ANTES em `SharedFormulaDeltaTests` (6 testes: todas as combinações de $, grupo 2D,
+função/sheet-qualifier nunca deslocados, open range parado, literal de string intacto, range com os dois
+endpoints). `Parser` ganhou modo delta (ctor `deltaRow/deltaColumn`); `NormalizeReference` aplica o shift
+nos 3 pontos onde token vira referência; `ShiftCellId` é port de paridade exata do shape do shifter
+(`$?LLL$?DDD` — fora do shape normaliza SEM shift; row absoluto preserva dígitos verbatim).
+`ExpressionParser.TokenizeFormulaBody`/`ParseSharedFormulaBody` internos (InternalsVisibleTo p/ Excel
+antecipado da Fase 6). Master tokenizado 1×; escravas re-parseiam a token list com delta — zero shift
+textual, zero re-tokenização.
+
+**DESVIO DOCUMENTADO**: `SharedFormulaShifter` NÃO foi aposentado — rebaixado a fallback para delta
+negativo (só produtores fora da spec; na spec o master é a primeira célula do ref → deltas ≥ 0, o que
+torna underflow impossível no caminho novo). Paridade absoluta com risco zero.
+
+**Resultado**: 1.044+45 testes verdes. Load: 1,77s → **1,21s**; allocated 1.108 → **305 MB (3,6x)**.
+Acumulado vs baseline: tempo 5,72 → 1,21s (**4,7x**), allocated 1.800 → 305 MB (**5,9x**).
 
 ## Phase 6: Presize do CellStore (medido, reversível)
 Status: Not started
 
-- [ ] `Danfma.MySheet.csproj`: `+ <InternalsVisibleTo Include="Danfma.MySheet.Excel" />`
+- [x] `Danfma.MySheet.csproj`: `+ <InternalsVisibleTo Include="Danfma.MySheet.Excel" />` (antecipado na Fase 5)
 - [ ] `CellStore.EnsureDenseCapacity(int)` + `Sheet.EnsureCellCapacity(int)` (internal; `Dictionary.EnsureCapacity` não altera ordem de inserção → wire MemoryPack intacto)
 - [ ] `WorksheetStreamLoader`: no `<dimension>`, `EnsureCellCapacity(min(bboxCells, 524_288))` com overflow-check (bbox é bounding box, não contagem real — cap limita desperdício em sheet esparsa a ~25MB liberáveis)
 - [ ] MANTER SÓ SE o harness mostrar ganho sem piorar cenário esparso (sanity: fixture 1×1 com dimension gigante)

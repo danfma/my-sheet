@@ -26,8 +26,15 @@ internal static class WorksheetStreamLoader
         public Sheet Sheet { get; } = sheet;
         public IReadOnlyList<string> SharedStrings { get; } = sharedStrings;
 
-        /// <summary>Masters of shared-formula groups: si → (master cell, formula text).</summary>
-        public Dictionary<uint, (string MasterId, string Formula)> SharedFormulas { get; } = [];
+        /// <summary>
+        /// Masters of shared-formula groups: si → (position, id, text, tokens). The token list is
+        /// produced once per master and re-parsed with a per-slave delta; the text survives for the
+        /// out-of-spec fallback (negative delta) that still goes through the textual shifter.
+        /// </summary>
+        public Dictionary<
+            uint,
+            (int Row, int Column, string MasterId, string Formula, List<Token> Tokens)
+        > SharedFormulas { get; } = [];
 
         /// <summary>
         /// Identical formula text parses to an identical immutable tree, and sharing one instance
@@ -78,15 +85,45 @@ internal static class WorksheetStreamLoader
         {
             if (context.SharedFormulas.TryGetValue(sharedIndex, out var master))
             {
-                var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
+                var (slaveRow, slaveColumn) = CellId.Parse(id);
 
-                sheet[id] = ExpressionParser.ParseFormulaBody(shifted, sheet);
+                sheet[id] = ExpandSlave(sheet, master, id, slaveRow, slaveColumn);
             }
             else if (cachedLiteral is not null)
             {
                 sheet[id] = cachedLiteral;
             }
         }
+    }
+
+    // Expands one shared-formula slave from its master. Spec-compliant files always yield
+    // non-negative deltas (the master is the FIRST cell of the group's ref), which the token-delta
+    // parse handles without any per-slave re-tokenization; a negative delta (out-of-spec si reuse)
+    // falls back to the original text shifter, preserving its exact degenerate behavior.
+    private static Expression ExpandSlave(
+        Sheet sheet,
+        (int Row, int Column, string MasterId, string Formula, List<Token> Tokens) master,
+        string id,
+        int row,
+        int column
+    )
+    {
+        var deltaRow = row - master.Row;
+        var deltaColumn = column - master.Column;
+
+        if (deltaRow >= 0 && deltaColumn >= 0)
+        {
+            return ExpressionParser.ParseSharedFormulaBody(
+                master.Tokens,
+                sheet,
+                deltaRow,
+                deltaColumn
+            );
+        }
+
+        var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
+
+        return ExpressionParser.ParseFormulaBody(shifted, sheet);
     }
 
     private static void ReadSheetData(XmlReader reader, LoadContext context)
@@ -280,7 +317,13 @@ internal static class WorksheetStreamLoader
         {
             if (isSharedFormula)
             {
-                context.SharedFormulas[sharedIndex] = (id, formulaText);
+                context.SharedFormulas[sharedIndex] = (
+                    row,
+                    column,
+                    id,
+                    formulaText,
+                    ExpressionParser.TokenizeFormulaBody(formulaText)
+                );
             }
 
             if (!context.FormulaCache.TryGetValue(formulaText, out var expression))
@@ -301,9 +344,7 @@ internal static class WorksheetStreamLoader
         {
             if (context.SharedFormulas.TryGetValue(sharedIndex, out var master))
             {
-                var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
-
-                context.Sheet[id] = ExpressionParser.ParseFormulaBody(shifted, context.Sheet);
+                context.Sheet[id] = ExpandSlave(context.Sheet, master, id, row, column);
 
                 return column;
             }
