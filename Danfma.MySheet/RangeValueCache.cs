@@ -706,16 +706,60 @@ public sealed partial class Workbook
         return null;
     }
 
-    // A cheap UPPER BOUND on a range's populated-cell count, used only to decide whether caching is worth it.
-    // A bounded rectangle uses its area; an open range sums the covered structural-index lists (ignoring row
-    // bounds — an over-estimate is harmless: it only risks caching a range that turns out small).
+    // A cheap estimate of a range's populated-cell count, used only to decide whether caching is worth it. An
+    // open range sums the covered structural-index lists (ignoring row bounds — an over-estimate is harmless:
+    // it only risks caching a range that turns out small). A bounded rectangle is population-AWARE when it can
+    // afford to be (see the RangeReference case below); otherwise it falls back to its capped area.
     private int EstimatePopulatedCells(Reference range, EvaluationContext context)
     {
         switch (range)
         {
             case RangeReference rectangle:
-                var area = (long)rectangle.RowCount * rectangle.ColumnCount;
-                return area >= RangeCacheMinimumCells ? RangeCacheMinimumCells : (int)area;
+                var bounds = rectangle.GetBounds();
+                var area = (long)bounds.RowCount * bounds.ColumnCount;
+                var cappedArea =
+                    area >= RangeCacheMinimumCells ? RangeCacheMinimumCells : (int)area;
+
+                if (area < RangeCacheMinimumCells)
+                {
+                    return cappedArea; // already below threshold on area alone; the index adds nothing here
+                }
+
+                // The rectangle clears the AREA threshold, but the area is BLIND to its actual population — a
+                // tall, mostly-blank single column (e.g. 1000 rows × 1 column, 10 populated) would otherwise be
+                // admitted on faith and materialize a mostly-blank snapshot. Consult the structural index for
+                // an exact, population-aware count instead — but ONLY when the column map already exists (a
+                // prior column-oriented open-range read on this sheet already paid its O(sheet) bucketize
+                // cost): building it here, on a rectangle's read path, would trade this bounded waste (an
+                // over-admitted small rectangle) for an unbounded one (an O(sheet) scan just to decide whether
+                // a possibly-tiny rectangle is worth caching). Absent the map, the legacy capped-area estimate
+                // is kept — the exact same behavior as before this fix.
+                if (
+                    Sheets.TryGetValue(rectangle.SheetName, out var rectSheet)
+                    && rectSheet.PeekStructuralIndex() is { HasColumnBuckets: true } rectIndex
+                )
+                {
+                    var rectTotal = 0;
+
+                    for (var column = bounds.LeftColumn; column <= bounds.RightColumn; column++)
+                    {
+                        rectTotal += rectIndex.CountColumnRowsInRange(
+                            column,
+                            bounds.TopRow,
+                            bounds.BottomRow,
+                            RangeCacheMinimumCells - rectTotal
+                        );
+
+                        if (rectTotal >= RangeCacheMinimumCells)
+                        {
+                            break;
+                        }
+                    }
+
+                    return rectTotal;
+                }
+
+                return cappedArea;
 
             case OpenRangeReference open:
                 if (!Sheets.TryGetValue(open.SheetName, out var sheet))

@@ -146,6 +146,87 @@ public class RangeValueCacheEquivalenceTests
     }
 
     [Test]
+    public async Task Rectangle_SparseButAreaAboveThreshold_WithIndexBuilt_NeverAdmits()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sparse");
+
+        // 10 populated cells scattered across a 1000-row single column: the AREA (1000×1) clears the
+        // 256-cell threshold, but the TRUE population (10) does not — the exact bug this fix targets.
+        for (var row = 1; row <= 1000; row += 100)
+        {
+            sheet[$"A{row}"] = new NumberValue(row);
+        }
+
+        var context = new EvaluationContext(workbook);
+
+        // Force the structural index's column map to exist (a prior column-oriented open-range read) — the
+        // precondition for the population-aware estimate to engage at all.
+        _ = OpenRangeReference.Create(1, 1, null, null, "Sparse").PopulatedIds(context).ToList();
+        workbook.InvalidateCache(); // drop whatever the priming read memoized; admission state is untouched
+
+        var rectangle = new RangeReference("A1", "A1000", "Sparse");
+
+        // Never admitted: EstimatePopulatedCells now reports the TRUE population (10), which never clears
+        // the threshold, so the range is never even marked and every read stays on the linear path.
+        for (var i = 0; i < 5; i++)
+        {
+            await Assert.That(workbook.TryGetRangeSnapshot(rectangle, context) is null).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task Rectangle_DenseAboveThreshold_WithIndexBuilt_StillAdmitsOnSecondRead()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Dense");
+
+        for (var row = 1; row <= 300; row++)
+        {
+            sheet[$"A{row}"] = new NumberValue(row);
+        }
+
+        var context = new EvaluationContext(workbook);
+        _ = OpenRangeReference.Create(1, 1, null, null, "Dense").PopulatedIds(context).ToList();
+        workbook.InvalidateCache();
+
+        var rectangle = new RangeReference("A1", "A300", "Dense"); // 300 populated, all inside the range
+
+        // A dense rectangle admits exactly as before the fix: marked on the first read, built on the second,
+        // reused thereafter — the population-aware count agrees with the old capped-area estimate here.
+        await Assert.That(workbook.TryGetRangeSnapshot(rectangle, context) is null).IsTrue();
+        var built = workbook.TryGetRangeSnapshot(rectangle, context);
+        await Assert.That(built is not null).IsTrue();
+        await Assert
+            .That(ReferenceEquals(workbook.TryGetRangeSnapshot(rectangle, context), built))
+            .IsTrue();
+    }
+
+    [Test]
+    public async Task Rectangle_SparseAreaAboveThreshold_WithoutIndexBuilt_PreservesLegacyCappedAreaAdmission()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sparse2");
+
+        for (var row = 1; row <= 1000; row += 100)
+        {
+            sheet[$"A{row}"] = new NumberValue(row);
+        }
+
+        var context = new EvaluationContext(workbook);
+        var rectangle = new RangeReference("A1", "A1000", "Sparse2");
+
+        // No open-range read has happened on this sheet yet: the structural index does not exist at all, so
+        // the estimate falls back to the pre-fix capped-area behavior — the sparse rectangle is admitted
+        // exactly as it was before this fix (the lazy-safe fallback this fix is required to preserve).
+        await Assert.That(sheet.PeekStructuralIndex()).IsNull();
+
+        await Assert.That(workbook.TryGetRangeSnapshot(rectangle, context) is null).IsTrue(); // read 1: marks
+        var built = workbook.TryGetRangeSnapshot(rectangle, context); // read 2: builds (legacy behavior)
+        await Assert.That(built is not null).IsTrue();
+    }
+
+    [Test]
     public async Task ApproximateMatch_WithDuplicates_ReturnsLastPosition_LikeBypass()
     {
         // Ascending with duplicates: value 50 appears at several positions; MATCH(...,1) must return the

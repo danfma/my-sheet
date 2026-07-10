@@ -182,12 +182,107 @@ internal sealed class SheetStructuralIndex
     /// <summary>The populated-cell count of a row WITHOUT forcing its sort.</summary>
     public int RowLength(int row) => RowBuckets.TryGetValue(row, out var list) ? list.Count : 0;
 
+    /// <summary>Whether the column map has already been bucketized (a prior column-oriented open-range read
+    /// on this sheet), WITHOUT forcing it. Lets a caller that must not pay an O(sheet) bucketize pass just to
+    /// answer a cheap estimate (the closed-rectangle cache-admission probe) decide whether consulting the
+    /// index is free or would cost that pass.</summary>
+    internal bool HasColumnBuckets => _columns is not null;
+
     // Test hooks: prove the lazy per-bucket sort (a column/row that was never read stays unsorted) and the
     // dirty-marking of an out-of-order insert (the touched bucket drops out of the sorted set until re-read).
     internal bool IsColumnSorted(int column) =>
         _sortedColumns is { } sorted && sorted.Contains(column);
 
     internal bool IsRowSorted(int row) => _sortedRows is { } sorted && sorted.Contains(row);
+
+    /// <summary>
+    /// Exact count of a column's populated rows that fall within <c>[rowMin, rowMax]</c>, capped at
+    /// <paramref name="max"/>: counting stops the instant it reaches <paramref name="max"/>, because the only
+    /// caller (the closed-rectangle cache-admission estimate, see <see cref="Workbook.EstimatePopulatedCells"/>)
+    /// only needs to know whether the rectangle clears its admission threshold, not the column's exact in-range
+    /// population beyond that.
+    ///
+    /// <para>When the bucket is ALREADY sorted (an earlier open-range read forced it via <see cref="TryGetColumn"/>)
+    /// this is a double binary search (lower/upper bound) — O(log bucket). Otherwise it is a raw scan of the
+    /// STILL-UNSORTED bucket that stops as soon as <paramref name="max"/> matches are found: forcing the
+    /// bucket's O(bucket log bucket) sort just to answer a partial-count probe would cost more than the
+    /// over-admission this estimate exists to avoid.</para>
+    /// </summary>
+    public int CountColumnRowsInRange(int column, int rowMin, int rowMax, int max)
+    {
+        if (max <= 0 || !ColumnBuckets.TryGetValue(column, out var rows) || rows.Count == 0)
+        {
+            return 0;
+        }
+
+        if (IsColumnSorted(column))
+        {
+            var lower = LowerBound(rows, rowMin);
+            var upper = UpperBound(rows, rowMax);
+            return Math.Min(upper - lower, max);
+        }
+
+        var count = 0;
+
+        foreach (var row in rows)
+        {
+            if (row < rowMin || row > rowMax)
+            {
+                continue;
+            }
+
+            if (++count >= max)
+            {
+                break;
+            }
+        }
+
+        return count;
+    }
+
+    // First index whose row is >= rowMin — the lower bound of the ascending-sorted bucket.
+    private static int LowerBound(List<int> rows, int rowMin)
+    {
+        var low = 0;
+        var high = rows.Count;
+
+        while (low < high)
+        {
+            var mid = (low + high) >> 1;
+            if (rows[mid] < rowMin)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    // First index whose row is > rowMax — the upper bound of the ascending-sorted bucket.
+    private static int UpperBound(List<int> rows, int rowMax)
+    {
+        var low = 0;
+        var high = rows.Count;
+
+        while (low < high)
+        {
+            var mid = (low + high) >> 1;
+            if (rows[mid] <= rowMax)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
 
     /// <summary>
     /// Incrementally records a cell that was just ADDED to the sheet (a new id, not an overwrite). No-op for a
