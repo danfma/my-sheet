@@ -359,6 +359,17 @@ internal sealed class Parser(
         ["RANDBETWEEN"] = new(2, 2, arguments => new RandBetween(arguments)),
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
+    // Guards against StackOverflowException (uncatchable, kills the process) on a pathological formula —
+    // e.g. 10,000 nested parentheses from a hostile or corrupted .xlsx. 256 is generous: Excel itself caps
+    // function nesting at 64 levels, so any legitimate formula sits far below this. Recursion nests through
+    // two independent entry points that do not call each other: ParseExpression (parens, unary chains,
+    // nested function arguments, ranges) and ParseQualifiedReference (chained cross-sheet range endpoints,
+    // e.g. Sheet1!A1:Sheet2!B1:Sheet3!C1:...). Both increment/decrement the same counter, so depth is
+    // tracked across the whole parse regardless of which path it grows through.
+    private const int MaxDepth = 256;
+
+    private int _depth;
+
     private int _index;
 
     private Token Current => tokens[_index];
@@ -377,12 +388,22 @@ internal sealed class Parser(
 
     private Expression ParseExpression(int rightBindingPower)
     {
+        // No try/finally: a ParseException aborts the whole ParseFormula call, and the Parser is a
+        // one-shot instance (a fresh one is constructed per parse — see ExpressionParser), so a counter
+        // left incremented past an exception never leaks into a later parse.
+        if (++_depth > MaxDepth)
+        {
+            throw new ParseException("Formula nesting is too deep", Current.Position);
+        }
+
         var left = ParsePrefix(Advance());
 
         while (rightBindingPower < LeftBindingPower(Current.Type))
         {
             left = ParseInfix(Advance(), left);
         }
+
+        _depth--;
 
         return left;
     }
@@ -583,6 +604,14 @@ internal sealed class Parser(
 
     private Expression ParseQualifiedReference(string sheet)
     {
+        // This recurses into itself (below) for chained cross-sheet range endpoints
+        // (Sheet1!A1:Sheet2!B1:Sheet3!C1:...) WITHOUT going through ParseExpression, so it needs its own
+        // depth check against the same counter — see MaxDepth's doc comment.
+        if (++_depth > MaxDepth)
+        {
+            throw new ParseException("Formula nesting is too deep", Current.Position);
+        }
+
         // The qualifier is a fresh tokenizer substring per formula, so N cross-sheet references to the same
         // sheet would otherwise each hold their own copy of the name (~24MB of duplicate "Data" strings at
         // K1 scale). Intern it here — the single point where a qualified SheetName enters the AST — so every
@@ -621,6 +650,8 @@ internal sealed class Parser(
                     );
                 }
 
+                _depth--;
+
                 return string.Equals(
                     leftCell.SheetName,
                     rightCell.SheetName,
@@ -636,6 +667,8 @@ internal sealed class Parser(
                 && TryBuildOpenRange(left, right, sheet, out var range)
             )
             {
+                _depth--;
+
                 return range;
             }
 
@@ -646,6 +679,8 @@ internal sealed class Parser(
         {
             throw new ParseException("Expected a cell reference after '!'", first.Position);
         }
+
+        _depth--;
 
         return new CellReference(NormalizeReference(first.Text), sheet);
     }

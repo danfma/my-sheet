@@ -31,6 +31,14 @@ public static class FormulaWriter
     private const int PrefixPrecedence = 45;
     private const int AtomPrecedence = int.MaxValue;
 
+    // Mirrors the Parser's MaxDepth: guards against unbounded recursion (and an uncatchable
+    // StackOverflowException) when rendering an expression tree built PROGRAMMATICALLY rather than parsed —
+    // a parsed tree can never exceed this because the Parser enforces the same limit at parse time, but a
+    // caller assembling nodes by hand (e.g. a loop of nested UnaryOperation) has no such guard, so the writer
+    // enforces its own. 256 matches the parser's limit; there is no ParseException here (this is not parsing
+    // a formula, it is un-parsing an already-built tree), so an illegal tree throws InvalidOperationException.
+    private const int MaxDepth = 256;
+
     /// <summary>
     /// Renders the expression as Excel formula text. References on <paramref name="contextSheetName"/>
     /// stay unqualified (<c>A1</c>); references to other sheets are qualified (<c>Sheet2!A1</c>, quoted
@@ -40,18 +48,31 @@ public static class FormulaWriter
     {
         var builder = new StringBuilder();
 
-        Write(builder, expression, contextSheetName, minPrecedence: 0);
+        Write(builder, expression, contextSheetName, minPrecedence: 0, depth: 0);
 
         return builder.ToString();
     }
 
+    // depth counts Write's own recursion; WriteBinary and WriteList are plain helpers invoked FROM here
+    // (never independent recursion entry points), so they just pass the incremented depth through to their
+    // own Write calls instead of tracking it themselves.
     private static void Write(
         StringBuilder builder,
         Expression expression,
         string context,
-        int minPrecedence
+        int minPrecedence,
+        int depth
     )
     {
+        if (depth > MaxDepth)
+        {
+            throw new InvalidOperationException(
+                "Formula nesting is too deep: the expression tree exceeds the maximum supported depth "
+                    + $"({MaxDepth}). This tree was built programmatically — a parsed formula can never "
+                    + "hit this limit."
+            );
+        }
+
         var parenthesize = Precedence(expression) < minPrecedence;
 
         if (parenthesize)
@@ -99,7 +120,7 @@ public static class FormulaWriter
 
             case UnionReference union:
                 builder.Append('(');
-                WriteList(builder, union.Areas, context);
+                WriteList(builder, union.Areas, context, depth + 1);
                 builder.Append(')');
                 break;
 
@@ -108,29 +129,29 @@ public static class FormulaWriter
                 break;
 
             case DynamicRange dyn:
-                Write(builder, dyn.Start, context, AtomPrecedence);
+                Write(builder, dyn.Start, context, AtomPrecedence, depth + 1);
                 builder.Append(':');
-                Write(builder, dyn.End, context, AtomPrecedence);
+                Write(builder, dyn.End, context, AtomPrecedence, depth + 1);
                 break;
 
             case UnaryOperation { Operator: UnaryOperator.Percent } percent:
-                Write(builder, percent.Operand, context, PercentPrecedence);
+                Write(builder, percent.Operand, context, PercentPrecedence, depth + 1);
                 builder.Append('%');
                 break;
 
             case UnaryOperation prefix:
                 builder.Append(prefix.Operator == UnaryOperator.Negate ? '-' : '+');
-                Write(builder, prefix.Operand, context, PrefixPrecedence);
+                Write(builder, prefix.Operand, context, PrefixPrecedence, depth + 1);
                 break;
 
             case BinaryOperation binary:
-                WriteBinary(builder, binary, context);
+                WriteBinary(builder, binary, context, depth + 1);
                 break;
 
             case Function function:
                 var (functionName, arguments) = Call(function);
                 builder.Append(functionName).Append('(');
-                WriteList(builder, arguments, context);
+                WriteList(builder, arguments, context, depth + 1);
                 builder.Append(')');
                 break;
 
@@ -146,7 +167,12 @@ public static class FormulaWriter
         }
     }
 
-    private static void WriteBinary(StringBuilder builder, BinaryOperation binary, string context)
+    private static void WriteBinary(
+        StringBuilder builder,
+        BinaryOperation binary,
+        string context,
+        int depth
+    )
     {
         var precedence = Precedence(binary);
 
@@ -154,12 +180,23 @@ public static class FormulaWriter
         // tighter minimum goes on the opposite side to force parentheses only where re-parsing needs them.
         var rightAssociative = binary.Operator == BinaryOperator.Power;
 
-        Write(builder, binary.Left, context, rightAssociative ? precedence + 1 : precedence);
+        Write(builder, binary.Left, context, rightAssociative ? precedence + 1 : precedence, depth);
         builder.Append(Token(binary.Operator));
-        Write(builder, binary.Right, context, rightAssociative ? precedence : precedence + 1);
+        Write(
+            builder,
+            binary.Right,
+            context,
+            rightAssociative ? precedence : precedence + 1,
+            depth
+        );
     }
 
-    private static void WriteList(StringBuilder builder, Expression[] items, string context)
+    private static void WriteList(
+        StringBuilder builder,
+        Expression[] items,
+        string context,
+        int depth
+    )
     {
         for (var i = 0; i < items.Length; i++)
         {
@@ -168,7 +205,7 @@ public static class FormulaWriter
                 builder.Append(',');
             }
 
-            Write(builder, items[i], context, minPrecedence: 0);
+            Write(builder, items[i], context, minPrecedence: 0, depth);
         }
     }
 

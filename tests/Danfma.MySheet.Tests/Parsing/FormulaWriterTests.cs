@@ -430,4 +430,43 @@ public class FormulaWriterTests
         var reparsed = Parse(written);
         await Assert.That(reparsed).IsTypeOf<DynamicRange>();
     }
+
+    // --- Recursion-depth guard (regression: a programmatically-built tree must throw
+    // InvalidOperationException, never overflow the stack — see FormulaWriter.MaxDepth). A parser-produced
+    // tree can never exceed the limit (the Parser enforces the same cap at parse time), so these trees are
+    // built by hand: a chain of nested UnaryOperation.Negate nodes, deep enough that only a host assembling
+    // the AST directly (not through ExpressionParser) could produce it. ---
+
+    private static Expression NestedNegate(int depth)
+    {
+        Expression expression = new NumberValue(1);
+
+        for (var i = 0; i < depth; i++)
+        {
+            expression = new UnaryOperation(UnaryOperator.Negate, expression);
+        }
+
+        return expression;
+    }
+
+    [Test]
+    public async Task DeepTree_WithinLimit_Writes()
+    {
+        // 200 levels: below MaxDepth (256), so this un-parses normally.
+        var written = NestedNegate(200).ToFormula(ContextSheet);
+
+        await Assert.That(written).IsEqualTo(new string('-', 200) + "1");
+    }
+
+    [Test]
+    public async Task DeepTree_ExceedsLimit_ThrowsInvalidOperationException()
+    {
+        // 300 levels exceed MaxDepth; only a hand-built tree can reach this (the Parser itself caps
+        // nesting at parse time), so the writer must guard it independently.
+        var expression = NestedNegate(300);
+
+        await Assert
+            .That(() => expression.ToFormula(ContextSheet))
+            .Throws<InvalidOperationException>();
+    }
 }

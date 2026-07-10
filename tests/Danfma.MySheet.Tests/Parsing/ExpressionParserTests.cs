@@ -1,3 +1,4 @@
+using System.Linq;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 
@@ -294,6 +295,72 @@ public class ExpressionParserTests
         var (_, sheet) = Grid();
 
         await Assert.That(() => ExpressionParser.Parse("=", sheet)).Throws<ParseException>();
+    }
+
+    // --- Recursion-depth guard (regression: a pathological formula must throw ParseException, never
+    // overflow the stack — see Parser.MaxDepth) ---
+
+    [Test]
+    public async Task DeepNesting_WithinLimit_Parses()
+    {
+        var (_, sheet) = Grid();
+
+        // 200 nested parentheses: well below MaxDepth (256), so this is a legitimate, if unusual, formula.
+        var formula = "=" + new string('(', 200) + "1" + new string(')', 200);
+
+        var expression = ExpressionParser.Parse(formula, sheet);
+
+        await Assert.That(expression).IsTypeOf<NumberValue>();
+    }
+
+    [Test]
+    public async Task DeepNesting_ExceedsLimit_ThrowsParseException()
+    {
+        var (_, sheet) = Grid();
+
+        // 300 nested parentheses exceed MaxDepth; this must throw a catchable ParseException instead of
+        // overflowing the stack.
+        var formula = "=" + new string('(', 300) + "1" + new string(')', 300);
+
+        await Assert.That(() => ExpressionParser.Parse(formula, sheet)).Throws<ParseException>();
+    }
+
+    [Test]
+    public async Task DeepNesting_NestedFunctionCalls_ExceedsLimit_ThrowsParseException()
+    {
+        var (_, sheet) = Grid();
+
+        // ABS(ABS(...(1)...)) 300 levels deep: nested function-call arguments recurse through
+        // ParseExpression exactly like nested parentheses, so the same guard must catch it.
+        var formula =
+            "=" + string.Concat(Enumerable.Repeat("ABS(", 300)) + "1" + new string(')', 300);
+
+        await Assert.That(() => ExpressionParser.Parse(formula, sheet)).Throws<ParseException>();
+    }
+
+    [Test]
+    public async Task DeepNesting_ChainedUnaryMinus_ExceedsLimit_ThrowsParseException()
+    {
+        var (_, sheet) = Grid();
+
+        // '----...-5' 300 levels deep: chained unary prefixes recurse through ParseExpression too.
+        var formula = "=" + new string('-', 300) + "5";
+
+        await Assert.That(() => ExpressionParser.Parse(formula, sheet)).Throws<ParseException>();
+    }
+
+    [Test]
+    public async Task DeepNesting_ChainedQualifiedRangeEndpoints_ExceedsLimit_ThrowsParseException()
+    {
+        var (workbook, sheet) = Grid();
+        workbook.Sheets.Add("S1");
+
+        // Sheet1!A1:S1!A1:S1!A1:...: chained cross-sheet range endpoints recurse through
+        // ParseQualifiedReference directly, WITHOUT going through ParseExpression — a separate cycle the
+        // guard must also cover.
+        var formula = "=Sheet1!A1" + string.Concat(Enumerable.Repeat(":S1!A1", 300));
+
+        await Assert.That(() => ExpressionParser.Parse(formula, sheet)).Throws<ParseException>();
     }
 
     // --- Literal (non '=') entry mode ---
