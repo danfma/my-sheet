@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.10.1"></a>
+## [3.10.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.10.1) (2026-07-10)
+
+### Bug Fixes
+
+* **excel-merge:** support implicit row/cell positions in the merge target ([23abe0f](https://www.github.com/danfma/my-sheet/commit/23abe0f9613817afd2cea68c04b47d4b7c29538f))
+* **parse:** bound formula nesting depth in Parser and FormulaWriter ([d22cea1](https://www.github.com/danfma/my-sheet/commit/d22cea18a636aaec238161dc81e0b39fbf8f9a13))
+* **recalc:** detect defined-name redefinition as graph staleness ([ba7a29f](https://www.github.com/danfma/my-sheet/commit/ba7a29f9ae9ca612a5672ad40eb08d181111d9ed))
+
 <a name="3.10.0"></a>
 ## [3.10.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.10.0) (2026-07-10)
 
