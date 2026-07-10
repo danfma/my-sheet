@@ -308,6 +308,15 @@ como gate; protótipo atrás do loader; se provar ganho → /real-work próprio 
 intern do Sheet.Name no load = NÃO (só o caveat multi-tenant no backlog). Nenhum agente em voo;
 working tree limpo; próxima ação = disparar o spike G3.
 
+**Nota de design (usuário, 2026-07-10, pós-pausa) — arena de fórmulas (candidata a v5):** se a
+representação bytecode/RPN for adiante após os números do spike G3 + heap profile, a arena deve ser
+PAGINADA (blocos ~32-64KB, sob o limiar de 85KB do LOH; handle = bloco+offset+len; bump allocator;
+fórmula nunca cruza bloco; blocos owned, não ArrayPool), não um array contíguo único — mesmo idioma já
+provado no SheetValueStore (páginas de ~24,6KB, geometria em WorkbookOptions). Promoção dos blocos a
+Gen2 é desejável (modelo residente estável); o ganho anti-LOH é fragmentação/compactação. MemoryPack
+continua quase-blit (lista de byte[] = memcpy por bloco). Decisão entre incremental (G3+refs numéricas)
+vs arena SÓ com o heap profile na mão.
+
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
 Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perder:

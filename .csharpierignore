@@ -1,0 +1,2 @@
+# Agent worktrees and harness state live under .claude/ — never format-checked from the repo root.
+.claude/
