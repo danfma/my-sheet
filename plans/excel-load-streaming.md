@@ -116,17 +116,22 @@ wire byte-idêntico (40.634.922 bytes) entre DOM e streaming.
 não muda o número em NENHUMA versão, mesmo com GC.Collect Aggressive). Modelo real idêntico (prova acima).
 
 ## Phase 3: Testes de hardening
-Status: Not started
+Status: Complete
 
-- [ ] Novo `tests/Danfma.MySheet.Excel.Tests/StreamingLoadEdgeTests.cs`: `xml:space` (espaços nas pontas, célula só-espaço), shared string rich-text, inline string, `t="str"`, date ISO
-- [ ] Fixture manual (escrita bruta de part via `WorksheetPart.GetStream` num builder de teste): células sem `@r`, prefixo `x:`, escrava antes do master, `<f>` vazia com `<v>` cacheado
-- [ ] Teste de paridade round-trip: load(export(load(x))) equivalente
+- [x] Novo `tests/Danfma.MySheet.Excel.Tests/StreamingLoadEdgeTests.cs`: `xml:space` (espaços nas pontas, célula só-espaço), shared string rich-text, inline string, `t="str"`, date ISO
+- [x] Fixture manual (escrita bruta de part via `WorksheetPart.GetStream` num builder de teste): células sem `@r`, prefixo `x:`, escrava antes do master, `<f>` vazia com `<v>` cacheado
+- [x] Teste de paridade round-trip: load(export(load(x))) equivalente
 
 ### Verification Plan
 - Ambas as suítes verdes; novos testes cobrem cada edge listado
 
 ### Phase Summary
-_(write when phase completes)_
+`StreamingLoadEdgeTests` (10 testes, todos verdes de primeira): fixture bruto via ZipArchive (controla
+prefixos/atributos/ordem que um writer DOM normalizaria) + fixtures ClosedXML. Cobertos: posições implícitas
+(célula/linha sem @r, inclusive retomada após @r explícito), prefixo x:, escrava-antes-do-master (resolve
+via deferral — capacidade nova), escrava sem master → literal cacheado, <f/> vazia não-shared → literal,
+inline string com espaços, shared string padded + rich text multi-run, t="str" sem <f>, date ISO → serial,
+e round-trip load→export→load. Suíte Excel: 39/39.
 
 ## Phase 4: Parse quick wins
 Status: Not started
