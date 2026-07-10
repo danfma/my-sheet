@@ -12,7 +12,8 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions;
 
 // MemoryPackUnion tags are APPEND-ONLY: never renumber, reorder or reuse an existing tag,
-// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 316+.
+// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 319+
+// (count the attributes below before trusting this number — it drifts every time a tag is added).
 [MemoryPackable]
 [MemoryPackUnion(0, typeof(StringValue))]
 [MemoryPackUnion(1, typeof(NumberValue))]

@@ -5,6 +5,10 @@ using Danfma.MySheet.Expressions;
 
 namespace Danfma.MySheet;
 
+// See the structural-layers invariant note atop SheetStructuralIndex.cs: this store is layer 3 (epoch-
+// scoped, dropped unconditionally by Workbook.InvalidateCache), distinct from the write-maintained
+// SheetStructuralIndex (layer 1) and the version-staled ReverseDependencyGraph buckets (layer 2).
+
 /// <summary>
 /// The dense, paged replacement for the workbook's value cache (the old
 /// <c>ConcurrentDictionary&lt;(string,string), ComputedValue&gt;</c>). It memoizes one

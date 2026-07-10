@@ -73,6 +73,19 @@ Se o arquivo usa funções que o MySheet não implementa, essas células viram n
 avaliadas como `#NAME?` — a menos que você mesmo forneça o comportamento via
 [`RegisterFunction`](custom-functions.md), que é a válvula de escape pretendida.
 
+Alguns problemas de carregamento (um nome definido inválido, um literal de data que falha ao ser
+interpretado) são ignorados em vez de falhar o carregamento inteiro — por padrão, silenciosamente, como
+sempre foi. Passe `ExcelLoadOptions` com um callback `OnWarning` para `Load` para observá-los:
+
+```csharp
+var warnings = new List<ExcelLoadWarning>();
+var workbook = ExcelFile.Load("model.xlsx", new ExcelLoadOptions { OnWarning = warnings.Add });
+```
+
+Cada `ExcelLoadWarning` carrega um `Kind` (`InvalidDefinedName` ou `UnparsableDateLiteral`), um `Subject`
+(o nome definido, ou o id da célula) e uma string `Detail`. O callback é um `Action<T>` simples em vez de
+uma lista acumulada, então quem hospeda decide se registra, coleta ou ignora cada aviso.
+
 ## Exportando: `SaveAsExcel`
 
 ```csharp

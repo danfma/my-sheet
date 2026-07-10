@@ -70,6 +70,19 @@ If the file uses functions MySheet does not implement, those cells parse into `F
 evaluate to `#NAME?` — unless you provide the behavior yourself via
 [`RegisterFunction`](custom-functions.md), which is the intended escape hatch.
 
+A handful of load-time issues (an invalid defined name, a date literal that fails to parse) are skipped
+rather than failing the whole load — by default silently, exactly as before. Pass `ExcelLoadOptions` with
+an `OnWarning` callback to `Load` to observe them instead:
+
+```csharp
+var warnings = new List<ExcelLoadWarning>();
+var workbook = ExcelFile.Load("model.xlsx", new ExcelLoadOptions { OnWarning = warnings.Add });
+```
+
+Each `ExcelLoadWarning` carries a `Kind` (`InvalidDefinedName` or `UnparsableDateLiteral`), a `Subject`
+(the defined name, or the cell id) and a `Detail` string. The callback is a simple `Action<T>` rather than
+an accumulated list, so the host decides whether to log, collect, or ignore each warning.
+
 ## Exporting: `SaveAsExcel`
 
 ```csharp

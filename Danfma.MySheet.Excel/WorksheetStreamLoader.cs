@@ -21,10 +21,17 @@ namespace Danfma.MySheet.Excel;
 internal static class WorksheetStreamLoader
 {
     // Per-worksheet load state, so the reader helpers stay small.
-    private sealed class LoadContext(Sheet sheet, IReadOnlyList<string> sharedStrings)
+    private sealed class LoadContext(
+        Sheet sheet,
+        IReadOnlyList<string> sharedStrings,
+        ExcelLoadOptions? options
+    )
     {
         public Sheet Sheet { get; } = sheet;
         public IReadOnlyList<string> SharedStrings { get; } = sharedStrings;
+
+        /// <summary>Null unless the caller opted in via <see cref="ExcelFile.Load(string, ExcelLoadOptions?)"/>.</summary>
+        public ExcelLoadOptions? Options { get; } = options;
 
         /// <summary>
         /// Masters of shared-formula groups: si → (position, id, text, tokens). The token list is
@@ -53,9 +60,14 @@ internal static class WorksheetStreamLoader
         public StringBuilder Builder { get; } = new();
     }
 
-    public static void Load(WorksheetPart part, Sheet sheet, IReadOnlyList<string> sharedStrings)
+    public static void Load(
+        WorksheetPart part,
+        Sheet sheet,
+        IReadOnlyList<string> sharedStrings,
+        ExcelLoadOptions? options = null
+    )
     {
-        var context = new LoadContext(sheet, sharedStrings);
+        var context = new LoadContext(sheet, sharedStrings, options);
 
         using (var source = part.GetStream(FileMode.Open, FileAccess.Read))
         using (var reader = XmlReader.Create(source))
@@ -396,13 +408,13 @@ internal static class WorksheetStreamLoader
             // literal is decoded now because the <v> text is unavailable later.
             context.PendingSlaves ??= [];
             context.PendingSlaves.Add(
-                (id, sharedIndex, DecodeLiteral(context, type, raw, inlineText))
+                (id, sharedIndex, DecodeLiteral(context, id, type, raw, inlineText))
             );
 
             return column;
         }
 
-        if (DecodeLiteral(context, type, raw, inlineText) is { } literal)
+        if (DecodeLiteral(context, id, type, raw, inlineText) is { } literal)
         {
             context.Sheet[id] = literal;
         }
@@ -410,9 +422,11 @@ internal static class WorksheetStreamLoader
         return column;
     }
 
-    // Parity port of the DOM loader's LoadLiteral, keyed by the raw @t string.
+    // Parity port of the DOM loader's LoadLiteral, keyed by the raw @t string. `id` is only needed for the
+    // "d" case's warning (the cell reference is the useful subject there); every other branch ignores it.
     private static Expression? DecodeLiteral(
         LoadContext context,
+        string id,
         string? type,
         string? raw,
         string? inlineText
@@ -447,16 +461,26 @@ internal static class WorksheetStreamLoader
             "e" => new ErrorValue(raw),
             // ISO-8601 dates (strict-mode files) are converted to the same serial-number form Excel
             // uses in transitional files, keeping "dates are serial numbers" consistent across both.
-            "d" => DateTime.TryParse(
-                raw,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var date
-            )
-                ? new NumberValue(date.ToOADate())
-                : new StringValue(raw),
+            "d" => DecodeDateLiteral(context, id, raw),
             // "str" (a formula's cached string) and anything unrecognized read as text.
             _ => new StringValue(raw),
         };
+    }
+
+    // Split out of the switch expression above only because the failure path has a side effect (the
+    // warning callback); the fallback behavior (StringValue of the raw text) is unchanged from before
+    // ExcelLoadOptions existed.
+    private static Expression DecodeDateLiteral(LoadContext context, string id, string raw)
+    {
+        if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return new NumberValue(date.ToOADate());
+        }
+
+        context.Options?.OnWarning?.Invoke(
+            new ExcelLoadWarning(ExcelLoadWarningKind.UnparsableDateLiteral, id, raw)
+        );
+
+        return new StringValue(raw);
     }
 }

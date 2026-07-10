@@ -2,6 +2,25 @@ using Danfma.MySheet.Expressions;
 
 namespace Danfma.MySheet;
 
+// === The structural-layers invariant (anchor note) =====================================================
+// A workbook's "structure" — which cells exist, and what depends on what — is tracked in THREE separate
+// places, each with its own lifetime. Read this before touching any of them:
+//
+//   1. SheetStructuralIndex (this file, per-Sheet) — write-maintained by Sheet.SetCell/Remove, so it is
+//      always current. LIFETIME-scoped: Workbook.InvalidateCache does NOT drop it (a value refresh never
+//      changes which cells exist; only an insert/delete does, and both paths update it in place).
+//   2. ReverseDependencyGraph buckets (DirtyGraph/ReverseDependencyGraph.cs) — a built SNAPSHOT, not
+//      write-maintained. Staleness is version-checked, not intercepted: RecalculationEngine compares each
+//      Sheet.StructuralVersion (bumped on formula add/remove/change) and Workbook.NamesVersion (bumped on
+//      DefineName) against the versions it was built from, and rebuilds the WHOLE graph when either moved.
+//      A pure value edit bumps neither, so it never triggers a rebuild.
+//   3. SheetValueStore pages (SheetValueStore.cs) — memoized computed values, EPOCH-scoped:
+//      Workbook.InvalidateCache clears them unconditionally, and every read after that repopulates lazily.
+//
+// Consistency rule: never assume (2) or (3) reflect a structural edit until their own trigger — a version
+// bump for (2), InvalidateCache for (3) — has actually fired. See the cross-references in the other two
+// files.
+//
 /// <summary>
 /// The write-maintained structural index for a single sheet: <c>column → rows</c> and the symmetric
 /// <c>row → columns</c>, each bucketized lazily and independently in one O(N) pass. It answers "which populated
