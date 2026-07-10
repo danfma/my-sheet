@@ -33,6 +33,13 @@ public class LetFunctionTests
     }
 
     [Test]
+    public async Task Let_DeepNestedShadowing()
+    {
+        // x = 1 ; inner x = 1 + 1 = 2 ; innermost x = 2 + 1 = 3
+        await Assert.That(Calc("=LET(x,1,LET(x,x+1,LET(x,x+1,x)))") as double?).IsEqualTo(3.0);
+    }
+
+    [Test]
     public async Task BareUnknownName_IsStillNameError()
     {
         await Assert.That(Calc("=NOPE")).IsEqualTo(ErrorValue.Name);

@@ -110,32 +110,59 @@ public sealed partial class Workbook
     private static bool _volatileTouched;
 
     // The clock sampled once per epoch (lazily, on the first volatile read), as an Excel serial (local time).
-    // null means "not yet sampled this epoch". Guarded by VolatileLock so it is sampled exactly once.
+    // null means "not yet sampled this epoch". Guarded by ClockLock so it is sampled exactly once.
     [MemoryPackIgnore]
     private double? _epochNow;
 
     // Persistent RNG for RAND/RANDBETWEEN, advanced across epochs (never re-seeded per epoch, so epochs differ
-    // naturally; a fixed RandomSeed makes the whole run reproducible). Created lazily under VolatileLock.
+    // naturally; a fixed RandomSeed makes the whole run reproducible). Created lazily under RandomLock.
     [MemoryPackIgnore]
     private Random? _random;
 
-    // Guards the once-per-epoch clock sampling and the not-thread-safe RNG. Lazily created (Interlocked)
-    // so it survives MemoryPack deserialization, which bypasses field initializers.
+    // Guards the once-per-epoch clock sampling (_epochNow). Lazily created (Interlocked) so it survives
+    // MemoryPack deserialization, which bypasses field initializers.
+    //
+    // Split from the RNG's lock (below) on purpose: a multi-threaded workload mixing NOW()/TODAY() with
+    // RAND()/RANDBETWEEN() used to serialize every random draw behind the same lock as the clock sample,
+    // even though the two have no correctness dependency on each other. Checked before splitting: the only
+    // places that reset EITHER field — InvalidateCache and Recalculate, both above — reset `_epochNow` alone;
+    // neither touches `_random` (RNG state intentionally persists across epochs, per the comment on
+    // `_random`). So there is no "reset both atomically" invariant to preserve — the two locks can be taken
+    // independently and in any order, including concurrently from different threads.
     [MemoryPackIgnore]
-    private object? _volatileLock;
+    private object? _clockLock;
 
-    private object VolatileLock
+    // Guards the not-thread-safe RNG (_random). See _clockLock for why this is a separate lock.
+    [MemoryPackIgnore]
+    private object? _randomLock;
+
+    private object ClockLock
     {
         get
         {
-            var existing = _volatileLock;
+            var existing = _clockLock;
             if (existing is not null)
             {
                 return existing;
             }
 
             var created = new object();
-            return Interlocked.CompareExchange(ref _volatileLock, created, null) ?? created;
+            return Interlocked.CompareExchange(ref _clockLock, created, null) ?? created;
+        }
+    }
+
+    private object RandomLock
+    {
+        get
+        {
+            var existing = _randomLock;
+            if (existing is not null)
+            {
+                return existing;
+            }
+
+            var created = new object();
+            return Interlocked.CompareExchange(ref _randomLock, created, null) ?? created;
         }
     }
 
@@ -329,11 +356,14 @@ public sealed partial class Workbook
     /// <summary>
     /// The current epoch's clock, sampled once (lazily) as an Excel serial from local time, so every
     /// <c>NOW()</c>/<c>TODAY()</c> in a pass agrees. Thread-safe: the first caller of the epoch samples and
-    /// publishes under <see cref="VolatileLock"/>, the rest read the published value.
+    /// publishes under <see cref="ClockLock"/>, the rest read the published value. Uses a lock separate from
+    /// <see cref="RandomLock"/> so NOW()/TODAY() reads never serialize behind RAND()/RANDBETWEEN() draws (or
+    /// vice versa) in a multi-threaded evaluation — see the comment on <see cref="_clockLock"/> for why that
+    /// split is safe.
     /// </summary>
     internal double EpochNow()
     {
-        lock (VolatileLock)
+        lock (ClockLock)
         {
             return _epochNow ??= DateSerial.FromDateTime(TimeProvider.GetLocalNow().DateTime);
         }
@@ -343,13 +373,14 @@ public sealed partial class Workbook
     /// Draws the next value in <c>[0, 1)</c> from the persistent RNG (created lazily from
     /// <see cref="RandomSeed"/>) and marks the evaluation volatile. Thread-safe (<see cref="Random"/> is not).
     /// The RNG is NOT re-seeded per epoch — the sequence continues so successive epochs differ, while the
-    /// per-epoch cache keeps a single cell stable within a pass.
+    /// per-epoch cache keeps a single cell stable within a pass. Uses <see cref="RandomLock"/>, separate from
+    /// <see cref="ClockLock"/> — see the comment on <see cref="_clockLock"/>.
     /// </summary>
     internal double NextRandom()
     {
         MarkVolatileTouched();
 
-        lock (VolatileLock)
+        lock (RandomLock)
         {
             _random ??= RandomSeed is { } seed ? new Random(seed) : new Random();
             return _random.NextDouble();
@@ -634,7 +665,7 @@ public sealed partial class Workbook
         _rangeCache?.Clear();
         Volatile.Write(ref _rangeCacheEntryCount, 0);
 
-        lock (VolatileLock)
+        lock (ClockLock)
         {
             _epochNow = null;
         }
@@ -659,7 +690,7 @@ public sealed partial class Workbook
         _rangeCache?.Clear();
         Volatile.Write(ref _rangeCacheEntryCount, 0);
 
-        lock (VolatileLock)
+        lock (ClockLock)
         {
             _epochNow = null;
         }
