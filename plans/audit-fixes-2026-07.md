@@ -301,6 +301,9 @@ modo ancorado no Parser, delta no EvaluationContext (WithCell zera). Pendências
   dedup de StringValue do G2 (209→60.008 wrappers, +59.799 strings, ~4,7MB) + ~64KB de sobras
   (buffer 65.560B retido, formatters). FIX BARATO IDENTIFICADO: dedup no CellStoreFormatter.Deserialize
   espelhando o GetOrAddString do loader → novo item M4.
+  **M4 EXECUTADO** (commit perf(serialization)): dedup read-side no formatter (write intocado, bytes
+  de disco idênticos); probe: 209→209 instâncias através do round-trip (antes 209→60.008); teste
+  permanente RoundTrip_SharesRepeatedLiteralInstances; 1.085+53 verdes.
 - Bônus: caminho xlsx retém ~237KB de reflexão/emit do OpenXml (one-time, irrelevante).
 
 ### Verification Plan
