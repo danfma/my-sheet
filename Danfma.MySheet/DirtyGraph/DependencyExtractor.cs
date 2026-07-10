@@ -135,6 +135,21 @@ internal static class DependencyExtractor
                 ResolveName(name, scan, wb, resolving);
                 return;
 
+            // G3 spike (node-delta shared formulas) — PRODUCTION PENDENCY, not wired for the spike: a
+            // SharedFormulaSlave's effective cell/range deps depend on ITS OWN (DeltaRow, DeltaColumn), which
+            // this static, delta-oblivious walker does not thread through (unlike FormulaWriter/
+            // NumericAggregation/ReferenceGuard, which do — see those files). Conservatively AlwaysDirty
+            // instead of silently returning an EMPTY dependency set (the unsafe "lost dependency" failure
+            // mode this file's own doc comment calls out) — no test in this repo currently loads a shared
+            // formula from .xlsx through DirtyGraph/RecalculationEngine (verified: no "sharedformula" hit
+            // under tests/Danfma.MySheet.Tests), so under-implementing this is an explicit, documented
+            // tradeoff of the spike, not a silent gap. Wiring full support means threading (deltaRow,
+            // deltaColumn) through this whole Visit chain and adding effective-address cases for
+            // AnchoredCellReference/AnchoredRangeReference, mirroring the three files above.
+            case SharedFormulaSlave or AnchoredCellReference or AnchoredRangeReference:
+                scan.AlwaysDirty = true;
+                return;
+
             case FunctionCall custom:
                 // Função host: comportamento desconhecido → conservador.
                 scan.AlwaysDirty = true;

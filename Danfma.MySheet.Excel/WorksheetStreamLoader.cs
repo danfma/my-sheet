@@ -34,13 +34,25 @@ internal static class WorksheetStreamLoader
         public ExcelLoadOptions? Options { get; } = options;
 
         /// <summary>
-        /// Masters of shared-formula groups: si → (position, id, text, tokens). The token list is
-        /// produced once per master and re-parsed with a per-slave delta; the text survives for the
-        /// out-of-spec fallback (negative delta) that still goes through the textual shifter.
+        /// Masters of shared-formula groups: si → (position, id, text, tokens, anchored tree). The token
+        /// list is produced once per master and re-parsed with a per-slave delta on the LEGACY path; the
+        /// text survives for the out-of-spec fallback (negative delta) that still goes through the textual
+        /// shifter. <c>AnchoredTree</c>/<c>AnchoredSupported</c> (G3 spike, node-delta shared formulas) are
+        /// computed once per group, eagerly, when the master is first seen: the anchored-mode parse of the
+        /// SAME token list, shared by every slave via <see cref="SharedFormulaSlave"/> when
+        /// <c>AnchoredSupported</c> is true — see <see cref="ExpandSlave"/>.
         /// </summary>
         public Dictionary<
             uint,
-            (int Row, int Column, string MasterId, string Formula, List<Token> Tokens)
+            (
+                int Row,
+                int Column,
+                string MasterId,
+                string Formula,
+                List<Token> Tokens,
+                Expression AnchoredTree,
+                bool AnchoredSupported
+            )
         > SharedFormulas { get; } = [];
 
         /// <summary>
@@ -169,9 +181,25 @@ internal static class WorksheetStreamLoader
     // non-negative deltas (the master is the FIRST cell of the group's ref), which the token-delta
     // parse handles without any per-slave re-tokenization; a negative delta (out-of-spec si reuse)
     // falls back to the original text shifter, preserving its exact degenerate behavior.
+    //
+    // G3 spike (node-delta shared formulas): on the spec-compliant (non-negative delta) path, when the
+    // group's master parsed fully into anchored nodes (AnchoredSupported), every slave becomes a small
+    // SharedFormulaSlave wrapper around the ONE shared AnchoredTree instead of its own independently-parsed,
+    // independently-allocated expression tree — the load-time allocation the spike targets. A group whose
+    // master contains a shape the anchored Parser mode cannot represent exactly (an open range, a union, a
+    // reference-returning endpoint — see AnchoredFormulaSupport) keeps the pre-spike token-delta re-parse
+    // per slave, unchanged.
     private static Expression ExpandSlave(
         Sheet sheet,
-        (int Row, int Column, string MasterId, string Formula, List<Token> Tokens) master,
+        (
+            int Row,
+            int Column,
+            string MasterId,
+            string Formula,
+            List<Token> Tokens,
+            Expression AnchoredTree,
+            bool AnchoredSupported
+        ) master,
         string id,
         int row,
         int column
@@ -182,6 +210,11 @@ internal static class WorksheetStreamLoader
 
         if (deltaRow >= 0 && deltaColumn >= 0)
         {
+            if (master.AnchoredSupported)
+            {
+                return new SharedFormulaSlave(master.AnchoredTree, deltaRow, deltaColumn);
+            }
+
             return ExpressionParser.ParseSharedFormulaBody(
                 master.Tokens,
                 sheet,
@@ -193,6 +226,27 @@ internal static class WorksheetStreamLoader
         var shifted = SharedFormulaShifter.Shift(master.Formula, master.MasterId, id);
 
         return ExpressionParser.ParseFormulaBody(shifted, sheet);
+    }
+
+    // G3 spike (node-delta shared formulas): attempts the anchored-mode parse of a shared-formula group's
+    // master ONCE, and validates the result is fully representable by the anchored/delta evaluation model
+    // (AnchoredFormulaSupport.IsFullyAnchored). ANY failure — a ParseException from a token shape the
+    // anchored Parser mode does not handle gracefully (e.g. a chained cross-sheet range endpoint), or a
+    // shape the support check rejects (an open range, a union, a reference-returning endpoint) — is treated
+    // as "this group is not anchored-safe": the caller keeps using the legacy per-slave token-delta parse for
+    // every slave in the group, exactly as before this spike. Honest fallback, not a guess.
+    private static (Expression Tree, bool Supported) TryBuildAnchoredMaster(Sheet sheet, List<Token> tokens)
+    {
+        try
+        {
+            var tree = ExpressionParser.ParseAnchoredMasterBody(tokens, sheet);
+
+            return AnchoredFormulaSupport.IsFullyAnchored(tree) ? (tree, true) : (BlankValue.Instance, false);
+        }
+        catch (ParseException)
+        {
+            return (BlankValue.Instance, false);
+        }
     }
 
     private static void ReadSheetData(XmlReader reader, LoadContext context)
@@ -386,12 +440,17 @@ internal static class WorksheetStreamLoader
         {
             if (isSharedFormula)
             {
+                var tokens = ExpressionParser.TokenizeFormulaBody(formulaText);
+                var (anchoredTree, anchoredSupported) = TryBuildAnchoredMaster(context.Sheet, tokens);
+
                 context.SharedFormulas[sharedIndex] = (
                     row,
                     column,
                     id,
                     formulaText,
-                    ExpressionParser.TokenizeFormulaBody(formulaText)
+                    tokens,
+                    anchoredTree,
+                    anchoredSupported
                 );
             }
 

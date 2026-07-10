@@ -11,7 +11,8 @@ internal sealed class Parser(
     List<Token> tokens,
     string sheetName,
     int deltaRow = 0,
-    int deltaColumn = 0
+    int deltaColumn = 0,
+    bool anchored = false
 )
 {
     // Binding powers (higher binds tighter). Unary prefix binds tighter than '^' so that
@@ -164,6 +165,27 @@ internal sealed class Parser(
             return new RangeReference(start.Id, end.Id, start.SheetName);
         }
 
+        // G3 spike (node-delta shared formulas): a bounded range whose both endpoints are anchored cell
+        // refs — Data!A1:A2 inside a shared-formula master — gets its own anchored node so the WHOLE range
+        // shifts per slave without a per-slave re-parse. This must be checked BEFORE TryBuildOpenRange:
+        // that helper's own CellReference-only endpoint check would otherwise never fire for anchored
+        // endpoints, and letting it "resolve" both endpoints numerically would silently freeze the range at
+        // the master's literal position (losing the per-slave shift) instead of anchoring it correctly.
+        if (left is AnchoredCellReference anchoredStart && right is AnchoredCellReference anchoredEnd)
+        {
+            return new AnchoredRangeReference(
+                anchoredStart.Column,
+                anchoredStart.Row,
+                anchoredStart.ColumnAbsolute,
+                anchoredStart.RowAbsolute,
+                anchoredEnd.Column,
+                anchoredEnd.Row,
+                anchoredEnd.ColumnAbsolute,
+                anchoredEnd.RowAbsolute,
+                anchoredStart.SheetName
+            );
+        }
+
         // The ':' operator forces reference semantics: a letters-only endpoint is a COLUMN and an
         // integer endpoint a ROW, even when a defined name of the same spelling exists. This yields the
         // whole-column/row and one-sided open references (A:A, 1:5, A2:A, A:A10, A1:C).
@@ -181,7 +203,9 @@ internal sealed class Parser(
     // the parser's context sheet (a column-/row-only endpoint carries no sheet).
     private string SheetOf(Expression left, Expression right) =>
         left is CellReference lc ? lc.SheetName
+        : left is AnchoredCellReference la ? la.SheetName
         : right is CellReference rc ? rc.SheetName
+        : right is AnchoredCellReference ra ? ra.SheetName
         : sheetName;
 
     // Combines two endpoints (each contributing what it knows) into an open range: the left gives the
@@ -273,7 +297,7 @@ internal sealed class Parser(
 
         if (IsCellReference(token.Text))
         {
-            return new CellReference(NormalizeReference(token.Text), sheetName);
+            return BuildCellReference(token.Text, sheetName);
         }
 
         // A bare name: a LET-bound name resolved at evaluation time (#NAME? if unbound).
@@ -360,7 +384,7 @@ internal sealed class Parser(
 
         _depth--;
 
-        return new CellReference(NormalizeReference(first.Text), sheet);
+        return BuildCellReference(first.Text, sheet);
     }
 
     // Turns a range-endpoint token into the expression a qualified open range is built from: a cell id
@@ -372,7 +396,7 @@ internal sealed class Parser(
         if (token.Type == TokenType.Identifier)
         {
             endpoint = IsCellReference(token.Text)
-                ? new CellReference(NormalizeReference(token.Text), sheet)
+                ? BuildCellReference(token.Text, sheet)
                 : new NameReference(token.Text);
             return true;
         }
@@ -385,6 +409,69 @@ internal sealed class Parser(
 
         endpoint = null!;
         return false;
+    }
+
+    // G3 spike (node-delta shared formulas): builds the reference node for a cell-shaped token, either the
+    // ordinary normalized/shifted CellReference (delta==0 or the legacy per-slave shift mode) or, in the
+    // Parser's ANCHORED mode (used ONLY to parse a shared-formula group's master once — see
+    // ExpressionParser.ParseAnchoredMasterBody), an AnchoredCellReference that keeps its ($-anchor,
+    // column, row) components so a SharedFormulaSlave can shift it per-cell at evaluation time instead of
+    // this Parser re-parsing the token per slave.
+    private Expression BuildCellReference(string text, string sheet)
+    {
+        if (!anchored)
+        {
+            return new CellReference(NormalizeReference(text), sheet);
+        }
+
+        var (column, row, columnAbsolute, rowAbsolute) = ParseAnchorComponents(text);
+
+        return new AnchoredCellReference(column, row, columnAbsolute, rowAbsolute, sheet);
+    }
+
+    // Decomposes a cell-reference token into (column, row, $-column, $-row) WITHOUT shifting — the anchored
+    // twin of ShiftCellId, reusing its exact token shape (letters, optional interior '$', digits). Assumes
+    // the token already passed IsCellReference (every call site does), so the malformed-shape guard branches
+    // ShiftCellId carries for parity with the legacy textual shifter (extra '$', 4+ letter columns — shapes
+    // the Tokenizer never actually produces) are intentionally not duplicated here; see the spike report.
+    private static (int Column, int Row, bool ColumnAbsolute, bool RowAbsolute) ParseAnchorComponents(
+        string text
+    )
+    {
+        var index = 0;
+        var columnAbsolute = text[0] == '$';
+
+        if (columnAbsolute)
+        {
+            index = 1;
+        }
+
+        var lettersStart = index;
+
+        while (index < text.Length && char.IsLetter(text[index]))
+        {
+            index++;
+        }
+
+        var letterCount = index - lettersStart;
+        var rowAbsolute = index < text.Length && text[index] == '$';
+
+        if (rowAbsolute)
+        {
+            index++;
+        }
+
+        var digitsStart = index;
+        var column = 0;
+
+        for (var i = lettersStart; i < lettersStart + letterCount; i++)
+        {
+            column = column * 26 + (char.ToUpperInvariant(text[i]) - 'A' + 1);
+        }
+
+        var row = int.Parse(text.AsSpan(digitsStart), CultureInfo.InvariantCulture);
+
+        return (column, row, columnAbsolute, rowAbsolute);
     }
 
     // Strips absolute markers ('$') and upper-cases, e.g. $A$1 -> A1. The reference identifies the same

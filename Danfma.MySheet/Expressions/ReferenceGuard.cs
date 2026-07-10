@@ -44,6 +44,15 @@ internal static class ReferenceGuard
             case RangeReference range:
                 return Check(context, range.SheetName);
 
+            // G3 spike (node-delta shared formulas): mirrors CellReference/RangeReference above so a
+            // shared-formula slave's aggregate-function argument short-circuits to #REF! the same way when
+            // its sheet is missing (SheetName is a literal component of these nodes, unaffected by delta).
+            case AnchoredCellReference anchoredCell:
+                return Check(context, anchoredCell.SheetName);
+
+            case AnchoredRangeReference anchoredRange:
+                return Check(context, anchoredRange.SheetName);
+
             case OpenRangeReference open:
                 return Check(context, open.SheetName);
 
