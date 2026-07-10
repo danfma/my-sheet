@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.12.0"></a>
+## [3.12.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.12.0) (2026-07-10)
+
+### Features
+
+* **api:** optional arity validation for custom functions (docs + release marker) ([dcf6727](https://www.github.com/danfma/my-sheet/commit/dcf672755b2b45d68eebcdd6ac53f8f159fc30b5))
+
 <a name="3.11.0"></a>
 ## [3.11.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.11.0) (2026-07-10)
 
