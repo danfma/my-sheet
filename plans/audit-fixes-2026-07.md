@@ -151,15 +151,15 @@ Status: Complete
 Suítes: 1.077 core + 48 Excel, 0 falhas. Zero wire format; zero mudança de texto emitido.
 
 ## Phase 5: Robustez do interop → release minor
-Status: Not started
+Status: Complete
 
-- [ ] **R1**: `ExcelLoadOptions` (aditivo: `Load(path/stream, options?)`) com coletor de warnings
+- [x] **R1**: `ExcelLoadOptions` (aditivo: `Load(path/stream, options?)`) com coletor de warnings
   (`IReadOnlyList<LoadWarning>` exposto via options) — defined names inválidos deixam de sumir em silêncio
   (ExcelFile.cs:104).
-- [ ] **R2**: merge — investigar escrita direta sem `MemoryStream` intermediário (ExcelMerge.cs:143-154):
+- [x] **R2**: merge — investigar escrita direta sem `MemoryStream` intermediário (ExcelMerge.cs:143-154):
   part temporário ou arquivo temp; SE inviável no SDK, documentar a limitação na doc da classe e
   registrar decisão aqui.
-- [ ] **R3**: comentário do next-free-tag da union (Expression.cs:15 → 319) + doc do invariante das 3
+- [x] **R3**: comentário do next-free-tag da union (Expression.cs:15 → 319) + doc do invariante das 3
   estruturas de estrutura (structural index / dirty buckets / dense pages) num comment central.
 
 ### Verification Plan
@@ -167,15 +167,25 @@ Status: Not started
 - Push + release verde
 
 ### Phase Summary
-_(write when phase completes)_
+- **R1+R3** (182a1f4): `ExcelLoadOptions` aditivo com callback `OnWarning` (ExcelLoadWarning record:
+  Kind/Subject/Detail; kinds: InvalidDefinedName, UnparsableDateLiteral com cell id como Subject) —
+  defined names inválidos deixaram de sumir em silêncio; sem options, comportamento byte-idêntico.
+  5 testes novos; docs en+pt atualizadas. Comentário do next-free-tag corrigido (319, com nota para
+  recontar); nota-âncora do invariante triplo de estrutura em SheetStructuralIndex com cross-refs.
+- **R2** (commit desta entrada): buffer do merge trocado de MemoryStream para FileStream temp
+  (DeleteOnClose, 64KB): allocated 248→176 MB (−29%), peak-live 416→344 MB (−17%), tempo estável;
+  round-trip 0 mismatches; sem temporários órfãos. Opção A (part swap) descartada por risco de
+  renomear part referenciado.
+
+Suítes: 1.077 core + 53 Excel, 0 falhas.
 
 ## Phase 6: FunctionRegistry (AVALIAR BREAKING com o usuário antes de executar)
-Status: Not started — GATED em decisão do usuário
+Status: In progress — DECISÃO DO USUÁRIO (2026-07-10): executar TUDO MENOS override de built-ins (registrado como decisão futura)
 
 - [ ] Extrair catálogo de funções do Parser para `FunctionRegistry` (mantendo FrozenDictionary interno)
 - [ ] `FormulaWriter` deriva nomes do registry (mata a 4ª cópia manual)
 - [ ] Custom functions: validação de aridade opcional em `RegisterFunction` (aditivo)
-- [ ] DECISÃO COM O USUÁRIO: permitir override de built-ins? (mudança de comportamento observável)
+- [x] DECISÃO COM O USUÁRIO: override de built-ins NÃO entra (fica documentado como possível evolução opt-in)
 - [ ] Extrações do Workbook.cs (serialização, época volátil, admissão de range cache, Sheet) — só as
   `[MemoryPackIgnore]`-safe; membros serializados NÃO se movem
 
