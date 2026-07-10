@@ -139,23 +139,51 @@ public sealed partial record RankEq(Expression[] Arguments) : Function
             ascending = order != 0;
         }
 
-        if (StatisticsMath.Collect([arguments[1]], context, out var values) is { } error)
-        {
-            return ComputedValue.Error(error);
-        }
+        int equal;
+        int outranking;
 
-        var equal = 0;
-        var outranking = 0;
-
-        foreach (var value in values)
+        // A big populated range → the shared per-epoch sorted-number view (built once): two binary
+        // searches derive the same equal/outranking counts the linear scan below computes cell by cell,
+        // collapsing the O(n) scan (O(n²) over a whole column dragged down thousands of rows) to
+        // O(log n). The first cell error propagates exactly as StatisticsMath.Collect does.
+        if (
+            arguments[1] is Reference reference
+            && context.Workbook.TryGetRangeSnapshot(reference, context) is { } snapshot
+        )
         {
-            if (value == number)
+            var (countLess, countEqual, countGreater) = snapshot.NumericRankCounts(
+                number,
+                out var arrayError
+            );
+
+            if (arrayError is { } propagated)
             {
-                equal++;
+                return ComputedValue.Error(propagated);
             }
-            else if (ascending ? value < number : value > number)
+
+            equal = countEqual;
+            outranking = ascending ? countLess : countGreater;
+        }
+        else
+        {
+            if (StatisticsMath.Collect([arguments[1]], context, out var values) is { } error)
             {
-                outranking++;
+                return ComputedValue.Error(error);
+            }
+
+            equal = 0;
+            outranking = 0;
+
+            foreach (var value in values)
+            {
+                if (value == number)
+                {
+                    equal++;
+                }
+                else if (ascending ? value < number : value > number)
+                {
+                    outranking++;
+                }
             }
         }
 

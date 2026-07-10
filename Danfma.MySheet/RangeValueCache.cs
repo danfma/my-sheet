@@ -535,4 +535,72 @@ internal sealed class RangeSnapshot
         firstError = data.FirstError;
         return data.Values;
     }
+
+    /// <summary>
+    /// Binary-search-derived tie counts for <paramref name="number"/> against the shared ascending-sorted
+    /// numeric view: the count of populated numeric values strictly LESS than it, the count EQUAL to it,
+    /// and the count strictly GREATER — the O(log n) replacement for RANK.EQ/RANK.AVG's linear
+    /// equal/outranking scan (an O(n) scan per formula, O(n²) over a dragged-down column). As with
+    /// <see cref="SortedNumericValues"/>, when <paramref name="firstError"/> is set the caller must
+    /// propagate it unchanged and ignore the counts — exactly how <c>StatisticsMath.Collect</c> short-
+    /// circuits the linear path on the first cell error in scan order.
+    /// </summary>
+    public (int CountLess, int CountEqual, int CountGreater) NumericRankCounts(
+        double number,
+        out Error? firstError
+    )
+    {
+        var data = _sortedNumbers.Value;
+        firstError = data.FirstError;
+
+        var values = data.Values;
+        var lower = LowerBound(values, number);
+        var upper = UpperBound(values, number);
+
+        return (lower, upper - lower, values.Length - upper);
+    }
+
+    // First index whose value is >= number — the count of values strictly less than it.
+    private static int LowerBound(double[] values, double number)
+    {
+        var low = 0;
+        var high = values.Length;
+
+        while (low < high)
+        {
+            var mid = (low + high) >> 1;
+            if (values[mid] < number)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
+
+    // First index whose value is > number — the count of values less than or equal to it.
+    private static int UpperBound(double[] values, double number)
+    {
+        var low = 0;
+        var high = values.Length;
+
+        while (low < high)
+        {
+            var mid = (low + high) >> 1;
+            if (values[mid] <= number)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+
+        return low;
+    }
 }

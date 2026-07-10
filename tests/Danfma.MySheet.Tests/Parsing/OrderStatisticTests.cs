@@ -166,6 +166,175 @@ public class OrderStatisticTests
         await Assert.That(Num(Calc("=RANK.AVG(A3,A2:A6,1)", RankData))).IsEqualTo(3.5);
     }
 
+    [Test]
+    public async Task RankAvg_NumberAbsent_IsNAError()
+    {
+        await Assert.That(Calc("=RANK.AVG(9,A2:A6)", RankData)).IsEqualTo(ErrorValue.NotAvailable);
+    }
+
+    [Test]
+    public async Task RankEq_OrderZeroAndOmitted_AreEquivalent_Descending()
+    {
+        // order=0 e order omitido resolvem para o mesmo rank descendente.
+        await Assert
+            .That(Num(Calc("=RANK.EQ(A6,A2:A6,0)", RankData)))
+            .IsEqualTo(Num(Calc("=RANK.EQ(A6,A2:A6)", RankData)));
+        await Assert
+            .That(Num(Calc("=RANK.AVG(A3,A2:A6,0)", RankData)))
+            .IsEqualTo(Num(Calc("=RANK.AVG(A3,A2:A6)", RankData)));
+    }
+
+    [Test]
+    public async Task RankEq_ThreeWayTie_WholeGroupSharesTheTopRank_AndAvgIsTheMean()
+    {
+        // {10,10,10,7,3} descendente: os três 10 ocupam os ranks 1,2,3 -> RANK.EQ = 1 (topo do
+        // grupo) para qualquer um deles; RANK.AVG = média(1,2,3) = 2.
+        var cells = Column("A", 2, 10, 10, 10, 7, 3);
+
+        await Assert.That(Num(Calc("=RANK.EQ(A2,A2:A6)", cells))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc("=RANK.EQ(A4,A2:A6)", cells))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc("=RANK.AVG(A2,A2:A6)", cells))).IsEqualTo(2.0);
+
+        // Ascendente: o grupo de 10 ocupa os ranks 3,4,5 (os dois menores, 3 e 7, vêm antes) ->
+        // RANK.EQ = 3 (topo do grupo em ordem ascendente); RANK.AVG = média(3,4,5) = 4.
+        await Assert.That(Num(Calc("=RANK.EQ(A2,A2:A6,1)", cells))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=RANK.AVG(A2,A2:A6,1)", cells))).IsEqualTo(4.0);
+    }
+
+    [Test]
+    public async Task RankEq_NonNumericValuesInRef_AreIgnored()
+    {
+        // Texto dentro do ref não participa da contagem — visão numérica efetiva é {5,3,1}.
+        (string, object)[] cells =
+        [
+            ("A2", 5),
+            ("A3", "text"),
+            ("A4", 3),
+            ("A5", "more text"),
+            ("A6", 1),
+        ];
+
+        await Assert.That(Num(Calc("=RANK.EQ(A2,A2:A6)", cells))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc("=RANK.EQ(A2,A2:A6,1)", cells))).IsEqualTo(3.0);
+    }
+
+    // --- RANK.EQ / RANK.AVG over a SNAPSHOT-ADMITTED range (>= the 256-cell cache threshold,
+    // Workbook.RangeCacheMinimumCells) — the binary-search fast path must match the small-range
+    // linear-scan path bit for bit. 300 cells B1:B300; every 50th cell is non-numeric ("skip", ignored
+    // exactly like any other referenced text) and the rest cycle 1..10, so the numeric view is 294
+    // values: 1..9 appear 30x each, 10 appears 24x (its 6 missing occurrences are the "skip" rows,
+    // which all land on the value-10 residue by construction). 11 never appears (the #N/A case). ---
+
+    private static (Workbook Workbook, Sheet Sheet) BuildBigRankSheet()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Rank");
+
+        for (var i = 1; i <= 300; i++)
+        {
+            sheet[$"B{i}"] =
+                i % 50 == 0
+                    ? new Danfma.MySheet.Expressions.StringValue("skip")
+                    : new NumberValue((i - 1) % 10 + 1);
+        }
+
+        return (workbook, sheet);
+    }
+
+    // Evaluates `formula` three times against the SAME workbook: once with the range cache bypassed
+    // (always the linear path — the parity oracle) and twice with the cache enabled to drive the range
+    // past second-use admission (read 1 only marks the range and stays on the linear path; read 2 builds
+    // the RangeSnapshot and is served by it). Returns (bypass, admitted) so callers can assert both equal
+    // each other AND the hand-derived golden value.
+    private static (object? Bypass, object? Admitted) CalcAdmitted(
+        Workbook workbook,
+        Sheet sheet,
+        string formula
+    )
+    {
+        workbook.RangeCacheDisabled = true;
+        workbook.InvalidateCache();
+        var bypass = ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+        workbook.RangeCacheDisabled = false;
+        workbook.InvalidateCache();
+        _ = ExpressionParser.Parse(formula, sheet).Evaluate(workbook); // read 1 -> marker only
+        var admitted = ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject(); // read 2 -> snapshot
+
+        return (bypass, admitted);
+    }
+
+    [Test]
+    public async Task RankEq_BigSnapshotAdmittedRange_MatchesLinearBypass_Descending()
+    {
+        var (workbook, sheet) = BuildBigRankSheet();
+
+        // countGreater(5) = 30*4 (6,7,8,9) + 24 (10) = 144 -> rank = 145.
+        var (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.EQ(5,B1:B300)");
+        await Assert.That(Num(bypass)).IsEqualTo(145.0);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+
+        // The max value (10, 24-way tie): countGreater = 0 -> rank = 1 (top of the tied group).
+        (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.EQ(10,B1:B300)");
+        await Assert.That(Num(bypass)).IsEqualTo(1.0);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+    }
+
+    [Test]
+    public async Task RankEq_BigSnapshotAdmittedRange_MatchesLinearBypass_Ascending()
+    {
+        var (workbook, sheet) = BuildBigRankSheet();
+
+        // countLess(5) = 30*4 (1,2,3,4) = 120 -> rank = 121.
+        var (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.EQ(5,B1:B300,1)");
+        await Assert.That(Num(bypass)).IsEqualTo(121.0);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+
+        // countLess(10) = 270 -> rank = 271 (top of the tied group in ascending order).
+        (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.EQ(10,B1:B300,1)");
+        await Assert.That(Num(bypass)).IsEqualTo(271.0);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+    }
+
+    [Test]
+    public async Task RankAvg_BigSnapshotAdmittedRange_MatchesLinearBypass()
+    {
+        var (workbook, sheet) = BuildBigRankSheet();
+
+        // Descending: 144 + (30+1)/2 = 159.5.
+        var (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.AVG(5,B1:B300)");
+        await Assert.That(Num(bypass)).IsEqualTo(159.5);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+
+        // Ascending: 120 + (30+1)/2 = 135.5.
+        (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.AVG(5,B1:B300,1)");
+        await Assert.That(Num(bypass)).IsEqualTo(135.5);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+
+        // The 24-way tie at the max value: descending 0+(24+1)/2 = 12.5; ascending 270+12.5 = 282.5.
+        (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.AVG(10,B1:B300)");
+        await Assert.That(Num(bypass)).IsEqualTo(12.5);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+
+        (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.AVG(10,B1:B300,1)");
+        await Assert.That(Num(bypass)).IsEqualTo(282.5);
+        await Assert.That(Num(admitted)).IsEqualTo(Num(bypass));
+    }
+
+    [Test]
+    public async Task RankEqAndAvg_BigSnapshotAdmittedRange_AbsentValue_IsNAError()
+    {
+        var (workbook, sheet) = BuildBigRankSheet();
+
+        var (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.EQ(11,B1:B300)");
+        await Assert.That(bypass).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(admitted).IsEqualTo(ErrorValue.NotAvailable);
+
+        (bypass, admitted) = CalcAdmitted(workbook, sheet, "=RANK.AVG(11,B1:B300)");
+        await Assert.That(bypass).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(admitted).IsEqualTo(ErrorValue.NotAvailable);
+    }
+
     // --- PERCENTILE.INC — golden: página oficial "PERCENTILE.INC function" ---
 
     [Test]
