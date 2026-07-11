@@ -18,19 +18,27 @@ husky (pre-commit: csharpier+build; pre-push: +suítes); wire MemoryPack é cont
 membros serializados intocados; `.csharpierignore` já exclui `.claude/`. Release ao final: minor (feat).
 
 ## Phase 1: Integrar o spike e revalidar gates na main
-Status: Not started
+Status: Complete
 
-- [ ] Criar branch `feat/shared-formula-delta` a partir de main; trazer o diff do spike (merge ou
+- [x] Criar branch `feat/shared-formula-delta` a partir de main; trazer o diff do spike (merge ou
   cherry-pick de `64fbf3c` do branch do worktree; resolver drift vs main — commits novos: M4, docs)
-- [ ] Re-rodar TODOS os gates do spike no branch: suítes completas, SharedFormulaDeltaTests,
+- [x] Re-rodar TODOS os gates do spike no branch: suítes completas, SharedFormulaDeltaTests,
   MemoryPackCompatibilityTests, ExcelLoadBenchmarks (tabela registrada), --k1-endtoend (<5%)
-- [ ] Remover o worktree do agente após integração confirmada
+- [x] Remover o worktree do agente após integração confirmada
 
 ### Verification Plan
 - Suítes completas verdes; tabela BDN ≈ números do spike (±10% de ruído de máquina)
 
 ### Phase Summary
-_(write when phase completes)_
+Merge do spike em `feat/shared-formula-delta` (bdf1385; staged por agente que travou em NuGet flaky,
+commitado pelo orquestrador; zero conflitos). Interação M4×spike confirmada por código E teste
+(CellStoreFormatter.Canonicalize só toca literais — SharedFormulaSlave passa intocado, CellStore.cs:371-403).
+Suítes: 1.085 core + 54 Excel verdes; csharpier limpo. Gates re-medidos com worktree removido e máquina quieta:
+- Memória (determinístico): Allocated 102,47MB e Gen 17000/6000/3000 — IDÊNTICOS ao spike (−59% / −50% vs baseline) ✓
+- Mean 354,7ms vs 295 do spike-day: explicado por máquina ~10% mais lenta hoje (controle: 896 vs 788-838;
+  razões normalizadas 0,396 vs 0,374 batem) — métrica de tempo tratada como indicativa
+- Compute: A/B mesmo-dia main 185,9ms vs feat 193,2ms = +3,9% (<5%) ✓ (controle Aspose derivou +3% junto)
+Worktree e branch do spike removidos após merge confirmado.
 
 ## Phase 2: Auditoria de pattern-match nas famílias de funções (o risco central)
 Status: Not started
