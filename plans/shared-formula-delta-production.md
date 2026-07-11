@@ -41,19 +41,19 @@ Suítes: 1.085 core + 54 Excel verdes; csharpier limpo. Gates re-medidos com wor
 Worktree e branch do spike removidos após merge confirmado.
 
 ## Phase 2: Auditoria de pattern-match nas famílias de funções (o risco central)
-Status: Not started
+Status: Complete
 
-- [ ] Varredura EXAUSTIVA de `is CellReference` / `is RangeReference` / switches por tipo de referência
+- [x] Varredura EXAUSTIVA de `is CellReference` / `is RangeReference` / switches por tipo de referência
   em Danfma.MySheet/Expressions/** (grep + revisão manual; o spike só adaptou NumericAggregation e
   ReferenceGuard). Suspeitos nomeados no spike: ROW/COLUMN/ADDRESS/CELL, Lookup/*, Subtotal, Npv,
   InformationFunctions; verificar também Offset/Indirect/Index, ArrayEvaluation, CriteriaScan,
   ArgumentFlattening, RangeValueCursor/PositionalRange (aceitam AnchoredRangeReference?)
-- [ ] Decisão de design na execução: adaptar caso a caso OU introduzir normalização interna única
+- [x] Decisão de design na execução: adaptar caso a caso OU introduzir normalização interna única
   (ex. `Expression.TryResolveReference` já existe? estender para os ancorados devolverem a forma
   concreta com delta aplicado) — preferir o ponto único se reduzir a superfície de erro
-- [ ] Testes por família com fixture de shared formula exercitando cada função suspeita COMO ESCRAVA
+- [x] Testes por família com fixture de shared formula exercitando cada função suspeita COMO ESCRAVA
   (ex. escrava com ROW(), OFFSET(A1,1,0), SUBTOTAL sobre range ancorado, INDIRECT — definir a matriz)
-- [ ] Estender SyntheticK1Builder: grupo(s) de shared formula com RANGES (SUM(A1:A3) relativo) e
+- [x] Estender SyntheticK1Builder: grupo(s) de shared formula com RANGES (SUM(A1:A3) relativo) e
   funções da matriz — o fixture atual só tem refs de célula
 
 ### Verification Plan
@@ -61,7 +61,84 @@ Status: Not started
   visitados e decisão por site)
 
 ### Phase Summary
-_(write when phase completes)_
+**Descoberta estrutural que orientou tudo**: a célula MASTER de um grupo shared-formula é sempre
+re-parseada como árvore ORDINÁRIA com `CellReference`/`RangeReference` de verdade — só as células
+DEPOIS dela (delta ≥ 0) viram `SharedFormulaSlave(master.AnchoredTree, ...)`
+(`WorksheetStreamLoader.ReadCell`/`ExpandSlave`). Ou seja, o bug só é alcançável pela ESCRAVA, nunca
+pelo master; os primeiros testes escritos erraram exatamente nisso (valor divergente na linha do master,
+não da escrava) e passaram "por acidente" no código com bug — corrigido depois de reverter o fix e
+confirmar que os testes deveriam falhar (ver abaixo).
+
+**Auditoria — site → classificação → ação** (arquivo:função):
+| Site | Classificação | Ação |
+|---|---|---|
+| `Lookup/Row.cs` `Row.Evaluate` (ROW(ref)) | (a) quebrado | Adicionado `[AnchoredCellReference]`/`[AnchoredRangeReference]` ao switch |
+| `Lookup/LookupFunctions.cs` `Column.Evaluate` (COLUMN(ref)) | (a) quebrado | idem, espelha Row |
+| `Lookup/LookupFunctions.cs` `FormulaText.Evaluate` (FORMULATEXT(ref)) | (a) quebrado | Arms para os dois tipos ancorados |
+| `Information/InformationFunctions.cs` `IsFormula.Evaluate` (ISFORMULA) | (a) quebrado | idem FormulaText |
+| `Information/SheetNumber.cs` (SHEET(ref)) | (a) quebrado | Arms — SheetName é literal, sem delta a aplicar |
+| `Mathematics/Subtotal.cs` `GatherSkippingSubtotals` | (a) quebrado | `case AnchoredCellReference or AnchoredRangeReference`: resolve via `TryResolveReference` e re-despacha recursivamente (reusa os cases existentes, inclusive a regra "ignora SUBTOTAL aninhado") |
+| `Financial/Npv.cs` | (a) quebrado (2 bugs) | range ancorado caía em `default`→#VALOR!; cell ancorada usava regra DIRECT em vez de REFERENCED (texto referenciado devia ser ignorado, não gerar erro) — cases dedicados |
+| `ArgumentFlattening.cs` (`FlattenComputedValues`/`ExpandComputedValues`) | (a) quebrado (só range; cell já funcionava via `default`) | `ExpandComputedValues` resolve o range no topo (mesmo código do RangeReference depois); `FlattenComputedValues` ganhou um `case AnchoredRangeReference` mirror |
+| `CriteriaScan.cs` `PositionalRange.Open` (SUMIF/SUMIFS/AVERAGEIF/…) | (a) quebrado | Resolve `AnchoredRangeReference` para `RangeReference` concreto no topo do método |
+| `RangeValueCursor.cs` `Open` (COUNTIF/MATCH/XLOOKUP) | (a) quebrado | idem, re-despacha via `Open` recursivo |
+| `ArrayEvaluation.cs` `Probe`/`TryBuildOperand` (idioma mini-CSE SMALL(IF(range=…,ROW(range)))) | (a) quebrado | `case AnchoredRangeReference` e `case Row{Arguments:[AnchoredRangeReference]}` espelhando os cases de `RangeReference` |
+| `Lookup/Offset.cs` (OFFSET) | (b) genérico funciona | `NamedReferences.TryResolveReference` já despacha via virtual `TryResolveReference`, que os nós ancorados sobrescrevem corretamente |
+| `Lookup/Index.cs` (INDEX) | (b) genérico funciona | idem; guard `is not Reference` já exclui corretamente os ancorados do branch de array |
+| `Lookup/Indirect.cs` (INDIRECT) | (b) nunca toca nós ancorados | Sempre reparseia `ref_text` do zero — nunca vê o master; ROW()/COLUMN() sem argumento (usados no idioma INDIRECT("A"&ROW())) já corretos por construção |
+| `Lookup/VLookup.cs`/`HLookup`/`Match`/`XLookup` (tabela/array via `NamedReferences.TryResolveReference`) | (b) genérico funciona | idem Offset/Index |
+| `RangeValueCache.cs` `TryGetRangeSnapshot`/`RangeAggregate.Memoize` | (b) degrada com segurança | `range is not (RangeReference or OpenRangeReference)` → `null`, cai no caminho lento (agora corrigido); não é um bug, só não acelera o ancorado |
+| `ComputedValue.cs` `EnumerateValues` | (c) inalcançável | Um `AnchoredCellReference`/`AnchoredRangeReference` NUNCA é embrulhado num `ComputedValue.Reference` (nem `Evaluate` produz isso) — só vê CellReference/RangeReference/OpenRangeReference/UnionReference concretos que uma função como OFFSET/CHOOSE já resolveu |
+| `UnionReference.cs` `ExpandComputedValues`, `DynamicRange.cs` `TryBox` | (c) inalcançável | `AnchoredFormulaSupport.IsFullyAnchored` rejeita QUALQUER `UnionReference`/`OpenRangeReference`/`DynamicRange` no master inteiro — o grupo cai no fallback legado inteiro; essas formas nunca coexistem com nós ancorados |
+| `DirtyGraph/DependencyExtractor.cs` | (c) fora de escopo (Fase 3) | Já documentado como `AlwaysDirty` conservador para os 3 nós — pendência explícita da Fase 3, não da 2 |
+
+**Decisão de design**: por-site, não um funil de normalização único. Os dois sites QUENTES por célula
+que o spike já tinha adaptado (`NumericAggregation`, `ReferenceGuard`) permanecem com o case mirror
+manual (sem indireção extra). Nos demais sites — que rodam uma vez por chamada de função, não uma vez
+por célula dentro do argumento — resolvo o nó ancorado para sua forma concreta com
+`AnchoredRangeReference.ToRangeReference(context)` / `AnchoredCellReference.Effective(context)`
+(ambos já `internal`, do próprio spike) e então: (i) reuso o case já existente por recursão
+(Subtotal, RangeValueCursor — mesmo padrão que UnionReference já usava para suas áreas) ou por
+reatribuição da variável local antes do switch (ArgumentFlattening, CriteriaScan — o range resolvido
+cai naturalmente no `case RangeReference` já existente, zero código duplicado); ou (ii) adiciono um
+arm dedicado quando o corpo é uma expressão curta (Row/Column/FormulaText/IsFormula/SheetNumber/Npv).
+Um funil único (ex. `Expression.NormalizeAnchored` chamado incondicionalmente em todo switch) foi
+descartado: teria que ser chamado em TODOS os sites de qualquer forma (mesmo esforço de edição), e
+adicionaria uma checagem de tipo + possível chamada virtual em todo `CellReference`/`RangeReference`
+comum também — o padrão escolhido só paga esse custo quando o nó É de fato ancorado.
+
+**Resultados da matriz de testes** (`tests/Danfma.MySheet.Excel.Tests/SharedFormulaSlaveFunctionTests.cs`,
+17 testes): verificado CADA teste revertendo os arquivos de fix para o estado pré-Fase-2 (checkout do
+commit-pai) e confirmando que falha — não só que passa depois. 10 dos 17 falharam exatamente nos sites
+listados como (a) acima: `Row`, `Column`, `Subtotal`, `Npv`, `SumIf`, `CountIf`, `Match`, `IsFormula`,
+`FormulaText` (argumento ancorado), `Sheet`; os outros 7 (`Offset`, `Indirect`, `Index`, `VLookup`,
+`Address`/ROW+COLUMN sem argumento, `FormulaText`-da-célula-escrava, e o idioma array
+`SMALL(IF(range=…,ROW(range)))`) já passavam antes — travados como testes de regressão.
+
+**O que estava QUEBRADO no spike e foi corrigido** (resumo executivo): `ROW(ref)`/`COLUMN(ref)`,
+`SUBTOTAL` sobre range, `NPV` (célula com texto referenciado E range), `SUMIF`/`SUMIFS`/`AVERAGEIF`
+sobre range relativo, `COUNTIF`/`MATCH`/`XLOOKUP` sobre range relativo, `ISFORMULA`/`FORMULATEXT` com
+argumento ancorado, `SHEET(ref)`, e o idioma mini-CSE `SMALL(IF(range=…,ROW(range)))` — todos
+retornavam `#VALOR!` (ou, no caso do NPV com texto, um erro que deveria ter sido ignorado) quando a
+fórmula da escrava passava um nó ancorado diretamente para essas funções.
+
+**Fixture sintética**: `tools/SyntheticK1Builder` ganhou um 7º grupo (coluna H, `SUM(B2:D2)`, arrastado
+60k linhas) — a primeira RANGE relativa do fixture. Descoberta lateral: um range CROSS-SHEET
+(`Data!A1:A3`) no modo anchored do Parser lança `ParseException` (gap documentado em
+`ExpressionParser.ParseAnchoredMasterBody`), fazendo o grupo cair inteiro no fallback legado — um
+dry-run do `ExcelLoadBenchmarks` (`--job Dry --inProcess`) mostrou 1 exceção capturada nos
+diagnósticos de GC com essa formulação; trocando para `SUM(B2:D2)` (mesma sheet) a exceção desapareceu
+e o `Allocated` de `LoadSyntheticSharedFormulas` caiu de 155MB para 114MB (o grupo agora de fato
+compartilha UMA árvore `AnchoredRangeReference` entre as 60k escravas). Números não são gate (dry-run,
+não o BDN completo), só confirmam que o novo grupo carrega e evalua sem erro.
+
+**Números finais das suítes**: 1085 core + 71 Excel (54 pré-existentes + 17 novos) verdes; csharpier
+limpo; build 0 warnings.
+
+**SHAs dos commits**:
+- `e26c5b9` — `fix(recalc): teach the remaining reference-pattern sites about anchored nodes`
+- `626f602` — `test(recalc): slave function-family matrix for anchored-node pattern-match sites`
+- `71b9998` — `chore(fixtures): add a relative-range shared-formula group to SyntheticK1Builder`
 
 ## Phase 3: Dirty graph preciso + range transiente
 Status: Not started
