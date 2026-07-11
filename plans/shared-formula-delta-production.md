@@ -217,14 +217,14 @@ não afetado por esta fase).
 **SHAs dos commits**: ver Final Recap / histórico do branch.
 
 ## Phase 4: Fechamento e release
-Status: Not started
+Status: Complete
 
-- [ ] Docs (en + pt-BR): excel-interop.md (como shared formulas são representadas; nota de
+- [x] Docs (en + pt-BR): excel-interop.md (como shared formulas são representadas; nota de
   forward-compat: arquivo .myxl novo contendo os nós 319-321 NÃO abre em versões antigas da lib —
   destacar na release), performance.md (números)
-- [ ] Nota honesta em docs: ganho é RAM/GC, não disco (wire serializa árvore por escrava)
-- [ ] Benchmarks finais (ExcelLoadBenchmarks + k1-endtoend + whole-column) na tabela do summary
-- [ ] Merge para main + release minor via workflow
+- [x] Nota honesta em docs: ganho é RAM/GC, não disco (wire serializa árvore por escrava)
+- [x] Benchmarks finais (ExcelLoadBenchmarks + k1-endtoend + whole-column) na tabela do summary
+- [x] Merge para main + release minor via workflow
 
 ### Verification Plan
 - Suítes completas; BDN final registrado; release verde no NuGet
@@ -232,15 +232,34 @@ Status: Not started
 ### Phase Summary
 _(write when phase completes)_
 
-## Decisões pendentes registradas
-- **Arena paginada**: EM ESPERA por decisão do usuário (avaliando outro cenário antes). Nota de design
-  no plano audit-fixes (blocos sub-LOH). Os dados do heap profile (ASTs = 61-62% do heap) e o resultado
-  desta produtização definem o residual que a arena disputaria.
-- **Serialização de tipos do usuário**: pergunta aberta ao usuário (têm tipos próprios persistidos hoje
-  ou é necessidade futura?) — pesa contra a arena e a favor de union extensível; aguardando resposta.
+### Phase Summary
+Docs (0296507): excel-interop (subseção da representação delta + forward-compat destacada),
+serialization (fronteira one-way dos tags 319-321 + nota RAM/GC-não-disco), performance (modelo de
+delta 1×/época + tabela), README bullet — en + pt-BR, âncoras cross-checadas. Benchmarks finais em
+máquina limpa (fixture pós-grupo-H, 7 grupos/420k fórmulas): LoadSyntheticSharedFormulas 381ms /
+114,05MB / Gen 18000-7000-3000 (consistente com a referência da Fase 3); k1-endtoend compute 173,4ms
+(≈ referência pré-G3, gate <5% com folga). M5 (v3.13.0) merged no branch antes dos gates finais —
+estado medido = estado shippado.
 
 ## Final Recap
-_(write when all phases complete)_
+
+Produtização completa do spike G3 em 4 fases, cada uma com provas contrafactuais:
+- **F1**: merge + revalidação (memória idêntica ao spike: −59% alloc, −50% Gen1+2 no shape
+  shared-formulas; compute +3,9% A/B mesmo-dia).
+- **F2**: auditoria exaustiva de pattern-match — 10 bugs reais corrigidos (ROW/COLUMN/FORMULATEXT/
+  ISFORMULA/SHEET/SUBTOTAL/NPV/SUMIF/COUNTIF/MATCH em escravas), 17 testes de matriz (10 falham no
+  código revertido), fixture ganhou grupo de range relativo.
+- **F3**: DependencyExtractor delta-aware (paridade de grafo provada em 19 casos; DirtyCellCount 2 vs
+  7 do always-dirty), 1º teste de engine com xlsx real, transiente de range eliminado (−24%/célula).
+- **F4**: docs en+pt, gates finais limpos, merge.
+
+Saldo de suítes: 1.085→1.114 core, 54→74 Excel. Wire: tags 319-321 append-only; arquivos antigos
+intactos (testado contra binário congelado); forward-compat documentada como fronteira one-way.
 
 ## Deployment Plan
-_(write when all phases complete)_
+Merge em main + release minor via workflow (executados no fechamento). Consumidores: nenhum código
+muda; arquivos Excel com shared formulas carregam automaticamente na representação delta; hosts que
+serializam .myxl novos devem estar cientes da fronteira one-way (docs/serialization). Medição
+recomendada no ambiente real do usuário: load do K1 verdadeiro + Gen counts BDN — o gap vs Aspose
+deve ter fechado na proporção do peso de shared formulas no arquivo.
+## Decisões pendentes registradas
