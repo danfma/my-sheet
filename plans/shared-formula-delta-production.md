@@ -141,12 +141,12 @@ limpo; build 0 warnings.
 - `71b9998` — `chore(fixtures): add a relative-range shared-formula group to SyntheticK1Builder`
 
 ## Phase 3: Dirty graph preciso + range transiente
-Status: Not started
+Status: Complete
 
-- [ ] `DependencyExtractor`: extrair dependências EFETIVAS dos nós ancorados (delta aplicado) em vez de
+- [x] `DependencyExtractor`: extrair dependências EFETIVAS dos nós ancorados (delta aplicado) em vez de
   `AlwaysDirty`; teste do RecalculationEngine com workbook carregado de xlsx com shared formulas
   (hoje não existe nenhum — gap de cobertura)
-- [ ] `AnchoredRangeReference.Evaluate/expansão`: eliminar o `RangeReference` transiente por avaliação
+- [x] `AnchoredRangeReference.Evaluate/expansão`: eliminar o `RangeReference` transiente por avaliação
   (resolver bounds numéricos direto; medir com o fixture range-pesado da Fase 2)
 
 ### Verification Plan
@@ -154,7 +154,67 @@ Status: Not started
   avaliação (probe de alocação)
 
 ### Phase Summary
-_(write when phase completes)_
+**`DependencyExtractor` (Tarefa 1).** `Visit` passou a threadar `(deltaRow, deltaColumn)` por toda a
+recursão (default 0/0 na raiz). Três casos novos substituem o antigo bloco `AlwaysDirty`:
+`SharedFormulaSlave` entra na sua `Master` tree carregando O PRÓPRIO `(DeltaRow, DeltaColumn)` (mesma
+semântica de `SharedFormulaSlave.Evaluate`'s `WithDelta`); `AnchoredCellReference`/`AnchoredRangeReference`
+aplicam esse delta aos componentes RELATIVOS via dois novos helpers int-only extraídos das
+`Effective(EvaluationContext)`/`ToRangeReference(EvaluationContext)` já existentes — `Effective(int,int)` em
+`AnchoredCellReference.cs`, `EffectiveEndpoints(int,int)` em `AnchoredRangeReference.cs` — zero duplicação de
+aritmética, comportamento dos sites existentes inalterado (refactor puro). `NameReference` dentro de uma
+master tree recebe o delta ambiente sem resetá-lo (o nome é posição-independente por construção — inerte na
+prática — espelhando `NamedReferences.EvaluateDefinition`, que também não reseta o contexto).
+
+**Prova de paridade** (`tests/Danfma.MySheet.Tests/DirtyGraph/SharedFormulaDependencyParityTests.cs`, 19
+casos): duas camadas. (1) por-fórmula — compara, para o MESMO texto de master + delta, o `DependencyScan` do
+caminho ANCORADO (`SharedFormulaSlave` sobre `ExpressionParser.ParseAnchoredMasterBody`, o caminho de
+produção) contra o LEGADO (`ExpressionParser.ParseSharedFormulaBody`, o parse por-slave token-delta
+pré-spike, preservado intacto para o fallback honesto) — 8 formas (âncoras `$` mistas, range com um corner
+absoluto, cross-sheet, IF, função custom sobre argumento ancorado, nome definido, aninhamento range+célula),
+múltiplos deltas cada. (2) no grafo — dois workbooks completos (um com `SharedFormulaSlave` real, outro com a
+mesma célula usando a expansão legada) comparados via `ReverseDependencyGraph.Build`: `Diagnostics()`
+idêntico e `GetAllDependents` idêntico para 4 células de amostra (dependência escalar, de range, e não-lidas).
+Verificado que os 19 testes REALMENTE detectam a regressão: revertendo só `DependencyExtractor.cs` ao estado
+pré-fix (`git stash` do arquivo), os 19 falham — 3 no `AlwaysDirty` incorreto, 1 na `Diagnostics()`
+(`AlwaysDirtyFormulas=6` vs `0`, `DistinctSourceCells=1` vs `5`) — confirmando que não passam "por acidente".
+
+**Teste de engine com xlsx real (Tarefa 2)** —
+`tests/Danfma.MySheet.Excel.Tests/SharedFormulaRecalculationEngineTests.cs`, 3 testes, gap de cobertura
+fechado (nenhum teste do repo carregava shared formulas de .xlsx através do `RecalculationEngine` antes
+disto). Fixture bruta com DOIS grupos (escalar `A{row}*2` e range `SUM(D{row}:F{row})`), 4-6 escravas cada.
+O sinal REGRESSIVO forte é `RecalculationResult.DirtyCellCount`: como `DirtyEngine.CalculateDirty` une o
+conjunto `AlwaysDirty` a TODO `Recalculate` incondicionalmente, o código pré-fix marcava todas as 6
+escravas dirty em QUALQUER edição (valor final ainda correto, mas cone impreciso) — `DirtyCellCount` seria 7
+(6 sempre-dirty + a célula editada) em vez de 2 (célula editada + seu único dependente real). Confirmado por
+reversão: os 2 testes de edição de input falham no código velho com "Expected to be 2 but found 7". O
+terceiro teste (edição da FÓRMULA do master) prova que o rebuild estrutural continua funcionando e que
+escravas carregadas do .xlsx mantêm sua árvore ancorada CONGELADA (independente de uma edição posterior,
+via API comum, na célula que originalmente foi o master do grupo — comportamento correto, documentado no
+teste).
+
+**Range transiente (Tarefa 3).** Probe primeiro: `GC.GetTotalAllocatedBytes` de época fria
+(`workbook.InvalidateCache()` + reavaliar) para as 60k células do grupo H (`SUM(B2:D2)`) do
+`samples/k1-synthetic.xlsx` — o transiente APARECIA no hot path (`NumericAggregation.Fold`/`FoldA`
+chamavam `anchoredRange.ToRangeReference(context).ExpandComputedValues(context)`, materializando um
+`RangeReference` + duas strings via `CellAddress.ToId()` POR AVALIAÇÃO). Baseline (5 execuções, mediana):
+**81.239.000 bytes** (1354,0 bytes/célula). Fix: `AnchoredRangeReference` ganhou `GetBounds(context)`
+(idioma `RangeReference.GetBounds`, direto de `EffectiveEndpoints`) e `ExpandComputedValues(context)`
+(gêmeo de `RangeReference.ExpandComputedValues`, monta o `RangeValueSequence` sem o `RangeReference`
+intermediário); `NumericAggregation.Fold`/`FoldA` chamam `anchoredRange.ExpandComputedValues(context)`
+diretamente. Pós-fix (5 execuções, mediana): **61.719.280 bytes** (1028,65 bytes/célula) — **−24,0%**
+(−325,3 bytes/célula), consistente com eliminar 1 `RangeReference` + 2 strings formatadas por avaliação.
+Sites "uma vez por chamada" (`ArrayEvaluation`, `CriteriaScan`, `RangeValueCursor`, `TryResolveReference`)
+continuam usando `ToRangeReference` — não são hot per-célula (mesmo tier que a Fase 2 já havia classificado
+como "genérico funciona"), mantidos como estão por escopo.
+
+**Sanidade de load** (`ExcelLoadBenchmarks --filter '*ExcelLoadBenchmarks*' -i`, in-process): 403,4ms /
+114,07MB / Gen 18000-7000-3000 para `LoadSyntheticSharedFormulas` — bate com o número já registrado na Fase 2
+(114MB, pós-grupo-H) dentro do ruído; nenhuma explosão. `LoadConvertedFromMyxl`: 1.088ms / 462,88MB (controle,
+não afetado por esta fase).
+
+**Suítes**: 1104 core (1085 + 19 novos) + 74 Excel (71 + 3 novos) verdes; csharpier limpo; build 0 warnings.
+
+**SHAs dos commits**: ver Final Recap / histórico do branch.
 
 ## Phase 4: Fechamento e release
 Status: Not started
