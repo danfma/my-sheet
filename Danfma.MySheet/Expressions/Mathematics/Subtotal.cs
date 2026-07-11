@@ -171,6 +171,20 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
 
                 return null;
 
+            // Phase 2 audit (shared-formula delta production): a SUBTOTAL ref argument written INSIDE a
+            // shared-formula master is an anchored node, not a plain CellReference/RangeReference — it fell
+            // to the `default` branch below before this fix, which evaluates the argument directly and
+            // therefore skips BOTH the nested-subtotal exclusion rule AND (for a range) even a correct value
+            // (AnchoredRangeReference.Evaluate always returns #VALUE!, like RangeReference, since a range has
+            // no scalar value). Resolving to the concrete, delta-applied twin and re-dispatching through this
+            // same switch reuses the RangeReference/CellReference cases above exactly — no logic duplicated.
+            case AnchoredCellReference
+            or AnchoredRangeReference:
+            {
+                ((Reference)argument).TryResolveReference(context, out var resolved);
+                return GatherSkippingSubtotals(resolved!, context, ref accumulator);
+            }
+
             default:
                 var computed = argument.Evaluate(context);
 

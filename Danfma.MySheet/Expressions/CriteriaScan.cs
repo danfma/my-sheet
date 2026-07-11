@@ -69,6 +69,17 @@ internal struct PositionalRange
             return new PositionalRange(snapshot.Values);
         }
 
+        // Phase 2 audit (shared-formula delta production): a *IFS criteria/value range written INSIDE a
+        // shared-formula master (SUMIF(A1:A3,">0",...) as a slave) is an anchored node, not a plain
+        // RangeReference — resolving it UP FRONT to its concrete, delta-applied twin lets the dense-rectangle
+        // fast path below (and the ArgumentFlattening fallback) treat it exactly like an ordinary range, with
+        // no logic duplicated. Falling through to ArgumentFlattening.ExpandComputedValues unresolved would hit
+        // AnchoredRangeReference.Evaluate's unconditional #VALUE! (a range has no scalar value) before this fix.
+        if (argument is AnchoredRangeReference anchoredRange)
+        {
+            argument = anchoredRange.ToRangeReference(context);
+        }
+
         if (argument is RangeReference rectangle)
         {
             // A single GetBounds() call sizes the cursor without paying one corner parse per property read.

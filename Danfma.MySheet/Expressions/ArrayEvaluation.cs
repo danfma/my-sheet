@@ -127,11 +127,23 @@ internal static class ArrayEvaluation
             case RangeReference:
                 return (true, true);
 
+            // Phase 2 audit (shared-formula delta production): a range written INSIDE a shared-formula
+            // master is an anchored node, not a plain RangeReference — without this arm it fell through to
+            // the `default` case below (an opaque scalar, evaluated once via AnchoredRangeReference.Evaluate,
+            // which always yields #VALUE! since a range has no scalar value), silently breaking the mini-CSE
+            // idiom (e.g. SMALL(IF(A1:A3=…, …))) for a shared-formula slave.
+            case AnchoredRangeReference:
+                return (true, true);
+
             // An open/whole-column range in an array position is refused (the cost guard).
             case OpenRangeReference:
                 return (false, false);
 
             case Row { Arguments: [RangeReference] }:
+                return (true, true);
+
+            // Mirrors the RangeReference case above for ROW(range) written inside a shared-formula master.
+            case Row { Arguments: [AnchoredRangeReference] }:
                 return (true, true);
 
             case Row { Arguments: [OpenRangeReference] }:
@@ -417,6 +429,13 @@ internal static class ArrayEvaluation
                 operand = BuildRange(range, context);
                 return true;
 
+            // Phase 2 audit (shared-formula delta production): mirrors the RangeReference case above for a
+            // range written INSIDE a shared-formula master (an anchored node) — resolved to its concrete,
+            // delta-applied twin so BuildRange sees an ordinary RangeReference, no logic duplicated.
+            case AnchoredRangeReference anchoredRange:
+                operand = BuildRange(anchoredRange.ToRangeReference(context), context);
+                return true;
+
             // Whole-column / whole-row / one-sided open reference: the cost guard keeps it OUT of the
             // mini-CSE. Refuse so the whole evaluation reports "not an array".
             case OpenRangeReference:
@@ -429,6 +448,16 @@ internal static class ArrayEvaluation
                     rowBounds.TopRow,
                     rowBounds.RowCount,
                     rowBounds.ColumnCount
+                );
+                return true;
+
+            // Mirrors the RangeReference case above for ROW(range) written inside a shared-formula master.
+            case Row { Arguments: [AnchoredRangeReference anchoredRowRange] }:
+                var anchoredRowBounds = anchoredRowRange.ToRangeReference(context).GetBounds();
+                operand = new RowNumbersOperand(
+                    anchoredRowBounds.TopRow,
+                    anchoredRowBounds.RowCount,
+                    anchoredRowBounds.ColumnCount
                 );
                 return true;
 

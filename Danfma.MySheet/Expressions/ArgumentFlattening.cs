@@ -40,6 +40,25 @@ internal static class ArgumentFlattening
 
                     break;
 
+                // Phase 2 audit (shared-formula delta production): mirrors the RangeReference case above so a
+                // range argument written INSIDE a shared-formula master (an anchored node, e.g.
+                // CONCAT/TEXTJOIN/COUNTA over a relative range) expands its cells instead of falling to the
+                // `default` branch's `argument.Evaluate(context)`, which for an AnchoredRangeReference always
+                // yields #VALUE! (a range has no scalar value, mirroring RangeReference.Evaluate). A bare
+                // AnchoredCellReference needs no case here: its Evaluate already dereferences correctly (same
+                // as a plain CellReference, which likewise has no explicit case and falls to `default` below).
+                case AnchoredRangeReference anchoredRange:
+                    foreach (
+                        var value in anchoredRange
+                            .ToRangeReference(context)
+                            .ExpandComputedValues(context)
+                    )
+                    {
+                        yield return value;
+                    }
+
+                    break;
+
                 default:
                     var computed = argument.Evaluate(context);
 
@@ -69,6 +88,18 @@ internal static class ArgumentFlattening
         EvaluationContext context
     )
     {
+        // Phase 2 audit (shared-formula delta production): a range argument written INSIDE a shared-formula
+        // master is an anchored node (its own $-anchors preserved, delta applied at evaluation time), not a
+        // plain RangeReference. Resolving it to its concrete, delta-applied twin UP FRONT — rather than adding
+        // a mirrored `case AnchoredRangeReference` below — lets the sizing hint and the switch below treat it
+        // exactly like an ordinary RangeReference, with no logic duplicated (a bare AnchoredCellReference needs
+        // no such resolution: its Evaluate already dereferences correctly through the `default` branch below,
+        // same as a plain CellReference).
+        if (argument is AnchoredRangeReference anchoredRange)
+        {
+            argument = anchoredRange.ToRangeReference(context);
+        }
+
         // A closed rectangle has known bounds: size the buffer to its exact cell count so the hot per-cell fill
         // never pays a List doubling + recopy. Open ranges/unions/scalars have no known count up front — keep the
         // default-capacity List (no heroics where the bound is unknown). GetBounds() is called ONCE here (rather

@@ -86,6 +86,15 @@ internal struct RangeValueCursor
             return new RangeValueCursor(snapshot.Values);
         }
 
+        // Phase 2 audit (shared-formula delta production): mirrors PositionalRange.Open's identical fix — a
+        // COUNTIF/MATCH/XLOOKUP range argument written INSIDE a shared-formula master is an anchored node;
+        // resolving it up front lets the switch below (and its RangeReference fast path) treat it exactly
+        // like an ordinary range, with no logic duplicated.
+        if (argument is AnchoredRangeReference anchoredRange)
+        {
+            argument = anchoredRange.ToRangeReference(context);
+        }
+
         switch (argument)
         {
             case RangeReference rectangle:
