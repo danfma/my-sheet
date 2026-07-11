@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.14.0"></a>
+## [3.14.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.14.0) (2026-07-11)
+
+### Features
+
+* **recalc:** integrate shared-formula delta nodes from spike ([bdf1385](https://www.github.com/danfma/my-sheet/commit/bdf138597ed42ef343db262c515111b21a5b8685))
+* **recalc:** shared-formula slaves as delta nodes over a shared master tree ([d31d338](https://www.github.com/danfma/my-sheet/commit/d31d3387934a3ed974198f60c94086d73b293746))
+
+### Bug Fixes
+
+* **dirty-graph:** extract effective dependencies for shared-formula nodes ([246a61d](https://www.github.com/danfma/my-sheet/commit/246a61d94ed334f316c58fd1c222020dd2833971))
+* **recalc:** teach the remaining reference-pattern sites about anchored nodes ([e26c5b9](https://www.github.com/danfma/my-sheet/commit/e26c5b984b60d023d7b2ce5cf4c2104fdcf168cc))
+
 <a name="3.13.0"></a>
 ## [3.13.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.13.0) (2026-07-11)
 
