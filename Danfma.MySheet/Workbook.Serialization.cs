@@ -20,6 +20,12 @@ public sealed partial class Workbook
     // a cold compressed save). Load sniffs the 4-byte magic: a match is a container, anything else is a raw
     // (legacy or cold) model — the raw MemoryPack object header is a small member count (Workbook = 0x02),
     // never 'M' (0x4D), so the two are unambiguous.
+    //
+    // The container writers below (whole-array default, or the single-pass streaming async writer) produce
+    // the SAME bytes for the same model/values/compression. The header's modelLength is known before the
+    // model bytes exist in the whole-array path; the streaming path instead writes a placeholder and patches
+    // it via seek-back once the real (uncompressed) count is known — safe because Save/SaveAsync only ever
+    // target a path, so the destination FileStream is always seekable.
     private static ReadOnlySpan<byte> ContainerMagic => "MSWM"u8;
     private const byte ContainerVersionUncompressed = 1;
     private const byte ContainerVersionBrotli = 2;
@@ -45,7 +51,22 @@ public sealed partial class Workbook
     public void Save(string path, WorkbookSaveOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        File.WriteAllBytes(path, SerializeToBytes(options));
+
+        var compress = options.Compression == WorkbookCompression.Brotli;
+
+        if (!options.IncludeComputedValues && !compress)
+        {
+            // Cold, uncompressed: the permanent byte-identity contract — raw model, no container/header.
+            Save(path);
+            return;
+        }
+
+        var values = options.IncludeComputedValues
+            ? SnapshotComputedValues()
+            : new List<CachedCellValue>();
+
+        using var destination = File.Create(path);
+        WriteContainerWhole(destination, compress, options.CompressionLevel, values);
     }
 
     /// <inheritdoc cref="Save(string)"/>
@@ -67,73 +88,108 @@ public sealed partial class Workbook
     )
     {
         ArgumentNullException.ThrowIfNull(options);
-        await File.WriteAllBytesAsync(path, SerializeToBytes(options), cancellationToken);
-    }
 
-    // The bytes a Save writes. A cold, uncompressed save is the raw model, byte-identical to Save(path). Every
-    // other combination is a container: warm (uncompressed) stays v1; anything compressed is v2 (Brotli over
-    // model||values as ONE stream — a single stream compresses better than two separate blocks).
-    private byte[] SerializeToBytes(WorkbookSaveOptions options)
-    {
-        var model = MemoryPackSerializer.Serialize(this);
         var compress = options.Compression == WorkbookCompression.Brotli;
 
-        // Cold + uncompressed → the historical raw format (permanent byte-identity contract).
         if (!options.IncludeComputedValues && !compress)
         {
-            return model;
+            await SaveAsync(path, cancellationToken);
+            return;
         }
 
-        // A cold compressed save carries no values; a warm save snapshots the cache.
-        var values = MemoryPackSerializer.Serialize(
-            options.IncludeComputedValues ? SnapshotComputedValues() : new List<CachedCellValue>()
+        var values = options.IncludeComputedValues
+            ? SnapshotComputedValues()
+            : new List<CachedCellValue>();
+
+        await using var destination = File.Create(path);
+        await WriteContainerStreamAsync(
+            destination,
+            compress,
+            options.CompressionLevel,
+            values,
+            cancellationToken
+        );
+    }
+
+    // Container writer. modelLength is known up front (both parts are ordinary byte[] — MemoryPack has no
+    // synchronous Stream-based Serialize, so this is the cheapest legal synchronous shape: two full-size
+    // buffers, no further copies). Brotli, when requested, streams straight from those two buffers into the
+    // destination — no intermediate MemoryStream.ToArray() copy, and no final "concat everything into one
+    // container array" copy (the two buffers this replaces from the historical implementation).
+    private void WriteContainerWhole(
+        Stream destination,
+        bool compress,
+        CompressionLevel level,
+        List<CachedCellValue> values
+    )
+    {
+        var model = MemoryPackSerializer.Serialize(this);
+        var valuesBytes = MemoryPackSerializer.Serialize(values);
+
+        Span<byte> header = stackalloc byte[ContainerHeaderLength];
+        ContainerMagic.CopyTo(header);
+        header[4] = compress ? ContainerVersionBrotli : ContainerVersionUncompressed;
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(5, 4), model.Length);
+        destination.Write(header);
+
+        if (compress)
+        {
+            using var brotli = new BrotliStream(destination, level, leaveOpen: true);
+            brotli.Write(model);
+            brotli.Write(valuesBytes);
+        }
+        else
+        {
+            destination.Write(model);
+            destination.Write(valuesBytes);
+        }
+    }
+
+    // ASYNC container writer. UNCOMPRESSED: genuinely single-pass, no full-size byte[] for the model at all —
+    // MemoryPackSerializer.SerializeAsync already streams through its own pooled, segmented buffer writer
+    // (verified against MemoryPack 1.21.4's decompiled source); CountingWriteStream taps the exact byte count
+    // as those bytes fly by, so the header is patched via seek-back with no separate counting pass.
+    // COMPRESSED: falls back to the same two whole-buffer Brotli Write calls as WriteContainerWhole — Brotli's
+    // compressed output is sensitive to Write-CALL boundaries, not just content (verified empirically:
+    // splitting the same bytes across many small Write calls measurably changes the compressed bytes at
+    // Fastest/Optimal levels), and SerializeAsync's internal writer flushes in many small segments, which
+    // WOULD break the byte-identity contract if fed straight into Brotli.
+    private async Task WriteContainerStreamAsync(
+        Stream destination,
+        bool compress,
+        CompressionLevel level,
+        List<CachedCellValue> values,
+        CancellationToken cancellationToken
+    )
+    {
+        if (compress)
+        {
+            WriteContainerWhole(destination, compress: true, level, values);
+            return;
+        }
+
+        var header = new byte[ContainerHeaderLength];
+        ContainerMagic.CopyTo(header);
+        header[4] = ContainerVersionUncompressed;
+        await destination.WriteAsync(header, cancellationToken);
+
+        var counting = new CountingWriteStream(destination);
+        await MemoryPackSerializer.SerializeAsync(
+            counting,
+            this,
+            cancellationToken: cancellationToken
+        );
+        var modelLength = counting.TotalBytesWritten;
+        await MemoryPackSerializer.SerializeAsync(
+            destination,
+            values,
+            cancellationToken: cancellationToken
         );
 
-        return compress
-            ? BuildContainer(
-                ContainerVersionBrotli,
-                model,
-                BrotliCompress(model, values, options.CompressionLevel)
-            )
-            : BuildContainer(ContainerVersionUncompressed, model, Concat(model, values));
-    }
-
-    // Prepends the fixed 9-byte header to an already-encoded body. `modelLength` is always the UNCOMPRESSED
-    // model length so the reader can slice model vs. values after (optionally) decompressing the body.
-    private static byte[] BuildContainer(byte version, byte[] model, byte[] body)
-    {
-        var buffer = new byte[ContainerHeaderLength + body.Length];
-        var span = buffer.AsSpan();
-
-        ContainerMagic.CopyTo(span);
-        span[4] = version;
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(5, 4), model.Length);
-        body.CopyTo(span.Slice(ContainerHeaderLength));
-
-        return buffer;
-    }
-
-    private static byte[] Concat(byte[] first, byte[] second)
-    {
-        var buffer = new byte[first.Length + second.Length];
-        first.CopyTo(buffer.AsSpan());
-        second.CopyTo(buffer.AsSpan(first.Length));
-        return buffer;
-    }
-
-    // Compresses model||values as a single Brotli stream at the chosen level. One stream compresses better
-    // than two independently-compressed blocks because the coder shares context across the whole payload. The
-    // level affects only write time and size — Load decompresses any level, so the container is unversioned by it.
-    private static byte[] BrotliCompress(byte[] model, byte[] values, CompressionLevel level)
-    {
-        using var output = new MemoryStream();
-        using (var brotli = new BrotliStream(output, level, leaveOpen: true))
-        {
-            brotli.Write(model);
-            brotli.Write(values);
-        }
-
-        return output.ToArray();
+        destination.Position = 5;
+        var lengthBytes = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(lengthBytes, checked((int)modelLength));
+        await destination.WriteAsync(lengthBytes, cancellationToken);
     }
 
     // Snapshots the memoized cache into surrogates, EXCLUDING volatile-tainted entries (they must re-sample on
