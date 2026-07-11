@@ -5,9 +5,9 @@ namespace Danfma.MySheet;
 /// <summary>
 /// Forwards <see cref="IBufferWriter{T}"/> calls to <paramref name="inner"/> while tallying the total bytes
 /// <see cref="Advance"/>d. Used by the opt-in <see cref="WorkbookIoBuffering.Pipelines"/> container writer
-/// (both the synchronous <see cref="StreamBufferWriter"/> and the asynchronous
-/// <see cref="System.IO.Pipelines.PipeWriter"/>) to learn the exact (uncompressed) model length as a side
-/// effect of the single write pass — the container header is then patched via seek-back.
+/// (the <see cref="StreamBufferWriter"/>, which both the sync and async Pipelines saves route through) to
+/// learn the exact (uncompressed) model length as a side effect of the single write pass — the container
+/// header is then patched via seek-back.
 /// </summary>
 internal sealed class CountingBufferWriter<TInner>(TInner inner) : IBufferWriter<byte>
     where TInner : IBufferWriter<byte>

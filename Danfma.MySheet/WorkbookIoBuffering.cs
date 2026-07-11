@@ -20,12 +20,16 @@ public enum WorkbookIoBuffering
     Pooled = 0,
 
     /// <summary>
-    /// LOH-bounded, deterministic-footprint I/O. Writes flow through a single reused ~64KB pooled buffer
-    /// (synchronous — <see cref="System.IO.Pipelines.PipeWriter"/> is async-first, so a bounded sync ceiling
-    /// needs a hand-rolled writer instead) or a <see cref="System.IO.Pipelines.PipeWriter"/>
-    /// (asynchronous); reads are rebuilt from pooled ~64KB segments into a
-    /// <see cref="System.Buffers.ReadOnlySequence{T}"/> (synchronous) or read via a
-    /// <see cref="System.IO.Pipelines.PipeReader"/> (asynchronous) instead of one contiguous <c>byte[]</c>.
+    /// LOH-bounded, deterministic-footprint I/O. ALL writes (sync and async) flow through a single reused
+    /// ~64KB pooled buffer — async saves run that bounded writer on a thread-pool thread via <c>Task.Run</c>
+    /// rather than serializing into a <see cref="System.IO.Pipelines.PipeWriter"/>, because MemoryPack's
+    /// serializer is synchronous and a stream-backed pipe only drains during <c>FlushAsync</c>: the pipe
+    /// would buffer the ENTIRE payload in segments before the single post-serialize flush, defeating the
+    /// very ceiling this option exists for (measured: ~150MB allocated vs ~108MB on a 40MB model). The
+    /// caller stays unblocked; the file I/O itself is synchronous on the pool thread. Reads are rebuilt from
+    /// pooled ~64KB segments into a <see cref="System.Buffers.ReadOnlySequence{T}"/> (synchronous) or read
+    /// via a <see cref="System.IO.Pipelines.PipeReader"/> (asynchronous — reading, unlike MemoryPack's
+    /// synchronous serialize, genuinely interleaves with the pipe) instead of one contiguous <c>byte[]</c>.
     /// No single allocation reaches the Large Object Heap. This costs roughly 2-3x more time than
     /// <see cref="Pooled"/> (more, smaller I/O calls) — opt in only when LOH pressure, not raw throughput, is
     /// the constraint. A warm-start container's value block is unaffected by this choice on <em>load</em> —

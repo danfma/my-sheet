@@ -121,13 +121,22 @@ public sealed partial class Workbook
 
             if (options.IoBuffering == WorkbookIoBuffering.Pipelines)
             {
-                var pipeWriter = PipeWriter.Create(
-                    coldDestination,
-                    new StreamPipeWriterOptions(leaveOpen: true)
+                // Delegate to the bounded SYNC writer on a pool thread rather than serializing into a
+                // PipeWriter: MemoryPack's Serialize(IBufferWriter) is synchronous, and a StreamPipeWriter
+                // only drains to the stream during FlushAsync — so a pipe here would accumulate the ENTIRE
+                // payload in segments before the single post-serialize flush, defeating the memory ceiling
+                // (measured: ~150MB allocated vs ~108MB pooled on a 40MB model). Task.Run keeps the caller
+                // unblocked; the file I/O itself is synchronous on that pool thread (acceptable for file
+                // writes — it is exactly what the sync Save does). PipeReader stays on the LOAD side, where
+                // reading can genuinely interleave with the pipe.
+                await Task.Run(
+                    () =>
+                    {
+                        using var writer = new StreamBufferWriter(coldDestination);
+                        MemoryPackSerializer.Serialize(writer, this);
+                    },
+                    cancellationToken
                 );
-                MemoryPackSerializer.Serialize(pipeWriter, this);
-                await pipeWriter.FlushAsync(cancellationToken);
-                await pipeWriter.CompleteAsync();
             }
             else
             {
@@ -149,11 +158,10 @@ public sealed partial class Workbook
 
         if (options.IoBuffering == WorkbookIoBuffering.Pipelines)
         {
-            await WriteContainerPipeAsync(
-                destination,
-                compress,
-                options.CompressionLevel,
-                values,
+            // Same PipeWriter-accumulation reasoning as the cold branch above: the bounded sync container
+            // writer on a pool thread is strictly better than a pipe fed by a synchronous serializer.
+            await Task.Run(
+                () => WriteContainerPooled(destination, compress, options.CompressionLevel, values),
                 cancellationToken
             );
         }
@@ -286,45 +294,6 @@ public sealed partial class Workbook
             values,
             cancellationToken: cancellationToken
         );
-
-        await PatchModelLengthAsync(destination, modelLength, cancellationToken);
-    }
-
-    // Opt-in (WorkbookIoBuffering.Pipelines) ASYNC container writer. UNCOMPRESSED: model/values flow through a
-    // System.IO.Pipelines.PipeWriter (LOH-bounded, deterministic segment size) instead of MemoryPack's own
-    // pooled writer; CountingBufferWriter taps the exact byte count written to the pipe. COMPRESSED: falls
-    // back to the same two whole-buffer Brotli Write calls as WriteContainerWhole, for the same reason as
-    // WriteContainerStreamAsync above — Brotli's compressed output depends on Write-CALL boundaries, and a
-    // Pipe's segment size would change them.
-    private async Task WriteContainerPipeAsync(
-        Stream destination,
-        bool compress,
-        CompressionLevel level,
-        List<CachedCellValue> values,
-        CancellationToken cancellationToken
-    )
-    {
-        if (compress)
-        {
-            WriteContainerWhole(destination, compress: true, level, values);
-            return;
-        }
-
-        var header = new byte[ContainerHeaderLength];
-        ContainerMagic.CopyTo(header);
-        header[4] = ContainerVersionUncompressed;
-        await destination.WriteAsync(header, cancellationToken);
-
-        var pipeWriter = PipeWriter.Create(
-            destination,
-            new StreamPipeWriterOptions(leaveOpen: true)
-        );
-        var counting = new CountingBufferWriter<PipeWriter>(pipeWriter);
-        MemoryPackSerializer.Serialize(counting, this);
-        var modelLength = counting.TotalBytesWritten;
-        MemoryPackSerializer.Serialize(pipeWriter, values);
-        await pipeWriter.FlushAsync(cancellationToken);
-        await pipeWriter.CompleteAsync();
 
         await PatchModelLengthAsync(destination, modelLength, cancellationToken);
     }
