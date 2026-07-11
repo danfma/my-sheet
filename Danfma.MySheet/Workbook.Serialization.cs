@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.IO.Pipelines;
 using MemoryPack;
 
 namespace Danfma.MySheet;
@@ -20,6 +22,13 @@ public sealed partial class Workbook
     // a cold compressed save). Load sniffs the 4-byte magic: a match is a container, anything else is a raw
     // (legacy or cold) model — the raw MemoryPack object header is a small member count (Workbook = 0x02),
     // never 'M' (0x4D), so the two are unambiguous.
+    //
+    // Every container writer below (whole-array default, single-pass streaming, or the opt-in pooled/Pipelines
+    // writers) produces the SAME bytes for the same model/values/compression — WorkbookIoBuffering is a
+    // write-MECHANISM choice only. The header's modelLength is always known before the model bytes exist in
+    // the whole-array path; the streaming paths instead write a placeholder and patch it via seek-back once
+    // the real (uncompressed) count is known — safe because Save/SaveAsync only ever target a path, so the
+    // destination FileStream is always seekable.
     private static ReadOnlySpan<byte> ContainerMagic => "MSWM"u8;
     private const byte ContainerVersionUncompressed = 1;
     private const byte ContainerVersionBrotli = 2;
@@ -40,12 +49,48 @@ public sealed partial class Workbook
     /// is Brotli-compressed inside the container. When both are at their defaults
     /// (<see cref="WorkbookCompression.None"/>, no values) the file is byte-identical to
     /// <see cref="Save(string)"/>. Either overload's output is transparently read back by
-    /// <see cref="Load(string)"/>.
+    /// <see cref="Load(string)"/>. <see cref="WorkbookSaveOptions.IoBuffering"/> only changes how the bytes
+    /// are produced (see <see cref="WorkbookIoBuffering"/>), never the bytes themselves.
     /// </summary>
     public void Save(string path, WorkbookSaveOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        File.WriteAllBytes(path, SerializeToBytes(options));
+
+        var compress = options.Compression == WorkbookCompression.Brotli;
+
+        if (!options.IncludeComputedValues && !compress)
+        {
+            // Cold, uncompressed: the permanent byte-identity contract — raw model, no container/header,
+            // whichever write mechanism is chosen (the bytes are identical either way).
+            using var coldDestination = File.Create(path);
+
+            if (options.IoBuffering == WorkbookIoBuffering.Pipelines)
+            {
+                using var writer = new StreamBufferWriter(coldDestination);
+                MemoryPackSerializer.Serialize(writer, this);
+            }
+            else
+            {
+                coldDestination.Write(MemoryPackSerializer.Serialize(this));
+            }
+
+            return;
+        }
+
+        var values = options.IncludeComputedValues
+            ? SnapshotComputedValues()
+            : new List<CachedCellValue>();
+
+        using var destination = File.Create(path);
+
+        if (options.IoBuffering == WorkbookIoBuffering.Pipelines)
+        {
+            WriteContainerPooled(destination, compress, options.CompressionLevel, values);
+        }
+        else
+        {
+            WriteContainerWhole(destination, compress, options.CompressionLevel, values);
+        }
     }
 
     /// <inheritdoc cref="Save(string)"/>
@@ -67,73 +112,210 @@ public sealed partial class Workbook
     )
     {
         ArgumentNullException.ThrowIfNull(options);
-        await File.WriteAllBytesAsync(path, SerializeToBytes(options), cancellationToken);
-    }
 
-    // The bytes a Save writes. A cold, uncompressed save is the raw model, byte-identical to Save(path). Every
-    // other combination is a container: warm (uncompressed) stays v1; anything compressed is v2 (Brotli over
-    // model||values as ONE stream — a single stream compresses better than two separate blocks).
-    private byte[] SerializeToBytes(WorkbookSaveOptions options)
-    {
-        var model = MemoryPackSerializer.Serialize(this);
         var compress = options.Compression == WorkbookCompression.Brotli;
 
-        // Cold + uncompressed → the historical raw format (permanent byte-identity contract).
         if (!options.IncludeComputedValues && !compress)
         {
-            return model;
+            await using var coldDestination = File.Create(path);
+
+            if (options.IoBuffering == WorkbookIoBuffering.Pipelines)
+            {
+                // Delegate to the bounded SYNC writer on a pool thread rather than serializing into a
+                // PipeWriter: MemoryPack's Serialize(IBufferWriter) is synchronous, and a StreamPipeWriter
+                // only drains to the stream during FlushAsync — so a pipe here would accumulate the ENTIRE
+                // payload in segments before the single post-serialize flush, defeating the memory ceiling
+                // (measured: ~150MB allocated vs ~108MB pooled on a 40MB model). Task.Run keeps the caller
+                // unblocked; the file I/O itself is synchronous on that pool thread (acceptable for file
+                // writes — it is exactly what the sync Save does). PipeReader stays on the LOAD side, where
+                // reading can genuinely interleave with the pipe.
+                await Task.Run(
+                    () =>
+                    {
+                        using var writer = new StreamBufferWriter(coldDestination);
+                        MemoryPackSerializer.Serialize(writer, this);
+                    },
+                    cancellationToken
+                );
+            }
+            else
+            {
+                await MemoryPackSerializer.SerializeAsync(
+                    coldDestination,
+                    this,
+                    cancellationToken: cancellationToken
+                );
+            }
+
+            return;
         }
 
-        // A cold compressed save carries no values; a warm save snapshots the cache.
-        var values = MemoryPackSerializer.Serialize(
-            options.IncludeComputedValues ? SnapshotComputedValues() : new List<CachedCellValue>()
+        var values = options.IncludeComputedValues
+            ? SnapshotComputedValues()
+            : new List<CachedCellValue>();
+
+        await using var destination = File.Create(path);
+
+        if (options.IoBuffering == WorkbookIoBuffering.Pipelines)
+        {
+            // Same PipeWriter-accumulation reasoning as the cold branch above: the bounded sync container
+            // writer on a pool thread is strictly better than a pipe fed by a synchronous serializer.
+            await Task.Run(
+                () => WriteContainerPooled(destination, compress, options.CompressionLevel, values),
+                cancellationToken
+            );
+        }
+        else
+        {
+            await WriteContainerStreamAsync(
+                destination,
+                compress,
+                options.CompressionLevel,
+                values,
+                cancellationToken
+            );
+        }
+    }
+
+    // Default (WorkbookIoBuffering.Pooled) container writer. modelLength is known up front (both parts are
+    // ordinary byte[] — MemoryPack has no synchronous Stream-based Serialize, so this is the cheapest legal
+    // synchronous shape: two full-size buffers, no further copies). Brotli, when requested, streams straight
+    // from those two buffers into the destination — no intermediate MemoryStream.ToArray() copy, and no final
+    // "concat everything into one container array" copy (the two buffers this replaces from the historical
+    // implementation).
+    private void WriteContainerWhole(
+        Stream destination,
+        bool compress,
+        CompressionLevel level,
+        List<CachedCellValue> values
+    )
+    {
+        var model = MemoryPackSerializer.Serialize(this);
+        var valuesBytes = MemoryPackSerializer.Serialize(values);
+
+        Span<byte> header = stackalloc byte[ContainerHeaderLength];
+        ContainerMagic.CopyTo(header);
+        header[4] = compress ? ContainerVersionBrotli : ContainerVersionUncompressed;
+        BinaryPrimitives.WriteInt32LittleEndian(header.Slice(5, 4), model.Length);
+        destination.Write(header);
+
+        if (compress)
+        {
+            using var brotli = new BrotliStream(destination, level, leaveOpen: true);
+            brotli.Write(model);
+            brotli.Write(valuesBytes);
+        }
+        else
+        {
+            destination.Write(model);
+            destination.Write(valuesBytes);
+        }
+    }
+
+    // Opt-in (WorkbookIoBuffering.Pipelines) synchronous container writer. UNCOMPRESSED: model/values stream
+    // through a single reused ~64KB StreamBufferWriter instead of two full-size byte[] buffers, and the header
+    // (a placeholder until the model finishes streaming) is patched via seek-back — the destination is always
+    // the file's own seekable FileStream, since Save only ever targets a path. COMPRESSED: Brotli's compressed
+    // output is sensitive to Write-CALL boundaries, not just content (verified empirically: splitting the same
+    // bytes across many small Write calls measurably changes the compressed bytes at Fastest/Optimal levels) —
+    // so, to keep the byte-identity contract, this falls back to materializing each part once and issuing the
+    // SAME two whole-buffer Write calls as the reference implementation. The LOH-bounded goal of this option
+    // therefore applies fully only to uncompressed saves; a compressed Pipelines save still allocates one
+    // full-size buffer per part (still 2 buffers, not 4 — no Brotli MemoryStream.ToArray() copy, no final
+    // container-concat array).
+    private void WriteContainerPooled(
+        Stream destination,
+        bool compress,
+        CompressionLevel level,
+        List<CachedCellValue> values
+    )
+    {
+        if (compress)
+        {
+            WriteContainerWhole(destination, compress: true, level, values);
+            return;
+        }
+
+        Span<byte> header = stackalloc byte[ContainerHeaderLength];
+        ContainerMagic.CopyTo(header);
+        header[4] = ContainerVersionUncompressed;
+        destination.Write(header);
+
+        long modelLength;
+
+        using (var raw = new StreamBufferWriter(destination))
+        {
+            var counting = new CountingBufferWriter<StreamBufferWriter>(raw);
+            MemoryPackSerializer.Serialize(counting, this);
+            modelLength = counting.TotalBytesWritten;
+            MemoryPackSerializer.Serialize(raw, values);
+        }
+
+        PatchModelLength(destination, modelLength);
+    }
+
+    // Default (WorkbookIoBuffering.Pooled) ASYNC container writer. UNCOMPRESSED: genuinely single-pass, no
+    // full-size byte[] for the model at all — MemoryPackSerializer.SerializeAsync already streams through its
+    // own pooled, segmented buffer writer (verified against MemoryPack 1.21.4's decompiled source);
+    // CountingWriteStream taps the exact byte count as those bytes fly by, so the header is patched via
+    // seek-back with no separate counting pass. COMPRESSED: falls back to the same two whole-buffer Brotli
+    // Write calls as WriteContainerWhole — Brotli's compressed output is sensitive to Write-CALL boundaries,
+    // not just content (verified empirically: splitting the same bytes across many small Write calls
+    // measurably changes the compressed bytes at Fastest/Optimal levels), and SerializeAsync's internal writer
+    // flushes in many small segments, which WOULD break the byte-identity contract if fed straight into Brotli.
+    private async Task WriteContainerStreamAsync(
+        Stream destination,
+        bool compress,
+        CompressionLevel level,
+        List<CachedCellValue> values,
+        CancellationToken cancellationToken
+    )
+    {
+        if (compress)
+        {
+            WriteContainerWhole(destination, compress: true, level, values);
+            return;
+        }
+
+        var header = new byte[ContainerHeaderLength];
+        ContainerMagic.CopyTo(header);
+        header[4] = ContainerVersionUncompressed;
+        await destination.WriteAsync(header, cancellationToken);
+
+        var counting = new CountingWriteStream(destination);
+        await MemoryPackSerializer.SerializeAsync(
+            counting,
+            this,
+            cancellationToken: cancellationToken
+        );
+        var modelLength = counting.TotalBytesWritten;
+        await MemoryPackSerializer.SerializeAsync(
+            destination,
+            values,
+            cancellationToken: cancellationToken
         );
 
-        return compress
-            ? BuildContainer(
-                ContainerVersionBrotli,
-                model,
-                BrotliCompress(model, values, options.CompressionLevel)
-            )
-            : BuildContainer(ContainerVersionUncompressed, model, Concat(model, values));
+        await PatchModelLengthAsync(destination, modelLength, cancellationToken);
     }
 
-    // Prepends the fixed 9-byte header to an already-encoded body. `modelLength` is always the UNCOMPRESSED
-    // model length so the reader can slice model vs. values after (optionally) decompressing the body.
-    private static byte[] BuildContainer(byte version, byte[] model, byte[] body)
+    private static void PatchModelLength(Stream destination, long modelLength)
     {
-        var buffer = new byte[ContainerHeaderLength + body.Length];
-        var span = buffer.AsSpan();
-
-        ContainerMagic.CopyTo(span);
-        span[4] = version;
-        BinaryPrimitives.WriteInt32LittleEndian(span.Slice(5, 4), model.Length);
-        body.CopyTo(span.Slice(ContainerHeaderLength));
-
-        return buffer;
+        destination.Position = 5;
+        Span<byte> lengthBytes = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(lengthBytes, checked((int)modelLength));
+        destination.Write(lengthBytes);
     }
 
-    private static byte[] Concat(byte[] first, byte[] second)
+    private static async Task PatchModelLengthAsync(
+        Stream destination,
+        long modelLength,
+        CancellationToken cancellationToken
+    )
     {
-        var buffer = new byte[first.Length + second.Length];
-        first.CopyTo(buffer.AsSpan());
-        second.CopyTo(buffer.AsSpan(first.Length));
-        return buffer;
-    }
-
-    // Compresses model||values as a single Brotli stream at the chosen level. One stream compresses better
-    // than two independently-compressed blocks because the coder shares context across the whole payload. The
-    // level affects only write time and size — Load decompresses any level, so the container is unversioned by it.
-    private static byte[] BrotliCompress(byte[] model, byte[] values, CompressionLevel level)
-    {
-        using var output = new MemoryStream();
-        using (var brotli = new BrotliStream(output, level, leaveOpen: true))
-        {
-            brotli.Write(model);
-            brotli.Write(values);
-        }
-
-        return output.ToArray();
+        destination.Position = 5;
+        var lengthBytes = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(lengthBytes, checked((int)modelLength));
+        await destination.WriteAsync(lengthBytes, cancellationToken);
     }
 
     // Snapshots the memoized cache into surrogates, EXCLUDING volatile-tainted entries (they must re-sample on
@@ -184,11 +366,227 @@ public sealed partial class Workbook
     /// instance. Warm-start containers repopulate the value cache; raw (cold/legacy) files load unchanged.</summary>
     public static Workbook Load(string path) => Deserialize(File.ReadAllBytes(path), path);
 
+    /// <summary>
+    /// Loads a workbook, honoring <paramref name="options"/>. <see cref="WorkbookLoadOptions.IoBuffering"/>
+    /// only changes how the file's bytes are read (see <see cref="WorkbookIoBuffering"/>) — the resulting
+    /// workbook is identical to <see cref="Load(string)"/> either way.
+    /// </summary>
+    public static Workbook Load(string path, WorkbookLoadOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.IoBuffering == WorkbookIoBuffering.Pooled)
+        {
+            return Load(path);
+        }
+
+        using var stream = new FileStream(
+            path,
+            new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.Read,
+                Options = FileOptions.SequentialScan,
+            }
+        );
+
+        Span<byte> header = stackalloc byte[ContainerHeaderLength];
+        var headerRead = stream.ReadAtLeast(
+            header,
+            ContainerHeaderLength,
+            throwOnEndOfStream: false
+        );
+
+        if (SniffContainerHeader(header, headerRead))
+        {
+            // Containers are the smaller, warm-cache case — same byte[] path regardless of IoBuffering.
+            stream.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[stream.Length];
+            stream.ReadExactly(bytes);
+            return DeserializeContainer(bytes, path);
+        }
+
+        stream.Seek(0, SeekOrigin.Begin);
+        return LoadRawPooledSequence(stream, path);
+    }
+
+    // Reads the raw model in ~64KB ArrayPool-backed segments and hands MemoryPack a ReadOnlySequence, instead
+    // of one contiguous byte[] covering the whole file — the synchronous mirror of DeserializeAsync's own
+    // segmented/pooled internal behavior (System.IO.Pipelines' PipeWriter/PipeReader are async-first, so a
+    // synchronous LOH-bounded read needs this hand-built chain instead).
+    private static Workbook LoadRawPooledSequence(Stream stream, string path)
+    {
+        const int SegmentSize = 64 * 1024;
+
+        PooledSequenceSegment? first = null;
+        PooledSequenceSegment? last = null;
+
+        try
+        {
+            long runningIndex = 0;
+            int read;
+
+            do
+            {
+                var buffer = ArrayPool<byte>.Shared.Rent(SegmentSize);
+                read = stream.Read(buffer, 0, buffer.Length);
+
+                if (read == 0)
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    break;
+                }
+
+                var segment = new PooledSequenceSegment(buffer, read, runningIndex);
+                runningIndex += read;
+
+                if (first is null)
+                {
+                    first = last = segment;
+                }
+                else
+                {
+                    last!.SetNext(segment);
+                    last = segment;
+                }
+            } while (read > 0);
+
+            var sequence = first is null
+                ? ReadOnlySequence<byte>.Empty
+                : new ReadOnlySequence<byte>(first, 0, last!, last!.Memory.Length);
+
+            return MemoryPackSerializer.Deserialize<Workbook>(sequence)
+                ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+        }
+        finally
+        {
+            for (var node = first; node is not null; )
+            {
+                var next = (PooledSequenceSegment?)node.Next;
+                node.Return();
+                node = next;
+            }
+        }
+    }
+
     /// <inheritdoc cref="Load(string)"/>
     public static async Task<Workbook> LoadAsync(
         string path,
         CancellationToken cancellationToken = default
-    ) => Deserialize(await File.ReadAllBytesAsync(path, cancellationToken), path);
+    )
+    {
+        await using var stream = OpenReadAsync(path);
+
+        var header = new byte[ContainerHeaderLength];
+        var headerRead = await stream.ReadAtLeastAsync(
+            header,
+            ContainerHeaderLength,
+            throwOnEndOfStream: false,
+            cancellationToken
+        );
+
+        if (SniffContainerHeader(header, headerRead))
+        {
+            // Containers are the smaller, warm-cache case — read the (already-compact) bytes once and reuse
+            // the existing synchronous container path unchanged.
+            stream.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[stream.Length];
+            await stream.ReadExactlyAsync(bytes, cancellationToken);
+            return DeserializeContainer(bytes, path);
+        }
+
+        // Raw model: the common, larger case. Hand the stream straight to MemoryPack's async deserializer,
+        // which reads through pooled, segmented ~64KB chunks built into a ReadOnlySequence instead of
+        // materializing the whole file as one contiguous byte[] up front (the historical
+        // File.ReadAllBytesAsync + Deserialize(byte[])).
+        stream.Seek(0, SeekOrigin.Begin);
+        return await MemoryPackSerializer.DeserializeAsync<Workbook>(
+                stream,
+                cancellationToken: cancellationToken
+            ) ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+    }
+
+    /// <inheritdoc cref="Load(string, WorkbookLoadOptions)"/>
+    public static async Task<Workbook> LoadAsync(
+        string path,
+        WorkbookLoadOptions options,
+        CancellationToken cancellationToken = default
+    )
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.IoBuffering == WorkbookIoBuffering.Pooled)
+        {
+            return await LoadAsync(path, cancellationToken);
+        }
+
+        await using var stream = OpenReadAsync(path);
+
+        var header = new byte[ContainerHeaderLength];
+        var headerRead = await stream.ReadAtLeastAsync(
+            header,
+            ContainerHeaderLength,
+            throwOnEndOfStream: false,
+            cancellationToken
+        );
+
+        if (SniffContainerHeader(header, headerRead))
+        {
+            // Containers are the smaller, warm-cache case — same byte[] path regardless of IoBuffering.
+            stream.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[stream.Length];
+            await stream.ReadExactlyAsync(bytes, cancellationToken);
+            return DeserializeContainer(bytes, path);
+        }
+
+        stream.Seek(0, SeekOrigin.Begin);
+
+        var reader = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
+        try
+        {
+            ReadResult result;
+            do
+            {
+                result = await reader.ReadAsync(cancellationToken);
+
+                // PipeReader REQUIRES an AdvanceTo call between reads — without it, the reader has no signal
+                // that the buffer was examined and can hang waiting for "new" data that never comes. Consumed
+                // stays at Start (nothing processed yet — MemoryPack needs the whole sequence at once);
+                // examined moves to End so the next ReadAsync call actually waits for more bytes to arrive.
+                if (!result.IsCompleted)
+                {
+                    reader.AdvanceTo(result.Buffer.Start, result.Buffer.End);
+                }
+            } while (!result.IsCompleted);
+
+            var workbook =
+                MemoryPackSerializer.Deserialize<Workbook>(result.Buffer)
+                ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+            reader.AdvanceTo(result.Buffer.End);
+            return workbook;
+        }
+        finally
+        {
+            await reader.CompleteAsync();
+        }
+    }
+
+    private static FileStream OpenReadAsync(string path) =>
+        new(
+            path,
+            new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.Read,
+                Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+            }
+        );
+
+    private static bool SniffContainerHeader(ReadOnlySpan<byte> header, int bytesRead) =>
+        bytesRead >= ContainerHeaderLength
+        && header.Slice(0, ContainerMagic.Length).SequenceEqual(ContainerMagic);
 
     // Sniffs the 4-byte magic: a container repopulates the warm cache; anything else is a raw model.
     private static Workbook Deserialize(byte[] bytes, string path)
