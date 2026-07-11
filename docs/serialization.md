@@ -169,6 +169,32 @@ Because only the tags (never type names) go on the wire, the [2.0 namespace
 reorganization](migrating-to-2.0.md) did not change the format at all: files saved by 1.x load in 2.0
 unchanged, guarded by a frozen pre-2.0 binary fixture in the test suite.
 
+### Forward-compatibility: shared-formula delta nodes (tags 319-321)
+
+Shared formulas (dragged Excel formulas) can now be represented by three additional node types —
+`AnchoredCellReference` (319), `AnchoredRangeReference` (320) and `SharedFormulaSlave` (321) — that let
+every slave cell of a supported group share one master expression tree instead of holding an independent,
+fully-expanded one (see [Excel interop → Shared
+formulas](excel-interop.md#shared-formulas-a-shared-master-tree-with-per-slave-deltas) for what makes a
+group "supported" and the measured load-time win).
+
+This is a **one-way** compatibility boundary, same as any append-only tag addition:
+
+- A file saved by **this or a later** version of the library — whether produced by `Workbook.Save` or by
+  `ExcelFile.Load` followed by a save — can contain cells using tags 319-321 whenever the workbook holds a
+  supported shared-formula group. Such a file **cannot be opened by a version of the library older than
+  the one that introduced these tags**: the older MemoryPack union does not recognize them and deserialization
+  fails.
+- A file saved by an **older** version of the library never contains these tags, and continues to load
+  unchanged in this and every later version, exactly as the append-only policy above guarantees.
+
+**Honest note: this is a RAM/GC optimization, not a disk-size one.** In memory, every slave in a supported
+group shares a single `Expression` instance for its master tree — that is where the allocation and GC win
+comes from. On the wire, MemoryPack serializes each node's data independently and does **not** perform
+reference-tracking or structural deduplication: a `SharedFormulaSlave` still writes its own copy of the
+master tree's serialized bytes, once per slave. A workbook with a large shared-formula group therefore does
+not shrink on disk from this change alone — only its in-memory footprint after loading does.
+
 ## When to use which format
 
 | Need | Use |

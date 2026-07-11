@@ -184,6 +184,34 @@ Como apenas as tags (nunca os nomes de tipo) vão para o fio, a [reorganização
 2.0](migrating-to-2.0.md) não mudou o formato em absolutamente nada: arquivos salvos pela 1.x carregam
 na 2.0 sem alteração, garantido por uma fixture binária pré-2.0 congelada na suíte de testes.
 
+### Compatibilidade futura: nós de delta de fórmula compartilhada (tags 319-321)
+
+Fórmulas compartilhadas (fórmulas do Excel arrastadas) agora podem ser representadas por três tipos de nó
+adicionais — `AnchoredCellReference` (319), `AnchoredRangeReference` (320) e `SharedFormulaSlave` (321) —
+que permitem que toda célula escrava de um grupo suportado compartilhe uma única árvore de expressão mestre
+em vez de manter uma árvore própria totalmente expandida (veja [Interop com Excel → Fórmulas
+compartilhadas](excel-interop.md#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava)
+para o que torna um grupo "suportado" e o ganho de tempo de carregamento medido).
+
+Este é um limite de compatibilidade em **uma única direção**, como qualquer adição de tag append-only:
+
+- Um arquivo salvo por esta versão da biblioteca **ou por uma posterior** — seja produzido por
+  `Workbook.Save` ou por `ExcelFile.Load` seguido de um save — pode conter células usando as tags 319-321
+  sempre que o workbook tiver um grupo de fórmula compartilhada suportado. Esse arquivo **não pode ser
+  aberto por uma versão da biblioteca anterior à que introduziu essas tags**: a union do MemoryPack mais
+  antiga não as reconhece e a desserialização falha.
+- Um arquivo salvo por uma versão **mais antiga** da biblioteca nunca contém essas tags e continua
+  carregando sem alteração nesta e em toda versão posterior, exatamente como garante a política
+  append-only acima.
+
+**Nota honesta: isto é uma otimização de RAM/GC, não de tamanho em disco.** Em memória, toda escrava de um
+grupo suportado compartilha uma única instância de `Expression` para sua árvore mestre — é daí que vem o
+ganho de alocação e de GC. No fio, o MemoryPack serializa os dados de cada nó de forma independente e
+**não** faz rastreamento de referências (reference-tracking) nem deduplicação estrutural: um
+`SharedFormulaSlave` ainda escreve sua própria cópia dos bytes serializados da árvore mestre, uma vez por
+escrava. Um workbook com um grande grupo de fórmula compartilhada, portanto, não diminui em disco só por
+causa desta mudança — apenas sua pegada em memória após o carregamento diminui.
+
 ## Quando usar cada formato
 
 | Necessidade | Use |

@@ -61,8 +61,43 @@ How file content maps into the workbook:
 | Error cell | `ErrorValue` (evaluates to the corresponding `Error`). |
 | Date cell | `NumberValue` with the Excel **serial number** (ISO-8601 dates in strict-mode files are converted via `ToOADate`). |
 | Style-only / empty cell | Nothing stored — reads as blank. |
-| Shared-formula "slave" (a dragged formula cell carrying no formula text) | Expanded into a real formula: the master's text is shifted by the row/column delta (relative references move, `$`-anchored components stay, text inside string literals is untouched) and parsed like any other formula. |
+| Shared-formula "slave" (a dragged formula cell carrying no formula text) | A lightweight node sharing the master's parsed tree (see [Shared formulas](#shared-formulas-a-shared-master-tree-with-per-slave-deltas) below) when the master's shape is supported; otherwise expanded into an independent formula exactly as before. |
 | Workbook-scoped defined name (`<definedName>`) | An entry in [`Workbook.DefinedNames`](workbook-and-expressions.md#named-ranges): the `refersTo` text is parsed as a formula. **Sheet-scoped** names (those with a `localSheetId`) and Excel's **builtin `_xlnm.*`** names (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) are skipped. |
+
+### Shared formulas: a shared master tree with per-slave deltas
+
+A dragged Excel formula is stored once in the file (the "master") plus a range of "slave" cells that carry
+no formula text of their own. Historically MySheet gave every slave its own independently re-parsed
+`Expression` tree — correct, but on a workbook with hundreds of thousands of dragged cells that meant
+hundreds of thousands of separately-allocated trees for what is, structurally, one formula.
+
+When the master's shape is fully supported — plain cell references, bounded ranges, arithmetic operators,
+defined names, and function calls over arguments that are themselves supported — every slave in the group
+now shares **one** parsed tree instead. The master is parsed once in an anchored mode that keeps its `$`
+markers instead of discarding them, and each slave becomes a small `SharedFormulaSlave(Master, ΔRow,
+ΔColumn)` node. Evaluating a slave threads its own `(ΔRow, ΔColumn)` into the shared master tree: relative
+references inside it shift by that delta, `$`-anchored ones do not — the same result a fully expanded tree
+would have produced. The shift is memoized per evaluation epoch like any other cell, so re-reading a slave
+repeatedly does not repeat the delta arithmetic (see [Performance → Memoization](performance.md#memoization)
+for the full mechanics and the measured compute cost).
+
+On the shape used to measure this (a group of dragged formulas over ~360k cells), sharing the master tree
+cut the load benchmark by **-46% time, -59% allocated memory, and -50% Gen1+Gen2 collections** versus
+expanding every slave into its own tree.
+
+Not every dragged shape can be shared this way. A master whose formula involves an **open range** (a
+whole-column/row reference), a **union** (`(A1:A3, C1:C3)`), or a **chained cross-sheet range endpoint**
+falls back honestly: the whole group is expanded per slave into independent formulas, exactly as it always
+has been. There is no silent approximation — an unsupported shape is detected before any slave is built,
+and the group takes the slower, safer path.
+
+> **Forward-compatibility note.** A native MemoryPack file (see [Serialization](serialization.md)) saved
+> from a workbook containing shared-formula nodes in this shared representation cannot be opened by
+> versions of this library **older** than the one that introduced it — the new node types register wire
+> tags those versions do not know. Files saved by older versions keep loading unchanged. See [Serialization
+> → Compatibility](serialization.md#compatibility) for the full contract, including the honest caveat that
+> this optimization saves **memory and GC pressure, not disk space** — the file itself still serializes the
+> master's tree once per slave.
 
 Sheets are created in the file's tab order, so `Sheet.Index` (and the `SHEET` function) match Excel.
 
@@ -168,10 +203,13 @@ Being honest about what the interop MVP does **not** do:
 - **Absolute markers are not preserved on write**: `$A$1` parses fine (it identifies the same cell) but
   un-parses as `A1` — a fidelity loss only in `FormulaMode.Formulas` exports, and only cosmetic unless
   you plan to copy/fill formulas in Excel afterwards.
-- **Shared formulas ARE expanded**: slave cells of a dragged formula (which carry no formula text in the
-  file) are rebuilt from the master's text, shifting relative references by the cell delta while keeping
-  `$`-anchored components fixed — so they stay real formulas that react to input changes. A slave whose
-  master is missing from the file falls back to its cached literal value.
+- **Shared formulas stay real formulas**: slave cells of a dragged formula (which carry no formula text in
+  the file) are rebuilt against the master, applying the cell delta so relative references move while
+  `$`-anchored components stay fixed — so they keep reacting to input changes. When the master's shape is
+  supported, every slave shares one parsed tree instead of getting its own (see [Shared
+  formulas](#shared-formulas-a-shared-master-tree-with-per-slave-deltas) above); otherwise the group falls
+  back to full per-slave expansion. A slave whose master is missing from the file falls back to its cached
+  literal value.
 - **Function coverage is not total** (see the current count and list of built-ins, plus your custom functions, in the
   [function reference](function-reference.md). Formulas using other functions load as `FunctionCall`
   nodes and evaluate to `#NAME?` unless registered.

@@ -165,6 +165,11 @@ workbook.MergeIntoExcel("report.xlsx");
   installation): `ExcelFile.Load`, `SaveAsExcel` (`ValuesOnly` snapshot or `Formulas` with cached
   values), and `MergeIntoExcel` (inject computed values into an existing file, preserving formatting).
   All three paths **stream** the worksheet XML — no OpenXML DOM is ever materialized.
+- **Shared formulas share one master tree**: dragged formulas load through a single parsed, anchored
+  expression tree per group instead of an independent tree per slave cell — 59% less allocation (46%
+  faster) loading a shared-formula-heavy workbook, with an honest fallback to full per-slave expansion
+  for the few shapes it can't safely share (open ranges, unions, chained cross-sheet endpoints); see
+  [Excel interop](docs/excel-interop.md#shared-formulas-a-shared-master-tree-with-per-slave-deltas).
 
 ## Documentation
 

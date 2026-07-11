@@ -167,6 +167,42 @@ The memoization layer tracks the cells being evaluated on the current thread. A 
 `B1=A1`) is detected and returns `#REF!` (`Error.Ref`) instead of overflowing the stack. The tracking
 is thread-local, so concurrent evaluation of the same cell on different threads is not a false cycle.
 
+### Shared-formula slaves: one delta shift per epoch, not per read
+
+A shared-formula group (a dragged Excel formula) shares one parsed master tree across every slave cell
+instead of giving each slave its own independently-expanded tree — see [Excel interop → Shared
+formulas](excel-interop.md#shared-formulas-a-shared-master-tree-with-per-slave-deltas) for the load-time
+mechanics and the numbers behind that decision. At evaluation time, the shared tree still has to behave as
+if it were each slave's own expanded formula — every relative reference inside it must resolve to a
+different cell for a different slave. A `SharedFormulaSlave` node carries its own `(ΔRow, ΔColumn)`, pushes
+it into a fresh `EvaluationContext`, and evaluates the shared master against it; every
+`AnchoredCellReference`/`AnchoredRangeReference` inside that master reads the ambient delta off the context
+to compute its effective address — no re-parsing, no per-slave tree walk to "apply" the shift textually.
+
+**Why compute pays a small cost, not a free lunch.** Threading the delta through `EvaluationContext` and
+resolving it at each anchored node is extra arithmetic the old, fully-expanded tree did not need (its
+references were already baked to their final address at parse time). Measured on the shared-formulas load
+shape: **+2.3%** in the original spike and **+3.9%** on a same-day A/B re-measurement after merging to the
+production branch — both comfortably under the project's 5% compute-regression gate.
+
+**Why it is one-time per epoch, not per read.** The shift happens inside `Evaluate`, which is memoized
+exactly like any other cell (see [above](#memoization)): the first read of a slave in an evaluation epoch
+pays the delta arithmetic once, and every later read of that same cell — directly, or through a range that
+includes it — is served from the memoized `ComputedValue`, same as any other cell. `InvalidateCache()`
+clears it like any memoized value; ordinary reads within an epoch never repeat it.
+
+**Numbers across the productization phases** (Apple Silicon, .NET 10; shared-formulas load shape, ~360k
+slave cells across the fixture used for these measurements):
+
+| Phase | What changed | Result |
+| --- | --- | --- |
+| Phase 1 (spike) | Slaves share the master tree instead of each getting its own expanded copy | Load 546→295 ms (**-46%**), allocated 251.6→102.5 MB (**-59%**), Gen1+Gen2 **-50%**; compute **+2.3%** |
+| Phase 1 (re-validated on the production branch) | Same design, re-measured after merge, worktree removed | Allocated 102.47 MB (deterministic, identical to the spike); compute **+3.9%** on a same-day A/B |
+| Phase 3 (range transient removed) | `AnchoredRangeReference` computes its bounds and expands values directly instead of building a transient `RangeReference` plus two formatted cell ids per read | Per-cell allocation for a shared range group: 1,354.0 → 1,028.65 bytes/cell (**-24.0%**) |
+
+All numbers are specific to the shared-formulas benchmark shape (dragged formulas over ~360k cells); see
+`benchmarks/Danfma.MySheet.Benchmark` (`ExcelLoadBenchmarks`) for the runnable harness.
+
 ## Bulk extraction: `GetValueReader`
 
 `GetCellValue(sheetName, id)` is the right default read, but an extraction loop that builds ids
