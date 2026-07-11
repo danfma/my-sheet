@@ -39,4 +39,12 @@ public sealed class WorkbookSaveOptions
     /// file stays fully backward- and forward-compatible regardless of the level chosen.
     /// </summary>
     public CompressionLevel CompressionLevel { get; init; } = CompressionLevel.Optimal;
+
+    /// <summary>
+    /// The buffering strategy used to write the file. Defaults to <see cref="WorkbookIoBuffering.Pooled"/> —
+    /// see <see cref="WorkbookIoBuffering"/> for the trade-off against <see cref="WorkbookIoBuffering.Pipelines"/>.
+    /// This is a write-mechanism choice only: every combination produces byte-identical output for the same
+    /// <see cref="IncludeComputedValues"/>/<see cref="Compression"/> pair.
+    /// </summary>
+    public WorkbookIoBuffering IoBuffering { get; init; } = WorkbookIoBuffering.Pooled;
 }
