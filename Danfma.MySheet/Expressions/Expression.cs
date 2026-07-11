@@ -341,6 +341,15 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(316, typeof(OpenRangeReference))]
 [MemoryPackUnion(317, typeof(DynamicRange))]
 [MemoryPackUnion(318, typeof(Lookup.Indirect))]
+// G3 spike (node-delta shared formulas): anchored nodes preserve the $ anchors the AST normally discards
+// (CellReference.Id is normalized by Parser.NormalizeCellId, which strips them), so a SharedFormulaSlave can
+// carry a per-cell (row,column) delta and apply it at EVALUATION time against a SHARED master tree, instead
+// of expanding a full token-shifted tree per slave at LOAD time. A wire-old file never contains these tags (a
+// new file that does will not open in a pre-spike build of this library — append-only tags are read-safe
+// going forward, not backward).
+[MemoryPackUnion(319, typeof(AnchoredCellReference))]
+[MemoryPackUnion(320, typeof(AnchoredRangeReference))]
+[MemoryPackUnion(321, typeof(SharedFormulaSlave))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

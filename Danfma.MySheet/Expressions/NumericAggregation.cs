@@ -73,6 +73,29 @@ internal static class NumericAggregation
                     AddReferenced(cell.Evaluate(context), ref fold, ref error);
                     break;
 
+                // G3 spike (node-delta shared formulas): mirrors the CellReference/RangeReference cases
+                // above so a shared-formula slave's MAX(B2,C2)-shaped argument gets the REFERENCED-cell
+                // aggregation rule (text/logicals/blanks pulled from a referenced cell are ignored) instead
+                // of silently falling to the DIRECT-value rule in the `default` branch below (which would
+                // happen if these fell through: they evaluate fine via Expression.Evaluate — that is not the
+                // bug — but AddDirect's Excel-parity rule for a directly-passed value differs from
+                // AddReferenced's rule for a value read through a reference).
+                case AnchoredCellReference anchoredCell:
+                    AddReferenced(anchoredCell.Evaluate(context), ref fold, ref error);
+                    break;
+
+                case AnchoredRangeReference anchoredRange:
+                    foreach (
+                        var value in anchoredRange
+                            .ToRangeReference(context)
+                            .ExpandComputedValues(context)
+                    )
+                    {
+                        AddReferenced(value, ref fold, ref error);
+                    }
+
+                    break;
+
                 case UnionReference union:
                     foreach (var value in union.ExpandComputedValues(context))
                     {
@@ -168,6 +191,23 @@ internal static class NumericAggregation
 
                 case CellReference cell:
                     AddReferencedA(cell.Evaluate(context), ref fold, ref error);
+                    break;
+
+                // G3 spike (node-delta shared formulas): see the matching cases in Fold above.
+                case AnchoredCellReference anchoredCell:
+                    AddReferencedA(anchoredCell.Evaluate(context), ref fold, ref error);
+                    break;
+
+                case AnchoredRangeReference anchoredRange:
+                    foreach (
+                        var value in anchoredRange
+                            .ToRangeReference(context)
+                            .ExpandComputedValues(context)
+                    )
+                    {
+                        AddReferencedA(value, ref fold, ref error);
+                    }
+
                     break;
 
                 case UnionReference union:

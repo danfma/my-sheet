@@ -118,9 +118,14 @@ public class SharedFormulaTests
     {
         await WithFixture(async workbook =>
         {
-            // Slaves are FORMULAS (shifted from the master), not frozen literals.
-            await Assert.That(workbook["Data"]["B2"]).IsTypeOf<BinaryOperation>();
-            await Assert.That(workbook["Data"]["B3"]).IsTypeOf<BinaryOperation>();
+            // Slaves are FORMULAS (re-evaluated against the master, per-cell delta applied), not frozen
+            // literals. G3 spike (node-delta shared formulas): "A1*2" is fully anchored-representable, so
+            // the slave is now a SharedFormulaSlave wrapper around the ONE shared master tree rather than
+            // its own independently-expanded BinaryOperation — see AnchoredFormulaSupport/ExpandSlave. The
+            // wrapper still behaves exactly like a live formula (SlaveFormulas_ReactToInputChanges below
+            // pins that it reacts to input changes, not just that it holds a fixed value).
+            await Assert.That(workbook["Data"]["B2"]).IsTypeOf<SharedFormulaSlave>();
+            await Assert.That(workbook["Data"]["B3"]).IsTypeOf<SharedFormulaSlave>();
             await Assert.That(workbook.GetCellValue("Data", "B2").ToDouble()).IsEqualTo(4.0);
             await Assert.That(workbook.GetCellValue("Data", "B3").ToDouble()).IsEqualTo(6.0);
         });
@@ -157,6 +162,47 @@ public class SharedFormulaTests
         {
             // D2 = "A1"&A2 → the quoted "A1" is text and must not become "A2".
             await Assert.That(workbook.GetCellValue("Data", "D2").ToText()).IsEqualTo("A12");
+        });
+    }
+
+    // G3 spike (node-delta shared formulas): the new union tags (AnchoredCellReference,
+    // AnchoredRangeReference, SharedFormulaSlave — 319..321) must round-trip through MemoryPack exactly
+    // like every other node. A workbook loaded through the anchored path (B2/B3 below are now
+    // SharedFormulaSlave, per SlaveCells_BecomeRealFormulas_WithRelativeRefsShifted) is saved to .myxl and
+    // reloaded; both the node TYPE and the recomputed VALUE must survive.
+    [Test]
+    public async Task SharedFormulaSlave_RoundTripsThroughMyxlSaveLoad()
+    {
+        await WithFixture(async workbook =>
+        {
+            var path = Path.Combine(
+                Path.GetTempPath(),
+                $"mysheet-sfs-roundtrip-{Guid.NewGuid():N}.myxl"
+            );
+
+            try
+            {
+                await Assert.That(workbook["Data"]["B2"]).IsTypeOf<SharedFormulaSlave>();
+
+                workbook.Save(path);
+
+                var reloaded = Workbook.Load(path);
+
+                await Assert.That(reloaded["Data"]["B2"]).IsTypeOf<SharedFormulaSlave>();
+                await Assert.That(reloaded["Data"]["B3"]).IsTypeOf<SharedFormulaSlave>();
+                await Assert.That(reloaded.GetCellValue("Data", "B2").ToDouble()).IsEqualTo(4.0);
+                await Assert.That(reloaded.GetCellValue("Data", "B3").ToDouble()).IsEqualTo(6.0);
+
+                // The whole point survives too: the reloaded slave still recomputes from its master, it did
+                // not freeze into a literal value.
+                reloaded["Data"]["A2"] = new NumberValue(10);
+                reloaded.InvalidateCache();
+                await Assert.That(reloaded.GetCellValue("Data", "B2").ToDouble()).IsEqualTo(20.0);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
         });
     }
 }
