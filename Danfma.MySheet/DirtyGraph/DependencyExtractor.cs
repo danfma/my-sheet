@@ -51,6 +51,14 @@ internal sealed class DependencyScan
 /// (endpoints reference-returning), os voláteis NOW/TODAY/RAND/RANDBETWEEN (<see cref="Expression.IsVolatile"/>),
 /// um <see cref="FunctionCall"/> custom (comportamento host desconhecido), e um <see cref="NameReference"/>
 /// que não resolve.</para>
+///
+/// <para><b>Shared-formula delta (produção, Fase 3).</b> Um <see cref="SharedFormulaSlave"/> NÃO é
+/// always-dirty: o walker entra na sua árvore ancorada compartilhada (<see cref="SharedFormulaSlave.Master"/>)
+/// carregando o (DeltaRow, DeltaColumn) DA PRÓPRIA escrava, e um <see cref="AnchoredCellReference"/>/
+/// <see cref="AnchoredRangeReference"/> encontrado ali dentro aplica esse delta aos componentes RELATIVOS
+/// (um componente $-ancorado não se move) para produzir exatamente o mesmo <see cref="CellDep"/>/
+/// <see cref="RangeDep"/> que a expansão legada por-célula (<c>ExpressionParser.ParseSharedFormulaBody</c>)
+/// produziria — ver <c>SharedFormulaDependencyParityTests</c> para a prova.</para>
 /// </summary>
 internal static class DependencyExtractor
 {
@@ -60,7 +68,7 @@ internal static class DependencyExtractor
     public static DependencyScan Extract(Expression expression, Workbook? workbook = null)
     {
         var scan = new DependencyScan();
-        Visit(expression, scan, workbook, resolving: null);
+        Visit(expression, scan, workbook, resolving: null, deltaRow: 0, deltaColumn: 0);
         return scan;
     }
 
@@ -68,7 +76,9 @@ internal static class DependencyExtractor
         Expression e,
         DependencyScan scan,
         Workbook? wb,
-        HashSet<string>? resolving
+        HashSet<string>? resolving,
+        int deltaRow,
+        int deltaColumn
     )
     {
         switch (e)
@@ -101,15 +111,15 @@ internal static class DependencyExtractor
             case UnionReference union:
                 foreach (var area in union.Areas)
                 {
-                    Visit(area, scan, wb, resolving);
+                    Visit(area, scan, wb, resolving, deltaRow, deltaColumn);
                 }
                 return;
 
             case DynamicRange dynamicRange:
                 // Endpoints reference-returning (INDEX(...):A5) — alvo não-estático.
                 scan.AlwaysDirty = true;
-                Visit(dynamicRange.Start, scan, wb, resolving);
-                Visit(dynamicRange.End, scan, wb, resolving);
+                Visit(dynamicRange.Start, scan, wb, resolving, deltaRow, deltaColumn);
+                Visit(dynamicRange.End, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
             case Offset offset:
@@ -117,7 +127,7 @@ internal static class DependencyExtractor
                 scan.AlwaysDirty = true;
                 foreach (var argument in offset.Arguments)
                 {
-                    Visit(argument, scan, wb, resolving);
+                    Visit(argument, scan, wb, resolving, deltaRow, deltaColumn);
                 }
                 return;
 
@@ -127,29 +137,50 @@ internal static class DependencyExtractor
                 scan.AlwaysDirty = true;
                 foreach (var argument in indirect.Arguments)
                 {
-                    Visit(argument, scan, wb, resolving);
+                    Visit(argument, scan, wb, resolving, deltaRow, deltaColumn);
                 }
                 return;
 
             case NameReference name:
-                ResolveName(name, scan, wb, resolving);
+                ResolveName(name, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
-            // G3 spike (node-delta shared formulas) — PRODUCTION PENDENCY, not wired for the spike: a
-            // SharedFormulaSlave's effective cell/range deps depend on ITS OWN (DeltaRow, DeltaColumn), which
-            // this static, delta-oblivious walker does not thread through (unlike FormulaWriter/
-            // NumericAggregation/ReferenceGuard, which do — see those files). Conservatively AlwaysDirty
-            // instead of silently returning an EMPTY dependency set (the unsafe "lost dependency" failure
-            // mode this file's own doc comment calls out) — no test in this repo currently loads a shared
-            // formula from .xlsx through DirtyGraph/RecalculationEngine (verified: no "sharedformula" hit
-            // under tests/Danfma.MySheet.Tests), so under-implementing this is an explicit, documented
-            // tradeoff of the spike, not a silent gap. Wiring full support means threading (deltaRow,
-            // deltaColumn) through this whole Visit chain and adding effective-address cases for
-            // AnchoredCellReference/AnchoredRangeReference, mirroring the three files above.
-            case SharedFormulaSlave
-            or AnchoredCellReference
-            or AnchoredRangeReference:
-                scan.AlwaysDirty = true;
+            // Shared-formula delta (production): a SharedFormulaSlave contributes exactly the dependencies its
+            // shared AnchoredTree would have if independently expanded with ITS OWN (DeltaRow, DeltaColumn) —
+            // walk the master with the slave's delta pushed, mirroring how SharedFormulaSlave.Evaluate pushes
+            // the same delta into the EvaluationContext (WithDelta) for the runtime path.
+            case SharedFormulaSlave slave:
+                Visit(slave.Master, scan, wb, resolving, slave.DeltaRow, slave.DeltaColumn);
+                return;
+
+            // Only ever reached while walking INSIDE a SharedFormulaSlave.Master tree (see that type's doc
+            // comment: the Parser's anchored mode never produces these outside a shared-formula master), so
+            // deltaRow/deltaColumn here are always the enclosing slave's own delta. Effective(...) applies the
+            // delta to the relative components only (an absolute $-anchored component stays put) — the exact
+            // same address a legacy per-slave expansion (ExpressionParser.ParseSharedFormulaBody) would have
+            // produced as a plain CellReference.
+            case AnchoredCellReference anchoredCell:
+                var (effColumn, effRow) = anchoredCell.Effective(deltaRow, deltaColumn);
+                scan.Cells.Add(new CellDep(anchoredCell.SheetName, effColumn, effRow));
+                return;
+
+            // Same idea as AnchoredCellReference, for a bounded range endpoint pair — EffectiveEndpoints applies
+            // the delta per-endpoint (each axis independently, per its own $-anchor flag) and the RangeDep
+            // normalizes the corners exactly like the plain RangeReference case above.
+            case AnchoredRangeReference anchoredRange:
+                var (startColumn, startRow, endColumn, endRow) = anchoredRange.EffectiveEndpoints(
+                    deltaRow,
+                    deltaColumn
+                );
+                scan.Ranges.Add(
+                    new RangeDep(
+                        anchoredRange.SheetName,
+                        Math.Min(startColumn, endColumn),
+                        Math.Max(startColumn, endColumn),
+                        Math.Min(startRow, endRow),
+                        Math.Max(startRow, endRow)
+                    )
+                );
                 return;
 
             case FunctionCall custom:
@@ -157,17 +188,17 @@ internal static class DependencyExtractor
                 scan.AlwaysDirty = true;
                 foreach (var argument in custom.Arguments)
                 {
-                    Visit(argument, scan, wb, resolving);
+                    Visit(argument, scan, wb, resolving, deltaRow, deltaColumn);
                 }
                 return;
 
             case BinaryOperation binary:
-                Visit(binary.Left, scan, wb, resolving);
-                Visit(binary.Right, scan, wb, resolving);
+                Visit(binary.Left, scan, wb, resolving, deltaRow, deltaColumn);
+                Visit(binary.Right, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
             case UnaryOperation unary:
-                Visit(unary.Operand, scan, wb, resolving);
+                Visit(unary.Operand, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
             case ValueExpression:
@@ -179,7 +210,7 @@ internal static class DependencyExtractor
                 {
                     scan.AlwaysDirty = true;
                 }
-                VisitArguments(function, scan, wb, resolving);
+                VisitArguments(function, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
             default:
@@ -193,7 +224,9 @@ internal static class DependencyExtractor
         Function function,
         DependencyScan scan,
         Workbook? wb,
-        HashSet<string>? resolving
+        HashSet<string>? resolving,
+        int deltaRow,
+        int deltaColumn
     )
     {
         Expression[] arguments;
@@ -209,7 +242,7 @@ internal static class DependencyExtractor
 
         foreach (var argument in arguments)
         {
-            Visit(argument, scan, wb, resolving);
+            Visit(argument, scan, wb, resolving, deltaRow, deltaColumn);
         }
     }
 
@@ -217,7 +250,9 @@ internal static class DependencyExtractor
         NameReference name,
         DependencyScan scan,
         Workbook? wb,
-        HashSet<string>? resolving
+        HashSet<string>? resolving,
+        int deltaRow,
+        int deltaColumn
     )
     {
         if (wb is null || !wb.DefinedNames.TryGetValue(name.Name, out var definition))
@@ -235,7 +270,13 @@ internal static class DependencyExtractor
 
         try
         {
-            Visit(definition, scan, wb, resolving);
+            // A defined name's own definition is parsed in ORDINARY (non-anchored) mode and is position-
+            // independent (AnchoredFormulaSupport treats NameReference as safe to leave un-anchored) — it
+            // never contains an AnchoredCellReference/AnchoredRangeReference, so the delta threaded here is
+            // inert in practice. Passed through anyway (rather than reset to 0) to mirror the runtime's own
+            // NamedReferences.EvaluateDefinition, which evaluates the definition against the ambient context
+            // unchanged.
+            Visit(definition, scan, wb, resolving, deltaRow, deltaColumn);
         }
         finally
         {

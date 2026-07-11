@@ -63,8 +63,15 @@ public sealed partial record AnchoredCellReference(
     }
 
     internal (int Column, int Row) Effective(EvaluationContext context) =>
-        (
-            ColumnAbsolute ? Column : Column + context.DeltaColumn,
-            RowAbsolute ? Row : Row + context.DeltaRow
-        );
+        Effective(context.DeltaRow, context.DeltaColumn);
+
+    /// <summary>
+    /// The int-parameter twin of <see cref="Effective(EvaluationContext)"/>, for a caller that has a raw
+    /// (row, column) delta but no <see cref="EvaluationContext"/> to build — <see cref="DirtyGraph.DependencyExtractor"/>
+    /// walks a <see cref="SharedFormulaSlave"/>'s anchored master tree statically (no workbook evaluation),
+    /// threading the slave's own <see cref="SharedFormulaSlave.DeltaRow"/>/<see cref="SharedFormulaSlave.DeltaColumn"/>
+    /// through as plain ints.
+    /// </summary>
+    internal (int Column, int Row) Effective(int deltaRow, int deltaColumn) =>
+        (ColumnAbsolute ? Column : Column + deltaColumn, RowAbsolute ? Row : Row + deltaRow);
 }

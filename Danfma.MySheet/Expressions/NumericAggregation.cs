@@ -85,11 +85,7 @@ internal static class NumericAggregation
                     break;
 
                 case AnchoredRangeReference anchoredRange:
-                    foreach (
-                        var value in anchoredRange
-                            .ToRangeReference(context)
-                            .ExpandComputedValues(context)
-                    )
+                    foreach (var value in anchoredRange.ExpandComputedValues(context))
                     {
                         AddReferenced(value, ref fold, ref error);
                     }
@@ -199,11 +195,7 @@ internal static class NumericAggregation
                     break;
 
                 case AnchoredRangeReference anchoredRange:
-                    foreach (
-                        var value in anchoredRange
-                            .ToRangeReference(context)
-                            .ExpandComputedValues(context)
-                    )
+                    foreach (var value in anchoredRange.ExpandComputedValues(context))
                     {
                         AddReferencedA(value, ref fold, ref error);
                     }
