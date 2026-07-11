@@ -23,8 +23,16 @@ const string MainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main
 const string RelNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const string PkgRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
 
-// Colunas de fórmula da sheet Main: 6 grupos de shared formula (si = índice), master na linha 2.
+// Colunas de fórmula da sheet Main: 7 grupos de shared formula (si = índice), master na linha 2.
 // Misturam refs cross-sheet, relativas, absolutas ($) e chamadas de função — o que o load real enfrenta.
+// H (Phase 2 audit, shared-formula-delta-production.md): o único grupo com um RANGE relativo (o fixture
+// original só tinha refs de célula) — SUM(B2:D2) arrastado 60k linhas exercita AnchoredRangeReference em
+// escala real (NumericAggregation já suporta desde o spike G3; este grupo é a checagem de regressão/perf).
+// Mesma-sheet DELIBERADAMENTE (não Data!A1:A3): um range CROSS-SHEET no modo anchored do Parser lança
+// ParseException (endpoint cross-sheet encadeado, gap documentado em ExpressionParser.ParseAnchoredMasterBody
+// / WorksheetStreamLoader.TryBuildAnchoredMaster) — o grupo cairia no fallback legado (honesto, mas não
+// exercitaria AnchoredRangeReference, que é o ponto deste grupo); confirmado com um dry-run do
+// ExcelLoadBenchmarks (a versão cross-sheet registrava 1 exceção capturada por essa razão).
 (string Column, string MasterFormula)[] formulaGroups =
 [
     ("B", "Data!A1*2+1"),
@@ -33,6 +41,7 @@ const string PkgRelNs = "http://schemas.openxmlformats.org/package/2006/relation
     ("E", "ROUND(B2+C2,2)"),
     ("F", "MAX(B2,C2)"),
     ("G", "(B2+C2+D2)/3"),
+    ("H", "SUM(B2:D2)"),
 ];
 
 var root = FindRepoRoot();
@@ -291,9 +300,11 @@ static void WriteMainSheet(
     var lastFormulaRow = MainRows + 1; // linhas 2..60001
     var edgeRow = lastFormulaRow + 1;
 
+    var lastColumn = (char)('A' + formulaGroups.Length);
+
     w.WriteStartElement("worksheet", MainNs);
     w.WriteStartElement("dimension", MainNs);
-    w.WriteAttributeString("ref", $"A1:G{edgeRow}");
+    w.WriteAttributeString("ref", $"A1:{lastColumn}{edgeRow}");
     w.WriteEndElement();
     w.WriteStartElement("sheetData", MainNs);
 
@@ -491,7 +502,7 @@ static StringPool BuildStringPool()
     entries.Add("synthetic rich text "); // placeholder: o writer emite os runs; o texto é o InnerText esperado
 
     var headerIndex = entries.Count;
-    foreach (var c in "ABCDEFG")
+    foreach (var c in "ABCDEFGH")
     {
         entries.Add($"Header {c}");
     }
