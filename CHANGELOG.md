@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.13.0"></a>
+## [3.13.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.13.0) (2026-07-11)
+
+### Features
+
+* **serialization:** opt-in Pipelines I/O to bound Save/Load allocations ([aa1b6f9](https://www.github.com/danfma/my-sheet/commit/aa1b6f9478258d1ae50d853a1b6d310beb3c2db8))
+* **serialization:** streaming LoadAsync, single-pass container, opt-in pipelines I/O ([0bb61d8](https://www.github.com/danfma/my-sheet/commit/0bb61d8896463634b29105a7f8d2f6d1dc6c6511))
+
 <a name="3.12.3"></a>
 ## [3.12.3](https://www.github.com/danfma/my-sheet/releases/tag/v3.12.3) (2026-07-10)
 
