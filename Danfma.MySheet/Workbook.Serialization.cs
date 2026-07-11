@@ -188,7 +188,56 @@ public sealed partial class Workbook
     public static async Task<Workbook> LoadAsync(
         string path,
         CancellationToken cancellationToken = default
-    ) => Deserialize(await File.ReadAllBytesAsync(path, cancellationToken), path);
+    )
+    {
+        await using var stream = OpenReadAsync(path);
+
+        // Peek the fixed 9-byte container header (magic + version + modelLength) without a separate stream —
+        // on a short/empty file, ReadAtLeastAsync just reports fewer bytes read.
+        var header = new byte[ContainerHeaderLength];
+        var headerRead = await stream.ReadAtLeastAsync(
+            header,
+            ContainerHeaderLength,
+            throwOnEndOfStream: false,
+            cancellationToken
+        );
+
+        if (SniffContainerHeader(header, headerRead))
+        {
+            // Containers are the smaller, warm-cache case — read the (already-compact) bytes once and reuse
+            // the existing synchronous container path unchanged.
+            stream.Seek(0, SeekOrigin.Begin);
+            var bytes = new byte[stream.Length];
+            await stream.ReadExactlyAsync(bytes, cancellationToken);
+            return DeserializeContainer(bytes, path);
+        }
+
+        // Raw model: the common, larger case. Hand the stream straight to MemoryPack's async deserializer,
+        // which reads through pooled, segmented ~64KB chunks built into a ReadOnlySequence instead of
+        // materializing the whole file as one contiguous byte[] up front (the historical
+        // File.ReadAllBytesAsync + Deserialize(byte[])).
+        stream.Seek(0, SeekOrigin.Begin);
+        return await MemoryPackSerializer.DeserializeAsync<Workbook>(
+                stream,
+                cancellationToken: cancellationToken
+            ) ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+    }
+
+    private static FileStream OpenReadAsync(string path) =>
+        new(
+            path,
+            new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.Read,
+                Share = FileShare.Read,
+                Options = FileOptions.Asynchronous | FileOptions.SequentialScan,
+            }
+        );
+
+    private static bool SniffContainerHeader(ReadOnlySpan<byte> header, int bytesRead) =>
+        bytesRead >= ContainerHeaderLength
+        && header.Slice(0, ContainerMagic.Length).SequenceEqual(ContainerMagic);
 
     // Sniffs the 4-byte magic: a container repopulates the warm cache; anything else is a raw model.
     private static Workbook Deserialize(byte[] bytes, string path)
