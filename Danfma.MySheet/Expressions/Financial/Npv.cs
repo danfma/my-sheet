@@ -71,6 +71,34 @@ public sealed partial record Npv(Expression[] Arguments) : Function
 
                     break;
 
+                // Phase 2 audit (shared-formula delta production): mirrors the CellReference/RangeReference
+                // cases above so an NPV cash-flow argument written INSIDE a shared-formula master (an
+                // anchored node) gets the REFERENCED-cell rule (text/logicals/blanks ignored) instead of
+                // silently falling to the DIRECT-value rule in `default` below — the same class of bug
+                // NumericAggregation's spike comment documents for SUM/AVERAGE/…, and (for a range) instead of
+                // AnchoredRangeReference.Evaluate's unconditional #VALUE! (a range has no scalar value).
+                case AnchoredCellReference anchoredCell:
+                    AddReferenced(
+                        anchoredCell.Evaluate(context),
+                        denominator,
+                        ref discount,
+                        ref sum,
+                        ref error
+                    );
+                    break;
+
+                case AnchoredRangeReference anchoredRange:
+                    foreach (
+                        var value in anchoredRange
+                            .ToRangeReference(context)
+                            .ExpandComputedValues(context)
+                    )
+                    {
+                        AddReferenced(value, denominator, ref discount, ref sum, ref error);
+                    }
+
+                    break;
+
                 default:
                     var argumentValue = Arguments[i].Evaluate(context);
 

@@ -182,6 +182,47 @@ A camada de memoização rastreia as células em avaliação na thread atual. Um
 detectado e retorna `#REF!` (`Error.Ref`), em vez de estourar a pilha. O rastreamento é thread-local,
 então a avaliação concorrente da mesma célula em threads diferentes não é um falso ciclo.
 
+### Escravas de fórmula compartilhada: um deslocamento de delta por época, não por leitura
+
+Um grupo de fórmula compartilhada (uma fórmula do Excel arrastada) compartilha uma árvore mestre
+interpretada entre todas as células escravas, em vez de dar a cada escrava sua própria árvore expandida de
+forma independente — veja [Interop com Excel → Fórmulas
+compartilhadas](excel-interop.md#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava)
+para o mecanismo em tempo de carregamento e os números por trás dessa decisão. No momento da avaliação, a
+árvore compartilhada ainda precisa se comportar como se fosse a própria fórmula expandida de cada escrava —
+toda referência relativa dentro dela precisa resolver para uma célula diferente para uma escrava diferente.
+Um nó `SharedFormulaSlave` carrega seu próprio `(ΔRow, ΔColumn)`, propaga-o para um `EvaluationContext`
+recém-criado e avalia a mestre compartilhada contra ele; toda `AnchoredCellReference`/`AnchoredRangeReference`
+dentro dessa mestre lê o delta ambiente do contexto para calcular seu endereço efetivo — sem reparse, sem
+percorrer a árvore por escrava para "aplicar" o deslocamento textualmente.
+
+**Por que o cálculo paga um custo pequeno, não é de graça.** Propagar o delta pelo `EvaluationContext` e
+resolvê-lo em cada nó ancorado é uma aritmética extra que a antiga árvore totalmente expandida não
+precisava (suas referências já vinham com o endereço final fixado no momento do parse). Medido na forma de
+carregamento de fórmulas compartilhadas: **+2,3%** no spike original e **+3,9%** em uma remedição A/B no
+mesmo dia após o merge para o branch de produção — ambos confortavelmente abaixo do limiar de 5% de
+regressão de cálculo do projeto.
+
+**Por que é um custo único por época, não por leitura.** O deslocamento acontece dentro do `Evaluate`, que
+é memoizado exatamente como qualquer outra célula (veja [acima](#memoização)): a primeira leitura de uma
+escrava em uma época de avaliação paga a aritmética do delta uma vez, e toda leitura posterior dessa mesma
+célula — diretamente, ou através de um range que a inclua — é servida a partir do `ComputedValue`
+memoizado, como qualquer outra célula. O `InvalidateCache()` o descarta como qualquer valor memoizado;
+leituras comuns dentro de uma época nunca o repetem.
+
+**Números ao longo das fases de produtização** (Apple Silicon, .NET 10; forma de carregamento de fórmulas
+compartilhadas, ~360 mil células escravas na fixture usada nessas medições):
+
+| Fase | O que mudou | Resultado |
+| --- | --- | --- |
+| Fase 1 (spike) | Escravas compartilham a árvore mestre em vez de cada uma ganhar sua própria cópia expandida | Carregamento 546→295 ms (**-46%**), alocado 251,6→102,5 MB (**-59%**), Gen1+Gen2 **-50%**; cálculo **+2,3%** |
+| Fase 1 (revalidada no branch de produção) | Mesmo design, remedido após o merge, com o worktree removido | Alocado 102,47 MB (determinístico, idêntico ao spike); cálculo **+3,9%** em uma A/B no mesmo dia |
+| Fase 3 (transiente de range eliminado) | `AnchoredRangeReference` calcula seus limites e expande valores diretamente, em vez de construir um `RangeReference` transiente mais dois ids de célula formatados por leitura | Alocação por célula para um grupo de range compartilhado: 1.354,0 → 1.028,65 bytes/célula (**-24,0%**) |
+
+Todos os números são específicos da forma de benchmark de fórmulas compartilhadas (fórmulas arrastadas
+sobre ~360 mil células); veja `benchmarks/Danfma.MySheet.Benchmark` (`ExcelLoadBenchmarks`) para o harness
+executável.
+
 ## Extração em massa: `GetValueReader`
 
 `GetCellValue(sheetName, id)` é a leitura padrão correta, mas um laço de extração que constrói ids

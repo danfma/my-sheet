@@ -65,6 +65,25 @@ public static class ExpressionParser
         return new Parser(tokens, sheet.Name, deltaRow, deltaColumn).ParseFormula();
     }
 
+    /// <summary>
+    /// G3 spike (node-delta shared formulas): parses a shared-formula group's MASTER once in the Parser's
+    /// ANCHORED mode — every relative cell/range reference becomes an <see cref="AnchoredCellReference"/>/
+    /// <see cref="AnchoredRangeReference"/> that keeps its ($-anchor, column, row) components instead of
+    /// being shifted into a per-slave string id. The resulting tree is meant to be shared by every slave in
+    /// the group via <see cref="SharedFormulaSlave"/> (each slave supplies only its own (row, column) delta
+    /// at evaluation time) — see <c>WorksheetStreamLoader.ExpandSlave</c> for the caller, which additionally
+    /// verifies (via <c>AnchoredFormulaSupport.IsFullyAnchored</c>) that the tree contains no node this mode
+    /// cannot represent (an open range, a union, a reference-returning endpoint) before trusting it for the
+    /// whole group; a <see cref="ParseException"/> from a shape neither this method nor that check handles
+    /// gracefully (e.g. a chained cross-sheet range endpoint) is likewise treated by the caller as "fall back
+    /// to the legacy per-slave token-delta expansion" — this method itself does not need to special-case
+    /// every such shape, since the caller's shape check and its own try/catch are the safety net.
+    /// </summary>
+    internal static Expression ParseAnchoredMasterBody(List<Token> tokens, Sheet sheet)
+    {
+        return new Parser(tokens, sheet.Name, anchored: true).ParseFormula();
+    }
+
     private static Expression ParseLiteral(string text)
     {
         if (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var number))

@@ -63,8 +63,46 @@ Como o conteúdo do arquivo é mapeado para dentro do workbook:
 | Célula de erro | `ErrorValue` (avaliada como o `Error` correspondente). |
 | Célula de data | `NumberValue` com o **número serial** do Excel (datas ISO-8601 em arquivos no modo strict são convertidas via `ToOADate`). |
 | Célula vazia / só com estilo | Nada é armazenado — é lida como em branco. |
-| "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Expandida em uma fórmula real: o texto da célula mestre é deslocado pelo delta de linha/coluna (referências relativas se movem, componentes ancorados com `$` ficam, texto dentro de literais de string não é tocado) e passa pelo parse como qualquer outra fórmula. |
+| "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Um nó leve que compartilha a árvore já interpretada da mestre (veja [Fórmulas compartilhadas](#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava) abaixo) quando a forma da mestre é suportada; caso contrário, é expandida em uma fórmula independente exatamente como antes. |
 | Nome definido com escopo de workbook (`<definedName>`) | Uma entrada em [`Workbook.DefinedNames`](workbook-and-expressions.md#intervalos-nomeados): o texto `refersTo` passa pelo parse como uma fórmula. Nomes **com escopo de planilha** (aqueles com `localSheetId`) e os nomes **nativos `_xlnm.*`** do Excel (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) são ignorados. |
+
+### Fórmulas compartilhadas: uma árvore mestre compartilhada com deltas por escrava
+
+Uma fórmula do Excel arrastada é armazenada uma única vez no arquivo (a "mestre"), mais um intervalo de
+células "escravas" que não carregam texto de fórmula próprio. Historicamente o MySheet dava a cada escrava
+sua própria árvore `Expression` interpretada de forma independente — correto, mas em um workbook com
+centenas de milhares de células arrastadas isso significava centenas de milhares de árvores alocadas
+separadamente para o que, estruturalmente, é uma única fórmula.
+
+Quando a forma da mestre é totalmente suportada — referências de célula simples, ranges limitados,
+operadores aritméticos, nomes definidos e chamadas de função sobre argumentos que também sejam suportados —
+toda escrava do grupo agora compartilha **uma única** árvore interpretada. A mestre é interpretada uma vez
+em um modo ancorado que preserva seus marcadores `$` em vez de descartá-los, e cada escrava se torna um nó
+pequeno `SharedFormulaSlave(Master, ΔRow, ΔColumn)`. Avaliar uma escrava propaga seu próprio `(ΔRow,
+ΔColumn)` para dentro da árvore mestre compartilhada: as referências relativas dentro dela se deslocam por
+esse delta, as ancoradas com `$` não — o mesmo resultado que uma árvore totalmente expandida produziria. O
+deslocamento é memoizado por época de avaliação como qualquer outra célula, então reler uma escrava
+repetidamente não repete a aritmética do delta (veja [Desempenho →
+Memoização](performance.md#memoização) para o mecanismo completo e o custo de cálculo medido).
+
+Na forma usada para medir isso (um grupo de fórmulas arrastadas sobre ~360 mil células), compartilhar a
+árvore mestre reduziu o benchmark de carregamento em **-46% de tempo, -59% de memória alocada e -50% de
+coletas Gen1+Gen2** em comparação com expandir cada escrava em sua própria árvore.
+
+Nem toda forma arrastada pode ser compartilhada dessa maneira. Uma mestre cuja fórmula envolva um
+**range aberto** (referência de coluna/linha inteira), uma **união** (`(A1:A3, C1:C3)`) ou um **endpoint de
+range cross-sheet encadeado** recai honestamente: o grupo inteiro é expandido por escrava em fórmulas
+independentes, exatamente como sempre foi. Não há aproximação silenciosa — uma forma não suportada é
+detectada antes de qualquer escrava ser construída, e o grupo segue o caminho mais lento e mais seguro.
+
+> **Nota de compatibilidade futura.** Um arquivo nativo em MemoryPack (veja
+> [Serialização](serialization.md)) salvo a partir de um workbook que contenha nós de fórmula compartilhada
+> nesta representação compartilhada não pode ser aberto por versões desta biblioteca **anteriores** à que a
+> introduziu — os novos tipos de nó registram tags de fio que essas versões não conhecem. Arquivos salvos
+> por versões antigas continuam carregando sem alteração. Veja [Serialização →
+> Compatibilidade](serialization.md#compatibilidade) para o contrato completo, incluindo a ressalva honesta
+> de que essa otimização economiza **memória e pressão de GC, não espaço em disco** — o arquivo em si
+> continua serializando a árvore da mestre uma vez por escrava.
 
 As planilhas são criadas na ordem das abas do arquivo, então `Sheet.Index` (e a função `SHEET`)
 correspondem ao Excel.
@@ -178,11 +216,14 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   identifica a mesma célula), mas é reescrito como `A1` — uma perda de fidelidade apenas em exportações
   com `FormulaMode.Formulas`, e apenas cosmética, a menos que você planeje copiar/preencher fórmulas no
   Excel depois.
-- **Fórmulas compartilhadas SÃO expandidas**: células escravas de uma fórmula arrastada (que não carregam
-  texto de fórmula no arquivo) são reconstruídas a partir do texto da célula mestre, deslocando as
-  referências relativas pelo delta de células e mantendo fixos os componentes ancorados com `$` — assim
-  elas continuam sendo fórmulas reais, que reagem a mudanças de entrada. Uma célula escrava cuja mestre
-  está ausente do arquivo recorre ao seu valor literal em cache.
+- **Fórmulas compartilhadas continuam sendo fórmulas reais**: células escravas de uma fórmula arrastada
+  (que não carregam texto de fórmula no arquivo) são reconstruídas a partir da mestre, aplicando o delta de
+  células para que referências relativas se movam enquanto os componentes ancorados com `$` ficam fixos —
+  assim elas continuam reagindo a mudanças de entrada. Quando a forma da mestre é suportada, toda escrava
+  compartilha uma única árvore interpretada em vez de ganhar a sua própria (veja [Fórmulas
+  compartilhadas](#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava) acima);
+  caso contrário, o grupo recai na expansão completa por escrava. Uma célula escrava cuja mestre está
+  ausente do arquivo recorre ao seu valor literal em cache.
 - **A cobertura de funções não é total** (veja a contagem e a lista atuais de nativas, além das suas funções personalizadas, na
   [referência de funções](function-reference.md). Fórmulas que usam outras funções carregam como nós
   `FunctionCall` e são avaliadas como `#NAME?`, a menos que registradas.

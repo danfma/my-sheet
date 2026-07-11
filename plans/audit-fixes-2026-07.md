@@ -338,6 +338,16 @@ Gen2 é desejável (modelo residente estável); o ganho anti-LOH é fragmentaç�
 continua quase-blit (lista de byte[] = memcpy por bloco). Decisão entre incremental (G3+refs numéricas)
 vs arena SÓ com o heap profile na mão.
 
+**M5 (proposta do usuário, verificada em 2026-07-11 com source 1.21.4 + probe 89MB) — APROVADO a+b+c:**
+byte[] atual paga build segmentado + cópia de consolidação (LOH integral); Stream é o MAIS RÁPIDO
+(DeserializeAsync já é segmentado/pooled internamente — ReadOnlySequence, nunca consolida) mas com pico
+por chunk imprevisível; Pipes = LOH zero na escrita/1,76MB determinístico na leitura, custando ~2-3x de
+tempo (decisão do usuário: aceitar — teto de LOH vale o trade-off). Itens: M5a LoadAsync →
+DeserializeAsync(Stream) (hoje faz ReadAllBytesAsync!); M5b container warm em passe único (hoje 4 buffers
+full-size empilhados); M5c Save/Load por PipeWriter/PipeReader preservando bytes de disco (header
+modelLength: counting-writer ou seek-back). ArrayPool.Shared poola até ~1GiB (27 buckets) — rents multi-MB
+reutilizam de verdade.
+
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
 Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perder:

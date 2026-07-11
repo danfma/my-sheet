@@ -13,6 +13,11 @@ public sealed partial record SheetNumber(Expression[] Arguments) : Function
             [] => context.SheetName,
             [CellReference cell] => cell.SheetName,
             [RangeReference range] => range.SheetName,
+            // Phase 2 audit (shared-formula delta production): a SHEET(ref) argument inside a shared-formula
+            // master is an anchored node; SheetName is a literal component of both anchored node shapes
+            // (unaffected by the delta), so no evaluation-time resolution is needed — just read it directly.
+            [AnchoredCellReference anchoredCell] => anchoredCell.SheetName,
+            [AnchoredRangeReference anchoredRange] => anchoredRange.SheetName,
             [var argument] => argument.Evaluate(context).AsString(),
             _ => null,
         };

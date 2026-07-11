@@ -115,6 +115,20 @@ public sealed partial record IsFormula(Expression[] Arguments) : Function
         {
             CellReference cell => (cell.SheetName, cell.Id),
             RangeReference range => (range.SheetName, range.StartId),
+            // Phase 2 audit (shared-formula delta production): mirrors FormulaText's identical fix — an
+            // ISFORMULA(ref) argument inside a shared-formula master is an anchored node, not a plain
+            // CellReference/RangeReference.
+            AnchoredCellReference anchoredCell => (
+                anchoredCell.SheetName,
+                new CellAddress(
+                    anchoredCell.Effective(context).Column,
+                    anchoredCell.Effective(context).Row
+                ).ToId()
+            ),
+            AnchoredRangeReference anchoredRange => (
+                anchoredRange.SheetName,
+                anchoredRange.ToRangeReference(context).StartId
+            ),
             _ => (null, null),
         };
 

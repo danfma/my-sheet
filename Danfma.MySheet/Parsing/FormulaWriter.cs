@@ -39,7 +39,15 @@ public static class FormulaWriter
     {
         var builder = new StringBuilder();
 
-        Write(builder, expression, contextSheetName, minPrecedence: 0, depth: 0);
+        Write(
+            builder,
+            expression,
+            contextSheetName,
+            minPrecedence: 0,
+            depth: 0,
+            deltaRow: 0,
+            deltaColumn: 0
+        );
 
         return builder.ToString();
     }
@@ -47,12 +55,22 @@ public static class FormulaWriter
     // depth counts Write's own recursion; WriteBinary and WriteList are plain helpers invoked FROM here
     // (never independent recursion entry points), so they just pass the incremented depth through to their
     // own Write calls instead of tracking it themselves.
+    //
+    // deltaRow/deltaColumn (G3 spike, node-delta shared formulas): the ambient shift a SharedFormulaSlave
+    // wrapper pushes for the duration of rendering its shared Master tree — zero everywhere else, so every
+    // pre-spike call site (which always passes 0,0) renders byte-identical text. An AnchoredCellReference/
+    // AnchoredRangeReference applies it (unless its own $-anchor flag is set) to render the SAME text the
+    // legacy fully-expanded slave tree would have rendered — the writer intentionally never re-emits '$'
+    // (neither did the pre-spike CellReference/RangeReference path: NormalizeCellId always strips it), so
+    // parity here means "the same bare A1-style text", not "preserves anchors".
     private static void Write(
         StringBuilder builder,
         Expression expression,
         string context,
         int minPrecedence,
-        int depth
+        int depth,
+        int deltaRow,
+        int deltaColumn
     )
     {
         if (depth > MaxDepth)
@@ -111,7 +129,7 @@ public static class FormulaWriter
 
             case UnionReference union:
                 builder.Append('(');
-                WriteList(builder, union.Areas, context, depth + 1);
+                WriteList(builder, union.Areas, context, depth + 1, deltaRow, deltaColumn);
                 builder.Append(')');
                 break;
 
@@ -120,30 +138,115 @@ public static class FormulaWriter
                 break;
 
             case DynamicRange dyn:
-                Write(builder, dyn.Start, context, AtomPrecedence, depth + 1);
+                Write(
+                    builder,
+                    dyn.Start,
+                    context,
+                    AtomPrecedence,
+                    depth + 1,
+                    deltaRow,
+                    deltaColumn
+                );
                 builder.Append(':');
-                Write(builder, dyn.End, context, AtomPrecedence, depth + 1);
+                Write(builder, dyn.End, context, AtomPrecedence, depth + 1, deltaRow, deltaColumn);
                 break;
 
             case UnaryOperation { Operator: UnaryOperator.Percent } percent:
-                Write(builder, percent.Operand, context, PercentPrecedence, depth + 1);
+                Write(
+                    builder,
+                    percent.Operand,
+                    context,
+                    PercentPrecedence,
+                    depth + 1,
+                    deltaRow,
+                    deltaColumn
+                );
                 builder.Append('%');
                 break;
 
             case UnaryOperation prefix:
                 builder.Append(prefix.Operator == UnaryOperator.Negate ? '-' : '+');
-                Write(builder, prefix.Operand, context, PrefixPrecedence, depth + 1);
+                Write(
+                    builder,
+                    prefix.Operand,
+                    context,
+                    PrefixPrecedence,
+                    depth + 1,
+                    deltaRow,
+                    deltaColumn
+                );
                 break;
 
             case BinaryOperation binary:
-                WriteBinary(builder, binary, context, depth + 1);
+                WriteBinary(builder, binary, context, depth + 1, deltaRow, deltaColumn);
                 break;
 
             case Function function:
                 var (functionName, arguments) = Call(function);
                 builder.Append(functionName).Append('(');
-                WriteList(builder, arguments, context, depth + 1);
+                WriteList(builder, arguments, context, depth + 1, deltaRow, deltaColumn);
                 builder.Append(')');
+                break;
+
+            // --- G3 spike (node-delta shared formulas) ---------------------------------------------------
+            // These three only ever appear when a shared-formula slave was loaded through the anchored/
+            // delta path (WorksheetStreamLoader.ExpandSlave). Rendering applies the AMBIENT delta (0 outside
+            // a SharedFormulaSlave, that slave's own (DeltaRow, DeltaColumn) while rendering its Master) —
+            // the same bare "A1"-style text the pre-spike fully-expanded slave tree would have rendered (no
+            // '$' is ever re-emitted, matching the existing CellReference/RangeReference rule above).
+            case AnchoredCellReference anchoredCell:
+                WriteSheetQualifier(builder, anchoredCell.SheetName, context);
+                builder.Append(
+                    new CellAddress(
+                        anchoredCell.ColumnAbsolute
+                            ? anchoredCell.Column
+                            : anchoredCell.Column + deltaColumn,
+                        anchoredCell.RowAbsolute ? anchoredCell.Row : anchoredCell.Row + deltaRow
+                    ).ToId()
+                );
+                break;
+
+            case AnchoredRangeReference anchoredRange:
+                WriteSheetQualifier(builder, anchoredRange.SheetName, context);
+                builder
+                    .Append(
+                        new CellAddress(
+                            anchoredRange.StartColumnAbsolute
+                                ? anchoredRange.StartColumn
+                                : anchoredRange.StartColumn + deltaColumn,
+                            anchoredRange.StartRowAbsolute
+                                ? anchoredRange.StartRow
+                                : anchoredRange.StartRow + deltaRow
+                        ).ToId()
+                    )
+                    .Append(':')
+                    .Append(
+                        new CellAddress(
+                            anchoredRange.EndColumnAbsolute
+                                ? anchoredRange.EndColumn
+                                : anchoredRange.EndColumn + deltaColumn,
+                            anchoredRange.EndRowAbsolute
+                                ? anchoredRange.EndRow
+                                : anchoredRange.EndRow + deltaRow
+                        ).ToId()
+                    );
+                break;
+
+            case SharedFormulaSlave slave:
+                // A slave wrapper is only ever the WHOLE tree of a cell (never nested inside a larger
+                // expression it was parsed as part of), so it always renders at the root — minPrecedence 0,
+                // a fresh ambient delta from this slave's own (DeltaRow, DeltaColumn), replacing (not
+                // composing with) whatever delta was ambient here (always 0 — nesting one slave inside
+                // another never happens).
+                Write(
+                    builder,
+                    slave.Master,
+                    context,
+                    0,
+                    depth + 1,
+                    slave.DeltaRow,
+                    slave.DeltaColumn
+                );
                 break;
 
             default:
@@ -162,7 +265,9 @@ public static class FormulaWriter
         StringBuilder builder,
         BinaryOperation binary,
         string context,
-        int depth
+        int depth,
+        int deltaRow,
+        int deltaColumn
     )
     {
         var precedence = Precedence(binary);
@@ -171,14 +276,24 @@ public static class FormulaWriter
         // tighter minimum goes on the opposite side to force parentheses only where re-parsing needs them.
         var rightAssociative = binary.Operator == BinaryOperator.Power;
 
-        Write(builder, binary.Left, context, rightAssociative ? precedence + 1 : precedence, depth);
+        Write(
+            builder,
+            binary.Left,
+            context,
+            rightAssociative ? precedence + 1 : precedence,
+            depth,
+            deltaRow,
+            deltaColumn
+        );
         builder.Append(Token(binary.Operator));
         Write(
             builder,
             binary.Right,
             context,
             rightAssociative ? precedence : precedence + 1,
-            depth
+            depth,
+            deltaRow,
+            deltaColumn
         );
     }
 
@@ -186,7 +301,9 @@ public static class FormulaWriter
         StringBuilder builder,
         Expression[] items,
         string context,
-        int depth
+        int depth,
+        int deltaRow,
+        int deltaColumn
     )
     {
         for (var i = 0; i < items.Length; i++)
@@ -196,7 +313,7 @@ public static class FormulaWriter
                 builder.Append(',');
             }
 
-            Write(builder, items[i], context, minPrecedence: 0, depth);
+            Write(builder, items[i], context, minPrecedence: 0, depth, deltaRow, deltaColumn);
         }
     }
 

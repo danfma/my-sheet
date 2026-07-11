@@ -282,6 +282,15 @@ public sealed partial record Column(Expression[] Arguments) : Function
             {
                 [CellReference cell] => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
                 [RangeReference range] => ComputedValue.Number(range.LeftColumn),
+                // Phase 2 audit (shared-formula delta production): mirrors Row's identical fix — see that
+                // file for the full rationale (a COLUMN(ref) argument inside a shared-formula master is an
+                // anchored node, not a plain CellReference/RangeReference).
+                [AnchoredCellReference anchoredCell] => ComputedValue.Number(
+                    anchoredCell.Effective(context).Column
+                ),
+                [AnchoredRangeReference anchoredRange] => ComputedValue.Number(
+                    anchoredRange.ToRangeReference(context).LeftColumn
+                ),
                 // COLUMN() with no argument uses the cell currently being evaluated, when one is known.
                 [] when context.CellId is { } id => ComputedValue.Number(
                     CellAddress.Parse(id).Column
@@ -521,6 +530,20 @@ public sealed partial record FormulaText(Expression[] Arguments) : Function
         {
             CellReference cell => (cell.SheetName, cell.Id),
             RangeReference range => (range.SheetName, range.StartId),
+            // Phase 2 audit (shared-formula delta production): a FORMULATEXT(ref) argument written INSIDE a
+            // shared-formula master is an anchored node — mirrors the two cases above, applying the ambient
+            // delta before resolving the target cell/range's un-parsed formula text.
+            AnchoredCellReference anchoredCell => (
+                anchoredCell.SheetName,
+                new CellAddress(
+                    anchoredCell.Effective(context).Column,
+                    anchoredCell.Effective(context).Row
+                ).ToId()
+            ),
+            AnchoredRangeReference anchoredRange => (
+                anchoredRange.SheetName,
+                anchoredRange.ToRangeReference(context).StartId
+            ),
             _ => (null, null),
         };
 
