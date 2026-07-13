@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.15.0"></a>
+## [3.15.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.15.0) (2026-07-13)
+
+### Features
+
+* **serialization:** MSWM container v3 — fixed-chunk streamed Brotli, pooled decompress ([78d0af4](https://www.github.com/danfma/my-sheet/commit/78d0af4c7c0333eb8ec7cdffa23db8ef0981c587))
+
 <a name="3.14.0"></a>
 ## [3.14.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.14.0) (2026-07-11)
 
