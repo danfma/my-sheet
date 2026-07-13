@@ -348,6 +348,14 @@ full-size empilhados); M5c Save/Load por PipeWriter/PipeReader preservando bytes
 modelLength: counting-writer ou seek-back). ArrayPool.Shared poola até ~1GiB (27 buckets) — rents multi-MB
 reutilizam de verdade.
 
+**M6 (2026-07-11, nascido da alegação GZip do Copilot — refutada com dados):** container v3
+brotli-streamed (chunking fixo 64KB como definição do formato; determinístico; 13,2% menor que v2 no K1
+real) como default de escrita + descompressão pooled no load (v2 e v3): 386→229MB/load (−41%). GZip
+descartado: ratio 24% pior no melhor caso, alocação managed idêntica, ganho de tempo irrelevante. A
+premissa "Brotli acumula" era falsa no sentido managed (estado do encoder é nativo); o acúmulo real era
+o fallback whole-buffer por byte-identidade do v2. Bug colateral: BrotliStream.Flush não é byte-neutro.
+v2 write removido; read congelado por golden fixture.
+
 ## Backlog (triado da auditoria completa — válido, não planejado)
 
 Itens dos 4 relatórios que NÃO subiram ao plano, registrados para não se perder:
