@@ -15,8 +15,27 @@ public sealed partial class Workbook
     //   magic "MSWM" (4) | version (1) | modelLength (int32 LE, 4) | body
     // `version` selects the body encoding (the header layout and offsets never change — new warm-start files
     // stay v1, so their tests are unaffected):
-    //   v1 (uncompressed): body = model bytes | value-block bytes            (warm-start, unchanged)
-    //   v2 (Brotli):       body = Brotli(model bytes | value-block bytes)    (cold OR warm, compressed)
+    //   v1 (uncompressed):     body = model bytes | value-block bytes                    (warm-start, unchanged)
+    //   v2 (Brotli, LEGACY):   body = Brotli(model bytes | value-block bytes), written as TWO whole-buffer
+    //                          BrotliStream.Write calls. READ-ONLY since M6: nothing in this library writes
+    //                          v2 anymore (see the golden fixture in ContainerVersionCompatibilityTests), but
+    //                          old v2 files load unchanged forever — the same one-way policy as an append-only
+    //                          union tag (e.g. 319-321): a version, once superseded, is never removed from the
+    //                          reader.
+    //   v3 (Brotli, chunked):  body = Brotli(model bytes | value-block bytes), written as a sequence of
+    //                          EXACTLY 64KB BrotliStream.Write calls (the final one shorter) — see
+    //                          BrotliChunkedStream. THE DEFAULT for WorkbookCompression.Brotli since M6:
+    //                          measured ~13% smaller than v2's whole-buffer write on a large real-world
+    //                          payload (Optimal), and — unlike v2 — deterministic and byte-identical across
+    //                          every WorkbookIoBuffering write mechanism, because BrotliChunkedStream's chunk
+    //                          boundaries depend only on the cumulative byte count, never on the caller's
+    //                          write-call granularity (v2 could not make that promise: see
+    //                          WorkbookIoBufferingTests.BrotliStream_OutputDependsOnWriteCallBoundaries_NotJustContent,
+    //                          which is why every v2 writer had to fall back to materializing the SAME two
+    //                          whole buffers). A v3 file is a forward-only artifact: it cannot be opened by a
+    //                          version of this library older than the one that introduced v3 (the older
+    //                          reader's version switch does not recognize tag 3) — the same one-way boundary
+    //                          documented for the shared-formula delta tags.
     // In every version `modelLength` is the UNCOMPRESSED model length, used to slice the (decompressed) body
     // into model vs. values. The value block is the MemoryPack of a List<CachedCellValue> surrogate (empty for
     // a cold compressed save). Load sniffs the 4-byte magic: a match is a container, anything else is a raw
@@ -31,7 +50,8 @@ public sealed partial class Workbook
     // destination FileStream is always seekable.
     private static ReadOnlySpan<byte> ContainerMagic => "MSWM"u8;
     private const byte ContainerVersionUncompressed = 1;
-    private const byte ContainerVersionBrotli = 2;
+    private const byte ContainerVersionBrotli = 2; // legacy: read-only since M6, see the format comment above
+    private const byte ContainerVersionBrotliChunked = 3; // default Brotli encoding since M6
     private const int ContainerHeaderLength = 4 + 1 + 4; // magic + version + modelLength
 
     /// <summary>
@@ -180,9 +200,9 @@ public sealed partial class Workbook
     // Default (WorkbookIoBuffering.Pooled) container writer. modelLength is known up front (both parts are
     // ordinary byte[] — MemoryPack has no synchronous Stream-based Serialize, so this is the cheapest legal
     // synchronous shape: two full-size buffers, no further copies). Brotli, when requested, streams straight
-    // from those two buffers into the destination — no intermediate MemoryStream.ToArray() copy, and no final
-    // "concat everything into one container array" copy (the two buffers this replaces from the historical
-    // implementation).
+    // from those two buffers into the destination through BrotliChunkedStream (v3's fixed-64KB chunking
+    // discipline) — no intermediate MemoryStream.ToArray() copy, and no final "concat everything into one
+    // container array" copy (the two buffers this replaces from the historical implementation).
     private void WriteContainerWhole(
         Stream destination,
         bool compress,
@@ -195,13 +215,13 @@ public sealed partial class Workbook
 
         Span<byte> header = stackalloc byte[ContainerHeaderLength];
         ContainerMagic.CopyTo(header);
-        header[4] = compress ? ContainerVersionBrotli : ContainerVersionUncompressed;
+        header[4] = compress ? ContainerVersionBrotliChunked : ContainerVersionUncompressed;
         BinaryPrimitives.WriteInt32LittleEndian(header.Slice(5, 4), model.Length);
         destination.Write(header);
 
         if (compress)
         {
-            using var brotli = new BrotliStream(destination, level, leaveOpen: true);
+            using var brotli = new BrotliChunkedStream(destination, level);
             brotli.Write(model);
             brotli.Write(valuesBytes);
         }
@@ -215,14 +235,13 @@ public sealed partial class Workbook
     // Opt-in (WorkbookIoBuffering.Pipelines) synchronous container writer. UNCOMPRESSED: model/values stream
     // through a single reused ~64KB StreamBufferWriter instead of two full-size byte[] buffers, and the header
     // (a placeholder until the model finishes streaming) is patched via seek-back — the destination is always
-    // the file's own seekable FileStream, since Save only ever targets a path. COMPRESSED: Brotli's compressed
-    // output is sensitive to Write-CALL boundaries, not just content (verified empirically: splitting the same
-    // bytes across many small Write calls measurably changes the compressed bytes at Fastest/Optimal levels) —
-    // so, to keep the byte-identity contract, this falls back to materializing each part once and issuing the
-    // SAME two whole-buffer Write calls as the reference implementation. The LOH-bounded goal of this option
-    // therefore applies fully only to uncompressed saves; a compressed Pipelines save still allocates one
-    // full-size buffer per part (still 2 buffers, not 4 — no Brotli MemoryStream.ToArray() copy, no final
-    // container-concat array).
+    // the file's own seekable FileStream, since Save only ever targets a path. COMPRESSED (v3): model/values
+    // stream through that SAME StreamBufferWriter, but now pointed at a BrotliChunkedStream instead of the raw
+    // destination — StreamBufferWriter's variable, content-dependent flush sizes are re-aggregated into
+    // BrotliChunkedStream's fixed 64KB windows before anything reaches Brotli, so this is fully LOH-bounded
+    // (no full-size model/values byte[]) AND byte-identical to the whole-array writer's v3 output (proven by
+    // WorkbookIoBufferingTests.Save_PipelinesMatchesPooled_ForEveryOptionCombination) — v3's chunking, unlike
+    // v2's, does not depend on write-call boundaries, so there is no whole-buffer fallback to keep here.
     private void WriteContainerPooled(
         Stream destination,
         bool compress,
@@ -230,21 +249,25 @@ public sealed partial class Workbook
         List<CachedCellValue> values
     )
     {
-        if (compress)
-        {
-            WriteContainerWhole(destination, compress: true, level, values);
-            return;
-        }
-
         Span<byte> header = stackalloc byte[ContainerHeaderLength];
         ContainerMagic.CopyTo(header);
-        header[4] = ContainerVersionUncompressed;
+        header[4] = compress ? ContainerVersionBrotliChunked : ContainerVersionUncompressed;
         destination.Write(header);
 
         long modelLength;
 
-        using (var raw = new StreamBufferWriter(destination))
+        if (compress)
         {
+            using var brotli = new BrotliChunkedStream(destination, level);
+            using var raw = new StreamBufferWriter(brotli);
+            var counting = new CountingBufferWriter<StreamBufferWriter>(raw);
+            MemoryPackSerializer.Serialize(counting, this);
+            modelLength = counting.TotalBytesWritten;
+            MemoryPackSerializer.Serialize(raw, values);
+        }
+        else
+        {
+            using var raw = new StreamBufferWriter(destination);
             var counting = new CountingBufferWriter<StreamBufferWriter>(raw);
             MemoryPackSerializer.Serialize(counting, this);
             modelLength = counting.TotalBytesWritten;
@@ -258,11 +281,11 @@ public sealed partial class Workbook
     // full-size byte[] for the model at all — MemoryPackSerializer.SerializeAsync already streams through its
     // own pooled, segmented buffer writer (verified against MemoryPack 1.21.4's decompiled source);
     // CountingWriteStream taps the exact byte count as those bytes fly by, so the header is patched via
-    // seek-back with no separate counting pass. COMPRESSED: falls back to the same two whole-buffer Brotli
-    // Write calls as WriteContainerWhole — Brotli's compressed output is sensitive to Write-CALL boundaries,
-    // not just content (verified empirically: splitting the same bytes across many small Write calls
-    // measurably changes the compressed bytes at Fastest/Optimal levels), and SerializeAsync's internal writer
-    // flushes in many small segments, which WOULD break the byte-identity contract if fed straight into Brotli.
+    // seek-back with no separate counting pass. COMPRESSED (v3): the same single-pass SerializeAsync stream,
+    // now routed through a BrotliChunkedStream — its fixed 64KB chunking re-aggregates SerializeAsync's many
+    // small internal segments into Brotli-facing writes that are byte-identical to every other v3 writer
+    // (unlike v2, which needed the whole-buffer fallback this replaces, because its output depended on
+    // exactly those write-call boundaries).
     private async Task WriteContainerStreamAsync(
         Stream destination,
         bool compress,
@@ -271,29 +294,44 @@ public sealed partial class Workbook
         CancellationToken cancellationToken
     )
     {
-        if (compress)
-        {
-            WriteContainerWhole(destination, compress: true, level, values);
-            return;
-        }
-
         var header = new byte[ContainerHeaderLength];
         ContainerMagic.CopyTo(header);
-        header[4] = ContainerVersionUncompressed;
+        header[4] = compress ? ContainerVersionBrotliChunked : ContainerVersionUncompressed;
         await destination.WriteAsync(header, cancellationToken);
 
-        var counting = new CountingWriteStream(destination);
-        await MemoryPackSerializer.SerializeAsync(
-            counting,
-            this,
-            cancellationToken: cancellationToken
-        );
-        var modelLength = counting.TotalBytesWritten;
-        await MemoryPackSerializer.SerializeAsync(
-            destination,
-            values,
-            cancellationToken: cancellationToken
-        );
+        long modelLength;
+
+        if (compress)
+        {
+            await using var brotli = new BrotliChunkedStream(destination, level);
+            var counting = new CountingWriteStream(brotli);
+            await MemoryPackSerializer.SerializeAsync(
+                counting,
+                this,
+                cancellationToken: cancellationToken
+            );
+            modelLength = counting.TotalBytesWritten;
+            await MemoryPackSerializer.SerializeAsync(
+                brotli,
+                values,
+                cancellationToken: cancellationToken
+            );
+        }
+        else
+        {
+            var counting = new CountingWriteStream(destination);
+            await MemoryPackSerializer.SerializeAsync(
+                counting,
+                this,
+                cancellationToken: cancellationToken
+            );
+            modelLength = counting.TotalBytesWritten;
+            await MemoryPackSerializer.SerializeAsync(
+                destination,
+                values,
+                cancellationToken: cancellationToken
+            );
+        }
 
         await PatchModelLengthAsync(destination, modelLength, cancellationToken);
     }
@@ -603,6 +641,11 @@ public sealed partial class Workbook
             ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
     }
 
+    // For v1 the body is a zero-copy view over the already-in-memory `bytes` array (the container is the
+    // smaller, small-or-already-compressed case, so `bytes` never needs re-chunking). For v2/v3 the body is
+    // decompressed into a chain of pooled ~64KB segments instead of one contiguous byte[] — the decompressed
+    // payload can be a large multiple of the compressed file size, which is exactly where the historical
+    // MemoryStream.ToArray()->ToArray() chain paid its cost. Every rented segment is returned in `finally`.
     private static Workbook DeserializeContainer(byte[] bytes, string path)
     {
         var version = bytes[4];
@@ -613,48 +656,127 @@ public sealed partial class Workbook
             throw new InvalidDataException($"'{path}' is a corrupt MySheet container.");
         }
 
-        // Resolve the (decompressed) body once, then slice model vs. values by modelLength. For v1 the body is
-        // the bytes after the header verbatim; for v2 it is the Brotli-decompressed payload.
-        var body = version switch
-        {
-            ContainerVersionUncompressed => bytes.AsMemory(ContainerHeaderLength),
-            ContainerVersionBrotli => BrotliDecompress(bytes.AsSpan(ContainerHeaderLength), path),
-            _ => throw new InvalidDataException(
-                $"'{path}' is a MySheet container of unsupported version {version}."
-            ),
-        };
+        PooledSequenceSegment? firstSegment = null;
 
-        if (modelLength > body.Length)
-        {
-            throw new InvalidDataException($"'{path}' is a corrupt MySheet container.");
-        }
-
-        var workbook =
-            MemoryPackSerializer.Deserialize<Workbook>(body.Span.Slice(0, modelLength))
-            ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
-
-        var values =
-            MemoryPackSerializer.Deserialize<List<CachedCellValue>>(body.Span.Slice(modelLength))
-            ?? new List<CachedCellValue>();
-
-        workbook.LoadComputedValues(values);
-
-        return workbook;
-    }
-
-    private static byte[] BrotliDecompress(ReadOnlySpan<byte> compressed, string path)
-    {
         try
         {
-            using var input = new MemoryStream(compressed.ToArray());
+            ReadOnlySequence<byte> body;
+
+            switch (version)
+            {
+                case ContainerVersionUncompressed:
+                    body = new ReadOnlySequence<byte>(bytes.AsMemory(ContainerHeaderLength));
+                    break;
+                case ContainerVersionBrotli:
+                case ContainerVersionBrotliChunked:
+                    (body, firstSegment) = BrotliDecompressToSequence(
+                        bytes,
+                        ContainerHeaderLength,
+                        bytes.Length - ContainerHeaderLength,
+                        path
+                    );
+                    break;
+                default:
+                    throw new InvalidDataException(
+                        $"'{path}' is a MySheet container of unsupported version {version}."
+                    );
+            }
+
+            if (modelLength > body.Length)
+            {
+                throw new InvalidDataException($"'{path}' is a corrupt MySheet container.");
+            }
+
+            var workbook =
+                MemoryPackSerializer.Deserialize<Workbook>(body.Slice(0, modelLength))
+                ?? throw new InvalidDataException($"'{path}' did not contain a workbook.");
+
+            var values =
+                MemoryPackSerializer.Deserialize<List<CachedCellValue>>(body.Slice(modelLength))
+                ?? new List<CachedCellValue>();
+
+            workbook.LoadComputedValues(values);
+
+            return workbook;
+        }
+        finally
+        {
+            for (var node = firstSegment; node is not null; )
+            {
+                var next = (PooledSequenceSegment?)node.Next;
+                node.Return();
+                node = next;
+            }
+        }
+    }
+
+    // Decompresses a Brotli-compressed span (v2's whole-buffer body and v3's fixed-64KB-chunked body decode
+    // through the exact same BrotliStream reader — chunking is a WRITE-time discipline only, invisible to
+    // decompression) into a chain of ArrayPool-backed ~64KB segments chained into a ReadOnlySequence<byte>,
+    // the same idiom LoadRawPooledSequence uses for the raw (uncompressed) load path. `source` is read
+    // in-place (no upfront ToArray() copy of the compressed bytes — MemoryStream wraps the existing array);
+    // only the larger decompressed output is segmented and pooled. On success the caller owns returning every
+    // segment (see DeserializeContainer's finally); on failure this method returns its own rentals before
+    // rethrowing.
+    private static (
+        ReadOnlySequence<byte> Body,
+        PooledSequenceSegment? First
+    ) BrotliDecompressToSequence(byte[] source, int offset, int count, string path)
+    {
+        const int SegmentSize = 64 * 1024;
+
+        PooledSequenceSegment? first = null;
+        PooledSequenceSegment? last = null;
+
+        try
+        {
+            using var input = new MemoryStream(source, offset, count, writable: false);
             using var brotli = new BrotliStream(input, CompressionMode.Decompress);
-            using var output = new MemoryStream();
-            brotli.CopyTo(output);
-            return output.ToArray();
+
+            long runningIndex = 0;
+            int read;
+
+            do
+            {
+                var buffer = ArrayPool<byte>.Shared.Rent(SegmentSize);
+                read = brotli.Read(buffer, 0, SegmentSize);
+
+                if (read == 0)
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    break;
+                }
+
+                var segment = new PooledSequenceSegment(buffer, read, runningIndex);
+                runningIndex += read;
+
+                if (first is null)
+                {
+                    first = last = segment;
+                }
+                else
+                {
+                    last!.SetNext(segment);
+                    last = segment;
+                }
+            } while (read > 0);
+
+            var sequence = first is null
+                ? ReadOnlySequence<byte>.Empty
+                : new ReadOnlySequence<byte>(first, 0, last!, last!.Memory.Length);
+
+            return (sequence, first);
         }
         catch (Exception inner)
             when (inner is InvalidDataException or IOException or InvalidOperationException)
         {
+            for (var node = first; node is not null; )
+            {
+                var next = (PooledSequenceSegment?)node.Next;
+                node.Return();
+                node = next;
+            }
+
             throw new InvalidDataException(
                 $"'{path}' is a corrupt MySheet container (Brotli payload could not be decompressed).",
                 inner

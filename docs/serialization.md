@@ -91,9 +91,21 @@ var warm = Workbook.Load("model.mysheet"); // reads back with the cache pre-popu
   unchanged. The version byte selects the body encoding:
   - **v1 (uncompressed warm)** — the **same** model bytes a cold save would write, then a value block (the
     MemoryPack of the cached values). Warm-start files written before compression existed are exactly this.
-  - **v2 (Brotli)** — the model and value block concatenated and Brotli-compressed as a *single* stream (one
-    stream compresses better than two independent blocks). Used for any compressed save, cold or warm; a cold
-    compressed file simply carries an empty value block.
+  - **v2 (Brotli, legacy, read-only)** — the model and value block concatenated and Brotli-compressed as a
+    *single* stream, written as two whole-buffer `BrotliStream.Write` calls. Nothing in the library writes
+    v2 anymore (superseded by v3, below) — old v2 files still load unchanged, forever, the same one-way
+    policy as an append-only union tag.
+  - **v3 (Brotli, chunked — the default since the current release)** — the model and value block
+    concatenated and Brotli-compressed as a single stream, written as a sequence of **exactly 64KB writes**
+    (the final one shorter) to the `BrotliStream` instead of two whole-buffer writes. That fixed chunking is
+    part of the format's definition, not an implementation detail: every write mechanism
+    (`WorkbookIoBuffering.Pooled` or `.Pipelines`, `Save` or `SaveAsync`) re-chunks whatever bytes it
+    produces into the same 64KB windows before they reach Brotli, so all four combinations produce
+    byte-identical v3 files — v2 could not make that promise (splitting the same bytes across many small
+    `Write` calls measurably changes Brotli's compressed output, so every v2 writer had to fall back to
+    materializing the model and value block as two whole buffers to stay byte-identical). See [Measured
+    sizes](#measured-sizes) for the compression-ratio win this chunking scheme brought on a large real-world
+    workbook.
 
 Because the model and its values travel in one file, they can never desynchronize on load.
 
@@ -152,6 +164,12 @@ The larger and more repetitive the model, the bigger the win — a real workbook
 under half its raw size. Compression trades CPU at save/load time for that space; leave it `None` when you
 save frequently to a fast local disk and file size is not a concern.
 
+v3's fixed-64KB chunking (see [File format](#file-format)) is not just a determinism/byte-identity
+contract — it also compresses *better* than v2's whole-buffer write. On a large, formula-heavy real-world
+workbook (~680K cells, `CompressionLevel.Optimal`): v2 produced a 3,616,055-byte file; the same workbook
+through v3 produced 3,137,719 bytes — **~13% smaller**, for free, just from writing the compressed stream
+in fixed windows instead of one shot.
+
 ### File naming
 
 The library **never** renames the file you pass — a compressed save writes exactly the path you give it,
@@ -194,6 +212,20 @@ comes from. On the wire, MemoryPack serializes each node's data independently an
 reference-tracking or structural deduplication: a `SharedFormulaSlave` still writes its own copy of the
 master tree's serialized bytes, once per slave. A workbook with a large shared-formula group therefore does
 not shrink on disk from this change alone — only its in-memory footprint after loading does.
+
+### Forward-compatibility: container v3 (chunked Brotli)
+
+`WorkbookCompression.Brotli` now writes container version 3 by default (see [File
+format](#file-format)) instead of v2. This is also a **one-way** boundary:
+
+- A file saved by **this or a later** version of the library with `Compression = Brotli` is a v3 container.
+  Such a file **cannot be opened by a version of the library older than the one that introduced v3**: the
+  older reader's container-version switch does not recognize tag 3 and `Load` throws `InvalidDataException`.
+- A file saved by an **older** version of the library (v1 or v2) continues to load unchanged in this and
+  every later version — `Load` still recognizes and decompresses v2 containers, it just never writes them.
+
+There is no option to opt back into writing v2 — the same append-only-in-spirit policy as the tags above:
+a superseded write format is dropped, not kept as a knob, while the reader keeps it forever.
 
 ## When to use which format
 

@@ -98,10 +98,21 @@ var warm = Workbook.Load("model.mysheet"); // lida de volta com o cache já pree
   - **v1 (aquecido descomprimido)** — os **mesmos** bytes do modelo que um save frio escreveria, seguidos
     por um bloco de valores (o MemoryPack dos valores em cache). Arquivos de warm-start escritos antes de
     a compressão existir são exatamente isso.
-  - **v2 (Brotli)** — o modelo e o bloco de valores concatenados e comprimidos com Brotli como um *único*
-    stream (um stream comprime melhor do que dois blocos independentes). Usado para qualquer save
-    comprimido, frio ou aquecido; um arquivo comprimido frio simplesmente carrega um bloco de valores
-    vazio.
+  - **v2 (Brotli, legado, somente leitura)** — o modelo e o bloco de valores concatenados e comprimidos com
+    Brotli como um *único* stream, escrito como duas chamadas `BrotliStream.Write` de buffer inteiro. Nada
+    na biblioteca escreve mais v2 (substituído pelo v3, abaixo) — arquivos v2 antigos continuam carregando
+    sem alteração, para sempre, a mesma política de mão única de uma tag de union append-only.
+  - **v3 (Brotli, em chunks — o padrão desde a versão atual)** — o modelo e o bloco de valores concatenados
+    e comprimidos com Brotli como um único stream, escrito como uma sequência de **escritas de exatamente
+    64KB** (a última mais curta) no `BrotliStream`, em vez de duas escritas de buffer inteiro. Esse
+    chunking fixo é parte da DEFINIÇÃO do formato, não um detalhe de implementação: todo mecanismo de
+    escrita (`WorkbookIoBuffering.Pooled` ou `.Pipelines`, `Save` ou `SaveAsync`) reagrupa os bytes que
+    produz nessas mesmas janelas de 64KB antes de chegarem ao Brotli, então as quatro combinações produzem
+    arquivos v3 byte a byte idênticos — o v2 não conseguia fazer essa promessa (dividir os mesmos bytes em
+    várias chamadas `Write` pequenas muda mensuravelmente a saída comprimida do Brotli, então todo escritor
+    v2 precisava recorrer a materializar o modelo e o bloco de valores como dois buffers inteiros para se
+    manter byte a byte idêntico). Veja [Tamanhos medidos](#tamanhos-medidos) para o ganho de taxa de
+    compressão que esse esquema de chunking trouxe num workbook real grande.
 
 Como o modelo e seus valores viajam em um único arquivo, eles nunca podem dessincronizar no carregamento.
 
@@ -165,6 +176,12 @@ da metade do seu tamanho bruto. A compressão troca CPU no momento do save/load 
 `None` quando você salva com frequência em um disco local rápido e o tamanho do arquivo não é uma
 preocupação.
 
+O chunking fixo de 64KB do v3 (veja [Formato do arquivo](#formato-do-arquivo)) não é só um contrato de
+determinismo/identidade de bytes — ele também comprime *melhor* do que a escrita de buffer inteiro do v2.
+Num workbook real grande, rico em fórmulas (~680 mil células, `CompressionLevel.Optimal`): o v2 produziu um
+arquivo de 3.616.055 bytes; o mesmo workbook pelo v3 produziu 3.137.719 bytes — **~13% menor**, de graça,
+só por escrever o stream comprimido em janelas fixas em vez de de uma vez só.
+
 ### Convenção de nomenclatura de arquivo
 
 A biblioteca **nunca** renomeia o arquivo que você passa — um save comprimido escreve exatamente o caminho
@@ -211,6 +228,23 @@ ganho de alocação e de GC. No fio, o MemoryPack serializa os dados de cada nó
 `SharedFormulaSlave` ainda escreve sua própria cópia dos bytes serializados da árvore mestre, uma vez por
 escrava. Um workbook com um grande grupo de fórmula compartilhada, portanto, não diminui em disco só por
 causa desta mudança — apenas sua pegada em memória após o carregamento diminui.
+
+### Compatibilidade futura: container v3 (Brotli em chunks)
+
+`WorkbookCompression.Brotli` agora escreve o container versão 3 por padrão (veja [Formato do
+arquivo](#formato-do-arquivo)) em vez do v2. Este também é um limite de **mão única**:
+
+- Um arquivo salvo por esta versão da biblioteca **ou por uma posterior** com `Compression = Brotli` é um
+  container v3. Esse arquivo **não pode ser aberto por uma versão da biblioteca anterior à que introduziu
+  o v3**: o switch de versão de container do leitor mais antigo não reconhece a tag 3, e `Load` lança
+  `InvalidDataException`.
+- Um arquivo salvo por uma versão **mais antiga** da biblioteca (v1 ou v2) continua carregando sem
+  alteração nesta e em toda versão posterior — o `Load` ainda reconhece e descomprime containers v2, só
+  não os escreve mais.
+
+Não há opção para voltar a escrever v2 — a mesma política em espírito append-only das tags acima: um
+formato de escrita substituído é descartado, não mantido como um knob, enquanto o leitor o mantém para
+sempre.
 
 ## Quando usar cada formato
 

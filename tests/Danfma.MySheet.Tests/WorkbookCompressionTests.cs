@@ -9,8 +9,10 @@ namespace Danfma.MySheet.Tests;
 /// Optional Brotli compression (<see cref="WorkbookSaveOptions.Compression"/>) on save. Compression is
 /// orthogonal to <see cref="WorkbookSaveOptions.IncludeComputedValues"/>: cold (model-only) and warm
 /// (model + values) saves can each be compressed. Compressed files are wrapped in the <c>MSWM</c> container
-/// (version 2) so <see cref="Workbook.Load(string)"/> detects and transparently decompresses them; the cold,
-/// uncompressed default remains byte-identical to <see cref="Workbook.Save(string)"/>.
+/// (version 3 — fixed-64KB-chunked Brotli, the default since M6; see
+/// <see cref="ContainerVersionCompatibilityTests"/> for the frozen legacy v2 golden file) so
+/// <see cref="Workbook.Load(string)"/> detects and transparently decompresses them; the cold, uncompressed
+/// default remains byte-identical to <see cref="Workbook.Save(string)"/>.
 /// </summary>
 public class WorkbookCompressionTests
 {
@@ -76,10 +78,10 @@ public class WorkbookCompressionTests
         }
     }
 
-    // === Cold compressed: container v2, round-trips, and is smaller than raw ==============================
+    // === Cold compressed: container v3, round-trips, and is smaller than raw ==============================
 
     [Test]
-    public async Task ColdCompressed_IsContainerV2_AndRoundTrips()
+    public async Task ColdCompressed_IsContainerV3_AndRoundTrips()
     {
         var workbook = Sample();
         var path = TempPath();
@@ -93,7 +95,7 @@ public class WorkbookCompressionTests
 
             var bytes = File.ReadAllBytes(path);
             await Assert.That(bytes.AsSpan(0, 4).SequenceEqual(Magic)).IsTrue();
-            await Assert.That(bytes[4]).IsEqualTo((byte)2); // Brotli version
+            await Assert.That(bytes[4]).IsEqualTo((byte)3); // Brotli version (v3, fixed-64KB-chunked)
 
             var modelLength = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(5, 4));
             var rawModel = MemoryPackSerializer.Serialize(workbook);
@@ -169,7 +171,7 @@ public class WorkbookCompressionTests
             );
 
             var bytes = File.ReadAllBytes(path);
-            await Assert.That(bytes[4]).IsEqualTo((byte)2);
+            await Assert.That(bytes[4]).IsEqualTo((byte)3); // v3, fixed-64KB-chunked Brotli
 
             var loaded = Workbook.Load(path);
             await Assert.That(loaded.GetCellValue("Sheet1", "N1").ToDouble()).IsEqualTo(42.0);
