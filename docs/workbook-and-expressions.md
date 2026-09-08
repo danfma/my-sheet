@@ -254,7 +254,7 @@ MySheet parses the Excel operator set. Binding powers (precedence) from loosest 
 | 4 | `*` `/` | Multiplication, division. |
 | 5 | `^` | Exponentiation (parsed right-associatively). |
 | 6 | `%` | Postfix percent: `50%` is `0.5`. |
-| 7 | unary `-` `+` | Unary prefix binds tighter than `^`, so `-2^2` is `(-2)^2 = 4`, matching Excel. |
+| 7 | unary `-` `+` | Unary prefix binds tighter than `^`, so `-2^2` is `(-2)^2 = 4`, matching Excel. Unary `-` (and postfix `%`) coerce to a number (`-"abc"` is `#VALUE!`); unary `+` is Excel's legacy no-op and returns the operand **unchanged, type included** — `=+A1` on a text cell is that text, `+TRUE` stays a boolean, a reference stays a reference (`SUM(+A1:A3)`), only a blank becomes `0`. |
 | 8 (tightest) | `:` | Range construction. |
 
 Plus grouping with `( )`. Division by zero yields `#DIV/0!`; type mismatches yield `#VALUE!`.
