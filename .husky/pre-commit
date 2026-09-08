@@ -7,3 +7,10 @@ echo "🐶 husky pre-commit — csharpier check + build"
 dotnet tool restore
 dotnet csharpier check .
 dotnet build Danfma.MySheet.slnx -c Debug
+
+# code-review-graph: keep the knowledge graph current and print a brief change-impact summary.
+# Both are best-effort (|| true) so a missing/failing tool never blocks a commit.
+if command -v code-review-graph >/dev/null 2>&1; then
+    code-review-graph update || true
+    code-review-graph detect-changes --brief || true
+fi

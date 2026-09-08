@@ -499,3 +499,5 @@ samples/synthetic-input.json
 samples/k1-anonymized.json
 samples/*.myxl
 samples/*.xlsx
+# Added by code-review-graph
+.code-review-graph/
