@@ -96,6 +96,23 @@ public class AbsoluteRowReferenceTests
     }
 
     [Test]
+    public async Task Qualified_AbsoluteWholeRow_InsideLet_MatchesTheIssueFormula()
+    {
+        // The representative real-world formula from issue #8: a header lookup filled down a column.
+        var (workbook, sheet) = Sheets();
+        sheet["J1"] = String("h2");
+        sheet["B416"] = Number(2);
+
+        var formula =
+            "=IF($B416=\"\",\"\",LET(hdr,'Other Sheet'!$1:$1,"
+            + "colNum,MATCH(SUBSTITUTE(J$1,\"'\",\"''\"),hdr,0),"
+            + "val,INDEX('Other Sheet'!$1:$1000,$B416,colNum),"
+            + "IF(TRIM(val&\"\")=\"\",\"\",val)))";
+
+        await Assert.That(Eval(formula, sheet, workbook) as double?).IsEqualTo(40.0);
+    }
+
+    [Test]
     public async Task Write_AbsoluteWholeRow_DropsTheMarker_LikeAbsoluteColumns()
     {
         // The AST keeps no '$' for open ranges ($A:$A already writes back as A:A); rows follow suit.
