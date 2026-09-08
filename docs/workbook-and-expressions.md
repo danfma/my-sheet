@@ -399,7 +399,9 @@ collides with a cell-reference shape (`A1`) or a boolean literal, is also reject
 **Resolution order.** A `NameReference` resolves in this order:
 
 1. **`LET` scope first** (shadowing) — a `LET` binding with the same name wins, so
-   `LET(Sales, 5, Sales+1)` is `6`, not a sum over the range.
+   `LET(Sales, 5, Sales+1)` is `6`, not a sum over the range. A `LET` binding captures a range/union
+   node as a **reference value** (like a defined name does), so `LET(r, A1:C9, SUM(r))` and
+   `LET(hdr, Data!$1:$1, MATCH(x, hdr, 0))` see the cells; a single cell is bound by value.
 2. **`Workbook.DefinedNames`** — the name's expression is evaluated. A range/union stays a *reference*
    value, so range-aware functions expand it (`SUM(Sales)`); a single cell or constant evaluates to its
    scalar. The functions that require a syntactic reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,

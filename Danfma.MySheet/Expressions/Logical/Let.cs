@@ -23,7 +23,12 @@ public sealed partial record Let(Expression[] Arguments) : Function
                 return ComputedValue.Error(Error.Value);
             }
 
-            scope = scope.WithName(name.Name, Arguments[i + 1].Evaluate(scope));
+            // A range value stays a range (reference value) so `LET(r, A1:C1, MATCH(x, r, 0))` works; see
+            // NamedReferences.CaptureValue.
+            scope = scope.WithName(
+                name.Name,
+                NamedReferences.CaptureValue(Arguments[i + 1], scope)
+            );
         }
 
         return Arguments[^1].Evaluate(scope);

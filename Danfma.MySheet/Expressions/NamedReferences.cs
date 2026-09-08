@@ -39,15 +39,34 @@ internal static class NamedReferences
 
         try
         {
-            return definition is RangeReference or OpenRangeReference or UnionReference
-                ? ComputedValue.Reference((Reference)definition)
-                : definition.Evaluate(context);
+            return CaptureValue(definition, context);
         }
         finally
         {
             guard.Remove(name);
         }
     }
+
+    /// <summary>
+    /// Evaluates an expression that is being BOUND to a name (a defined name's definition, a LET binding, a
+    /// CHOOSE alternative): a range/union node is captured as a reference VALUE, so range-aware consumers
+    /// (SUM, MATCH, INDEX, ROWS, …) later expand the cells; anything else — a single cell, a constant, a
+    /// formula — evaluates to its scalar. Evaluating a range node directly would yield <c>#VALUE!</c> (a
+    /// range has no scalar value), which is exactly what made <c>LET(hdr, Data!$1:$1, MATCH(x, hdr, 0))</c>
+    /// return <c>#N/A</c> (issue #8). A shared-formula anchored range is resolved to its per-slave rectangle
+    /// first, since that is the range the binding denotes for THIS cell.
+    /// </summary>
+    public static ComputedValue CaptureValue(Expression expression, EvaluationContext context) =>
+        expression switch
+        {
+            RangeReference or OpenRangeReference or UnionReference => ComputedValue.Reference(
+                (Reference)expression
+            ),
+            AnchoredRangeReference anchored => ComputedValue.Reference(
+                anchored.ToRangeReference(context)
+            ),
+            _ => expression.Evaluate(context),
+        };
 
     /// <summary>
     /// Unwraps an argument to a syntactic <see cref="Reference"/> node for the functions that need one
