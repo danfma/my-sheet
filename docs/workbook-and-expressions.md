@@ -110,7 +110,8 @@ Rules:
   (`true`/`false`), otherwise text.
 - **Syntax errors throw `ParseException`.** The exception is structured: `Kind` (a `ParseErrorKind` —
   `UnexpectedCharacter`, `UnterminatedString`, `UnterminatedQuotedName`, `UnexpectedToken`, `ExpectedToken`,
-  `ExpectedCellReference`, `InvalidArgumentCount`, `NestingTooDeep`), `Token` (the offending token's text,
+  `ExpectedCellReference`, `InvalidArgumentCount`, `NestingTooDeep`; `Unspecified` only when the exception is
+  built through the legacy `(message, position)` constructor), `Token` (the offending token's text,
   empty when the parser ran out of input) and `Position` (0-based offset into the formula **body**, i.e. the
   text after the leading `=`, so `=1 2` reports position 2 for the `2`). Catching `ParseException` is by
   itself the "syntax vs. semantic" distinction — see the next bullet. Built-in functions also validate their

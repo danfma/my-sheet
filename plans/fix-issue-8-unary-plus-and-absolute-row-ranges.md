@@ -43,9 +43,11 @@ reference value); `LET` and `CHOOSE` each had their own copy of the rule or lack
 - Defect 3 fixed with one shared helper `NamedReferences.CaptureValue(expression, context)` used by
   defined names, `LET` and `CHOOSE` (three sites → one rule). An `AnchoredRangeReference` (shared-formula
   master) is resolved to its per-slave rectangle first. A single cell is still bound by value.
-- `ParseException` gains `Kind` (`ParseErrorKind` enum, 8 members) and `Token`; `Message` format unchanged.
-  The public 2-arg constructor was REPLACED by the 4-arg one (flagged in the PR as an API change; no
-  consumer constructs it — every catch site keeps compiling). "Syntax vs semantic" needs no flag: the
+- `ParseException` gains `Kind` (`ParseErrorKind` enum) and `Token`; `Message` format unchanged. The
+  public 2-arg constructor is KEPT as a compatibility overload (Copilot review on PR #9 asked for it) and
+  maps to `ParseErrorKind.Unspecified` (value 0) with an empty `Token`; the parser always sets a specific kind.
+- `CellAddress.TryParseRow` guards against `int` overflow (Copilot review): `$99999999999` is rejected like
+  the numeric-endpoint path rejects `99999999999`, instead of wrapping into a bogus row. "Syntax vs semantic" needs no flag: the
   exception type IS the syntax category; documented. `Position` is 0-based into the formula BODY (after
   `=`) — that is why the issue saw "position 13" for `=COUNTA(Other!$1:$1)`; documented.
 - Out of scope (pre-existing, unrelated): open ranges inside shared-formula masters are not shifted per
