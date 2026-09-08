@@ -63,6 +63,8 @@ How file content maps into the workbook:
 | Style-only / empty cell | Nothing stored — reads as blank. |
 | Shared-formula "slave" (a dragged formula cell carrying no formula text) | A lightweight node sharing the master's parsed tree (see [Shared formulas](#shared-formulas-a-shared-master-tree-with-per-slave-deltas) below) when the master's shape is supported; otherwise expanded into an independent formula exactly as before. |
 | Workbook-scoped defined name (`<definedName>`) | An entry in [`Workbook.DefinedNames`](workbook-and-expressions.md#named-ranges): the `refersTo` text is parsed as a formula. **Sheet-scoped** names (those with a `localSheetId`) and Excel's **builtin `_xlnm.*`** names (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) are skipped. |
+| Excel **Table** (a `<table>` part, a.k.a. a ListObject) | Nothing — its cells load as an ordinary range. MySheet has no table model, so the table's name, columns and totals row are dropped. A formula using a **structured reference** into it (`Tabela1[Valor]`) cannot be parsed and degrades to the cached value — see below. |
+| Cell whose formula text does not parse | The cached value Excel stored next to the formula (blank if the file carries none), reported as `UnparsableFormula`. Only that cell degrades. |
 
 ### Shared formulas: a shared master tree with per-slave deltas
 
@@ -105,18 +107,29 @@ If the file uses functions MySheet does not implement, those cells parse into `F
 evaluate to `#NAME?` — unless you provide the behavior yourself via
 [`RegisterFunction`](custom-functions.md), which is the intended escape hatch.
 
-A handful of load-time issues (an invalid defined name, a date literal that fails to parse) are skipped
-rather than failing the whole load — by default silently, exactly as before. Pass `ExcelLoadOptions` with
-an `OnWarning` callback to `Load` to observe them instead:
+A handful of load-time issues (an invalid defined name, a date literal that fails to parse, a formula whose
+syntax the parser rejects) are skipped or degraded rather than failing the whole load — by default
+silently. Pass `ExcelLoadOptions` with an `OnWarning` callback to `Load` to observe them instead:
 
 ```csharp
 var warnings = new List<ExcelLoadWarning>();
 var workbook = ExcelFile.Load("model.xlsx", new ExcelLoadOptions { OnWarning = warnings.Add });
 ```
 
-Each `ExcelLoadWarning` carries a `Kind` (`InvalidDefinedName` or `UnparsableDateLiteral`), a `Subject`
-(the defined name, or the cell id) and a `Detail` string. The callback is a simple `Action<T>` rather than
-an accumulated list, so the host decides whether to log, collect, or ignore each warning.
+Each `ExcelLoadWarning` carries a `Kind` (`InvalidDefinedName`, `UnparsableDateLiteral`,
+`UnparsableFormula` or `UnparsableCellLiteral`), a `Subject` (the defined name, or the cell id) and a
+`Detail` string. The callback is a simple `Action<T>` rather than an accumulated list, so the host decides
+whether to log, collect, or ignore each warning.
+
+`UnparsableFormula` is the one worth wiring up on real-world files: the cell keeps the value Excel cached
+but **loses its formula**, so it no longer reacts to input changes. A structured reference into an Excel
+Table is the common cause. For a shared-formula group it is reported once, for the master's cell — every
+slave in that group then falls back to its own cached value.
+
+`UnparsableCellLiteral` covers a cell whose `<v>` text does not match the type its `@t` declares — a
+numeric cell holding non-numeric text (which reads as text instead), or a `t="s"` cell whose shared-string
+index is out of range (which reads as blank). Both are broken-file shapes rather than anything Excel
+writes, and both used to abort the load.
 
 ## Exporting: `SaveAsExcel`
 
@@ -187,7 +200,9 @@ Merge semantics:
   (the merged file shows your engine's numbers, not Excel's recalculation).
 - **Blank values are not written**, leaving the target cell exactly as it was.
 - Cell formatting is preserved: only the content is replaced; the cell's style reference is untouched.
-- Text is written as an inline string, so the target's shared-string table is not modified.
+- Text is written as a **shared string**: it is appended to the target's shared-string table (reusing an
+  existing plain-text entry when there is one) and the cell carries `t="s"` with the index, so a label
+  repeated across many cells costs one index rather than a full inline copy each time.
 - Missing rows/cells are created in the correct OpenXML order as needed.
 - As with `SaveAsExcel`, all values are computed up front via `RunWithLargeStack` with memoization.
 
@@ -217,6 +232,23 @@ Being honest about what the interop MVP does **not** do:
   builtin `_xlnm.*` names (print areas, filter databases, …) are skipped on load, and MySheet only ever
   writes workbook-scoped names. A defined name whose `refersTo` cannot be parsed is skipped rather than
   failing the load.
+- **No Excel Tables and no structured references**: a `<table>` part (ListObject) is not modeled — its
+  cells load as an ordinary range and its name, columns and totals row are dropped, and `SaveAsExcel` never
+  writes one. Consequently a formula written as `Tabela1[Valor]` / `[@Valor]` / `[#Headers]` does not parse:
+  the affected cell falls back to the value Excel cached for it (reported as `UnparsableFormula`) and loses
+  its formula. `MergeIntoExcel` is the exception that preserves the table itself — the template's `<table>`
+  part and `<tableParts>` element are copied through untouched — but the table's `ref` range is **not**
+  resized, so rows written past its last row stay outside the table.
+- **A formula the parser rejects degrades one cell, not the load**: an unparsable formula text (a structured
+  reference is the common case) leaves that cell holding its cached value, reported via `OnWarning`. This is
+  a real fidelity loss — the cell stops reacting to input changes — so observe the warnings if it matters.
+  A malformed *literal* degrades the same way (`UnparsableCellLiteral`).
+- **A degraded cell carries Excel's stale number into a merge**: because the formula is gone, `MergeIntoExcel`
+  writes that cell's cached value and *drops the target's formula* — so the merged file shows the number
+  Excel last computed, not one derived from the current inputs, and Excel will not recompute it (the
+  `calcChain` is dropped). A degraded cell with **no** cached value is left blank and therefore not written
+  at all, which preserves the target's formula. If this matters, collect `UnparsableFormula` warnings on load
+  and pass those sheets to `MergeIntoExcel`'s `ignoredSheets`, or fix the formula in the model first.
 
 ## See also
 

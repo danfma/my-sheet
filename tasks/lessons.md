@@ -198,3 +198,35 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   e overflow; o zclaude com o diff completo achou o bug semântico que os dois primeiros passes não viram.
   Rodar o segundo revisor DEPOIS de corrigir o primeiro, com o diff atualizado, evita relatórios duplicados.
 
+
+## MySheet — fallback de fórmula não parseável / tabelas (2026-09-08)
+
+- **Fallback que decodifica dado que antes era ignorado precisa ser total ANTES de eu chamar o fix de pronto.**
+  Fiz o loader degradar uma fórmula não parseável para o `<v>` em cache — e o `<v>` de célula de fórmula
+  *nunca era decodificado* até então. `DecodeLiteral` usava `double.Parse`/`int.Parse` sem guarda, então
+  `<f>…</f><v/>` trocou `ParseException` por `FormatException`: a carga continuava morrendo. Reportei como
+  "completo e verificado". Regra: quando um fix passa a alimentar um decoder com um shape novo, enumerar os
+  shapes daquele canal (vazio, tipo errado, índice fora de faixa) e testar cada um — o caminho de fallback é
+  exatamente o que só roda em arquivo estranho, ou seja, nunca é exercitado pela suíte existente.
+- **Valor de fixture que coincide com o valor correto é asserção que não falha.** Dois testes meus cachearam
+  `42` numa célula cujo `SUM` real também dava `42`: passavam vindo do cache OU do cálculo, pinando nada.
+  Regra: em teste de fallback, o valor em cache tem que ser uma MENTIRA deliberada (999) para que a asserção
+  distinga a origem.
+- **Desfazer efeito no `catch` é pior que não causá-lo.** Eu registrava o grupo de fórmula compartilhada e no
+  `catch` fazia `SharedFormulas.Remove(si)` — mas o `Remove` não sabe se a entrada é a que eu escrevi. Com si
+  reusado (fora de spec) apagava o grupo legítimo e as escravas dele perdiam a fórmula em silêncio. A solução
+  elegante foi reordenar: parsear primeiro, registrar só depois do sucesso. Regra: preferir "não causar o
+  efeito" a "causar e reverter" — reverter exige identidade que geralmente não se tem.
+- **`catch (ParseException)` não cobre "não parseou".** O caminho anchored faz `int.Parse` da linha, então
+  `A99999999999+1` sobe `OverflowException` e escapa. Regra: ao capturar por tipo de exceção para significar
+  uma CONDIÇÃO ("não representável"), auditar todo o caminho por outros tipos que expressam a mesma condição,
+  e ajustar a doc se algum ficar de fora.
+- **Fidelidade ao Excel/Aspose ganha de conveniência de implementação (diretriz do usuário).** Eu havia
+  decidido `#VALUE!` uniforme para expressão multi-célula em contexto de célula porque é simples e consistente.
+  Não é comportamento do Excel: sem spill, o fiel é interseção implícita (o que o `@` significa hoje).
+  `EvaluationContext` já carrega `SheetName`/`CellId`, então era possível — e "possível" é o critério.
+  Regra: para cada decisão semântica, declarar QUAL comportamento do Excel está sendo reproduzido; se a
+  resposta for "nenhum, é mais simples assim", redesenhar.
+- **Subagente de review adversarial com instrução de PROVAR por execução acha o que a revisão por leitura não
+  acha.** Os cinco defeitos acima vieram de um revisor que montou projeto de probe fora do repo e executou
+  cada alegação. Instrução que fez a diferença: "onde for barato, PROVE com probe; medido vence argumentado".

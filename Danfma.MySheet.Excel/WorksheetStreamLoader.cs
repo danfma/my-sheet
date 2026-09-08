@@ -83,6 +83,21 @@ internal static class WorksheetStreamLoader
         /// </summary>
         public List<(string Id, uint SharedIndex, Expression? CachedLiteral)>? PendingSlaves;
 
+        /// <summary>
+        /// Formula text → the parse error it produced, for texts this sheet has already rejected (lazy;
+        /// null on the happy path). The negative counterpart of <see cref="FormulaCache"/>: a thrown
+        /// <see cref="ParseException"/> costs orders of magnitude more than the dictionary probe that
+        /// replaces it. Every affected cell is still warned about individually — only the throw is amortized.
+        /// <para>
+        /// The amortization is real only when the rejected text REPEATS, which is the common shape
+        /// (<c>SUM(Tabela1[Valor])</c> filled down a column is one text). It does NOT help a rejected
+        /// formula that also carries a relative reference (<c>Tabela1[@Valor]*C2</c> dragged down is a
+        /// distinct text per row): that pays one throw and one dictionary entry per cell. Bounded by the
+        /// number of distinct rejected texts on one sheet, and dropped with the sheet's load context.
+        /// </para>
+        /// </summary>
+        public Dictionary<string, string>? UnparsableFormulas;
+
         public StringBuilder Builder { get; } = new();
     }
 
@@ -235,6 +250,11 @@ internal static class WorksheetStreamLoader
     // shape the support check rejects (an open range, a union, a reference-returning endpoint) — is treated
     // as "this group is not anchored-safe": the caller keeps using the legacy per-slave token-delta parse for
     // every slave in the group, exactly as before this spike. Honest fallback, not a guess.
+    //
+    // OverflowException is caught alongside ParseException because the anchored mode is the ONLY parse path
+    // that reads a reference's row number as an Int32 (Parser.ParseAnchorComponents): a row past int.MaxValue
+    // — writable by a hand-rolled producer, though never by Excel — overflows there while the same text parses
+    // fine in normal mode. It is the same verdict ("not anchored-safe"), so it takes the same fallback.
     private static (Expression Tree, bool Supported) TryBuildAnchoredMaster(
         Sheet sheet,
         List<Token> tokens
@@ -248,7 +268,7 @@ internal static class WorksheetStreamLoader
                 ? (tree, true)
                 : (BlankValue.Instance, false);
         }
-        catch (ParseException)
+        catch (Exception exception) when (exception is ParseException or OverflowException)
         {
             return (BlankValue.Instance, false);
         }
@@ -443,34 +463,69 @@ internal static class WorksheetStreamLoader
         // cached <v> is ignored). A shared-formula master also registers its text for the group.
         if (formulaText is { Length: > 0 })
         {
-            if (isSharedFormula)
+            // Already known to be unparsable (same text, an earlier cell): degrade without paying for the
+            // throw again. Checked BEFORE the try so a rejected master never registers its group — its
+            // slaves then take the missing-master fallback below.
+            if (
+                context.UnparsableFormulas is { } rejected
+                && rejected.TryGetValue(formulaText, out var knownError)
+            )
             {
-                var tokens = ExpressionParser.TokenizeFormulaBody(formulaText);
-                var (anchoredTree, anchoredSupported) = TryBuildAnchoredMaster(
-                    context.Sheet,
-                    tokens
-                );
+                DegradeToCachedLiteral(context, id, type, raw, inlineText, knownError);
 
-                context.SharedFormulas[sharedIndex] = (
-                    row,
-                    column,
-                    id,
-                    formulaText,
-                    tokens,
-                    anchoredTree,
-                    anchoredSupported
-                );
+                return column;
             }
 
-            if (!context.FormulaCache.TryGetValue(formulaText, out var expression))
+            try
             {
-                expression = ExpressionParser.ParseFormulaBody(formulaText, context.Sheet);
-                context.FormulaCache[formulaText] = expression;
+                // PARSE FIRST, register the group only once it succeeded. The order matters: a rejected
+                // master must leave context.SharedFormulas completely untouched, so its slaves take the
+                // missing-master fallback and — crucially — an out-of-spec file that REUSES an si cannot
+                // make this failure evict a healthy group registered earlier under the same index.
+                // (Undoing a registration in the catch cannot distinguish "the entry I just wrote" from
+                // "someone else's entry", so there is nothing safe to remove.)
+                if (!context.FormulaCache.TryGetValue(formulaText, out var expression))
+                {
+                    expression = ExpressionParser.ParseFormulaBody(formulaText, context.Sheet);
+                    context.FormulaCache[formulaText] = expression;
+                }
+
+                if (isSharedFormula)
+                {
+                    // Cannot throw: ParseFormulaBody above tokenized this same text successfully (or a
+                    // previous cell did, and cached the tree), so tokenization is settled by now.
+                    var tokens = ExpressionParser.TokenizeFormulaBody(formulaText);
+                    var (anchoredTree, anchoredSupported) = TryBuildAnchoredMaster(
+                        context.Sheet,
+                        tokens
+                    );
+
+                    context.SharedFormulas[sharedIndex] = (
+                        row,
+                        column,
+                        id,
+                        formulaText,
+                        tokens,
+                        anchoredTree,
+                        anchoredSupported
+                    );
+                }
+
+                context.Sheet[id] = expression;
+
+                return column;
             }
+            catch (ParseException exception)
+            {
+                // A syntax MySheet's parser does not accept — most often a structured reference into an
+                // Excel Table (`Tabela1[Valor]`), which the tokenizer has no `[` for. This used to abort the
+                // WHOLE load; now only this cell degrades, to the value Excel cached next to the formula.
+                (context.UnparsableFormulas ??= [])[formulaText] = exception.Message;
 
-            context.Sheet[id] = expression;
+                DegradeToCachedLiteral(context, id, type, raw, inlineText, exception.Message);
 
-            return column;
+                return column;
+            }
         }
 
         // A shared-formula slave carries no text: expand it from its master, shifting relative
@@ -503,8 +558,36 @@ internal static class WorksheetStreamLoader
         return column;
     }
 
-    // Parity port of the DOM loader's LoadLiteral, keyed by the raw @t string. `id` is only needed for the
-    // "d" case's warning (the cell reference is the useful subject there); every other branch ignores it.
+    // A formula cell whose text the parser rejected: report it, then keep the value Excel cached alongside
+    // the formula (nothing to write when the file carries none — the cell reads blank). The formula itself
+    // is dropped, so the cell no longer reacts to input changes; that is the honest outcome of not being
+    // able to represent it, and the warning is what makes it visible instead of silent.
+    private static void DegradeToCachedLiteral(
+        LoadContext context,
+        string id,
+        string? type,
+        string? raw,
+        string? inlineText,
+        string detail
+    )
+    {
+        context.Options?.OnWarning?.Invoke(
+            new ExcelLoadWarning(ExcelLoadWarningKind.UnparsableFormula, id, detail)
+        );
+
+        if (DecodeLiteral(context, id, type, raw, inlineText) is { } literal)
+        {
+            context.Sheet[id] = literal;
+        }
+    }
+
+    // Parity port of the DOM loader's LoadLiteral, keyed by the raw @t string. `id` is needed by the
+    // branches that can WARN (the cell reference is the useful subject there); the others ignore it.
+    //
+    // Every branch is total: a cell's <v> text is arbitrary producer output, and this decoder also serves the
+    // fallback for a formula whose text we could not parse — where the <v> was never decoded before. A
+    // malformed literal degrades the ONE cell (to its raw text, or to blank) and reports it; it must never
+    // throw, or a single bad cell takes the whole workbook down.
     private static Expression? DecodeLiteral(
         LoadContext context,
         string id,
@@ -531,17 +614,35 @@ internal static class WorksheetStreamLoader
             // literals are only ~52% duplicate, below the ~54-70% breakeven a dictionary needs to pay
             // for itself against a 24-byte NumberValue, and it made Allocated/Gen1/Gen2 WORSE, not
             // better).
-            return new NumberValue(
-                double.Parse(raw, NumberStyles.Float, CultureInfo.InvariantCulture)
-            );
+            if (
+                double.TryParse(
+                    raw,
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out var number
+                )
+            )
+            {
+                return new NumberValue(number);
+            }
+
+            // <v/> on a formula cell the producer never evaluated: nothing to carry, so blank — and no
+            // warning, because an absent value is not a malformed one.
+            if (raw.Length == 0)
+            {
+                return null;
+            }
+
+            // Text where a number was declared. Reading it as text mirrors the "d" branch's fallback
+            // rather than inventing a value.
+            ReportUnparsableLiteral(context, id, raw);
+
+            return GetOrAddString(context, raw);
         }
 
         return type switch
         {
-            "s" => GetOrAddString(
-                context,
-                context.SharedStrings[int.Parse(raw, CultureInfo.InvariantCulture)]
-            ),
+            "s" => DecodeSharedStringLiteral(context, id, raw),
             "b" => raw is "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase)
                 ? BooleanValue.True
                 : BooleanValue.False,
@@ -553,6 +654,29 @@ internal static class WorksheetStreamLoader
             _ => GetOrAddString(context, raw),
         };
     }
+
+    // t="s" carries an index into the shared-string table. A non-numeric or out-of-range index is a broken
+    // file (a hand-edit that dropped strings, most often): the cell reads blank and is reported, rather than
+    // an IndexOutOfRangeException escaping Load.
+    private static Expression? DecodeSharedStringLiteral(LoadContext context, string id, string raw)
+    {
+        if (
+            int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+            && (uint)index < (uint)context.SharedStrings.Count
+        )
+        {
+            return GetOrAddString(context, context.SharedStrings[index]);
+        }
+
+        ReportUnparsableLiteral(context, id, raw);
+
+        return null;
+    }
+
+    private static void ReportUnparsableLiteral(LoadContext context, string id, string raw) =>
+        context.Options?.OnWarning?.Invoke(
+            new ExcelLoadWarning(ExcelLoadWarningKind.UnparsableCellLiteral, id, raw)
+        );
 
     // Split out of the switch expression above only because the failure path has a side effect (the
     // warning callback); the fallback behavior (StringValue of the raw text) is unchanged from before

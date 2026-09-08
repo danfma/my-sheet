@@ -27,8 +27,10 @@ public sealed class ExcelLoadOptions
 /// </summary>
 /// <param name="Kind">What kind of issue this is.</param>
 /// <param name="Subject">What the warning is about: the defined name's own name for
-/// <see cref="ExcelLoadWarningKind.InvalidDefinedName"/>, or the cell id (e.g. <c>"B7"</c>) for
-/// <see cref="ExcelLoadWarningKind.UnparsableDateLiteral"/>.</param>
+/// <see cref="ExcelLoadWarningKind.InvalidDefinedName"/>, or the cell id (e.g. <c>"B7"</c>) for every
+/// cell-scoped kind (<see cref="ExcelLoadWarningKind.UnparsableDateLiteral"/>,
+/// <see cref="ExcelLoadWarningKind.UnparsableFormula"/>,
+/// <see cref="ExcelLoadWarningKind.UnparsableCellLiteral"/>).</param>
 /// <param name="Detail">A short human-readable detail: the parse exception's message, or the raw literal
 /// text that failed to parse.</param>
 public readonly record struct ExcelLoadWarning(
@@ -53,6 +55,26 @@ public enum ExcelLoadWarningKind
     /// <see cref="ExcelLoadWarning.Subject"/> is the cell id.
     /// </summary>
     UnparsableDateLiteral,
+
+    /// <summary>
+    /// A cell whose formula text failed to parse — a syntax MySheet's parser does not accept, most often a
+    /// <b>structured reference</b> into an Excel Table (<c>Tabela1[Valor]</c>), which the tokenizer has no
+    /// <c>[</c> for. The cell falls back to the cached value Excel stored alongside the formula (blank when
+    /// the file carries none), so only that cell degrades — the rest of the workbook loads normally.
+    /// <see cref="ExcelLoadWarning.Subject"/> is the cell id; for a shared-formula group it is the MASTER's
+    /// cell, reported once for the group (each slave then falls back to its own cached value).
+    /// </summary>
+    UnparsableFormula,
+
+    /// <summary>
+    /// A cell's literal <c>&lt;v&gt;</c> text that could not be decoded as the type its <c>@t</c> claims: a
+    /// numeric cell whose text is not a number, or a <c>t="s"</c> cell whose shared-string index is out of
+    /// range. The cell degrades to the raw text (numeric case) or to blank (unresolvable index) rather than
+    /// failing the load. <see cref="ExcelLoadWarning.Subject"/> is the cell id and
+    /// <see cref="ExcelLoadWarning.Detail"/> the raw text. Distinct from
+    /// <see cref="UnparsableDateLiteral"/>, which is specifically the <c>t="d"</c> ISO-8601 case.
+    /// </summary>
+    UnparsableCellLiteral,
 }
 
 /// <summary>

@@ -376,6 +376,11 @@ A workbook can define **names** that stand for an expression — usually a sheet
 but any expression (a constant, a formula, another name) is allowed. Names are workbook-level and
 **case-insensitive**, exactly like Excel.
 
+> A named range is **not** an Excel **Table** (a ListObject). A name is a static alias for one expression;
+> a table is a named region with named columns, a totals row, a range that grows as rows are added, and its
+> own reference syntax (`Tabela1[Valor]`, `[@Valor]`). MySheet models the first and not the second — see
+> [Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations).
+
 ```csharp
 var workbook = new Workbook();
 var data = workbook.Sheets.Add("Data");

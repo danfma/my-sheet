@@ -390,6 +390,12 @@ Um workbook pode definir **nomes** que representam uma expressão — geralmente
 qualificados por planilha, mas qualquer expressão (uma constante, uma fórmula, outro nome) é permitida.
 Os nomes são de nível de workbook e **case-insensitive**, exatamente como no Excel.
 
+> Um intervalo nomeado **não** é uma **Tabela** do Excel (um ListObject). Um nome é um apelido estático para
+> uma expressão; uma tabela é uma região nomeada com colunas nomeadas, linha de totais, um intervalo que
+> cresce conforme linhas são adicionadas e uma sintaxe de referência própria (`Tabela1[Valor]`, `[@Valor]`).
+> O MySheet modela o primeiro, e não a segunda — veja
+> [Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações).
+
 ```csharp
 var workbook = new Workbook();
 var data = workbook.Sheets.Add("Data");

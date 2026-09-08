@@ -65,6 +65,8 @@ Como o conteúdo do arquivo é mapeado para dentro do workbook:
 | Célula vazia / só com estilo | Nada é armazenado — é lida como em branco. |
 | "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Um nó leve que compartilha a árvore já interpretada da mestre (veja [Fórmulas compartilhadas](#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava) abaixo) quando a forma da mestre é suportada; caso contrário, é expandida em uma fórmula independente exatamente como antes. |
 | Nome definido com escopo de workbook (`<definedName>`) | Uma entrada em [`Workbook.DefinedNames`](workbook-and-expressions.md#intervalos-nomeados): o texto `refersTo` passa pelo parse como uma fórmula. Nomes **com escopo de planilha** (aqueles com `localSheetId`) e os nomes **nativos `_xlnm.*`** do Excel (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) são ignorados. |
+| **Tabela** do Excel (uma parte `<table>`, também chamada de ListObject) | Nada — suas células carregam como um intervalo comum. O MySheet não tem modelo de tabela, então o nome da tabela, suas colunas e a linha de totais são descartados. Uma fórmula que usa uma **referência estruturada** para ela (`Tabela1[Valor]`) não pode ser interpretada e recai no valor em cache — veja abaixo. |
+| Célula cujo texto de fórmula não passa pelo parse | O valor que o Excel guardou em cache ao lado da fórmula (em branco se o arquivo não carrega nenhum), reportado como `UnparsableFormula`. Só aquela célula é degradada. |
 
 ### Fórmulas compartilhadas: uma árvore mestre compartilhada com deltas por escrava
 
@@ -112,17 +114,30 @@ avaliadas como `#NAME?` — a menos que você mesmo forneça o comportamento via
 [`RegisterFunction`](custom-functions.md), que é a válvula de escape pretendida.
 
 Alguns problemas de carregamento (um nome definido inválido, um literal de data que falha ao ser
-interpretado) são ignorados em vez de falhar o carregamento inteiro — por padrão, silenciosamente, como
-sempre foi. Passe `ExcelLoadOptions` com um callback `OnWarning` para `Load` para observá-los:
+interpretado, uma fórmula cuja sintaxe o parser rejeita) são ignorados ou degradados em vez de falhar o
+carregamento inteiro — por padrão, silenciosamente. Passe `ExcelLoadOptions` com um callback `OnWarning`
+para `Load` para observá-los:
 
 ```csharp
 var warnings = new List<ExcelLoadWarning>();
 var workbook = ExcelFile.Load("model.xlsx", new ExcelLoadOptions { OnWarning = warnings.Add });
 ```
 
-Cada `ExcelLoadWarning` carrega um `Kind` (`InvalidDefinedName` ou `UnparsableDateLiteral`), um `Subject`
-(o nome definido, ou o id da célula) e uma string `Detail`. O callback é um `Action<T>` simples em vez de
-uma lista acumulada, então quem hospeda decide se registra, coleta ou ignora cada aviso.
+Cada `ExcelLoadWarning` carrega um `Kind` (`InvalidDefinedName`, `UnparsableDateLiteral`,
+`UnparsableFormula` ou `UnparsableCellLiteral`), um `Subject` (o nome definido, ou o id da célula) e uma
+string `Detail`. O callback é um `Action<T>` simples em vez de uma lista acumulada, então quem hospeda
+decide se registra, coleta ou ignora cada aviso.
+
+`UnparsableFormula` é o aviso que vale a pena escutar em arquivos do mundo real: a célula mantém o valor
+que o Excel tinha em cache, mas **perde a fórmula**, então deixa de reagir a mudanças nas entradas. Uma
+referência estruturada para uma Tabela do Excel é a causa mais comum. Para um grupo de fórmula
+compartilhada, o aviso sai uma única vez, para a célula mestre — cada escrava do grupo então recai no seu
+próprio valor em cache.
+
+`UnparsableCellLiteral` cobre uma célula cujo texto em `<v>` não corresponde ao tipo declarado em `@t` — uma
+célula numérica contendo texto não numérico (que passa a ser lida como texto), ou uma célula `t="s"` cujo
+índice na tabela de strings compartilhadas está fora de faixa (que passa a ser lida como em branco). Ambos
+são formatos de arquivo quebrado, não algo que o Excel escreva, e ambos antes abortavam o carregamento.
 
 ## Exportando: `SaveAsExcel`
 
@@ -196,8 +211,10 @@ Semântica da mesclagem:
 - **Valores em branco não são escritos**, deixando a célula de destino exatamente como estava.
 - A formatação da célula é preservada: apenas o conteúdo é substituído; a referência de estilo da célula
   não é tocada.
-- O texto é escrito como string inline, então a tabela de strings compartilhadas do destino não é
-  modificada.
+- O texto é escrito como **string compartilhada**: é adicionado à tabela de strings compartilhadas do
+  destino (reusando uma entrada de texto puro existente quando houver) e a célula carrega `t="s"` com o
+  índice, então um rótulo repetido em muitas células custa um índice em vez de uma cópia inline completa
+  em cada uma.
 - Linhas/células ausentes são criadas na ordem correta do OpenXML conforme necessário.
 - Assim como no `SaveAsExcel`, todos os valores são calculados de antemão via `RunWithLargeStack`, com
   memoização.
@@ -231,6 +248,26 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   `localSheetId`) e os nomes nativos `_xlnm.*` (áreas de impressão, bancos de filtro, …) são ignorados no
   carregamento, e o MySheet só escreve nomes com escopo de workbook. Um nome definido cujo `refersTo` não
   pode ser interpretado é ignorado em vez de falhar o carregamento.
+- **Sem Tabelas do Excel e sem referências estruturadas**: uma parte `<table>` (ListObject) não é modelada —
+  suas células carregam como um intervalo comum e o nome da tabela, suas colunas e a linha de totais são
+  descartados, e o `SaveAsExcel` nunca escreve uma. Como consequência, uma fórmula escrita como
+  `Tabela1[Valor]` / `[@Valor]` / `[#Headers]` não passa pelo parse: a célula afetada recai no valor que o
+  Excel guardou em cache para ela (reportado como `UnparsableFormula`) e perde sua fórmula. O
+  `MergeIntoExcel` é a exceção que preserva a tabela em si — a parte `<table>` e o elemento `<tableParts>` do
+  template são copiados intactos —, mas o intervalo `ref` da tabela **não** é redimensionado, então linhas
+  escritas depois da sua última linha ficam fora da tabela.
+- **Uma fórmula que o parser rejeita degrada uma célula, não o carregamento**: um texto de fórmula que não
+  passa pelo parse (uma referência estruturada é o caso comum) deixa aquela célula com o valor em cache,
+  reportado via `OnWarning`. Essa é uma perda real de fidelidade — a célula para de reagir a mudanças nas
+  entradas —, então observe os avisos se isso importa. Um *literal* malformado degrada do mesmo jeito
+  (`UnparsableCellLiteral`).
+- **Uma célula degradada leva o número obsoleto do Excel para dentro do merge**: como a fórmula desapareceu,
+  o `MergeIntoExcel` escreve o valor em cache daquela célula e *descarta a fórmula do destino* — então o
+  arquivo mesclado mostra o número que o Excel calculou por último, não um derivado das entradas atuais, e o
+  Excel não vai recalculá-lo (o `calcChain` é descartado). Uma célula degradada **sem** valor em cache fica em
+  branco e portanto não é escrita, o que preserva a fórmula do destino. Se isso importa, colete os avisos
+  `UnparsableFormula` no carregamento e passe aquelas planilhas em `ignoredSheets` do `MergeIntoExcel`, ou
+  corrija a fórmula no modelo antes.
 
 ## Veja também
 
