@@ -72,7 +72,9 @@ internal readonly record struct CellAddress(int Column, int Row)
     /// <summary>
     /// Parses an all-digits row label (e.g. <c>1</c>, <c>$1000</c>) to its 1-based row number, stripping
     /// any absolute markers (<c>$</c>) — the row twin of <see cref="TryParseColumn"/>. Returns <c>false</c>
-    /// when the text holds no digit, holds a non-digit, or is row 0.
+    /// when the text holds no digit, holds a non-digit, is row 0, or exceeds <see cref="int.MaxValue"/>
+    /// (the same ceiling the numeric-endpoint path applies, so <c>$99999999999:$99999999999</c> is rejected
+    /// like <c>99999999999:99999999999</c> instead of overflowing into a bogus row).
     /// </summary>
     public static bool TryParseRow(string label, out int row)
     {
@@ -92,7 +94,16 @@ internal readonly record struct CellAddress(int Column, int Row)
                 return false;
             }
 
-            row = row * 10 + (raw - '0');
+            var digit = raw - '0';
+
+            // Overflow guard: row * 10 + digit must stay <= int.MaxValue.
+            if (row > (int.MaxValue - digit) / 10)
+            {
+                row = 0;
+                return false;
+            }
+
+            row = row * 10 + digit;
             seen = true;
         }
 
