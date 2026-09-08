@@ -132,4 +132,40 @@ public class AbsoluteRowReferenceTests
 
         await Assert.That(Eval("=$1+1", sheet, workbook)).IsEqualTo(ErrorValue.Name);
     }
+
+    // --- The '$<row>' endpoint applies the same ceiling as the numeric-endpoint path (int.MaxValue): a
+    // huge row must be rejected, never overflow into a negative or wrapped row number.
+
+    [Test]
+    [Arguments("$1", true, 1)]
+    [Arguments("1048576", true, 1048576)]
+    [Arguments("$2147483647", true, int.MaxValue)]
+    [Arguments("$2147483648", false, 0)] // int.MaxValue + 1
+    [Arguments("$99999999999", false, 0)]
+    [Arguments("$0", false, 0)]
+    [Arguments("$", false, 0)]
+    [Arguments("$1A", false, 0)]
+    public async Task TryParseRow_RejectsZeroNonDigitsAndOverflow(
+        string label,
+        bool expectedOk,
+        int expectedRow
+    )
+    {
+        var ok = CellAddress.TryParseRow(label, out var row);
+
+        await Assert.That(ok).IsEqualTo(expectedOk);
+        await Assert.That(row).IsEqualTo(expectedRow);
+    }
+
+    [Test]
+    public async Task HugeAbsoluteRow_FailsExactlyLikeTheRelativeForm()
+    {
+        var (workbook, sheet) = Sheets();
+
+        var absolute = Eval("=COUNTA($99999999999:$99999999999)", sheet, workbook);
+        var relative = Eval("=COUNTA(99999999999:99999999999)", sheet, workbook);
+
+        await Assert.That(absolute is ErrorValue).IsTrue();
+        await Assert.That(absolute).IsEqualTo(relative);
+    }
 }
