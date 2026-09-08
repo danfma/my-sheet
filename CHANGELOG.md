@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.16.0"></a>
+## [3.16.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.16.0) (2026-09-08)
+
+### Features
+
+* **parser:** keep the legacy ParseException(message, position) constructor ([fbd360e](https://www.github.com/danfma/my-sheet/commit/fbd360e6e71bb4427c8e75892df9ba079d8c62b9))
+* **parser:** structured ParseException (Kind, Token, Position) ([39817d4](https://www.github.com/danfma/my-sheet/commit/39817d487dc2b80530a3d1056007992484f3e82d))
+
+### Bug Fixes
+
+* **eval:** LET, CHOOSE and defined names capture ranges as reference values ([378ad5c](https://www.github.com/danfma/my-sheet/commit/378ad5cfadd932878632d4b1c00b552fa06f84af))
+* **eval:** unary + is a type-preserving no-op ([90771b1](https://www.github.com/danfma/my-sheet/commit/90771b12f4da731faebc3a1f47747b247fa925fb))
+* **eval:** unary + passes range nodes through to range consumers ([4c85a62](https://www.github.com/danfma/my-sheet/commit/4c85a6205f36d0938e5ef7f62e5e942860e5f21d))
+* **parser:** accept absolute row endpoints ($1:$1) in whole-row ranges ([a20e9bd](https://www.github.com/danfma/my-sheet/commit/a20e9bd76b596c932845bda1aa153b56576256b6))
+* **parser:** reject absolute row endpoints that overflow int ([9dccf7e](https://www.github.com/danfma/my-sheet/commit/9dccf7ecdb46061e0c8f9aef04226b297f0c6230))
+
 <a name="3.15.0"></a>
 ## [3.15.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.15.0) (2026-07-13)
 
