@@ -174,3 +174,19 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   pela metade e o orquestrador paga um resume).** Regra de briefing para qualquer missão com
   benchmark/harness: "rode em foreground e espere; NUNCA termine o turno com trabalho pendente em
   background". O orquestrador, ao retomar um agente nesse estado, instrui re-rodar em foreground.
+
+## MySheet — issue #8 (2026-09-08)
+
+- **Rodar a fórmula representativa da issue de ponta a ponta, não só as linhas da tabela de sintomas.**
+  A issue isolava dois defeitos (`+texto`, `$1:$1`) e afirmava que "todo o resto da fórmula funciona". Após
+  corrigir os dois, a fórmula real (`LET(hdr, Data!$1:$1, MATCH(x, hdr, 0), …)`) ainda dava `#N/A`: o `LET`
+  vinculava ranges a `#VALUE!` — bug independente do `$`, que só apareceu porque escrevi a fórmula inteira
+  como teste. Regra: o critério de aceite é a fórmula do usuário funcionar, não os sintomas listados sumirem.
+- **Antes de procurar uma issue, confirmar o tracker.** `gh issue view 3163` no repo, nos repos vizinhos,
+  Trello e memória não achou nada; a issue real era a #8 no próprio repo (número trocado pelo usuário).
+  Uma pergunta objetiva ("onde está?") resolveu em um turno; meia dúzia de buscas às cegas não resolveram.
+- **Separar hunks por commit sem `git add -p`:** `git diff -- arquivo` → filtrar hunks por regex →
+  `git apply --cached --recount`. Arquivo novo cujo conteúdo pertence a dois commits: gravar a versão
+  parcial, `git add`, restaurar a completa. Permite commits conventional independentes (changelog do
+  versionize) quando um arquivo acumula mudanças de defeitos diferentes.
+
