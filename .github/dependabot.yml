@@ -1,0 +1,14 @@
+# Keeps the GitHub Actions used by the workflows current, so a runtime deprecation (e.g. Node.js 20 →
+# 24 in 2025/26) arrives as a PR instead of as a warning on every run. NuGet packages are deliberately
+# NOT covered here: their upgrades are reviewed by hand together with the engine's compatibility tests.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

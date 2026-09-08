@@ -11,7 +11,7 @@ jobs:
       contents: write # push the version bump commit + tag and create the GitHub release
       id-token: write # OIDC token for NuGet trusted publishing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so versionize can analyze conventional commits
           # Push with an admin PAT, not the default GITHUB_TOKEN: the "Push commit and tag" step
@@ -22,7 +22,7 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
