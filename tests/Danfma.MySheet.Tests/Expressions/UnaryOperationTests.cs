@@ -116,7 +116,84 @@ public class UnaryOperationTests
         await Assert.That(value.AsDouble()).IsEqualTo(6.0);
     }
 
+    // --- A range NODE under '+' is still a range for every consumer (external review of PR #9 caught that
+    // only reference VALUES from OFFSET/INDEX passed through; a syntactic A1:A3 became #VALUE!).
+
+    private static (Workbook Workbook, Sheet Sheet) Grid()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("S");
+        sheet["A1"] = Number(1);
+        sheet["A2"] = Number(2);
+        sheet["A3"] = Number(3);
+        sheet["B1"] = Number(10);
+        sheet["C1"] = Number(20);
+        sheet["D1"] = String("42");
+
+        return (workbook, sheet);
+    }
+
+    [Test]
+    [Arguments("=SUM(+A1:A3)", 6.0)] // value-path consumer, bounded range
+    [Arguments("=SUM(+A:A)", 6.0)] // whole column
+    [Arguments("=SUM(+(A1:A2,A3:A3))", 6.0)] // union
+    [Arguments("=MATCH(20,+A1:C1,0)", 3.0)] // lookup array
+    [Arguments("=ROWS(+A1:A3)", 3.0)] // syntactic consumer (TryResolveReference)
+    [Arguments("=INDEX(+A1:A3,2)", 2.0)]
+    public async Task Plus_OnRangeNode_IsStillARange(string formula, double expected)
+    {
+        var (workbook, sheet) = Grid();
+
+        var value = ExpressionParser.Parse(formula, sheet).Evaluate(workbook);
+
+        await Assert.That(value.AsDouble()).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task Plus_OnRangeNode_UsedAsScalar_IsValueError()
+    {
+        // Exactly like `=A1:A3+1`: the no-op does not make a range usable where a scalar is required.
+        var (workbook, sheet) = Grid();
+
+        var value = ExpressionParser.Parse("=(+A1:A3)+1", sheet).Evaluate(workbook);
+
+        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Plus_OnRangeToMissingSheet_IsRefError()
+    {
+        // Structural #REF! must survive the no-op: SUM(+Ghost!A1:A3) == SUM(Ghost!A1:A3), not an empty 0.
+        var (workbook, sheet) = Grid();
+
+        var value = ExpressionParser.Parse("=SUM(+Ghost!A1:A3)", sheet).Evaluate(workbook);
+
+        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task Plus_OnNumericLookingTextCell_StaysText()
+    {
+        // The issue measured cells, not literals: D1 holds the TEXT "42".
+        var (workbook, sheet) = Grid();
+
+        var value = ExpressionParser.Parse("=+D1", sheet).Evaluate(workbook);
+
+        await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Text);
+        await Assert.That(value.AsString()).IsEqualTo("42");
+    }
+
     // --- Unary '-' and postfix '%' keep coercing to a number (text -> #VALUE!), unlike '+'.
+
+    [Test]
+    public async Task Negate_OnRangeNode_IsValueError()
+    {
+        var (workbook, sheet) = Grid();
+
+        var value = ExpressionParser.Parse("=SUM(-A1:A3)", sheet).Evaluate(workbook);
+
+        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.NotValue);
+    }
 
     [Test]
     public async Task Negate_OnText_IsValueError()

@@ -79,6 +79,11 @@ internal static class ReferenceGuard
                     ? MissingSheet(resolved, context)
                     : null;
 
+            // Unary '+' is a transparent no-op (see UnaryOperation): SUM(+Ghost!A1:A3) must be the same
+            // structural #REF! as SUM(Ghost!A1:A3), not an empty range.
+            case UnaryOperation { Operator: UnaryOperator.Plus } plus:
+                return MissingSheet(plus.Operand, context);
+
             case DynamicRange dynamic:
                 // A ':' range with reference-returning endpoints (INDEX(...):A5). If it resolves to a concrete
                 // range, re-check that range's sheet (same as NameReference). If it CANNOT form a concrete
