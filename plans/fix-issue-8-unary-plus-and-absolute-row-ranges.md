@@ -138,7 +138,7 @@ Token text per kind: the unexpected character; the token found where another was
 of input); the function name for a bad arity; the literal's remainder for unterminated string/quoted name.
 
 ## Phase 4: Full regression, docs, commits, PR
-Status: In progress
+Status: Complete
 
 - [x] `dotnet build Danfma.MySheet.slnx -c Release --no-incremental` → 0 errors; the single warning
   (TUnitAssertions0015 in a new test) fixed with `.IsTrue()`.
@@ -146,24 +146,37 @@ Status: In progress
   files (`git diff --numstat -- tests/`), so the 55 new cases are pure additions over `main`.
 - [x] Docs: operator table (unary `+`), open-range example (`$1:$1`), LET range capture (two places),
   `ParseException` bullet.
-- [ ] Commits (English, conventional, no AI attribution), one per defect so versionize lists them
+- [x] Commits (English, conventional, no AI attribution), one per defect so versionize lists them
   separately in the CHANGELOG:
-  1. `fix(eval): unary + is a type-preserving no-op`
-  2. `fix(parser): accept absolute row endpoints ($1:$1) in whole-row ranges`
-  3. `fix(eval): LET, CHOOSE and defined names capture ranges as reference values`
-  4. `feat(parser): structured ParseException (Kind, Token, Position)`
-  5. `docs(plans): record issue #8 fix`
-- [ ] Push and open the PR against `main` referencing `#8`; do NOT merge (user reviews).
+  1. `3528203` `fix(eval): unary + is a type-preserving no-op`
+  2. `eb7f88c` `fix(parser): accept absolute row endpoints ($1:$1) in whole-row ranges`
+  3. `60da727` `fix(eval): LET, CHOOSE and defined names capture ranges as reference values`
+  4. `a627976` `feat(parser): structured ParseException (Kind, Token, Position)`
+  5. `109ff4c` `docs(plans): record the issue #8 fix`
+- [x] Pushed; PR [#9](https://github.com/danfma/my-sheet/pull/9) opened against `main` ("Fixes #8").
+  NOT merged — user reviews. The pre-push hook re-ran both suites (1176/1176, 74/74).
 
 ### Verification Plan
 - `git diff --stat main..HEAD` lists only the files above; `dotnet csharpier check .` clean.
 - PR body lists the API change (ParseException constructor) explicitly.
 
 ### Phase Summary
-_(write when phase completes)_
+Shared hunks (`Parser.cs` carried both the `$1` arm and the `ParseException` throw sites;
+`docs/workbook-and-expressions.md` carried four unrelated edits) were split per commit with a small
+hunk-filtering script (`git diff` → keep hunks matching a regex → `git apply --cached`). The LET-based
+issue-formula test was staged with commit 3, not commit 2, so every commit is green on its own.
+`main` was NOT pushed: the `chore(tooling)` commit (`a683bcc`) is local only, so the PR shows it until
+`git push origin main` is run.
 
 ## Final Recap
-_(write when all phases complete)_
+Issue #8 reported two defects; the fix ships four changes on `fix/issue-8-unary-plus-absolute-rows`
+(PR #9): unary `+` as a type-preserving no-op (`UnaryOperation.cs`); absolute row endpoints in whole-row
+ranges (`CellAddress.TryParseRow` + `Parser.TryEndpoint`); `LET`/`CHOOSE`/defined names capturing range
+nodes as reference values through one helper (`NamedReferences.CaptureValue`) — a third, pre-existing bug
+that the issue's own representative formula exposed; and a structured `ParseException` (`Kind`, `Token`,
+`Position`). 55 new test cases, all RED before their fix; full suites green; docs updated in
+`docs/workbook-and-expressions.md` and `docs/function-reference.md`. One API change to review: the
+`ParseException` constructor signature.
 
 ## Deployment Plan
 Release is automated by `versionize` in `.github/workflows/release.yml`: merging this branch into `main`
