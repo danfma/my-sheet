@@ -189,4 +189,12 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   `git apply --cached --recount`. Arquivo novo cujo conteúdo pertence a dois commits: gravar a versão
   parcial, `git add`, restaurar a completa. Permite commits conventional independentes (changelog do
   versionize) quando um arquivo acumula mudanças de defeitos diferentes.
+- **Toda afirmação em doc/comentário precisa de um teste que a exercite literalmente.** Escrevi em
+  `UnaryOperation` e na doc que "`SUM(+A1:A3)` continua vendo a range", mas o único teste era
+  `SUM(+OFFSET(...))` — um VALOR de referência, caminho que já funcionava. Um `A1:A3` sintático virava
+  `#VALUE!`. A revisão externa (zclaude/GLM) pegou porque comparou a frase da doc com os testes do diff.
+  Regra: ao escrever "X funciona" num comentário, o exemplo X vira um `[Arguments]` do teste, sem substituto.
+- **Revisões externas valem pelo que trazem de novo, não pelo volume.** Copilot (lite) achou 2 pontos de API
+  e overflow; o zclaude com o diff completo achou o bug semântico que os dois primeiros passes não viram.
+  Rodar o segundo revisor DEPOIS de corrigir o primeiro, com o diff atualizado, evita relatórios duplicados.
 

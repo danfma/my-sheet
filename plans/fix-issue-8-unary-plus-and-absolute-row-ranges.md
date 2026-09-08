@@ -36,7 +36,12 @@ reference value); `LET` and `CHOOSE` each had their own copy of the rule or lack
 ## Decisions
 
 - Unary `+` is a **type-preserving no-op** except `Blank → 0`: text, boolean, number, error AND
-  reference-typed values (`+OFFSET(...)`) pass through unchanged, so `SUM(+A1:A3)` keeps working.
+  reference-typed values (`+OFFSET(...)`) pass through unchanged. A range/union NODE operand is captured via
+  `NamedReferences.CaptureValue` (evaluating it would give `#VALUE!`), and `UnaryOperation` overrides
+  `TryResolveReference` for `Plus`, so both value-path (`SUM(+A1:A3)`, `MATCH`) and syntactic (`ROWS`,
+  `INDEX`) consumers see the range; `ReferenceGuard` looks through `+` so `SUM(+Ghost!A1:A3)` stays `#REF!`.
+  (The first version only passed reference VALUES through; the external review caught that `SUM(+A1:A3)`
+  was `#VALUE!` while the docs claimed otherwise.)
 - Defect 2 fixed in `Parser.TryEndpoint` via a new `CellAddress.TryParseRow` (twin of `TryParseColumn`),
   NOT in the Tokenizer: making `$1` a `Number` token would let `=$1+1` evaluate to `2`, which Excel rejects.
   `=$1+1` stays `#NAME?` (tested). `FormulaWriter` already drops `$` for open ranges, so `$1:$1` → `1:1`.
@@ -169,6 +174,34 @@ hunk-filtering script (`git diff` → keep hunks matching a regex → `git apply
 issue-formula test was staged with commit 3, not commit 2, so every commit is green on its own.
 `main` was NOT pushed: the `chore(tooling)` commit (`a683bcc`) is local only, so the PR shows it until
 `git push origin main` is run.
+
+## Phase 5: External reviews (Copilot on the PR, zclaude/GLM-5.3 locally)
+Status: Complete
+
+- [x] Copilot (2 comments): compat `ParseException(message, position)` overload restored (`a181059`);
+  `TryParseRow` overflow guard (`45a5e29`). Replied on both threads and resolved them.
+- [x] zclaude review (prompt: issue text + commit messages + full diff, `--permission-mode plan`, no tools):
+  1. **Real, fixed:** `SUM(+A1:A3)` was `#VALUE!`, `ROWS(+A1:A3)` 1, `INDEX(+A1:A3,2)` `#REF!` — only
+     reference VALUES passed through `+`, not range NODES, while the doc/comment claimed `SUM(+A1:A3)` works.
+     Verified by execution before fixing. Fix: `CaptureValue` for the `Plus` operand + `TryResolveReference`
+     override + `ReferenceGuard` arm. 9 new tests in `UnaryOperationTests`.
+  2. **Not a bug, pinned:** mixed `A1:$1` / `$1:A` now behave exactly like the pre-existing `A1:1` / `1:A`
+     one-sided open-range extension (3 tests in `AbsoluteRowReferenceTests`).
+  3. **Test gaps, filled:** `CaptureValueTests` — CHOOSE over a union, and the `AnchoredRangeReference` arm
+     evaluated per slave for CHOOSE/LET/`+` inside a shared-formula master; `+D1` on a numeric-looking TEXT
+     cell (not only the literal).
+  4. Nits acknowledged, not changed: `TryParseRow` ignores `$` anywhere (same leniency as `TryParseColumn`);
+     unterminated-literal `Token` carries the remainder of the formula (error path only).
+- [x] Copilot re-review could not be requested via API (bot ignores REST reviewer requests); the user must
+  click "re-request review" in the GitHub UI.
+
+### Verification Plan
+- Full suites after the fixes: see Phase Summary.
+
+### Phase Summary
+Two independent reviewers found three genuine issues between them (compat ctor, overflow, range-node
+pass-through); the third was the most important and came only from the second reviewer, who reasoned from
+the diff alone that the doc claim was untested. Lesson recorded in `tasks/lessons.md`.
 
 ## Final Recap
 Issue #8 reported two defects; the fix ships four changes on `fix/issue-8-unary-plus-absolute-rows`
