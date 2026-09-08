@@ -47,7 +47,12 @@ internal sealed class Parser(
 
         if (Current.Type != TokenType.EndOfInput)
         {
-            throw new ParseException($"Unexpected token '{Current.Text}'", Current.Position);
+            throw new ParseException(
+                ParseErrorKind.UnexpectedToken,
+                $"Unexpected token '{Current.Text}'",
+                Current.Position,
+                Current.Text
+            );
         }
 
         return expression;
@@ -60,7 +65,12 @@ internal sealed class Parser(
         // left incremented past an exception never leaks into a later parse.
         if (++_depth > MaxDepth)
         {
-            throw new ParseException("Formula nesting is too deep", Current.Position);
+            throw new ParseException(
+                ParseErrorKind.NestingTooDeep,
+                "Formula nesting is too deep",
+                Current.Position,
+                Current.Text
+            );
         }
 
         var left = ParsePrefix(Advance());
@@ -131,7 +141,12 @@ internal sealed class Parser(
                 return inner;
 
             default:
-                throw new ParseException($"Unexpected token '{token.Text}'", token.Position);
+                throw new ParseException(
+                    ParseErrorKind.UnexpectedToken,
+                    $"Unexpected token '{token.Text}'",
+                    token.Position,
+                    token.Text
+                );
         }
     }
 
@@ -324,7 +339,12 @@ internal sealed class Parser(
         // depth check against the same counter — see MaxDepth's doc comment.
         if (++_depth > MaxDepth)
         {
-            throw new ParseException("Formula nesting is too deep", Current.Position);
+            throw new ParseException(
+                ParseErrorKind.NestingTooDeep,
+                "Formula nesting is too deep",
+                Current.Position,
+                Current.Text
+            );
         }
 
         // The qualifier is a fresh tokenizer substring per formula, so N cross-sheet references to the same
@@ -360,8 +380,10 @@ internal sealed class Parser(
                 {
                     // Report at the RIGHT endpoint — that is the malformed side in this branch.
                     throw new ParseException(
+                        ParseErrorKind.ExpectedCellReference,
                         "Expected a cell reference after '!'",
-                        second.Position
+                        second.Position,
+                        second.Text
                     );
                 }
 
@@ -387,12 +409,22 @@ internal sealed class Parser(
                 return range;
             }
 
-            throw new ParseException("Expected a cell reference after '!'", first.Position);
+            throw new ParseException(
+                ParseErrorKind.ExpectedCellReference,
+                "Expected a cell reference after '!'",
+                first.Position,
+                first.Text
+            );
         }
 
         if (first.Type != TokenType.Identifier || !IsCellReference(first.Text))
         {
-            throw new ParseException("Expected a cell reference after '!'", first.Position);
+            throw new ParseException(
+                ParseErrorKind.ExpectedCellReference,
+                "Expected a cell reference after '!'",
+                first.Position,
+                first.Text
+            );
         }
 
         _depth--;
@@ -602,8 +634,10 @@ internal sealed class Parser(
         if (arguments.Length < spec.MinArgs || arguments.Length > spec.MaxArgs)
         {
             throw new ParseException(
+                ParseErrorKind.InvalidArgumentCount,
                 $"Function '{functionName}' does not accept {arguments.Length} argument(s)",
-                name.Position
+                name.Position,
+                name.Text
             );
         }
 
@@ -685,8 +719,10 @@ internal sealed class Parser(
         if (Current.Type != type)
         {
             throw new ParseException(
+                ParseErrorKind.ExpectedToken,
                 $"Expected {type} but found '{Current.Text}'",
-                Current.Position
+                Current.Position,
+                Current.Text
             );
         }
 

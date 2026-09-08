@@ -147,7 +147,12 @@ internal sealed class Tokenizer(string text)
             _position++;
         }
 
-        throw new ParseException("Unterminated string literal", start);
+        throw new ParseException(
+            ParseErrorKind.UnterminatedString,
+            "Unterminated string literal",
+            start,
+            text[start..]
+        );
     }
 
     // A sheet name in single quotes (allows spaces/specials), e.g. 'My Sheet'!A1. '' is an escaped quote.
@@ -177,7 +182,12 @@ internal sealed class Tokenizer(string text)
             _position++;
         }
 
-        throw new ParseException("Unterminated quoted name", start);
+        throw new ParseException(
+            ParseErrorKind.UnterminatedQuotedName,
+            "Unterminated quoted name",
+            start,
+            text[start..]
+        );
     }
 
     private Token ReadOperator(int start)
@@ -241,7 +251,12 @@ internal sealed class Tokenizer(string text)
                 return new Token(TokenType.Greater, ">", start);
 
             default:
-                throw new ParseException($"Unexpected character '{c}'", start);
+                throw new ParseException(
+                    ParseErrorKind.UnexpectedCharacter,
+                    $"Unexpected character '{c}'",
+                    start,
+                    c.ToString()
+                );
         }
     }
 

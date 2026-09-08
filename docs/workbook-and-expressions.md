@@ -108,9 +108,13 @@ Rules:
 - Entries starting with `=` are parsed as formulas (a Pratt / top-down operator-precedence parser).
 - Anything else is a literal: number if it parses as one (invariant culture), then boolean
   (`true`/`false`), otherwise text.
-- **Syntax errors throw `ParseException`** (with a `Position` property pointing at the offending token).
-  Built-in functions also validate their argument count at parse time — `=ROUND(1)` throws, just as
-  Excel would reject it at entry.
+- **Syntax errors throw `ParseException`.** The exception is structured: `Kind` (a `ParseErrorKind` —
+  `UnexpectedCharacter`, `UnterminatedString`, `UnterminatedQuotedName`, `UnexpectedToken`, `ExpectedToken`,
+  `ExpectedCellReference`, `InvalidArgumentCount`, `NestingTooDeep`), `Token` (the offending token's text,
+  empty when the parser ran out of input) and `Position` (0-based offset into the formula **body**, i.e. the
+  text after the leading `=`, so `=1 2` reports position 2 for the `2`). Catching `ParseException` is by
+  itself the "syntax vs. semantic" distinction — see the next bullet. Built-in functions also validate their
+  argument count at parse time — `=ROUND(1)` throws, just as Excel would reject it at entry.
 - **Semantic errors do not throw** — an unknown function evaluates to `#NAME?`, a bad reference to
   `#REF!`, and so on, as `ComputedValue` errors. A **reference to a sheet that does not exist**
   (`=Ghost!A1`, `SUM(Ghost!A:A)`) is one such bad reference: it resolves to `#REF!` — never a thrown
