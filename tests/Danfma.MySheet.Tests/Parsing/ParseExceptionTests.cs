@@ -151,4 +151,16 @@ public class ParseExceptionTests
 
         await Assert.That(error.Message).IsEqualTo("Unexpected token '2' (at position 2).");
     }
+
+    [Test]
+    public async Task LegacyConstructor_IsUnspecifiedKind_WithEmptyToken()
+    {
+        // The pre-3.16 (message, position) overload still compiles and behaves; only the parser sets a Kind.
+        var error = new ParseException("Something is off", 7);
+
+        await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.Unspecified);
+        await Assert.That(error.Token).IsEqualTo(string.Empty);
+        await Assert.That(error.Position).IsEqualTo(7);
+        await Assert.That(error.Message).IsEqualTo("Something is off (at position 7).");
+    }
 }

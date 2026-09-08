@@ -6,6 +6,13 @@ namespace Danfma.MySheet.Parsing;
 /// </summary>
 public enum ParseErrorKind
 {
+    /// <summary>
+    /// No structured category: the exception was raised through the legacy
+    /// <c>ParseException(string message, int position)</c> constructor, which predates <see cref="ParseErrorKind"/>.
+    /// The parser itself always sets a specific kind.
+    /// </summary>
+    Unspecified,
+
     /// <summary>A character the formula grammar never uses (<c>=1 # 2</c>).</summary>
     UnexpectedCharacter,
 
@@ -41,6 +48,13 @@ public enum ParseErrorKind
 public sealed class ParseException(ParseErrorKind kind, string message, int position, string token)
     : Exception($"{message} (at position {position}).")
 {
+    /// <summary>
+    /// Compatibility overload (the pre-3.16 shape): the same message and position, with
+    /// <see cref="Kind"/> = <see cref="ParseErrorKind.Unspecified"/> and an empty <see cref="Token"/>.
+    /// </summary>
+    public ParseException(string message, int position)
+        : this(ParseErrorKind.Unspecified, message, position, string.Empty) { }
+
     /// <summary>What kind of syntax error this is.</summary>
     public ParseErrorKind Kind { get; } = kind;
 
