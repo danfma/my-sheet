@@ -168,4 +168,24 @@ public class AbsoluteRowReferenceTests
         await Assert.That(absolute is ErrorValue).IsTrue();
         await Assert.That(absolute).IsEqualTo(relative);
     }
+
+    // --- Mixed cell/row endpoints. `A1:1` is an existing one-sided open-range extension ("row 1 from column
+    // A rightward"); the absolute form must behave identically, not differently (external review of PR #9).
+
+    [Test]
+    [Arguments("=SUM(A1:$1)", "=SUM(A1:1)")]
+    [Arguments("=SUM($1:A)", "=SUM(1:A)")]
+    [Arguments("=COUNTA($A1:$1)", "=COUNTA(A1:1)")]
+    public async Task MixedCellAndAbsoluteRowEndpoints_BehaveLikeTheRelativeForm(
+        string absolute,
+        string relative
+    )
+    {
+        var (workbook, sheet) = Sheets();
+
+        await Assert
+            .That(Eval(absolute, sheet, workbook))
+            .IsEqualTo(Eval(relative, sheet, workbook));
+        await Assert.That(Eval(absolute, sheet, workbook) is double).IsTrue();
+    }
 }
