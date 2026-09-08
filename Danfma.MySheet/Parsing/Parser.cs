@@ -267,6 +267,16 @@ internal sealed class Parser(
                 row = null;
                 return true;
 
+            // An ABSOLUTE row endpoint ($1 in $1:$1, 1:$1, Data!$1:$1000). The Tokenizer lexes '$1' as an
+            // identifier (a '$' starts a name so that $A$1 works), so it reaches here as a NameReference
+            // rather than a NumberValue; without this arm the range degraded to a DynamicRange over two
+            // unbound names (#REF!) and the sheet-qualified form threw (issue #8). Like the column arm
+            // above, the '$' is a fill/copy marker only and is dropped.
+            case NameReference name when CellAddress.TryParseRow(name.Name, out var parsedRow):
+                column = null;
+                row = parsedRow;
+                return true;
+
             case NumberValue { Value: var value }
                 when value >= 1 && value <= int.MaxValue && value == Math.Floor(value):
                 column = null;

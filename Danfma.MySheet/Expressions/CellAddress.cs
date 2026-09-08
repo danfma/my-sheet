@@ -70,6 +70,42 @@ internal readonly record struct CellAddress(int Column, int Row)
     }
 
     /// <summary>
+    /// Parses an all-digits row label (e.g. <c>1</c>, <c>$1000</c>) to its 1-based row number, stripping
+    /// any absolute markers (<c>$</c>) — the row twin of <see cref="TryParseColumn"/>. Returns <c>false</c>
+    /// when the text holds no digit, holds a non-digit, or is row 0.
+    /// </summary>
+    public static bool TryParseRow(string label, out int row)
+    {
+        row = 0;
+
+        var seen = false;
+        foreach (var raw in label)
+        {
+            if (raw == '$')
+            {
+                continue;
+            }
+
+            if (raw is < '0' or > '9')
+            {
+                row = 0;
+                return false;
+            }
+
+            row = row * 10 + (raw - '0');
+            seen = true;
+        }
+
+        if (!seen || row == 0)
+        {
+            row = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Parses an all-letters column label (e.g. <c>A</c>, <c>AB</c>) to its 1-based column number, stripping
     /// any absolute markers (<c>$</c>). Returns <c>false</c> when the text is empty or holds a non-letter.
     /// </summary>

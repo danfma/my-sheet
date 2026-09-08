@@ -289,6 +289,7 @@ ExpressionParser.Parse("=SUM(A:A)", sheet);     // whole column A
 ExpressionParser.Parse("=SUM(A:C)", sheet);     // columns A..C
 ExpressionParser.Parse("=SUM(1:1)", sheet);     // whole row 1
 ExpressionParser.Parse("=SUM(1:5)", sheet);     // rows 1..5
+ExpressionParser.Parse("=SUM($1:$1)", sheet);   // '$' on a row endpoint is a fill marker only: same as 1:1
 ExpressionParser.Parse("=SUM(A2:A)", sheet);    // column A from row 2 downward
 ExpressionParser.Parse("=SUM(A:A10)", sheet);   // column A up to row 10
 ExpressionParser.Parse("=SUM(A1:C)", sheet);    // columns A..C from row 1 downward
