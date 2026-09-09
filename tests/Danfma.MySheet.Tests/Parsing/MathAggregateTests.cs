@@ -457,6 +457,18 @@ public class MathAggregateTests
     }
 
     [Test]
+    public async Task Subtotal_IgnoresNestedSubtotals_ThroughAUnionAndAnOpenRange()
+    {
+        // A exclusão de SUBTOTALs aninhados tem que valer nas CINCO formas de referência do scan, não só
+        // no range fechado: A3 é um SUBTOTAL (= 3), então tanto a união quanto a coluna inteira somam
+        // apenas A1 + A2 = 3. (Sem a exclusão o resultado seria 6.)
+        (string, object)[] cells = [("A1", 1), ("A2", 2), ("A3", "=SUBTOTAL(9,A1:A2)")];
+
+        await Assert.That(Num(Calc("=SUBTOTAL(9,(A1:A2,A3:A3))", cells))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=SUBTOTAL(9,A:A)", cells))).IsEqualTo(3.0);
+    }
+
+    [Test]
     public async Task Subtotal_InvalidCode_IsValueError()
     {
         // function_num fora de 1-11/101-111 -> #VALUE!.
