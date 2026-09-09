@@ -344,7 +344,25 @@ public sealed partial class Workbook
         {
             // Compute outside the store (the formula recurses back in), then the caller stores it.
             var expression = sheet[id];
-            value = expression.Evaluate(new EvaluationContext(this, sheetName, id));
+            var context = new EvaluationContext(this, sheetName, id);
+
+            // CAPTURE, not plain Evaluate: NamedReferences.CaptureValue is already the rule "a top-level node
+            // that DENOTES a range is a reference value, not #VALUE!" (it is what a defined name and a LET
+            // binding go through), so reusing it makes the cell boundary agree with them by construction.
+            // It is also what makes a bare =A1:A3 reachable at all — RangeReference.Evaluate returns #VALUE!
+            // before the boundary could ever see a reference, and that #VALUE! is indistinguishable from a
+            // real one.
+            value = NamedReferences.CaptureValue(expression, context);
+
+            // Excel's implicit intersection ("@"): a cell whose FINAL value is a reference shows the
+            // reference's cell on THIS cell's own row/column instead of an error, and a reference-kind value
+            // therefore never escapes as a cell value — this is where it stops. Order is load-bearing:
+            // capture → intersect → blank→0 below, so =A:A on row 7 with A7 empty yields 0 like Excel while
+            // a genuinely empty cell (a BlankValue expression) still stays blank.
+            if (value.TryGetReference(out var boundaryReference))
+            {
+                value = ImplicitIntersection.Apply(boundaryReference, context);
+            }
 
             // Excel parity — a formula result is NEVER blank at the CELL boundary: when a cell that HAS content
             // (its expression is not the empty BlankValue) evaluates to blank (e.g. =Sheet2!F10 with F10 empty,

@@ -275,7 +275,9 @@ public static class ExcelExport
                 XlsxNumbers.Format(sharedStrings.IndexOf(value.ToText()))
             ),
             ComputedValueKind.Error => new("e", ErrorText(value)),
-            // A bare reference result (e.g. a multi-cell OFFSET) has no single cell value.
+            // Unreachable: this reads through Workbook.GetCellValue, so the cell boundary has already applied
+            // Excel's implicit intersection and a cell value can no longer BE a reference. Kept as a
+            // total-switch guard over the public ComputedValueKind.
             ComputedValueKind.Reference => new("e", Error.Value.ToString()),
             _ => new(null, null),
         };
@@ -289,6 +291,8 @@ public static class ExcelExport
             ComputedValueKind.Boolean => new("b", value.ToBoolean() ? "1" : "0"),
             ComputedValueKind.Text => new("str", value.ToText()),
             ComputedValueKind.Error => new("e", ErrorText(value)),
+            // Unreachable for the same reason as above (the cell boundary intersects a reference away); a
+            // total-switch guard only.
             ComputedValueKind.Reference => new("e", Error.Value.ToString()),
             _ => new(null, null),
         };

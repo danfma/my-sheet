@@ -574,7 +574,9 @@ public static class ExcelMerge
                 break;
 
             case ComputedValueKind.Reference:
-                // A bare reference result (e.g. a multi-cell OFFSET) has no single cell value.
+                // Unreachable: every value written here comes from Workbook.GetCellValue, so the cell boundary
+                // has already applied Excel's implicit intersection and a cell value can no longer BE a
+                // reference. Kept as a total-switch guard over the public ComputedValueKind.
                 writer.WriteAttributeString("t", "e");
                 writer.WriteElementString("v", Ns, Error.Value.ToString());
                 break;

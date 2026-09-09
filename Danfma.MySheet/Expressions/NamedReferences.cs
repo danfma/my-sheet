@@ -65,6 +65,17 @@ internal static class NamedReferences
             AnchoredRangeReference anchored => ComputedValue.Reference(
                 anchored.ToRangeReference(context)
             ),
+
+            // A shared-formula slave is a whole-cell replacement for the expanded tree, so the capture must
+            // see THROUGH the wrapper to the shared master (under the slave's delta) — mirroring
+            // SharedFormulaSlave.TryResolveReference. Without this arm the wrapper falls to Evaluate below,
+            // which reaches AnchoredRangeReference.Evaluate's unconditional #VALUE!: a shared group whose
+            // whole body is a bare range would capture in the MASTER cell and fail in every slave.
+            SharedFormulaSlave slave => CaptureValue(
+                slave.Master,
+                context.WithDelta(slave.DeltaRow, slave.DeltaColumn)
+            ),
+
             _ => expression.Evaluate(context),
         };
 

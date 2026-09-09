@@ -34,6 +34,11 @@ internal static class AnchoredFormulaSupport
             // A defined name is resolved by name against Workbook.DefinedNames, independent of the shared-
             // formula group's per-slave position — safe to leave un-anchored (identical for every slave,
             // exactly as it is identical for every cell of an ordinary formula referencing the same name).
+            // "Position-independent" is about the RESOLVED REFERENCE being delta-invariant, not about the
+            // resulting VALUE: for a group of =SomeName cells where the name denotes a multi-cell range, each
+            // slave still shows a DIFFERENT value, because the cell boundary's implicit intersection runs per
+            // cell from that cell's own CellId (Workbook.EvaluateCell). That leaves this verdict correct —
+            // nothing but the parsed tree is shared across the group.
             NameReference => true,
 
             BinaryOperation binary => IsFullyAnchored(binary.Left) && IsFullyAnchored(binary.Right),
