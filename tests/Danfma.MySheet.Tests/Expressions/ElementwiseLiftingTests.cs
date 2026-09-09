@@ -352,6 +352,126 @@ public class ElementwiseLiftingTests
         await Assert.That(OnBlank("=SUM(LEN(Ghost!A1:A3))")).IsEqualTo(ErrorValue.Reference);
     }
 
+    // --- The three known divergences this phase LEAVES OPEN, pinned as gaps ---
+    //
+    // docs/workbook-and-expressions.md's "Known divergences" list promises that every entry on it is pinned by
+    // a test as a GAP rather than asserted as Excel's rule, so closing one is always a deliberate edit. These
+    // three tests are that promise for the three entries this phase added to the list. Every oracle number in
+    // them is Aspose.Cells 26.6.0, CSE-entered (SetArrayFormula), measured 2026-09-09; plain entry answers
+    // #VALUE! for all of them on both engines except where noted, so the CSE column is the one that diverges.
+
+    [Test]
+    public async Task LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence()
+    {
+        // Unary '+' is Excel's reference-preserving no-op, and MySheet keeps the whole '+' expression opaque
+        // (UnaryOperation.Evaluate captures the operand as a reference VALUE; the mini-CSE's builder excludes
+        // Plus). That hides what is INSIDE it, so a lifted call under a '+' is not lifted. The oracle lifts
+        // it: SUM(+LEN(A1:A3)) = 6 and SUM(LEN(+A1:A3)) = 6, both against the #VALUE! pinned here. This is
+        // the sibling of the already-documented SUM(-(+A1:A3)) = -6 gap — the same opaque '+', with a lifted
+        // FUNCTION inside it instead of a unary operator.
+        await Assert.That(OnLengths("=SUM(+LEN(A1:A3))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnLengths("=SUM(LEN(+A1:A3))")).IsEqualTo(ErrorValue.NotValue);
+
+        // The control, and what keeps the gap narrow: without the '+' the same shape lifts (1 + 2 + 3), and
+        // the '+' over a bare range still reads the cells on the ordinary range path (1 + 22 + 333). So the
+        // gap is exactly "a lifted shape wrapped in '+'", not "'+' loses the cells".
+        await Assert.That(Num(OnLengths("=SUM(LEN(A1:A3))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnLengths("=SUM(+A1:A3)"))).IsEqualTo(356.0);
+    }
+
+    // MyName = Sheet1!$A$1:$A$3 over the Lengths fixture, so the name denotes the same 1, 22, 333 the tests
+    // above write out literally — the only difference between the two halves of the pin is the NAME.
+    private static object? OnNamedLengths(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(22);
+        sheet["A3"] = new NumberValue(333);
+        workbook.DefineName("MyName", "Sheet1!$A$1:$A$3");
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
+    [Test]
+    public async Task LiftedShapes_OverADefinedName_AreNotLifted_KnownDivergence()
+    {
+        // A defined name is captured as a reference VALUE, so it reaches the mini-CSE as an opaque scalar
+        // unless the consuming shape resolves the name itself. ROW/COLUMN do (Phase 7 gave them that path);
+        // nothing else does, so EVERY other array shape over a name is a gap. Oracle, against the answers
+        // pinned here: SUM(LEN(MyName)) = 6, SUM(-MyName) = -356, SUM(MyName%) = 3.56, SUM(MyName*2) = 712.
+        await Assert.That(OnNamedLengths("=SUM(LEN(MyName))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnNamedLengths("=SUM(-MyName)")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnNamedLengths("=SUM(MyName%)")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnNamedLengths("=SUM(MyName*2)")).IsEqualTo(ErrorValue.NotValue);
+
+        // The COMPARISON shapes are the load-bearing half of this pin, because they are SILENT rather than
+        // errors: the name collapses to its first cell, 1 > 1 is FALSE, and IF's else branch answers 1 — a
+        // plausible number where the oracle answers 2 (22 and 333 both exceed 1). A reader who only saw the
+        // #VALUE!s above would think the gap always announces itself.
+        await Assert.That(Num(OnNamedLengths("=SUM(IF(MyName>1,1,0))"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnNamedLengths("=SUMPRODUCT(--(MyName>1))"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnNamedLengths("=SUM((MyName>1)*1)"))).IsEqualTo(1.0);
+
+        // The controls: reading the name is unaffected (356 on both engines), and ROW over it IS lifted
+        // (6 on both), which is what makes this a gap about the LIFTED shapes and not about names.
+        await Assert.That(Num(OnNamedLengths("=SUM(MyName)"))).IsEqualTo(356.0);
+        await Assert.That(Num(OnNamedLengths("=SUM(ROW(MyName))"))).IsEqualTo(6.0);
+    }
+
+    // A1:A3 = 1,2,3 and B1:B3 = 10,20,30 — the fixture the per-slot measurements were taken on. The values
+    // are small and ascending so that a lifted answer and a first-element answer are always different
+    // numbers (MATCH 6 against 1, VLOOKUP 60 against 10, LARGE 6 against 3).
+    private static object? OnSlots(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(2);
+        sheet["A3"] = new NumberValue(3);
+        sheet["B1"] = new NumberValue(10);
+        sheet["B2"] = new NumberValue(20);
+        sheet["B3"] = new NumberValue(30);
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
+    [Test]
+    public async Task AConsumesFunction_IsNotLiftedOverItsScalarSlots_KnownDivergence()
+    {
+        // The classification is per FUNCTION, not per slot: a Consumes entry is never lifted, not even over
+        // the slots that take a scalar. Excel's rule is the other one — it consumes the range in the slot
+        // that takes one and repeats the WHOLE CALL per element of a rectangle handed to any other slot. The
+        // oracle number follows each assertion; the assertion is what this engine answers today.
+        await Assert.That(OnSlots("=SUM(MATCH(A1:A3,A1:A3,0))")).IsEqualTo(ErrorValue.NotAvailable); // 6
+        await Assert
+            .That(OnSlots("=SUM(VLOOKUP(A1:A3,A1:B3,2,FALSE))"))
+            .IsEqualTo(ErrorValue.NotValue); // 60
+        await Assert.That(OnSlots("=SUM(CHOOSE(A1:A3,10,20,30))")).IsEqualTo(ErrorValue.NotValue); // 60
+        await Assert.That(OnSlots("=SUM(LARGE(A1:A3,A1:A3))")).IsEqualTo(ErrorValue.NotValue); // 6
+        await Assert.That(OnSlots("=SUM(INDEX(B1:B3,A1:A3))")).IsEqualTo(ErrorValue.NotValue); // 60
+        await Assert.That(OnSlots("=SUM(RANK(A1:A3,A1:A3))")).IsEqualTo(ErrorValue.NotValue); // 6
+        await Assert.That(OnSlots("=SUM(WORKDAY(A1:A3,1))")).IsEqualTo(ErrorValue.NotValue); // 9
+        await Assert
+            .That(OnSlots("=SUM(NETWORKDAYS.INTL(A1:A3,4))"))
+            .IsEqualTo(ErrorValue.NotValue); // 9
+        await Assert.That(OnSlots("=SUM(NPV(A1:A3/10,10,20,30))")).IsEqualTo(ErrorValue.NotValue); // 120.92
+        await Assert.That(OnSlots("=SUM(RANDBETWEEN(A1:A3,A1:A3))")).IsEqualTo(ErrorValue.NotValue); // 6
+
+        // Plain NETWORKDAYS is the one member of the family the ORACLE does not lift either: there
+        // SUM(NETWORKDAYS(A1:A3,B1:B3)) is 8, which is NETWORKDAYS(A1,B1) alone — an implicit intersection to
+        // the first element, not a per-element lift (a lift would be 8 + 14 + 20). Named so nobody "fixes"
+        // this engine towards 42.
+        await Assert.That(OnSlots("=SUM(NETWORKDAYS(A1:A3,B1:B3))")).IsEqualTo(ErrorValue.NotValue); // 8
+
+        // The two SILENT answers, and the reason this pin is not a list of #VALUE!s. COUNTIF's collapsed
+        // argument matches no criterion, so the scan comes back empty and the count is 0 where the oracle
+        // lifts the criteria slot and answers 3; TYPE is handed the #VALUE! of a range in a scalar slot and
+        // reports its TYPE CODE, 16, where the oracle answers 1+1+1 = 3. Both are plausible numbers.
+        await Assert.That(Num(OnSlots("=SUM(COUNTIF(A1:A3,A1:A3))"))).IsEqualTo(0.0); // 3
+        await Assert.That(Num(OnSlots("=SUM(TYPE(A1:A3))"))).IsEqualTo(16.0); // 3
+    }
+
     // --- Item 9: the classification guard (the regression defence for the next contributor) ---
 
     // THREE rectangles that differ in POSITION, in SHAPE and in CONTENTS (and in the KIND of their
