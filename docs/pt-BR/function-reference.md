@@ -8,6 +8,14 @@ esta página é derivada dele. A quantidade de argumentos é validada **em tempo
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
 digitação.
 
+As linhas abaixo descrevem o comportamento próprio de cada função e não mudam em contexto de array. Além
+delas, uma função **puramente escalar** que recebe um intervalo em uma posição que consome arrays é aplicada
+**elemento a elemento** — `SUM(LEN(A1:A3))` soma três comprimentos — enquanto uma função ciente de intervalos
+continua consumindo o intervalo inteiro, como documentado na linha dela. 180 das 306 entradas podem ser
+elevadas assim; veja
+[argumentos implícitos de array](workbook-and-expressions.md#argumentos-implícitos-de-array) para saber quais
+consumidores pedem um array, quais funções são elevadas e onde a elevação para.
+
 Além dessas, você pode adicionar suas próprias funções com
 [`workbook.RegisterFunction`](custom-functions.md); nomes desconhecidos são avaliados como `#NAME?`.
 

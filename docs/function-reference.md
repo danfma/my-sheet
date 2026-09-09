@@ -5,6 +5,13 @@ in [`Danfma.MySheet/Parsing/FunctionRegistry.cs`](../Danfma.MySheet/Parsing/Func
 page is derived from it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
 
+The rows below describe each function's own behaviour and are unchanged by array context. On top of them, a
+**pure-scalar** function handed a range in an array-consuming position is applied **element by element** —
+`SUM(LEN(A1:A3))` sums three lengths — while a range-aware one keeps consuming the whole range as documented
+in its row. 180 of the 306 entries can be lifted that way; see
+[implicit array arguments](workbook-and-expressions.md#implicit-array-arguments) for which consumers ask for
+an array, which functions are lifted, and where the lift stops.
+
 Beyond these, you can add your own functions with
 [`workbook.RegisterFunction`](custom-functions.md); unknown names evaluate to `#NAME?`.
 

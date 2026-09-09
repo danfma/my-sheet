@@ -405,22 +405,91 @@ deliberately **not** consumers: their arguments are `ref`s, and Excel rejects a 
 `SUBTOTAL(9,ROW(A1:A3))` and `AGGREGATE(9,4,ROW(A1:A3))` are `#VALUE!` there, measured on Aspose.Cells
 26.6.0, which is exactly why AGGREGATE documents a second syntax for arrays. An argument is evaluated as an
 array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is such an array
-(with or without an else branch), or `ROW`/`COLUMN` over a rectangle. That rectangle may be written
-literally (`SUM(ROW(A1:C3))` = 18, `SUM(COLUMN(A1:C3))` = 18) or merely *denoted* by the argument — a
+(with or without an else branch), `ROW`/`COLUMN` over a rectangle, or one of the two **lifted** shapes
+described further down. That rectangle may be written literally (`SUM(ROW(A1:C3))` = 18,
+`SUM(COLUMN(A1:C3))` = 18) or merely *denoted* by the argument — a
 [defined name](#named-ranges) (`SUM(ROW(MyName))` = 6 and `COUNT(ROW(MyName))` = 3 for a name over three
 rows, while `COUNT(MyName)` counts the cells' own values) or a `:` range with reference-returning endpoints
 (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Scalars broadcast across the vector. A branch-less `IF` yields a
 logical `FALSE` where the condition is false, and the aggregators ignore logicals/text (exactly why
 `SMALL(IF(…))` skips the non-matching rows). The first per-element error wins, as in Excel.
 
+**Lifted unary operators and scalar functions.** Two further shapes become arrays wherever one of the
+consumers above asks for one, by applying a scalar body element by element:
+
+- a unary `-` or `%` over an array — over `A1:A3` = 1,2,3: `SUM(-A1:A3)` = -6, `SUM(A1:A3%)` = 0.06,
+  `SUM(-(A1:A3>1))` = -2, and the double-negation idiom `SUMPRODUCT(--(A1:A3>1))` = 2;
+- any **pure-scalar built-in** with at least one array argument — `SUM(LEN(D7:F9))` = 7 over a 3x3 rectangle
+  holding `"abc"`, `"def"` and one space, `COUNT(LEN(D7:F9))` = 9 (nine lengths, the blanks included),
+  nested lifts (`SUM(LEN(TRIM(D7:F9)))` = 6), `SUM(ABS(A1:A3*-1))` = 6, `SUM(ROUND(A1:A3,0))` = 6,
+  `SUM(ISNUMBER(A1:A3)*1)` = 3, `SUM(IFERROR(A1:A3,0))` = 6, and the whole worksheet idiom
+  `IF(SUMPRODUCT(--(LEN(TRIM($D$7:$F$9))>0))>0,"Show","Hide")`.
+
+**180 of the 306 registered built-ins** are liftable: the pure-scalar ones (text, mathematics, financial,
+date, information, the scalar statistics helpers (`FISHER`, `PERMUT`, `PHI`, `STANDARDIZE`, …),
+`IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). The
+other 126 are **range-aware** and are never lifted, because they consume ranges or arrays themselves —
+`SUM`, `COUNT`, `INDEX`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`,
+`VLOOKUP`, `MATCH`, `OFFSET`, `INDIRECT`, `IF`, `LET`, `RANDBETWEEN`, `AND`/`OR`/`XOR`, the cash-flow series
+(`NPV`, `IRR`, …), the whole-population and paired-array statistics (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …)
+and the criteria family. A [custom function](custom-functions.md) is never lifted either — it has no registry entry, so it
+stays a scalar evaluated once.
+
+Inside a lifted call:
+
+- **Scalar arguments broadcast**, and each is evaluated exactly **once** per evaluation rather than once per
+  element: `SUM(ROUND(A1:A3,0))` reads the `0` once, and a volatile or a host function in a scalar slot is
+  called a single time for the whole vector.
+- **Two array arguments must have the same shape.** Equal shapes pair position by position
+  (`SUM(ROUND(A1:A3,B1:B3))` = 6 over 1,2,3 and 10,20,30); a mismatch hands the body a `#VALUE!` marker for
+  every element instead of broadcasting the shorter side, so `SUM(LEFT(D7:F9,A1:A3))` — 3x3 against 3x1 —
+  is `#VALUE!`. Excel broadcasts instead; that is the first of the known divergences below.
+- **An omitted argument keeps the function's own default.** `FIXED(A1:A3,,TRUE)` still formats two decimals
+  per element: an omitted slot stays a blank literal in the tree rather than becoming a per-element slot, so
+  the function's "argument not supplied" branch still fires.
+- **Errors propagate per element**, the first in row-major scan order winning: `SUM(ABS(1/(A1:A3-2)))` is
+  `#DIV/0!` and `SUM(LEN(Ghost!A1:A3))` is `#REF!` — the lifted path reads cells, so the missing-sheet rule
+  applies (unlike `SUM(ROW(Ghost!A1:A3))`, the divergence below). Text where a number is required makes that
+  element `#VALUE!` (`SUM(ABS(B1:B3))` with `B2` = `"x"`), and a blank element coerces to `0`, so
+  `SUM(LEN(A1:A3))` over three empty cells is `0` while `COUNT(LEN(A1:A3))` is `3`.
+
+**Which factory a new built-in uses (contributors).** The classification is one explicit flag per entry in
+[`FunctionRegistry`](../Danfma.MySheet/Parsing/FunctionRegistry.cs): `Entry<T>(…)` registers a function that
+consumes ranges/arrays itself and is never lifted, `Elementwise<T>(…)` a pure-scalar one the mini-CSE may
+lift. **The default is `Entry<T>` — deny** — because the two mistakes are not symmetric: a forgotten
+`Elementwise<T>` on a scalar function only loses the optimization, while a forgotten `Entry<T>` on a
+range-aware function would answer from a single element of the rectangle it was meant to consume whole and
+be **silently wrong**, with no error for anyone to notice. Two guard tests hold that line. One re-runs the
+derivation on every build: every `Elementwise` entry is handed two different rectangles in argument 0 on the
+ordinary scalar path and must answer identically, which a range-aware body cannot do. That probe is blind to
+64 of the 126 range-aware entries — those whose answer depends on a rectangle's shape, position or
+reference-ness rather than its contents (`ROWS`, `AREAS`, `ISREF`, `OFFSET`, `INDIRECT`, `TYPE`), those whose
+range argument sits in a later slot (`VLOOKUP`, `MATCH`, `NETWORKDAYS`'s holidays), and those needing a
+second population the probe cannot supply (`CORREL`, `PEARSON`, `TRIMMEAN`, `SUMX2MY2`, …) — so every one of
+them is named individually by a second test, and a third test requires the difference between "blind" and
+"named" to be empty. A new range-aware built-in with a forgotten flag therefore fails the suite by name
+instead of shipping.
+
 **Not supported (by design).**
 
 - A **dry cell** whose whole formula is the array keeps `#VALUE!` — `=IF(B2:B5="Show",1,0)` on its own is
-  still an error. Arrays exist only as *arguments* inside the consumers above, never as a cell's value
-  (the per-cell cache stays strictly scalar). This does **not** contradict
+  still an error, and so is a bare lifted call: **`=LEN(A1:A3)` in a cell is `#VALUE!`**, as are
+  `=ROUND(A1:A3,0)` and `=-A1:A3`. The lift happens inside the *consumers*, and the cell boundary is not one
+  of them: it never enters the element-wise evaluation, so the cell sees `LEN`'s ordinary scalar body handed a
+  range. Wrap it in a consumer and it works — `=SUM(LEN(A1:A3))` in that same cell is `3` for `A1:A3` = 5, 0,
+  9 (one character each). Arrays exist only as *arguments* inside the consumers above, never as a cell's
+  value (the per-cell cache stays strictly scalar). This does **not** contradict
   [implicit intersection at the cell boundary](#implicit-intersection-at-the-cell-boundary): that rule
   intersects a *reference*, and a computed array is not one — so `=IF(TRUE,A1:A3,B1)` in a cell is still
-  `#VALUE!`, while the bare `=A1:A3` beside it is `A3`.
+  `#VALUE!`, while the bare `=A1:A3` beside it is `A3`. Excel answers `#VALUE!` for a plainly entered
+  `=LEN(A1:A3)` too; only its legacy `Ctrl+Shift+Enter` form gives the top-left `LEN(A1)` (measured on
+  Aspose.Cells 26.6.0, 2026-09-09). Giving the boundary that array half is future work, and the current
+  answer is pinned so the change has to be deliberate.
+- **Unary `+` is deliberately not lifted.** It is Excel's reference-preserving no-op, so `+A1:A3` stays a
+  *reference* and the consumer folds it on the ordinary range path: `SUM(+A1:A3)` = 6 for `A1:A3` = 1,2,3,
+  exactly as `SUM(A1:A3)` does, and unchanged by the lift. The cost of keeping it opaque is that a `-` over
+  it has nothing to lift: `SUM(-(+A1:A3))` is `#VALUE!` where Excel answers -6 (Aspose.Cells 26.6.0,
+  `Ctrl+Shift+Enter`, measured 2026-09-09). Write `SUM(-A1:A3)` instead.
 - A **reference-returning function** as `ROW`/`COLUMN`'s argument stays a scalar:
   `SUM(ROW(INDEX(A1:A3,1,1)))` is `1`, the top row of the resolved reference, not the vector `[1,2,3]`.
   Discovering its shape would resolve the argument a second time and draw a volatile twice, so the array
@@ -436,23 +505,58 @@ logical `FALSE` where the condition is false, and the aggregators ignore logical
   the scan comes back empty — `0`; `COUNTIF`/`COUNTIFS` likewise count that empty scan as `0`; and
   `AVERAGEIF` divides it by a zero count — `#DIV/0!`. The last three are **silent** answers, not errors.
   `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the fold-based
-  consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken them. `SUBTOTAL`
-  and AGGREGATE's reference form take neither path — they reject a computed array outright; AGGREGATE's
-  array form is the one that consumes it.
+  consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken them. A **lifted**
+  argument is refused there for exactly the same reason — `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#VALUE!`. Excel
+  refuses it too, answering `#VALUE!` on plain entry and `#REF!` when the formula is array-entered (measured
+  on Aspose.Cells 26.6.0, 2026-09-09), so the refusal is Excel's behaviour and only the error code differs.
+  `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a computed array outright, a
+  lifted one included (`SUBTOTAL(9,LEN(A1:A3))` and `AGGREGATE(9,4,LEN(A1:A3))` are `#VALUE!` on both
+  engines); AGGREGATE's array form is the one that consumes it, lifts included
+  (`AGGREGATE(15,6,LEN(A1:A3),1)` = 1, measured on both).
 - An **open/whole-column** range in an array position is refused and the consumer stays on its ordinary
   scalar/range path — the one exception is the `INDEX(ROW($A:$A), n)` identity above, which returns `n`
   without materializing the column. `SMALL(IF(A:A=…, ROW(A:A)), k)` over an *open* column is therefore
-  not array-evaluated.
+  not array-evaluated. A lifted call over one is refused the same way, and the refusal is *tolerated* rather
+  than fatal: the call collapses to a single opaque scalar evaluated once, so `SUM(LEN(A:A))` is `#VALUE!`
+  (the scalar `LEN` of a range) while an enclosing array expression keeps working —
+  `SUM(IF(A1:A3>0,1,LEN(B:B)))` is still 3. Excel folds the open column instead (`SUM(LEN(A:A))` = 3 over
+  three one-character cells, Aspose.Cells 26.6.0 array-entered, 2026-09-09); a formula that works over
+  `A1:A3` and is then dragged to a whole column gets the old `#VALUE!` back, with no other warning.
 - A **scalar** condition keeps `IF`'s native short-circuit — only an array condition drives the zip.
 
-**One known divergence.** `SUM(ROW(Ghost!A1:A3))` — a rectangle written *literally* on a sheet that does
-not exist, in an array position — answers `6`, the row numbers `1+2+3`, where Excel answers `#REF!`. The
-scalar `ROW(Ghost!A1:A3)` in the same workbook is already `#REF!`, and so is the array path over a name
-that stands for the same range (`SUM(ROW(GhostName))`): the divergence is only the written-out rectangle,
-whose syntactic fast path goes straight to a row/column vector and never resolves the reference, so the
-missing-sheet guard that every resolving path runs has nothing to run on. It is pinned as a gap, not a
-rule, by `MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap`, so closing
-it is a deliberate edit.
+**Known divergences.** Every one of these is pinned by a test as a *gap*, not asserted as Excel's rule, so
+closing one is always a deliberate edit. Excel here means Aspose.Cells 26.6.0, the version this project
+measures against, with the formula array-entered (`Ctrl+Shift+Enter`) — the entry form whose semantics this
+element-wise evaluation reproduces without the keystroke.
+
+- **Two arrays of different shape are not broadcast.** MySheet requires equal shapes and fills the
+  mismatched side with a `#VALUE!` marker per element; Excel repeats an Nx1 column across every column of an
+  NxM rectangle, and a 1xM row down every row. So over `A1:C3` = 1…9, `E1:E3` = 1,2,3 and `E5:G5` = 10,20,30,
+  `SUM(A1:C3*E1:E3)` is `#VALUE!` here and **108** in Excel, `SUM(A1:C3*E5:G5)` **960**, and
+  `SUM(ROUND(A1:C3,E1:E3))` **45** (all measured 2026-09-09, all three `#VALUE!` here). Because the marker is
+  handed to the body as an ordinary value, an error-*consuming* body keeps going and can land on Excel's
+  answer anyway: `COUNT(IFERROR(A1:C3,E1:E3))` is **9** on both. Broadcasting is planned; until it lands,
+  give both array arguments the same shape.
+- **`SUM(ROW(Ghost!A1:A3))`** — a rectangle written *literally* on a sheet that does not exist, in an array
+  position — answers `6`, the row numbers `1+2+3`, where Excel answers `#REF!`. The scalar
+  `ROW(Ghost!A1:A3)` in the same workbook is already `#REF!`, and so is the array path over a name that
+  stands for the same range (`SUM(ROW(GhostName))`): the divergence is only the written-out rectangle, whose
+  syntactic fast path goes straight to a row/column vector and never resolves the reference, so the
+  missing-sheet guard that every resolving path runs has nothing to run on. A *lifted* function over the same
+  ghost rectangle does read cells and therefore does report `#REF!` (`SUM(LEN(Ghost!A1:A3))`), which is why
+  the two adjacent shapes disagree. Pinned by
+  `MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap`.
+- **`INDEX(<computed array>, 0)`** is `#REF!` here, where Excel intersects the whole vector and answers its
+  first element — `INDEX(LEN(A1:A3),0)` and `INDEX(ROW(A1:A3),0)` are both **1** there (measured 2026-09-09,
+  plain and array-entered alike). MySheet rejects `row_num` or `column_num` below 1 outright.
+- **An empty argument slot keeps the function's documented default**, where Excel reads it as a supplied `0`:
+  `FIXED(A1,,TRUE)` is `1.00` here and **`1`** there, `DOLLAR(A1,)` is `$1.00` here and **`$1`** there, for
+  `A1` = 1 (measured 2026-09-09). With the slot fully absent both engines agree — `FIXED(A1)` and
+  `DOLLAR(A1)` are `1.00` and `$1.00` on each — so the divergence is the *empty* slot, not the default, and
+  it applies equally to the scalar call and to the lifted `FIXED(A1:A3,,TRUE)`.
+
+Both of the last two are recorded for a planned Excel-compatibility sweep and are deliberately left as they
+are for now.
 
 Volatile sub-expressions inside the array behave like any other volatile: a `RAND()` (broadcast, or in a
 range cell the comparison reads) taints the consuming cell, so [`Recalculate()`](#the-epoch-model)

@@ -420,8 +420,9 @@ através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUC
 rejeita um array computado em um deles — `SUBTOTAL(9,ROW(A1:A3))` e `AGGREGATE(9,4,ROW(A1:A3))` são
 `#VALUE!` ali, medido no Aspose.Cells 26.6.0, e é exatamente por isso que o AGGREGATE documenta uma
 segunda sintaxe para arrays. Um argumento é avaliado como um array quando é uma comparação de **intervalo
-fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim (com ou sem ramo `else`), ou
-`ROW`/`COLUMN` sobre um retângulo. Esse retângulo pode estar escrito literalmente (`SUM(ROW(A1:C3))` = 18,
+fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim (com ou sem ramo `else`),
+`ROW`/`COLUMN` sobre um retângulo, ou uma das duas formas **elevadas** (*lifted*) descritas mais abaixo.
+Esse retângulo pode estar escrito literalmente (`SUM(ROW(A1:C3))` = 18,
 `SUM(COLUMN(A1:C3))` = 18) ou apenas ser *denotado* pelo argumento — um
 [nome definido](#intervalos-nomeados) (`SUM(ROW(MyName))` = 6 e `COUNT(ROW(MyName))` = 3 para um nome sobre
 três linhas, enquanto `COUNT(MyName)` conta os valores das próprias células) ou um intervalo `:` com
@@ -430,14 +431,90 @@ extremidades que retornam referências (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Es
 agregadores ignoram lógicos/texto (exatamente por isso `SMALL(IF(…))` pula as linhas sem correspondência).
 O primeiro erro por elemento prevalece, como no Excel.
 
+**Operadores unários e funções escalares elevados (*lifted*).** Duas outras formas passam a produzir um
+array onde qualquer um dos consumidores acima pede um, aplicando um corpo escalar elemento a elemento:
+
+- um `-` ou `%` unário sobre um array — com `A1:A3` = 1, 2 e 3: `SUM(-A1:A3)` = -6, `SUM(A1:A3%)` = 0.06,
+  `SUM(-(A1:A3>1))` = -2 e o idioma da dupla negação `SUMPRODUCT(--(A1:A3>1))` = 2;
+- qualquer **função nativa puramente escalar** com ao menos um argumento de array — `SUM(LEN(D7:F9))` = 7
+  sobre um retângulo 3x3 contendo `"abc"`, `"def"` e um espaço, `COUNT(LEN(D7:F9))` = 9 (nove comprimentos,
+  incluindo os das células vazias), elevações aninhadas (`SUM(LEN(TRIM(D7:F9)))` = 6),
+  `SUM(ABS(A1:A3*-1))` = 6, `SUM(ROUND(A1:A3,0))` = 6, `SUM(ISNUMBER(A1:A3)*1)` = 3,
+  `SUM(IFERROR(A1:A3,0))` = 6 e o idioma completo de planilha
+  `IF(SUMPRODUCT(--(LEN(TRIM($D$7:$F$9))>0))>0,"Show","Hide")`.
+
+**180 das 306 funções nativas registradas** podem ser elevadas: as puramente escalares (texto, matemática,
+financeiras, datas, informação, as auxiliares estatísticas escalares (`FISHER`, `PERMUT`, `PHI`,
+`STANDARDIZE`, …), `IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). As outras 126 são **cientes de intervalos** e nunca são
+elevadas, porque já consomem intervalos ou arrays por conta própria — `SUM`, `COUNT`, `INDEX`, `ROW`,
+`COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`, `VLOOKUP`, `MATCH`, `OFFSET`,
+`INDIRECT`, `IF`, `LET`, `RANDBETWEEN`, `AND`/`OR`/`XOR`, as séries de fluxo de caixa (`NPV`, `IRR`, …), as
+estatísticas de população inteira e de arrays pareados (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …) e a
+família de critérios. Uma
+[função personalizada](custom-functions.md) também nunca é elevada — ela não tem entrada no registro, então
+permanece um escalar avaliado uma única vez.
+
+Dentro de uma chamada elevada:
+
+- **Argumentos escalares são propagados** (*broadcast*) e cada um é avaliado exatamente **uma vez** por
+  avaliação, e não uma vez por elemento: `SUM(ROUND(A1:A3,0))` lê o `0` uma vez, e uma volátil ou uma função
+  do host em um slot escalar é chamada uma única vez para todo o vetor.
+- **Dois argumentos de array precisam ter o mesmo formato.** Formatos iguais são pareados posição a posição
+  (`SUM(ROUND(A1:A3,B1:B3))` = 6 sobre 1, 2, 3 e 10, 20, 30); uma divergência de formato entrega ao corpo um
+  marcador `#VALUE!` para cada elemento, em vez de propagar o lado menor, então `SUM(LEFT(D7:F9,A1:A3))` —
+  3x3 contra 3x1 — é `#VALUE!`. O Excel propaga (*broadcast*); essa é a primeira das divergências conhecidas
+  abaixo.
+- **Um argumento omitido mantém o padrão da própria função.** `FIXED(A1:A3,,TRUE)` continua formatando duas
+  casas decimais por elemento: um slot omitido permanece um literal em branco na árvore, em vez de virar um
+  slot por elemento, então o ramo "argumento não fornecido" da função ainda é acionado.
+- **Erros se propagam por elemento**, prevalecendo o primeiro na ordem de varredura por linhas:
+  `SUM(ABS(1/(A1:A3-2)))` é `#DIV/0!` e `SUM(LEN(Ghost!A1:A3))` é `#REF!` — o caminho elevado lê células, e
+  portanto a regra de planilha ausente se aplica (ao contrário de `SUM(ROW(Ghost!A1:A3))`, a divergência
+  abaixo). Texto onde se espera um número torna aquele elemento `#VALUE!` (`SUM(ABS(B1:B3))` com
+  `B2` = `"x"`), e um elemento em branco é convertido para `0`, então `SUM(LEN(A1:A3))` sobre três células
+  vazias é `0` enquanto `COUNT(LEN(A1:A3))` é `3`.
+
+**Qual fábrica uma nova função nativa usa (para quem contribui).** A classificação é um sinalizador
+explícito por entrada em [`FunctionRegistry`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs):
+`Entry<T>(…)` registra uma função que consome intervalos/arrays por conta própria e nunca é elevada, e
+`Elementwise<T>(…)` uma puramente escalar que o mini-CSE pode elevar. **O padrão é `Entry<T>` — negar** —
+porque os dois erros não são simétricos: esquecer o `Elementwise<T>` em uma função escalar apenas perde a
+otimização, enquanto esquecer o `Entry<T>` em uma função ciente de intervalos faria com que ela respondesse
+a partir de um único elemento do retângulo que deveria consumir inteiro, ficando **silenciosamente errada**,
+sem erro nenhum para alguém notar. Dois testes de guarda sustentam essa linha. Um deles reexecuta a
+derivação a cada build: cada entrada `Elementwise` recebe dois retângulos diferentes no argumento 0 pelo
+caminho escalar comum e precisa responder de forma idêntica, o que um corpo ciente de intervalos não
+consegue fazer. Essa sonda é cega para 64 das 126 entradas cientes de intervalos — aquelas cuja resposta
+depende do formato, da posição ou de ser uma referência, e não do conteúdo do retângulo (`ROWS`, `AREAS`,
+`ISREF`, `OFFSET`, `INDIRECT`, `TYPE`), aquelas cujo argumento de intervalo fica em um slot posterior
+(`VLOOKUP`, `MATCH`, os feriados de `NETWORKDAYS`) e aquelas que precisam de uma segunda população que a
+sonda não fornece (`CORREL`, `PEARSON`, `TRIMMEAN`, `SUMX2MY2`, …) — por isso cada uma delas é nomeada
+individualmente por um segundo teste, e um terceiro teste exige que a diferença entre "cega" e "nomeada"
+seja vazia. Uma nova função nativa ciente de intervalos com o sinalizador esquecido, portanto, quebra a
+suíte pelo nome em vez de ser publicada.
+
 **Não suportado (por design).**
 
 - Uma **célula seca** cuja fórmula inteira é o array mantém `#VALUE!` — `=IF(B2:B5="Show",1,0)` sozinha
-  ainda é um erro. Arrays existem apenas como *argumentos* dentro dos consumidores acima, nunca como o
-  valor de uma célula (o cache por célula permanece estritamente escalar). Isso **não** contradiz a
+  ainda é um erro, e o mesmo vale para uma chamada elevada isolada: **`=LEN(A1:A3)` em uma célula é
+  `#VALUE!`**, assim como `=ROUND(A1:A3,0)` e `=-A1:A3`. A elevação acontece dentro dos *consumidores*, e a
+  fronteira da célula não é um deles: ela nunca entra na avaliação elemento a elemento, então a célula vê o
+  corpo escalar comum do `LEN` recebendo um intervalo. Envolva a chamada em um consumidor e ela funciona —
+  `=SUM(LEN(A1:A3))` nessa mesma célula é `3` para `A1:A3` = 5, 0 e 9 (um caractere cada). Arrays existem
+  apenas como *argumentos* dentro dos consumidores acima, nunca como o valor de uma célula (o cache por
+  célula permanece estritamente escalar). Isso **não** contradiz a
   [interseção implícita na fronteira da célula](#interseção-implícita-na-fronteira-da-célula): aquela regra
   intersecta uma *referência*, e um array computado não é uma — então `=IF(TRUE,A1:A3,B1)` em uma célula
-  continua sendo `#VALUE!`, enquanto o `=A1:A3` puro ao lado dela é `A3`.
+  continua sendo `#VALUE!`, enquanto o `=A1:A3` puro ao lado dela é `A3`. O Excel também responde `#VALUE!`
+  para um `=LEN(A1:A3)` digitado normalmente; só a forma legada com `Ctrl+Shift+Enter` devolve o `LEN(A1)`
+  do canto superior esquerdo (medido no Aspose.Cells 26.6.0, 2026-09-09). Dar essa metade de array à
+  fronteira é trabalho futuro, e a resposta atual está fixada por teste para que a mudança seja deliberada.
+- **O `+` unário deliberadamente não é elevado.** Ele é o no-op do Excel que preserva referências, então
+  `+A1:A3` continua sendo uma *referência* e o consumidor a dobra pelo caminho comum de intervalo:
+  `SUM(+A1:A3)` = 6 para `A1:A3` = 1, 2 e 3, exatamente como `SUM(A1:A3)`, e sem mudança alguma com a
+  elevação. O custo de mantê-lo opaco é que um `-` sobre ele não tem o que elevar: `SUM(-(+A1:A3))` é
+  `#VALUE!` onde o Excel responde -6 (Aspose.Cells 26.6.0, `Ctrl+Shift+Enter`, medido em 2026-09-09).
+  Escreva `SUM(-A1:A3)` em vez disso.
 - Uma **função que retorna referência** como argumento de `ROW`/`COLUMN` permanece escalar:
   `SUM(ROW(INDEX(A1:A3,1,1)))` é `1`, a linha superior da referência resolvida, e não o vetor `[1,2,3]`.
   Descobrir o formato dela resolveria o argumento uma segunda vez e sortearia uma volátil duas vezes, então
@@ -454,25 +531,62 @@ O primeiro erro por elemento prevalece, como no Excel.
   `COUNTIF`/`COUNTIFS` igualmente contam essa varredura vazia como `0`; e `AVERAGEIF` a divide por uma
   contagem zero — `#DIV/0!`. As três últimas são respostas **silenciosas**, não erros. O `SUMPRODUCT` é o
   único membro dessa família que optou por aceitar arrays computados; os consumidores de dobra listados em
-  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram. O `SUBTOTAL` e a forma-referência do
-  `AGGREGATE` não seguem nem um caminho nem o outro — eles rejeitam um array computado de saída; quem o
-  consome é a forma-array do `AGGREGATE`.
+  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram. Um argumento **elevado** é recusado
+  ali exatamente pelo mesmo motivo — `SUMIFS(LEN(A1:A3),A1:A3,">0")` é `#VALUE!`. O Excel também o recusa,
+  respondendo `#VALUE!` na digitação normal e `#REF!` quando a fórmula é inserida como array (medido no
+  Aspose.Cells 26.6.0, 2026-09-09), então a recusa é o comportamento do Excel e só o código de erro difere.
+  O `SUBTOTAL` e a forma-referência do `AGGREGATE` não seguem nem um caminho nem o outro — eles rejeitam um
+  array computado de saída, inclusive um elevado (`SUBTOTAL(9,LEN(A1:A3))` e `AGGREGATE(9,4,LEN(A1:A3))` são
+  `#VALUE!` nos dois motores); quem o consome é a forma-array do `AGGREGATE`, elevações incluídas
+  (`AGGREGATE(15,6,LEN(A1:A3),1)` = 1, medido nos dois).
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
-  não é avaliado como array.
+  não é avaliado como array. Uma chamada elevada sobre uma coluna aberta é recusada da mesma forma, e a
+  recusa é *tolerada* em vez de fatal: a chamada colapsa para um único escalar opaco avaliado uma vez, então
+  `SUM(LEN(A:A))` é `#VALUE!` (o `LEN` escalar de um intervalo) enquanto uma expressão de array que a
+  envolva continua funcionando — `SUM(IF(A1:A3>0,1,LEN(B:B)))` continua sendo 3. O Excel, em vez disso,
+  dobra a coluna aberta (`SUM(LEN(A:A))` = 3 sobre três células de um caractere, Aspose.Cells 26.6.0
+  inserido como array, 2026-09-09); uma fórmula que funciona sobre `A1:A3` e depois é arrastada para uma
+  coluna inteira recupera o antigo `#VALUE!`, sem nenhum outro aviso.
 - Uma condição **escalar** mantém o curto-circuito nativo do `IF` — apenas uma condição de array conduz o
   zip.
 
-**Uma divergência conhecida.** `SUM(ROW(Ghost!A1:A3))` — um retângulo escrito *literalmente* sobre uma
-planilha que não existe, em posição de array — responde `6`, os números de linha `1+2+3`, enquanto o Excel
-responde `#REF!`. O `ROW(Ghost!A1:A3)` escalar na mesma pasta de trabalho já é `#REF!`, assim como o
-caminho de array sobre um nome que representa o mesmo intervalo (`SUM(ROW(GhostName))`): a divergência está
-apenas no retângulo escrito por extenso, cujo caminho rápido sintático vai direto a um vetor de linhas ou
-colunas e nunca resolve a referência, de modo que a guarda de planilha ausente — executada por todo caminho
-que resolve — não tem sobre o que atuar. Isso está fixado como uma lacuna, e não como uma regra, por
-`MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap`, para que fechá-la seja
-uma edição deliberada.
+**Divergências conhecidas.** Cada uma delas está fixada por teste como uma *lacuna*, e não afirmada como a
+regra do Excel, de modo que fechar qualquer uma é sempre uma edição deliberada. Excel aqui significa
+Aspose.Cells 26.6.0, a versão contra a qual este projeto mede, com a fórmula inserida como array
+(`Ctrl+Shift+Enter`) — a forma de entrada cuja semântica esta avaliação elemento a elemento reproduz sem a
+combinação de teclas.
+
+- **Dois arrays de formatos diferentes não são propagados.** O MySheet exige formatos iguais e preenche o
+  lado divergente com um marcador `#VALUE!` por elemento; o Excel repete uma coluna Nx1 em todas as colunas
+  de um retângulo NxM, e uma linha 1xM em todas as linhas. Assim, com `A1:C3` = 1…9, `E1:E3` = 1, 2 e 3 e
+  `E5:G5` = 10, 20 e 30, `SUM(A1:C3*E1:E3)` é `#VALUE!` aqui e **108** no Excel, `SUM(A1:C3*E5:G5)` **960**
+  e `SUM(ROUND(A1:C3,E1:E3))` **45** (todos medidos em 2026-09-09, todos os três `#VALUE!` aqui). Como o
+  marcador é entregue ao corpo como um valor comum, um corpo que *consome* erros segue adiante e pode até
+  chegar à resposta do Excel: `COUNT(IFERROR(A1:C3,E1:E3))` é **9** nos dois. A propagação (*broadcast*)
+  está planejada; até ela chegar, dê o mesmo formato aos dois argumentos de array.
+- **`SUM(ROW(Ghost!A1:A3))`** — um retângulo escrito *literalmente* sobre uma planilha que não existe, em
+  posição de array — responde `6`, os números de linha `1+2+3`, enquanto o Excel responde `#REF!`. O
+  `ROW(Ghost!A1:A3)` escalar na mesma pasta de trabalho já é `#REF!`, assim como o caminho de array sobre um
+  nome que representa o mesmo intervalo (`SUM(ROW(GhostName))`): a divergência está apenas no retângulo
+  escrito por extenso, cujo caminho rápido sintático vai direto a um vetor de linhas ou colunas e nunca
+  resolve a referência, de modo que a guarda de planilha ausente — executada por todo caminho que resolve —
+  não tem sobre o que atuar. Uma função *elevada* sobre o mesmo retângulo fantasma lê células e portanto
+  responde `#REF!` (`SUM(LEN(Ghost!A1:A3))`), e é por isso que as duas formas vizinhas discordam. Fixado por
+  `MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap`.
+- **`INDEX(<array computado>, 0)`** é `#REF!` aqui, enquanto o Excel intersecta o vetor inteiro e responde o
+  primeiro elemento dele — `INDEX(LEN(A1:A3),0)` e `INDEX(ROW(A1:A3),0)` são ambos **1** lá (medido em
+  2026-09-09, tanto na digitação normal quanto como array). O MySheet rejeita de saída um `row_num` ou um
+  `column_num` menor que 1.
+- **Um slot de argumento vazio mantém o padrão documentado da função**, enquanto o Excel o lê como um `0`
+  fornecido: `FIXED(A1,,TRUE)` é `1.00` aqui e **`1`** lá, `DOLLAR(A1,)` é `$1.00` aqui e **`$1`** lá, para
+  `A1` = 1 (medido em 2026-09-09). Com o slot totalmente ausente os dois motores concordam — `FIXED(A1)` e
+  `DOLLAR(A1)` são `1.00` e `$1.00` em cada um — então a divergência é o slot *vazio*, e não o padrão, e ela
+  vale igualmente para a chamada escalar e para o `FIXED(A1:A3,,TRUE)` elevado.
+
+As duas últimas estão registradas para uma varredura de compatibilidade com o Excel já planejada e são
+deliberadamente mantidas como estão por enquanto.
 
 Subexpressões voláteis dentro do array se comportam como qualquer outra volátil: um `RAND()` (propagado,
 ou em uma célula de intervalo que a comparação lê) contamina a célula consumidora, então
