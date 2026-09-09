@@ -5,8 +5,10 @@ namespace Danfma.MySheet.Tests.Parsing;
 
 // Wave 5 — Date and time, construction/extraction family: DATE, TIME, DATEVALUE, TIMEVALUE, YEAR, MONTH,
 // DAY, HOUR, MINUTE, SECOND. Golden values are quoted from the official support.microsoft.com pages
-// (fetched 2026-07-02) and cited per test. Dates are serial doubles (OADate epoch 1899-12-30); inputs are
-// built with DATE(...) so the assertions round-trip through the same DateSerial helper.
+// (fetched 2026-07-02) and cited per test. Dates are serial doubles on EXCEL's epoch — serial 1 is
+// 1900-01-01 and serial 0 is the day-zero 1900-01-00 (Phase 9; see DateEpochTests for the 1900 window and
+// DateSerial for the three calendars) — and inputs are built with DATE(...) so the assertions round-trip
+// through the same DateSerial helper.
 public class DateConstructionTests
 {
     private const double Tolerance = 1e-7;
@@ -162,15 +164,19 @@ public class DateConstructionTests
         await Assert.That(Num(Calc("=DAY(DATE(2026,7,2))"))).IsEqualTo(2d);
     }
 
-    // --- Documented limitation (§A6): serials 1..59 render one day behind Excel and serial 60 (Excel's
-    // phantom 1900-02-29) is not representable — it collides with 1900-02-28. This is REGISTERED, not
-    // corrected; real dates (serial ≥ 61 / 1900-03-01) are exact. ---
+    // --- §A6 — the phantom day, no longer a limitation. Excel's serial 60 is 1900-02-29, a date the
+    // Gregorian calendar does not have, and Excel's own CALENDAR functions collapse it onto 1900-02-28:
+    // MEASURED on Aspose.Cells 26.6.0 (2026-09-09, PLAIN cell entry), DAY(60) = DAY(59) = 28 and
+    // WEEKDAY(60) = WEEKDAY(59). Only the number FORMATTER prints a Feb 29 (TEXT(60,"yyyy-mm-dd") =
+    // 1900-02-29, pinned in DateEpochTests) and only the 30/360 day counts count one. Phase 9 moved the
+    // epoch so serial 1 is 1900-01-01; the four assertions below were always right and now say what Excel
+    // says for the reason Excel says it, not by accident of the OLE Automation epoch. ---
 
     [Test]
-    public async Task Serial60_Is1900LeapYearLimitation()
+    public async Task Serial60_CollapsesOntoFeb28_LikeAspose()
     {
-        // Excel would show serial 60 as 29-Feb-1900; here it is 28-Feb-1900 (via OADate), same as serial 59
-        // renders 27-Feb. From serial 61 (1-Mar-1900) on, the mapping matches Excel exactly.
+        // Serial 60 reads as 28-Feb-1900, the same day as serial 59 — the phantom day has no calendar
+        // components of its own. From serial 61 (1-Mar-1900) on, every engine agrees numerically.
         await Assert.That(Num(Calc("=MONTH(60)"))).IsEqualTo(2d);
         await Assert.That(Num(Calc("=DAY(60)"))).IsEqualTo(28d);
         await Assert.That(Num(Calc("=MONTH(61)"))).IsEqualTo(3d);
