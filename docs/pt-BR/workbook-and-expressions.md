@@ -526,15 +526,20 @@ suíte pelo nome em vez de ser publicada.
   cada função faz com esse elemento solitário assume **quatro** formas, todas fixadas por teste: as formas
   **pareadas** (`SUMIFS`/`AVERAGEIFS`/`MAXIFS`/`MINIFS`), que têm um intervalo de critérios real ao lado do
   argumento colapsado, veem 1 elemento contra 3 e levantam a diferença de comprimento da varredura —
-  `#VALUE!`, que é também a resposta do Excel; `SUMIF((A1:A3)*1, ">0")` não tem contra o que divergir, então
-  o `#VALUE!` solitário não corresponde a critério nenhum e a varredura volta vazia — `0`;
-  `COUNTIF`/`COUNTIFS` igualmente contam essa varredura vazia como `0`; e `AVERAGEIF` a divide por uma
-  contagem zero — `#DIV/0!`. As três últimas são respostas **silenciosas**, não erros. O `SUMPRODUCT` é o
+  `#VALUE!`; `SUMIF((A1:A3)*1, ">0")` não tem contra o que divergir, então o `#VALUE!` solitário não
+  corresponde a critério nenhum e a varredura volta vazia — `0`; `COUNTIF`/`COUNTIFS` igualmente contam essa
+  varredura vazia como `0`; e `AVERAGEIF` a divide por uma contagem zero — `#DIV/0!`. As três últimas são
+  respostas **silenciosas**, não erros. O Excel, em vez disso, recusa a família inteira: com um argumento
+  computado, `SUMIF`, `SUMIFS`, `COUNTIF`, `COUNTIFS`, `AVERAGEIF`, `AVERAGEIFS`, `MAXIFS` e `MINIFS`
+  respondem todos `#VALUE!` na digitação normal e `#REF!` quando a fórmula é inserida como array
+  (`SUMIFS((A1:A3)*1,A1:A3,">0")` e as outras sete, medido no Aspose.Cells 26.6.0, em 2026-09-09). Então o
+  `#VALUE!` das formas pareadas coincide com o Excel só na digitação normal, e as três respostas silenciosas
+  são uma divergência — as duas coisas registradas para a varredura de compatibilidade com o Excel já
+  planejada, e não afirmadas como a regra do Excel. O `SUMPRODUCT` é o
   único membro dessa família que optou por aceitar arrays computados; os consumidores de dobra listados em
   **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram. Um argumento **elevado** é recusado
-  ali exatamente pelo mesmo motivo — `SUMIFS(LEN(A1:A3),A1:A3,">0")` é `#VALUE!`. O Excel também o recusa,
-  respondendo `#VALUE!` na digitação normal e `#REF!` quando a fórmula é inserida como array (medido no
-  Aspose.Cells 26.6.0, 2026-09-09), então a recusa é o comportamento do Excel e só o código de erro difere.
+  ali exatamente pelo mesmo motivo — `SUMIFS(LEN(A1:A3),A1:A3,">0")` é `#VALUE!`, com a mesma divisão
+  `#VALUE!` na digitação normal / `#REF!` como array no oráculo que o caso computado acima.
   O `SUBTOTAL` e a forma-referência do `AGGREGATE` não seguem nem um caminho nem o outro — eles rejeitam um
   array computado de saída, inclusive um elevado (`SUBTOTAL(9,LEN(A1:A3))` e `AGGREGATE(9,4,LEN(A1:A3))` são
   `#VALUE!` nos dois motores); quem o consome é a forma-array do `AGGREGATE`, elevações incluídas

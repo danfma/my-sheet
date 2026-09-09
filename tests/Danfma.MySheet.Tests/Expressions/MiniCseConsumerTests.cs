@@ -331,7 +331,14 @@ public class MiniCseConsumerTests
     [Test]
     public async Task Index_IntoRowVector_OutOfRange_IsRefError()
     {
-        // n beyond the 4-element vector → #REF! (Excel parity).
+        // n beyond the 4-element vector → #REF!, and that half IS Excel parity: Aspose.Cells 26.6.0 answers
+        // #REF! for INDEX(ROW(B2:B5),5) too, plain and CSE-entered (measured 2026-09-09).
+        //
+        // n = 0 is a DIVERGENCE, not parity — the label this comment carried before was wrong. Aspose answers
+        // 2: it intersects the WHOLE array and takes its first element, which for ROW(B2:B5) is B2's row
+        // number (measured 2026-09-09, plain and CSE-entered alike). This engine rejects row_num < 1 outright
+        // instead. Recorded for the planned Excel-compatibility sweep; the assertion below pins TODAY's
+        // behaviour deliberately, so closing the gap has to be an explicit edit.
         await Assert.That(OnShowHide("=INDEX(ROW(B2:B5),5)")).IsEqualTo(ErrorValue.Reference);
         await Assert.That(OnShowHide("=INDEX(ROW(B2:B5),0)")).IsEqualTo(ErrorValue.Reference);
     }
@@ -342,7 +349,9 @@ public class MiniCseConsumerTests
         // ROW($A:$A) is the identity vector [1,2,3,…]; INDEX(…,n) = n, without materializing the column.
         await Assert.That(Num(OnShowHide("=INDEX(ROW($A:$A),4)"))).IsEqualTo(4.0);
         await Assert.That(Num(OnShowHide("=INDEX(ROW($A:$A),1)"))).IsEqualTo(1.0);
-        // n < 1 is out of range → #REF!.
+        // n < 1 → #REF! here, and — like the n = 0 case above — a DIVERGENCE rather than an out-of-range
+        // rule: Aspose.Cells 26.6.0 answers 1, the identity vector's first element (measured 2026-09-09,
+        // plain and CSE-entered). Same gap, same sweep; the assertion pins today's behaviour deliberately.
         await Assert.That(OnShowHide("=INDEX(ROW($A:$A),0)")).IsEqualTo(ErrorValue.Reference);
     }
 

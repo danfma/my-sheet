@@ -500,15 +500,20 @@ instead of shipping.
   single-element sequence holding the `#VALUE!` of a range in an arithmetic operation. What each function
   then does with that lone element takes **four** shapes, all pinned: the **paired** forms
   (`SUMIFS`/`AVERAGEIFS`/`MAXIFS`/`MINIFS`), which have a real criteria range beside the collapsed
-  argument, see 1 element against 3 and raise the scan's length mismatch — `#VALUE!`, Excel's answer too;
+  argument, see 1 element against 3 and raise the scan's length mismatch — `#VALUE!`;
   `SUMIF((A1:A3)*1, ">0")` has nothing to mismatch against, so the lone `#VALUE!` matches no criterion and
   the scan comes back empty — `0`; `COUNTIF`/`COUNTIFS` likewise count that empty scan as `0`; and
   `AVERAGEIF` divides it by a zero count — `#DIV/0!`. The last three are **silent** answers, not errors.
+  Excel refuses the whole family outright instead: for a computed argument `SUMIF`, `SUMIFS`, `COUNTIF`,
+  `COUNTIFS`, `AVERAGEIF`, `AVERAGEIFS`, `MAXIFS` and `MINIFS` each answer `#VALUE!` on plain entry and
+  `#REF!` when array-entered (`SUMIFS((A1:A3)*1,A1:A3,">0")` and the seven others, measured on Aspose.Cells
+  26.6.0, 2026-09-09). So the paired forms' `#VALUE!` coincides with Excel only on plain entry, and the three
+  silent answers are a divergence — both recorded for the planned Excel-compatibility sweep, not asserted as
+  Excel's rule.
   `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the fold-based
   consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken them. A **lifted**
-  argument is refused there for exactly the same reason — `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#VALUE!`. Excel
-  refuses it too, answering `#VALUE!` on plain entry and `#REF!` when the formula is array-entered (measured
-  on Aspose.Cells 26.6.0, 2026-09-09), so the refusal is Excel's behaviour and only the error code differs.
+  argument is refused there for exactly the same reason — `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#VALUE!`, with
+  the same `#VALUE!`-plain / `#REF!`-array-entered split on the oracle as the computed case above.
   `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a computed array outright, a
   lifted one included (`SUBTOTAL(9,LEN(A1:A3))` and `AGGREGATE(9,4,LEN(A1:A3))` are `#VALUE!` on both
   engines); AGGREGATE's array form is the one that consumes it, lifts included
