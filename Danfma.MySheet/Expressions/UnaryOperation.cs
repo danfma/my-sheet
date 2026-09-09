@@ -38,8 +38,10 @@ public sealed partial record UnaryOperation(UnaryOperator Operator, Expression O
     /// <see cref="ArrayEvaluation"/>): coerce to a number (an error, a non-numeric text, propagates as the
     /// coercion's error), then negate or divide by 100. Never <see cref="UnaryOperator.Plus"/> — both callers
     /// route that operator elsewhere (the reference-preserving path above; the opaque-scalar arm of the
-    /// mini-CSE), so the last arm is unreachable and answers <c>#VALUE!</c> rather than throwing inside an
-    /// element loop.
+    /// mini-CSE), so the last arm is unreachable and THROWS. Answering <c>#VALUE!</c> there would turn a
+    /// routing bug into a wrong cell value — an error indistinguishable from a legitimate coercion failure,
+    /// silently broadcast over every element of an array — where an exception names the operator and the
+    /// caller that mis-routed it. Same arm, same exception, as <c>BinaryOperation.Apply</c>.
     /// </summary>
     internal static ComputedValue Apply(UnaryOperator @operator, in ComputedValue operand)
     {
@@ -52,7 +54,7 @@ public sealed partial record UnaryOperation(UnaryOperator Operator, Expression O
         {
             UnaryOperator.Negate => ComputedValue.Number(-number),
             UnaryOperator.Percent => ComputedValue.Number(number / 100),
-            _ => ComputedValue.Error(Error.Value),
+            _ => throw new ArgumentOutOfRangeException(nameof(@operator), @operator, null),
         };
     }
 
