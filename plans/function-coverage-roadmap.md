@@ -79,8 +79,11 @@ cubra tudo; e "correto > remendo" vale para precisão também: testes de tolerâ
 Os códigos 101-111 ("ignorar linhas ocultas") não têm semântica no MySheet: o modelo não tem linhas
 ocultas. NÃO é gambiarra implementar 1-11 e 101-111 com o mesmo comportamento (é o limite do modelo de
 dados, documentado); a parte real de SUBTOTAL — ignorar SUBTOTALs aninhados no range — será implementada
-de verdade (detectar nós SUBTOTAL nas células do range). AGGREGATE fica para F2 (vários códigos exigem
-array/ordenação com opções que dependem de LARGE/SMALL/PERCENTILE — reavaliar depois da onda 4).
+de verdade (detectar nós SUBTOTAL nas células do range). ~~AGGREGATE fica para F2~~ **Atualização 2026-09-09:**
+AGGREGATE (function_num 1-19 × options 0-7) foi implementado na Fase 2 de
+`plans/structured-table-references-and-aggregate.md`, sobre um núcleo `AggregateCodes` compartilhado com o
+SUBTOTAL — que, de quebra, passou a dobrar argumento array como o SUM (`SUBTOTAL(9,ROW(A1:A3))` = 6, antes 1).
+O limite de modelo (sem linhas ocultas: options 1/3/5/7 ≡ 0/2/4/6) continua e está documentado.
 
 ### A6. Datas como número serial (onda 5) — decisão de representação
 **Proposta:** datas SÃO doubles seriais (fiel ao Excel; zero mudança no ComputedValue). Helper interno
@@ -617,7 +620,7 @@ merge + aval do usuário; sem push.
 - **F2 Arrays**: §A2 (`ComputedValueKind.Array`) → `FILTER` `SORT` `SORTBY` `UNIQUE` `SEQUENCE`
   `TRANSPOSE` `MMULT` `MINVERSE` `MDETERM` `MUNIT` `FREQUENCY` `TEXTSPLIT` `TEXTJOIN`-array `TOCOL`
   `TOROW` `WRAPROWS` `WRAPCOLS` `TAKE` `DROP` `CHOOSEROWS` `CHOOSECOLS` `HSTACK` `VSTACK` `EXPAND`
-  `RANDARRAY` (também F1) `MODE.MULT` `ARRAYTOTEXT` `PERCENTOF` `AGGREGATE` `TRIMRANGE` + revisitar spill.
+  `RANDARRAY` (também F1) `MODE.MULT` `ARRAYTOTEXT` `PERCENTOF` ~~`AGGREGATE`~~ (feito, Fase 2) `TRIMRANGE` + revisitar spill.
   **Evidência K1 no 2.9.0 (usuário, 2026-07-03, `MYSHEET-CALC-DIVERGENCES.md`)** — MySheet 2.9.0 ×
   Aspose.Cells 26.6 no workbook idêntico, pós-fix do port Aspose (display-name → codeName; ~2.063 diffs
   eram limitação do port, não do MySheet): **concordância 99,946% (565.781/566.086)**; as 305 células

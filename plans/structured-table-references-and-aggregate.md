@@ -70,7 +70,7 @@ which is why it goes first.
 | # | Phase | File | Items | Blockers | Majors | Status |
 | --: | --- | --- | --: | --: | --: | --- |
 | 1 | ROW/COLUMN over any reference, Excel's implicit intersection, array-native SUMPRODUCT | [`phase-1-reference-semantics.md`](structured-table-references-and-aggregate/phase-1-reference-semantics.md) | 27 | 2 | 2 | **Complete** — `feat/reference-semantics`, `32a67f6..c04e78b`, pending merge |
-| 2 | AGGREGATE(function_num, options, ref1, [k]) on a shared SUBTOTAL/order-statistics core | [`phase-2-aggregate.md`](structured-table-references-and-aggregate/phase-2-aggregate.md) | 18 | 1 | 1 | Not started |
+| 2 | AGGREGATE(function_num, options, ref1, [k]) on a shared SUBTOTAL/order-statistics core | [`phase-2-aggregate.md`](structured-table-references-and-aggregate/phase-2-aggregate.md) | 18 | 1 | 1 | **Complete** — `feat/aggregate`, `a6aba56..4e9d86a`, pending merge |
 | 3 | Table model, Workbook.DefineTable/Tables, and the third serialized Workbook member | [`phase-3-table-model-registry.md`](structured-table-references-and-aggregate/phase-3-table-model-registry.md) | 26 | 3 | 2 | Not started |
 | 4 | Bracket lexing and the structured-reference grammar | [`phase-4-lexer-parser.md`](structured-table-references-and-aggregate/phase-4-lexer-parser.md) | 18 | 2 | 1 | Not started |
 | 5 | Structured-reference resolution and cross-cutting graph integration | [`phase-5-resolution-and-graph.md`](structured-table-references-and-aggregate/phase-5-resolution-and-graph.md) | 24 | 1 | 5 | Not started |
@@ -80,6 +80,10 @@ which is why it goes first.
 
 Keep this table's Status column in step with each phase file's own `Status:` line — it is the first thing a
 resuming agent reads.
+
+## Integration and release cadence (decided 2026-09-09)
+
+Each phase, on completion: a three-part final review — a Fable-model subagent, `zclaude --model opus` (GLM-5.3) and `copilot` — consolidated and fixed, then `git rebase main` + `git merge --ff-only` into `main` (no merge commits; the user's rule). The 3.17.0 release is prepared only after ALL phases (1-8) are merged: `versionize` dry-run to preview the CHANGELOG and bump, the serialization compatibility notes verified against the final union-tag list and the Workbook member count, then the manual Release workflow.
 
 ## Open decisions that need a human, not more analysis
 

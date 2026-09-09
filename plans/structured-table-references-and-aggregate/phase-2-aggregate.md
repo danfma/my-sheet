@@ -1,6 +1,6 @@
 # Phase 2: AGGREGATE(function_num, options, ref1, [k]) on a shared SUBTOTAL/order-statistics core
 
-Status: Not started   <!-- Not started | In progress | Complete -->
+Status: Complete   <!-- Not started | In progress | Complete -->
 
 Part of [Structured table references, AGGREGATE, and the blocking reference-semantics gaps](../structured-table-references-and-aggregate.md) — **read that master plan first**: it carries the governing principle P0, the settled scope S1-S8, the repo-specific rules (TDD, test commands, gates, the union-tag coordination hazard) and the cross-phase open decisions. This file assumes them.
 
@@ -33,7 +33,7 @@ accepting `INDEX(...)`.
 
 ## Blocking corrections — the design as written was WRONG here. Apply these first.
 
-- [ ] **B1.** Item 12 step (4): the reference form (function_num 1-13) accumulates each `Arguments[2..]` through `AggregateCodes.Gather` only — no mini-CSE gate. Item 10's rationale simultaneously declares that arm "mandatory, not an optimization: an array-eligible argument like `(A1:A3<>"")*1` reached through Gather's `default:` (Subtotal.cs:188-195) would be `Evaluate`d to a SCALAR".
+- [x] **B1.** Item 12 step (4): the reference form (function_num 1-13) accumulates each `Arguments[2..]` through `AggregateCodes.Gather` only — no mini-CSE gate. Item 10's rationale simultaneously declares that arm "mandatory, not an optimization: an array-eligible argument like `(A1:A3<>"")*1` reached through Gather's `default:` (Subtotal.cs:188-195) would be `Evaluate`d to a SCALAR".
       *Measured evidence:* Two contradictions, both measured (probe at /tmp/verify-aggregate, `dotnet run`
       against Danfma.MySheet). (a) The scalarization is real and silent for the `ROW(range)` shape:
       `=SUBTOTAL(9,ROW(A1:A3))` -> **1** while `=SUM(ROW(A1:A3))` -> **6**. SUBTOTAL and the specified
@@ -60,7 +60,7 @@ accepting `INDEX(...)`.
 
 ## Major corrections
 
-- [ ] **M1.** Item 14, second half: "Add the row-index idiom over a plain range as the standalone half of the end-to-end target: `=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>"")*(A1:A3<>0)),ROWS($B$2:B2))` -> 1.0 and `…,ROWS($B$2:B3))` -> 3.0", placed "next to `Small_OfIfArray_ErrorAfterKthElement_StillPropagates` (:85-114) whose local-`Calc` fixture … is the right shape".
+- [x] **M1.** Item 14, second half: "Add the row-index idiom over a plain range as the standalone half of the end-to-end target: `=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>"")*(A1:A3<>0)),ROWS($B$2:B2))` -> 1.0 and `…,ROWS($B$2:B3))` -> 3.0", placed "next to `Small_OfIfArray_ErrorAfterKthElement_StillPropagates` (:85-114) whose local-`Calc` fixture … is the right shape".
       *Evidence:* That fixture (tests/Danfma.MySheet.Tests/Expressions/MiniCseConsumerTests.cs:94-103) sets
       A2=1, A3=2, A4=3, A5=`=1/0` and leaves **A1 blank**. The item's golden values were measured on a
       different fixture (its own rationale says "on A1=5/A2=0/A3=9"). Measured against the file's actual
@@ -74,7 +74,10 @@ accepting `INDEX(...)`.
 
 ## Implementation items
 
-- [ ] **1.** Move `file static class OrderSelection` (Danfma.MySheet/Expressions/Statistical/OrderStatistics.cs:446-690, including its nested `private struct BoundedHeap` :603-689) VERBATIM into a new file Danfma.MySheet/Expressions/OrderSelection.cs with `namespace Danfma.MySheet.Expressions;`, changing only `file static class` → `internal static class`. Move `using System.Buffers;` (OrderStatistics.cs:1) into the new file and delete it from OrderStatistics.cs — after the move nothing left in that file uses ArrayPool. Do NOT touch any call site: `Median`/`PercentileInc`/`PercentileExc`/`PercentRankInc`/`QuartileInc`/`QuartileExc`/`TrimMean`/`Large`/`Small` all say `OrderSelection.X(...)` and C# namespace lookup walks up from `Danfma.MySheet.Expressions.Statistical` to `Danfma.MySheet.Expressions`.
+> **Superseded at implementation (2026-09-09, oracle-measured):** items 10 and 12 below describe the reference form (1-13) and SUBTOTAL FOLDING a mini-CSE-eligible argument. That was wrong — Aspose.Cells 26.6.0 returns `#VALUE!` for every such shape, matching Excel's rule that `ref` arguments must be references. As landed, `AggregateCodes.Feed` REJECTS a non-reference array-eligible argument with `#VALUE!`; only the array form (14-19) streams. See the SETTLED block under Open questions and the Phase Summary.
+
+
+- [x] **1.** Move `file static class OrderSelection` (Danfma.MySheet/Expressions/Statistical/OrderStatistics.cs:446-690, including its nested `private struct BoundedHeap` :603-689) VERBATIM into a new file Danfma.MySheet/Expressions/OrderSelection.cs with `namespace Danfma.MySheet.Expressions;`, changing only `file static class` → `internal static class`. Move `using System.Buffers;` (OrderStatistics.cs:1) into the new file and delete it from OrderStatistics.cs — after the move nothing left in that file uses ArrayPool. Do NOT touch any call site: `Median`/`PercentileInc`/`PercentileExc`/`PercentRankInc`/`QuartileInc`/`QuartileExc`/`TrimMean`/`Large`/`Small` all say `OrderSelection.X(...)` and C# namespace lookup walks up from `Danfma.MySheet.Expressions.Statistical` to `Danfma.MySheet.Expressions`.
       *Files:* `Danfma.MySheet/Expressions/OrderSelection.cs`, `Danfma.MySheet/Expressions/Statistical/OrderStatistics.cs`
       *Why:* `BoundedHeap` (O(n log k), ArrayPool-rented, OrderStatistics.cs:603-689) is exactly what
       AGGREGATE 14/15 needs and is unreachable from another file while its owner is `file static`. A move +
@@ -83,12 +86,12 @@ accepting `INDEX(...)`.
       parent `Danfma.MySheet.Expressions` — with no using directive. Duplicating the heap instead would
       violate the project's shared-helper-over-duplication rule; leaving it `file static` and writing
       AGGREGATE's own heap would duplicate ~90 lines.
-- [ ] **2.** In the moved Danfma.MySheet/Expressions/OrderSelection.cs, extract `public static ComputedValue KthOfSorted(IReadOnlyList<double> sorted, double k, bool largest)` from the tail of `KthValue` (was OrderStatistics.cs:520-527: truncate k, `sorted.Count == 0 || position < 1 || position > sorted.Count` → `Error.Num`, else `largest ? sorted[^position] : sorted[position - 1]`) and make `KthValue` call it. AGGREGATE 14/15 reuses it for its non-streaming (reference/collected) path.
+- [x] **2.** In the moved Danfma.MySheet/Expressions/OrderSelection.cs, extract `public static ComputedValue KthOfSorted(IReadOnlyList<double> sorted, double k, bool largest)` from the tail of `KthValue` (was OrderStatistics.cs:520-527: truncate k, `sorted.Count == 0 || position < 1 || position > sorted.Count` → `Error.Num`, else `largest ? sorted[^position] : sorted[position - 1]`) and make `KthValue` call it. AGGREGATE 14/15 reuses it for its non-streaming (reference/collected) path.
       *Files:* `Danfma.MySheet/Expressions/OrderSelection.cs`
       *Why:* Without this, `AggregateCodes.Positional` would re-implement the 4-line bounds contract that
       SMALL/LARGE already own, and the two could drift on the `k > n` / `k < 1` / empty edges (all three
       verified live: `=SMALL(B1:B3,1)` over an empty range → #NUM!).
-- [ ] **3.** In Danfma.MySheet/Expressions/OrderSelection.cs change `private static ComputedValue KthValueStreaming(ArrayEvaluation.ArrayStream stream, Expression kArgument, EvaluationContext context, bool largest)` (was OrderStatistics.cs:537-542) to `public static ... KthValueStreaming(..., bool largest, bool ignoreErrors = false)`, and change the error arm of its scan loop (was :560-562) from `if (element.TryGetError(out var cellError)) { arrayError ??= cellError; }` to `if (element.TryGetError(out var cellError)) { if (!ignoreErrors) arrayError ??= cellError; }`. Nothing else in the method changes: the scan still visits EVERY element, and the error-precedence ladder (array error > k coercion error > `count == 0 || position < 1 || position > count` → #NUM!, :573-586) already produces AGGREGATE's required precedence once errors are skipped.
+- [x] **3.** In Danfma.MySheet/Expressions/OrderSelection.cs change `private static ComputedValue KthValueStreaming(ArrayEvaluation.ArrayStream stream, Expression kArgument, EvaluationContext context, bool largest)` (was OrderStatistics.cs:537-542) to `public static ... KthValueStreaming(..., bool largest, bool ignoreErrors = false)`, and change the error arm of its scan loop (was :560-562) from `if (element.TryGetError(out var cellError)) { arrayError ??= cellError; }` to `if (element.TryGetError(out var cellError)) { if (!ignoreErrors) arrayError ??= cellError; }`. Nothing else in the method changes: the scan still visits EVERY element, and the error-precedence ladder (array error > k coercion error > `count == 0 || position < 1 || position > count` → #NUM!, :573-586) already produces AGGREGATE's required precedence once errors are skipped.
       *Files:* `Danfma.MySheet/Expressions/OrderSelection.cs`
       *Why:* One defaulted flag on the existing loop beats a parallel loop: the ladder at :573-586 is
       precisely AGGREGATE's contract (all-elements-error → count 0 → #NUM!; k past the post-skip count →
@@ -96,7 +99,7 @@ accepting `INDEX(...)`.
       errors automatically makes the k bound the POST-SKIP population. A separate loop would duplicate the
       ArrayPool rent/return `try/finally` (:548-596) and the subtle 'scan every element even after k is
       satisfiable' rule that MiniCseConsumerTests.cs:85-114 pins for SMALL.
-- [ ] **4.** Add four folds to Danfma.MySheet/Expressions/StatisticsMath.cs, each `public static Error? …(…, out double result)` in the file's existing style: `Median(IReadOnlyList<double> sorted, out double result)` (empty → `Error.Num`; `middle = Count/2`; odd → `sorted[middle]`, even → `(sorted[middle-1]+sorted[middle])/2` — lifted from Median.Evaluate at OrderStatistics.cs:45-54); `Mode(IReadOnlyList<double> values, out double result)` (the Dictionary<double,int> count loop with the strict `>` scan-order tie-break lifted from ModeSngl.Compute at OrderStatistics.cs:73-90, `bestCount < 2` → `Error.NA`); `QuartileInclusive(IReadOnlyList<double> sorted, double quart, out double result)` (truncate, `< 0 or > 4` → `Error.Num`, else delegate to `PercentileInclusive(sorted, quart/4, out result)` — lifted from QuartileInc.Compute at OrderStatistics.cs:368-377); `QuartileExclusive(IReadOnlyList<double> sorted, double quart, out double result)` (truncate then delegate to `PercentileExclusive(sorted, quart/4, out result)` with NO extra range check — lifted verbatim from QuartileExc.Evaluate at OrderStatistics.cs:401-405, whose 0/4 → #NUM! comes from PercentileExclusive's own `k is <= 0 or >= 1` guard at StatisticsMath.cs:136).
+- [x] **4.** Add four folds to Danfma.MySheet/Expressions/StatisticsMath.cs, each `public static Error? …(…, out double result)` in the file's existing style: `Median(IReadOnlyList<double> sorted, out double result)` (empty → `Error.Num`; `middle = Count/2`; odd → `sorted[middle]`, even → `(sorted[middle-1]+sorted[middle])/2` — lifted from Median.Evaluate at OrderStatistics.cs:45-54); `Mode(IReadOnlyList<double> values, out double result)` (the Dictionary<double,int> count loop with the strict `>` scan-order tie-break lifted from ModeSngl.Compute at OrderStatistics.cs:73-90, `bestCount < 2` → `Error.NA`); `QuartileInclusive(IReadOnlyList<double> sorted, double quart, out double result)` (truncate, `< 0 or > 4` → `Error.Num`, else delegate to `PercentileInclusive(sorted, quart/4, out result)` — lifted from QuartileInc.Compute at OrderStatistics.cs:368-377); `QuartileExclusive(IReadOnlyList<double> sorted, double quart, out double result)` (truncate then delegate to `PercentileExclusive(sorted, quart/4, out result)` with NO extra range check — lifted verbatim from QuartileExc.Evaluate at OrderStatistics.cs:401-405, whose 0/4 → #NUM! comes from PercentileExclusive's own `k is <= 0 or >= 1` guard at StatisticsMath.cs:136).
       *Files:* `Danfma.MySheet/Expressions/StatisticsMath.cs`
       *Why:* AGGREGATE codes 12/13/17/19 have no reusable entry point today: MEDIAN's logic is inline in
       `Median.Evaluate` (OrderStatistics.cs:16-55), QUARTILE.EXC's inline in `QuartileExc.Evaluate`
@@ -105,13 +108,13 @@ accepting `INDEX(...)`.
       STDEV*/VAR*/SUBTOTAL', so this is the established home. Verified live so the extraction cannot change
       behaviour: `=MEDIAN(B1:B3)` (empty) → #NUM!, `=MODE.SNGL(A1:A3)` (no repeats) → #N/A,
       `=QUARTILE.EXC(A1:A3,0)` → #NUM!, `=QUARTILE.EXC(A1:A3,2)` → 5.
-- [ ] **5.** Rewrite the four nodes to call the new folds, keeping every observable outcome: Median.Evaluate (OrderStatistics.cs:45-54) → `StatisticsMath.Median(values, out var m) is { } e ? ComputedValue.Error(e) : ComputedValue.Number(m)` (the snapshot branch at :22-33 already yields a SORTED list, the collect branch already sorts at :41 — pass both to the same fold); ModeSngl.Compute (:73-90) → `StatisticsMath.Mode(values, out var m)`; QuartileInc.Compute (:368-377) → `StatisticsMath.QuartileInclusive(sorted, quart, out var r)`; QuartileExc.Evaluate (:401-405) → `StatisticsMath.QuartileExclusive(sorted, quart, out var r)`.
+- [x] **5.** Rewrite the four nodes to call the new folds, keeping every observable outcome: Median.Evaluate (OrderStatistics.cs:45-54) → `StatisticsMath.Median(values, out var m) is { } e ? ComputedValue.Error(e) : ComputedValue.Number(m)` (the snapshot branch at :22-33 already yields a SORTED list, the collect branch already sorts at :41 — pass both to the same fold); ModeSngl.Compute (:73-90) → `StatisticsMath.Mode(values, out var m)`; QuartileInc.Compute (:368-377) → `StatisticsMath.QuartileInclusive(sorted, quart, out var r)`; QuartileExc.Evaluate (:401-405) → `StatisticsMath.QuartileExclusive(sorted, quart, out var r)`.
       *Files:* `Danfma.MySheet/Expressions/Statistical/OrderStatistics.cs`
       *Why:* Pure extract-method, guarded by the existing OrderStatisticTests suite — it is the anti-
       duplication half of the previous item. Skipping it would leave AGGREGATE 12/13/17/19 as a second
       implementation of four Excel definitions, exactly the branching-and-duplication the project's principles
       forbid.
-- [ ] **6.** Create Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs, `internal static class AggregateCodes` in `namespace Danfma.MySheet.Expressions.Mathematics`, holding four members MOVED (not copied) out of Subtotal.cs: (a) `internal enum NestedSkip : byte { None, Subtotal, SubtotalAndAggregate }`; (b) `internal struct Accumulator(int code, bool ignoreErrors)` from Subtotal.SubtotalAccumulator:204-260, adding `public readonly List<double> Numbers => _numbers;` and the two error rules below; (c) `public static Error? Gather(Expression argument, EvaluationContext context, ref Accumulator accumulator, NestedSkip skip)` from Subtotal.GatherSkippingSubtotals:59-197 with every `expression is Subtotal` probe (:80, :114, :143) replaced by `IsNested(expression, skip)` and every recursive call (:166, :185, :194) threading `skip`; (d) `private static bool IsNested(Expression? e, NestedSkip skip) => skip switch { NestedSkip.None => false, NestedSkip.Subtotal => e is Subtotal, _ => e is Subtotal or Aggregate }`. Add `using Danfma.MySheet.Expressions.Statistical;` only if needed — `StatisticsMath`/`OrderSelection` resolve via the parent namespace.
+- [x] **6.** Create Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs, `internal static class AggregateCodes` in `namespace Danfma.MySheet.Expressions.Mathematics`, holding four members MOVED (not copied) out of Subtotal.cs: (a) `internal enum NestedSkip : byte { None, Subtotal, SubtotalAndAggregate }`; (b) `internal struct Accumulator(int code, bool ignoreErrors)` from Subtotal.SubtotalAccumulator:204-260, adding `public readonly List<double> Numbers => _numbers;` and the two error rules below; (c) `public static Error? Gather(Expression argument, EvaluationContext context, ref Accumulator accumulator, NestedSkip skip)` from Subtotal.GatherSkippingSubtotals:59-197 with every `expression is Subtotal` probe (:80, :114, :143) replaced by `IsNested(expression, skip)` and every recursive call (:166, :185, :194) threading `skip`; (d) `private static bool IsNested(Expression? e, NestedSkip skip) => skip switch { NestedSkip.None => false, NestedSkip.Subtotal => e is Subtotal, _ => e is Subtotal or Aggregate }`. Add `using Danfma.MySheet.Expressions.Statistical;` only if needed — `StatisticsMath`/`OrderSelection` resolve via the parent namespace.
       *Files:* `Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs`, `Danfma.MySheet/Expressions/Mathematics/Subtotal.cs`
       *Why:* Option (a) of the three offered: widen and share. (b) duplicate is out — the scan is 140 lines
       with five reference shapes (RangeReference dense walk :67-101, OpenRangeReference index walk :103-129,
@@ -122,40 +125,40 @@ accepting `INDEX(...)`.
       file, not a helper file, and the codebase's file-scoping precedents (`file static class OrderSelection`,
       `file static class SumOfPairs`) are for helpers with ONE consumer; this one has two. Mathematics is the
       right namespace because it needs both node types by name.
-- [ ] **7.** In AggregateCodes.Accumulator.Add (from Subtotal.cs:210-244) make exactly two error-rule changes and widen the code range to 1-13: in the `case 3:` (COUNTA) arm, return early WITHOUT incrementing when `ignoreErrors && value.Kind == ComputedValueKind.Error` (today an error cell IS counted — measured: `=SUBTOTAL(3,A1:A3)` with A2 = `=1/0` → 3); in the `default:` arm change `if (value.TryGetError(out var error)) { return error; }` to `if (value.TryGetError(out var error)) { return ignoreErrors ? null : error; }`. Leave `case 2:` (COUNT) alone — it only tallies `ComputedValueKind.Number`, so it already ignores errors either way (measured: `=SUBTOTAL(2,A1:A3)` with an error cell → 2).
+- [x] **7.** In AggregateCodes.Accumulator.Add (from Subtotal.cs:210-244) make exactly two error-rule changes and widen the code range to 1-13: in the `case 3:` (COUNTA) arm, return early WITHOUT incrementing when `ignoreErrors && value.Kind == ComputedValueKind.Error` (today an error cell IS counted — measured: `=SUBTOTAL(3,A1:A3)` with A2 = `=1/0` → 3); in the `default:` arm change `if (value.TryGetError(out var error)) { return error; }` to `if (value.TryGetError(out var error)) { return ignoreErrors ? null : error; }`. Leave `case 2:` (COUNT) alone — it only tallies `ComputedValueKind.Number`, so it already ignores errors either way (measured: `=SUBTOTAL(2,A1:A3)` with an error cell → 2).
       *Files:* `Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs`
       *Why:* This IS the error-skipping mechanism for the reference form — no new loop, no new fold. The
       accumulator already excludes error cells from `_numbers` (Subtotal.cs:231-240 returns before
       `_numbers.Add`), so 'ignore errors' is purely the suppression of the propagation channel. The COUNTA
       rule is a genuine behavioural difference the measurement exposes: without it `AGGREGATE(3,6,range)`
       would count the very cells option 6 says to ignore.
-- [ ] **8.** In AggregateCodes, rename Subtotal.Aggregate:262-345 to `public static ComputedValue Fold(int code, List<double> numbers)`, and CHANGE ITS `default:` ARM: today `default: // 11: VAR.P` (:338-343) is the catch-all, so passing 12 would silently compute VAR.P. Convert it to `case 11:` and add `case 12:` (`numbers.Sort(); StatisticsMath.Median(numbers, out var median)`), `case 13:` (`StatisticsMath.Mode(numbers, out var mode)` — do NOT sort: the documented tie-break is FIRST value in scan order, OrderStatistics.cs:82), and a real `default: return ComputedValue.Error(Error.Value);` unreachable guard.
+- [x] **8.** In AggregateCodes, rename Subtotal.Aggregate:262-345 to `public static ComputedValue Fold(int code, List<double> numbers)`, and CHANGE ITS `default:` ARM: today `default: // 11: VAR.P` (:338-343) is the catch-all, so passing 12 would silently compute VAR.P. Convert it to `case 11:` and add `case 12:` (`numbers.Sort(); StatisticsMath.Median(numbers, out var median)`), `case 13:` (`StatisticsMath.Mode(numbers, out var mode)` — do NOT sort: the documented tie-break is FIRST value in scan order, OrderStatistics.cs:82), and a real `default: return ComputedValue.Error(Error.Value);` unreachable guard.
       *Files:* `Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs`
       *Why:* The silent-fallthrough is the single most likely defect in this phase: Subtotal.cs:338's
       `default` is safe only because Subtotal.Evaluate:27-30 rejects codes outside 1-11 first, and AGGREGATE
       deliberately admits 12-19. Sorting for 12 but not 13 is load-bearing — MODE.SNGL's tie-break is
       documented as scan-order and pinned by OrderStatisticTests.
-- [ ] **9.** Add `public static ComputedValue Positional(int code, IReadOnlyList<double> sorted, Expression kArgument, EvaluationContext context)` to AggregateCodes: coerce k first (`kArgument.Evaluate(context).CoerceToNumber(out var k) is { } e → Error(e)`), then a switch STATEMENT (not expression — each arm needs its own `out` local): 14 → `OrderSelection.KthOfSorted(sorted, k, largest: true)`, 15 → same with `largest: false`, 16 → `StatisticsMath.PercentileInclusive`, 17 → `StatisticsMath.QuartileInclusive`, 18 → `StatisticsMath.PercentileExclusive`, default(19) → `StatisticsMath.QuartileExclusive`, each wrapping `Error? → ComputedValue.Error` / `ComputedValue.Number(result)`.
+- [x] **9.** Add `public static ComputedValue Positional(int code, IReadOnlyList<double> sorted, Expression kArgument, EvaluationContext context)` to AggregateCodes: coerce k first (`kArgument.Evaluate(context).CoerceToNumber(out var k) is { } e → Error(e)`), then a switch STATEMENT (not expression — each arm needs its own `out` local): 14 → `OrderSelection.KthOfSorted(sorted, k, largest: true)`, 15 → same with `largest: false`, 16 → `StatisticsMath.PercentileInclusive`, 17 → `StatisticsMath.QuartileInclusive`, 18 → `StatisticsMath.PercentileExclusive`, default(19) → `StatisticsMath.QuartileExclusive`, each wrapping `Error? → ComputedValue.Error` / `ComputedValue.Number(result)`.
       *Files:* `Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs`
       *Why:* The 14-19 half of the code map, mirroring Fold's 1-13 half, so the node file holds only form
       selection. Coercing k AFTER the population is gathered preserves the ordering
       OrderSelection.SortedArrayAndScalar:463-477 already documents (the array's first error precedes the
       scalar's), which matters for options 0/1/4/5 where errors still propagate.
-- [ ] **10.** Add `public static Error? CollectStream(ArrayEvaluation.ArrayStream stream, ref Accumulator accumulator)` to AggregateCodes: `foreach (var element in stream) { if (accumulator.Add(element) is { } error) return error; } return null;`. The array form uses it for codes 16-19 (which need the whole sorted population, so the bounded heap buys nothing) and for any code whose array argument is mini-CSE-eligible.
+- [x] **10.** Add `public static Error? CollectStream(ArrayEvaluation.ArrayStream stream, ref Accumulator accumulator)` to AggregateCodes: `foreach (var element in stream) { if (accumulator.Add(element) is { } error) return error; } return null;`. The array form uses it for codes 16-19 (which need the whole sorted population, so the bounded heap buys nothing) and for any code whose array argument is mini-CSE-eligible.
       *Files:* `Danfma.MySheet/Expressions/Mathematics/AggregateCodes.cs`
       *Why:* One accumulator, three feeds (Gather for references, CollectStream for mini-CSE arrays,
       KthValueStreaming for 14/15) keeps every option rule — ignoreErrors, COUNTA's error exclusion — in ONE
       place. This arm is mandatory, not an optimization: an array-eligible argument like `(A1:A3<>"")*1`
       reached through Gather's `default:` (Subtotal.cs:188-195) would be `Evaluate`d to a SCALAR, and the
       mini-CSE gate is the only correct reading of it.
-- [ ] **11.** Rewrite Danfma.MySheet/Expressions/Mathematics/Subtotal.cs to keep ONLY the record and Evaluate:13-51, delegating: hoist `var refs = Arguments[1..];` once (today allocated twice, :35 and :42), `new AggregateCodes.Accumulator(code, ignoreErrors: false)`, `AggregateCodes.Gather(argument, context, ref accumulator, AggregateCodes.NestedSkip.Subtotal)`, and `Finish()` now calling `AggregateCodes.Fold`. Keep the code-range guard `code is < 1 or > 11` → #VALUE! (:27-30) and the 101-111 mapping (:22-25) unchanged, and keep the file's explanatory comments by moving them with the code they describe. Do NOT change SUBTOTAL's nested skip to also skip `Aggregate` — see the open question.
+- [x] **11.** Rewrite Danfma.MySheet/Expressions/Mathematics/Subtotal.cs to keep ONLY the record and Evaluate:13-51, delegating: hoist `var refs = Arguments[1..];` once (today allocated twice, :35 and :42), `new AggregateCodes.Accumulator(code, ignoreErrors: false)`, `AggregateCodes.Gather(argument, context, ref accumulator, AggregateCodes.NestedSkip.Subtotal)`, and `Finish()` now calling `AggregateCodes.Fold`. Keep the code-range guard `code is < 1 or > 11` → #VALUE! (:27-30) and the 101-111 mapping (:22-25) unchanged, and keep the file's explanatory comments by moving them with the code they describe. Do NOT change SUBTOTAL's nested skip to also skip `Aggregate` — see the open question.
       *Files:* `Danfma.MySheet/Expressions/Mathematics/Subtotal.cs`
       *Why:* Subtotal drops from 346 to ~50 lines with zero behaviour change, which is what makes the
       extraction a net simplification rather than an addition. Leaving SUBTOTAL's skip predicate at
       `NestedSkip.Subtotal` is deliberate: Microsoft's SUBTOTAL page documents only 'nested subtotals are
       ignored', while the 'nested SUBTOTAL and AGGREGATE' wording appears solely in AGGREGATE's own options
       table — I could not verify the converse and will not guess it into the engine (see openQuestions).
-- [ ] **12.** Create Danfma.MySheet/Expressions/Mathematics/Aggregate.cs: `[MemoryPackable] public sealed partial record Aggregate(Expression[] Arguments) : Function`. `Evaluate` in order: (1) `Arguments[0].Evaluate(context).CoerceToNumber(out var rawCode)` → propagate; `code = (int)Math.Truncate(rawCode)`; `code is < 1 or > 19` → `Error.Value`. (2) `Arguments[1].Evaluate(context).CoerceToNumber(out var rawOptions)` → propagate; `options = (int)Math.Truncate(rawOptions)`; `options is < 0 or > 7` → `Error.Value` (an OMITTED options arrives as `BlankValue.Instance` per Parser.cs:646-654 and coerces to 0 at ValueCoercion.cs:19-21 — Excel's '0 or omitted'). (3) `var ignoreErrors = (options & 2) != 0; var skip = (options & 4) == 0 ? AggregateCodes.NestedSkip.SubtotalAndAggregate : AggregateCodes.NestedSkip.None;` — bit0 (hidden rows) is intentionally unread, the S6 caveat. (4) if `code <= 13`: `var refs = Arguments[2..]`; `ReferenceGuard.MissingSheet(refs, context)` → #REF!; accumulate each ref through `AggregateCodes.Gather(…, skip)`; `Finish()`. (5) else: `Arguments.Length != 4` → `Error.Value`; `ReferenceGuard.MissingSheet(Arguments[2], context)` → #REF!; if `Arguments[2] is not Reference && ArrayEvaluation.IsArrayEligible(Arguments[2]) && ArrayEvaluation.TryEvaluateStream(Arguments[2], context, out var stream)` then `code is 14 or 15` → `OrderSelection.KthValueStreaming(stream, Arguments[3], context, largest: code == 14, ignoreErrors)`, else `CollectStream` + `Numbers.Sort()` + `AggregateCodes.Positional`; otherwise `Gather(Arguments[2], …, skip)` + `Numbers.Sort()` + `Positional`.
+- [x] **12.** Create Danfma.MySheet/Expressions/Mathematics/Aggregate.cs: `[MemoryPackable] public sealed partial record Aggregate(Expression[] Arguments) : Function`. `Evaluate` in order: (1) `Arguments[0].Evaluate(context).CoerceToNumber(out var rawCode)` → propagate; `code = (int)Math.Truncate(rawCode)`; `code is < 1 or > 19` → `Error.Value`. (2) `Arguments[1].Evaluate(context).CoerceToNumber(out var rawOptions)` → propagate; `options = (int)Math.Truncate(rawOptions)`; `options is < 0 or > 7` → `Error.Value` (an OMITTED options arrives as `BlankValue.Instance` per Parser.cs:646-654 and coerces to 0 at ValueCoercion.cs:19-21 — Excel's '0 or omitted'). (3) `var ignoreErrors = (options & 2) != 0; var skip = (options & 4) == 0 ? AggregateCodes.NestedSkip.SubtotalAndAggregate : AggregateCodes.NestedSkip.None;` — bit0 (hidden rows) is intentionally unread, the S6 caveat. (4) if `code <= 13`: `var refs = Arguments[2..]`; `ReferenceGuard.MissingSheet(refs, context)` → #REF!; accumulate each ref through `AggregateCodes.Gather(…, skip)`; `Finish()`. (5) else: `Arguments.Length != 4` → `Error.Value`; `ReferenceGuard.MissingSheet(Arguments[2], context)` → #REF!; if `Arguments[2] is not Reference && ArrayEvaluation.IsArrayEligible(Arguments[2]) && ArrayEvaluation.TryEvaluateStream(Arguments[2], context, out var stream)` then `code is 14 or 15` → `OrderSelection.KthValueStreaming(stream, Arguments[3], context, largest: code == 14, ignoreErrors)`, else `CollectStream` + `Numbers.Sort()` + `AggregateCodes.Positional`; otherwise `Gather(Arguments[2], …, skip)` + `Numbers.Sort()` + `Positional`.
       *Files:* `Danfma.MySheet/Expressions/Mathematics/Aggregate.cs`
       *Why:* Disambiguation by function_num alone is the only rule that can work —
       `AGGREGATE(9,6,A1:A3,B1:B3)` and `AGGREGATE(15,6,A1:A3,2)` are both 4-argument calls, so nothing
@@ -165,7 +168,7 @@ accepting `INDEX(...)`.
       option 6: without it a missing-sheet range would aggregate to an empty population and return 0/#NUM!
       instead of #REF! — the exact failure ReferenceGuard.cs:6-9 was written to prevent for the error-ignoring
       COUNT family.
-- [ ] **13.** Register the node: add `[MemoryPackUnion(<next free tag>, typeof(Aggregate))]` immediately before `public abstract partial record Expression` (Danfma.MySheet/Expressions/Expression.cs:353), after the 321 line at :352. Count the attributes first (`grep -c 'MemoryPackUnion(' Danfma.MySheet/Expressions/Expression.cs` — currently 322, tags 0-321, so 322 is next) exactly as the policy comment at :14-16 instructs, and refresh that comment's stale '319+'. Then add an `Entry<Aggregate>("AGGREGATE", 3, int.MaxValue, static arguments => new Aggregate(arguments), static f => ((Aggregate)f).Arguments)` to FunctionRegistry.Entries, next to the SUBTOTAL entry (Danfma.MySheet/Parsing/FunctionRegistry.cs:1550-1556).
+- [x] **13.** Register the node: add `[MemoryPackUnion(<next free tag>, typeof(Aggregate))]` immediately before `public abstract partial record Expression` (Danfma.MySheet/Expressions/Expression.cs:353), after the 321 line at :352. Count the attributes first (`grep -c 'MemoryPackUnion(' Danfma.MySheet/Expressions/Expression.cs` — currently 322, tags 0-321, so 322 is next) exactly as the policy comment at :14-16 instructs, and refresh that comment's stale '319+'. Then add an `Entry<Aggregate>("AGGREGATE", 3, int.MaxValue, static arguments => new Aggregate(arguments), static f => ((Aggregate)f).Arguments)` to FunctionRegistry.Entries, next to the SUBTOTAL entry (Danfma.MySheet/Parsing/FunctionRegistry.cs:1550-1556).
       *Files:* `Danfma.MySheet/Expressions/Expression.cs`, `Danfma.MySheet/Parsing/FunctionRegistry.cs`
       *Why:* `MinArgs=3` makes `AGGREGATE(15,6)` a parse-time ParseException (Parser.cs:634-642 — verified
       live for `=SUBTOTAL(9)`: "Function 'SUBTOTAL' does not accept 1 argument(s)"), matching Excel rejecting
@@ -176,13 +179,13 @@ accepting `INDEX(...)`.
       resolves any Function through `FunctionRegistry.ByType` (:2142) and DependencyExtractor.cs:207-214 has a
       generic `case Function` arm that visits arguments via that same map — verified live that
       `=SUBTOTAL(109,A1:A3)` round-trips through `ToFormula` with no per-node writer arm.
-- [ ] **14.** Add AGGREGATE tests to tests/Danfma.MySheet.Tests/Parsing/MathAggregateTests.cs next to the SUBTOTAL block (:175-243), reusing the existing `Calc` harness (:11-31) and its `"=1/0"` idiom for an error cell: (a) every function_num 1-19 against a fixture, each asserted EQUAL to the same-population call of its namesake function (the anti-vacuity pattern already used at :217-241 for SUBTOTAL 7/8/10/11); (b) the options matrix — `AGGREGATE(9,4,A1:A3)` with A2=`=1/0` → `ErrorValue.DivByZero` vs `AGGREGATE(9,6,A1:A3)` → the sum of the survivors, and `AGGREGATE(3,4,…)` → 3 vs `AGGREGATE(3,6,…)` → 2; (c) the S6 caveat — 1≡0, 3≡2, 5≡4, 7≡6 pairwise equal; (d) nested skip — a cell holding `=SUBTOTAL(9,…)` and a cell holding `=AGGREGATE(9,0,…)` are both skipped at options 0-3 and both COUNTED at options 4-7; (e) form/arity errors — `AGGREGATE(20,0,A1:A3)` and `AGGREGATE(9,8,A1:A3)` → `ErrorValue.NotValue`, `AGGREGATE(15,6,A1:A3)` → `ErrorValue.NotValue` (k required), `AGGREGATE(15,6,A1:A3,4)` → `ErrorValue.Number` (k past the population), all-error population with option 6 → `ErrorValue.Number`, `AGGREGATE(9,6,Ghost!A1:A3)` → `ErrorValue.Reference`; (f) reference vs array form on the same shape — `AGGREGATE(9,6,A1:A3,B1:B3)` sums both refs while `AGGREGATE(15,6,A1:A3,2)` treats 2 as k. Head the block with the Microsoft AGGREGATE page citation in the file's mandatory format (see :175-177): the article title, its support.microsoft.com GUID and the fetch date must be FETCHED at implementation time — do not copy a GUID from this plan, none is supplied.
+- [x] **14.** Add AGGREGATE tests to tests/Danfma.MySheet.Tests/Parsing/MathAggregateTests.cs next to the SUBTOTAL block (:175-243), reusing the existing `Calc` harness (:11-31) and its `"=1/0"` idiom for an error cell: (a) every function_num 1-19 against a fixture, each asserted EQUAL to the same-population call of its namesake function (the anti-vacuity pattern already used at :217-241 for SUBTOTAL 7/8/10/11); (b) the options matrix — `AGGREGATE(9,4,A1:A3)` with A2=`=1/0` → `ErrorValue.DivByZero` vs `AGGREGATE(9,6,A1:A3)` → the sum of the survivors, and `AGGREGATE(3,4,…)` → 3 vs `AGGREGATE(3,6,…)` → 2; (c) the S6 caveat — 1≡0, 3≡2, 5≡4, 7≡6 pairwise equal; (d) nested skip — a cell holding `=SUBTOTAL(9,…)` and a cell holding `=AGGREGATE(9,0,…)` are both skipped at options 0-3 and both COUNTED at options 4-7; (e) form/arity errors — `AGGREGATE(20,0,A1:A3)` and `AGGREGATE(9,8,A1:A3)` → `ErrorValue.NotValue`, `AGGREGATE(15,6,A1:A3)` → `ErrorValue.NotValue` (k required), `AGGREGATE(15,6,A1:A3,4)` → `ErrorValue.Number` (k past the population), all-error population with option 6 → `ErrorValue.Number`, `AGGREGATE(9,6,Ghost!A1:A3)` → `ErrorValue.Reference`; (f) reference vs array form on the same shape — `AGGREGATE(9,6,A1:A3,B1:B3)` sums both refs while `AGGREGATE(15,6,A1:A3,2)` treats 2 as k. Head the block with the Microsoft AGGREGATE page citation in the file's mandatory format (see :175-177): the article title, its support.microsoft.com GUID and the fetch date must be FETCHED at implementation time — do not copy a GUID from this plan, none is supplied.
       *Files:* `tests/Danfma.MySheet.Tests/Parsing/MathAggregateTests.cs`
       *Why:* MathAggregateTests already owns SUBTOTAL, shares the fixture style, and carries the golden-value
       convention; a new file would fork the `Calc` helper a fourth time. The options matrix is the only way to
       pin the bit decomposition, and (d) is the only test that would catch `IsNested` being wired to the wrong
       option range — the mistake the brief's own (incorrect) 2/3/6/7 claim would have produced.
-- [ ] **15.** Add the array-consumer tests to tests/Danfma.MySheet.Tests/Expressions/MiniCseConsumerTests.cs, next to `Small_OfIfArray_ErrorAfterKthElement_StillPropagates` (:85-114) whose local-`Calc` fixture (A2:A4 = 1,2,3 and A5 = `=1/0`) is the right shape: assert `=AGGREGATE(15,4,IF(B2:B5="Show",A2:A5),1)` → `ErrorValue.DivByZero` (option 4 keeps SMALL's propagation) and `=AGGREGATE(15,6,IF(B2:B5="Show",A2:A5),1)` → 1.0 with `…,3)` → 3.0 and `…,4)` → `ErrorValue.Number` (option 6 skips the trailing error, so k is bounded by the POST-SKIP count of 3). Add the row-index idiom over a plain range as the standalone half of the end-to-end target: `=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>"")*(A1:A3<>0)),ROWS($B$2:B2))` → 1.0 and `…,ROWS($B$2:B3))` → 3.0.
+- [x] **15.** Add the array-consumer tests to tests/Danfma.MySheet.Tests/Expressions/MiniCseConsumerTests.cs, next to `Small_OfIfArray_ErrorAfterKthElement_StillPropagates` (:85-114) whose local-`Calc` fixture (A2:A4 = 1,2,3 and A5 = `=1/0`) is the right shape: assert `=AGGREGATE(15,4,IF(B2:B5="Show",A2:A5),1)` → `ErrorValue.DivByZero` (option 4 keeps SMALL's propagation) and `=AGGREGATE(15,6,IF(B2:B5="Show",A2:A5),1)` → 1.0 with `…,3)` → 3.0 and `…,4)` → `ErrorValue.Number` (option 6 skips the trailing error, so k is bounded by the POST-SKIP count of 3). Add the row-index idiom over a plain range as the standalone half of the end-to-end target: `=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>"")*(A1:A3<>0)),ROWS($B$2:B2))` → 1.0 and `…,ROWS($B$2:B3))` → 3.0.
       *Files:* `tests/Danfma.MySheet.Tests/Expressions/MiniCseConsumerTests.cs`
       *Why:* AGGREGATE becomes the fifth mini-CSE consumer (after NumericAggregation.Fold,
       OrderSelection.KthValue and Index), and this file's docstring (:7-12) names the consumers explicitly.
@@ -191,18 +194,18 @@ accepting `INDEX(...)`.
       own assertion sits ten lines above. All four values are MEASURED, not derived:
       `=INDEX((ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>"")*(A1:A3<>0)),i)` yields 1, #DIV/0!, 3 for i=1,2,3 on
       A1=5/A2=0/A3=9, and `ROWS($B$2:B2)`/`ROWS($B$2:B3)` yield 1/2.
-- [ ] **16.** Add `"AGGREGATE(9,6,A1:A3)"` and `"AGGREGATE(15,6,A1:A3,2)"` to the flat parse→write identity list in tests/Danfma.MySheet.Tests/Parsing/FormulaWriterTests.cs, next to `"SUBTOTAL(9,A1:A3)"` (:268) and `"SMALL(A1:A3,2)"` (:272).
+- [x] **16.** Add `"AGGREGATE(9,6,A1:A3)"` and `"AGGREGATE(15,6,A1:A3,2)"` to the flat parse→write identity list in tests/Danfma.MySheet.Tests/Parsing/FormulaWriterTests.cs, next to `"SUBTOTAL(9,A1:A3)"` (:268) and `"SMALL(A1:A3,2)"` (:272).
       *Files:* `tests/Danfma.MySheet.Tests/Parsing/FormulaWriterTests.cs`
       *Why:* Both forms must round-trip, and the two-entry pair is what proves the registry accessor
       (`((Aggregate)f).Arguments`) is wired for the variable-arity node. FormulaWriter needs no code change —
       `Call` (:433-445) is table-driven — so this test is the whole verification of the write half.
-- [ ] **17.** Update docs/function-reference.md: `**304 built-in functions**` → 305 at :3; `## Math and trigonometry (74)` → (75) at :31; insert the AGGREGATE row ALPHABETICALLY between the `ACOTH` row (:39) and the `ARABIC` row (:40) — NOT after SQRTPI:96 — documenting both forms, the 1-19 map, the 0-7 options table, the 1/3/5/7 ≡ 0/2/4/6 hidden-row caveat, `#VALUE!` for an invalid function_num/options or a missing k, and `#NUM!` for an out-of-range k; `<strong>Math and Trigonometry</strong> — 74/82` → 75/82 at :447; move `AGGREGATE` from the ⬜ list (:451) into the ✅ list (:449, first position, before `ABS`). Also extend the SUBTOTAL row (:97) so it says a nested `AGGREGATE` is NOT skipped by SUBTOTAL (the documented-limit note). Mirror every edit in docs/pt-BR/function-reference.md at :5, :35, between :43 and :44, :101, :456, :460 and its ✅ list.
+- [x] **17.** Update docs/function-reference.md: `**304 built-in functions**` → 305 at :3; `## Math and trigonometry (74)` → (75) at :31; insert the AGGREGATE row ALPHABETICALLY between the `ACOTH` row (:39) and the `ARABIC` row (:40) — NOT after SQRTPI:96 — documenting both forms, the 1-19 map, the 0-7 options table, the 1/3/5/7 ≡ 0/2/4/6 hidden-row caveat, `#VALUE!` for an invalid function_num/options or a missing k, and `#NUM!` for an out-of-range k; `<strong>Math and Trigonometry</strong> — 74/82` → 75/82 at :447; move `AGGREGATE` from the ⬜ list (:451) into the ✅ list (:449, first position, before `ABS`). Also extend the SUBTOTAL row (:97) so it says a nested `AGGREGATE` is NOT skipped by SUBTOTAL (the documented-limit note). Mirror every edit in docs/pt-BR/function-reference.md at :5, :35, between :43 and :44, :101, :456, :460 and its ✅ list.
       *Files:* `docs/function-reference.md`, `docs/pt-BR/function-reference.md`
       *Why:* Verified that the Math table at :35-45 IS alphabetical (`ABS`, `ACOS`, `ACOSH`, `ACOT`, `ACOTH`,
       `ARABIC`, …), so the brief's 'after SQRTPI/before SUBTOTAL' insertion point is wrong and would break the
       table's ordering. The pt-BR mirror is mandatory per docs/pt-BR/README.md:3, and its line numbers differ
       by +4 because of the translation banner.
-- [ ] **18.** Add AGGREGATE's new union tag to the compatibility section of docs/serialization.md — either as its own '### Forward-compatibility' subsection after the shared-formula one (:191-214, the template to copy) or folded into the shared subsection the table-registry phase writes, whichever lands second. State the same two-way asymmetry that subsection states: a workbook whose cells hold an AGGREGATE formula cannot be opened by a build predating the tag; an older file never contains it and loads unchanged. Mirror in docs/pt-BR/serialization.md. NOTE: adding a union tag does NOT touch tests/Danfma.MySheet.Tests/CellStoreTests.cs:20's frozen base64 (that golden breaks only on a new Workbook MEMBER) and is safe against Fixtures/workbook-pre-namespaces.msgpack.bin.
+- [x] **18.** Add AGGREGATE's new union tag to the compatibility section of docs/serialization.md — either as its own '### Forward-compatibility' subsection after the shared-formula one (:191-214, the template to copy) or folded into the shared subsection the table-registry phase writes, whichever lands second. State the same two-way asymmetry that subsection states: a workbook whose cells hold an AGGREGATE formula cannot be opened by a build predating the tag; an older file never contains it and loads unchanged. Mirror in docs/pt-BR/serialization.md. NOTE: adding a union tag does NOT touch tests/Danfma.MySheet.Tests/CellStoreTests.cs:20's frozen base64 (that golden breaks only on a new Workbook MEMBER) and is safe against Fixtures/workbook-pre-namespaces.msgpack.bin.
       *Files:* `docs/serialization.md`, `docs/pt-BR/serialization.md`
       *Why:* S7 requires the boundary to be documented, and the tag number is only knowable at integration
       time because whichever of this phase and the table phase lands first claims 322 — Expression.cs:14-16
@@ -214,38 +217,38 @@ accepting `INDEX(...)`.
 
 ## Verification Plan
 
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet build Danfma.MySheet.slnx -c Release`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet build Danfma.MySheet.slnx -c Release`
       → expected: Build succeeded, 0 Error(s). A CS0103/CS0122 on `OrderSelection`, `BoundedHeap` or
       `ArrayPool` means the file-scoped→internal move in item 1 was incomplete (or `using System.Buffers;` did
       not travel with it).
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet csharpier check .`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet csharpier check .`
       → expected: Exit code 0 and no file listed as needing formatting. CSharpier 1.3.0 is pinned in dotnet-
       tools.json and both the pre-commit and pre-push hooks run this, so a non-zero exit blocks the commit.
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/OrderStatisticTests/*"`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/OrderStatisticTests/*"`
       → expected: "Test run summary: Passed!" with failed: 0. This is the regression gate for items 1-5:
       SMALL/LARGE/MEDIAN/MODE.SNGL/PERCENTILE.*/QUARTILE.*/PERCENTRANK.*/TRIMMEAN must be byte-for-byte
       unaffected by the OrderSelection move, the KthOfSorted extraction, the ignoreErrors parameter and the
       four StatisticsMath extractions.
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/MathAggregateTests/*"`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/MathAggregateTests/*"`
       → expected: "Test run summary: Passed!" with failed: 0 and total ≥ 19 (it is 13 today, measured, all
       passing in 243ms). A failure in the pre-existing Subtotal_* tests means the item-11 delegation changed
       SUBTOTAL's behaviour; a failure only in the new Aggregate_* tests is AGGREGATE's own logic.
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/MiniCseConsumerTests/*"`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/MiniCseConsumerTests/*"`
       → expected: "Test run summary: Passed!" with failed: 0. Specifically
       Small_OfIfArray_ErrorAfterKthElement_StillPropagates must still pass (proves `ignoreErrors: false` is
       the unchanged default) alongside the new option-4-vs-6 AGGREGATE pair.
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/FormulaWriterTests/*"`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -- --treenode-filter "/*/*/FormulaWriterTests/*"`
       → expected: "Test run summary: Passed!" with failed: 0 — both new AGGREGATE strings parse and un-parse
       to themselves through the registry-driven writer.
-- [ ] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release --no-build && dotnet run --project tests/Danfma.MySheet.Excel.Tests/Danfma.MySheet.Excel.Tests.csproj -c Release --no-build`
+- [x] `cd /Volumes/Work/Develop/MySheet && dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release --no-build && dotnet run --project tests/Danfma.MySheet.Excel.Tests/Danfma.MySheet.Excel.Tests.csproj -c Release --no-build`
       → expected: Both runs report "Passed!" with failed: 0 — the exact pair the pre-push hook and
       .github/workflows/ci.yml:26-30 run. Confirms in particular that no serialization golden
       (CellStoreTests.PreChangeCellsWireGolden, MemoryPackCompatibilityTests,
       ContainerVersionCompatibilityTests) moved from the new union tag.
-- [ ] `cd /Volumes/Work/Develop/MySheet && grep -c 'MemoryPackUnion(' Danfma.MySheet/Expressions/Expression.cs && grep -n 'typeof(Aggregate)' Danfma.MySheet/Expressions/Expression.cs`
+- [x] `cd /Volumes/Work/Develop/MySheet && grep -c 'MemoryPackUnion(' Danfma.MySheet/Expressions/Expression.cs && grep -n 'typeof(Aggregate)' Danfma.MySheet/Expressions/Expression.cs`
       → expected: 323 attributes (was 322, measured) and exactly one line matching `typeof(Aggregate)` whose
       tag equals 322 (or the next free number if another phase landed first). No duplicate and no gap.
-- [ ] `cd /Volumes/Work/Develop/MySheet && grep -rn 'file static class OrderSelection\|private static ComputedValue Aggregate(int code' Danfma.MySheet/`
+- [x] `cd /Volumes/Work/Develop/MySheet && grep -rn 'file static class OrderSelection\|private static ComputedValue Aggregate(int code' Danfma.MySheet/`
       → expected: No output. Both the file-scoped OrderSelection and Subtotal's private `Aggregate(int,
       List<double>)` must be GONE — if either still exists the extraction was a copy, not a move, and the two
       implementations will drift.
@@ -296,4 +299,77 @@ of that sentence is measured and which half is the page.
 
 ## Phase Summary
 
-_(write when phase completes)_
+**Status: Complete** — branch `feat/aggregate`, commits `a6aba56..4e9d86a` (21 commits: 15 from Tasks 0-5 and the
+first fix waves, 6 from the consolidated wave after the three-part final review — the last one a second round that
+scoped the docs' "measured" label and pinned the reference-producing shapes), pending fast-forward merge to
+`main`. Gates at the wave head: csharpier clean, Release build 0 warnings, core **1349/1349** (1280 → +69 cases),
+Excel **90/90**, both frozen wire goldens intact, one MemoryPack union tag added (**322**, `Aggregate`; policy comment
+now says 323+), no public API removed. Ledger with every ruling: `.superpowers/sdd/phase-2-aggregate/progress.md`
+(untracked, controller's machine); three final-review reports + consolidation under `.superpowers/.../final-review/`.
+
+### What landed
+
+1. **`AGGREGATE(function_num, options, ref1, [ref2], …)` / `AGGREGATE(function_num, options, array, k)`** — one
+   `Function` node (`Mathematics/Aggregate.cs`) selecting the form by function_num at evaluation (≤13 reference form,
+   ≥14 array form with exactly 4 arguments else `#VALUE!`); options bits `ignoreErrors = (opts & 2) != 0`,
+   `skipNested = (opts & 4) == 0` (Microsoft's table, fetched: options 0-3 skip nested SUBTOTAL/AGGREGATE cells,
+   2/3/6/7 ignore error values; bit0 hidden rows is a no-op — the S6 caveat, documented); `ReferenceGuard.MissingSheet`
+   up front in both forms; `#VALUE!` for invalid code/options or a missing k; `#NUM!` for k past the post-skip
+   population. Registry `("AGGREGATE", 3, int.MaxValue)`.
+2. **Shared core `Mathematics/AggregateCodes.cs`** extracted from Subtotal (five reference-shape scan arms moved
+   verbatim, `Accumulator` with the two `ignoreErrors` rules, `Fold` 1-13 with explicit `case 11:` and a real
+   unreachable default, `Positional` 14-19 likewise, `CollectStream`, `NestedSkip {None, Subtotal,
+   SubtotalAndAggregate}`, and **`Feed`** — the single entry every aggregate uses). `Subtotal.cs` 346 → ~67 lines.
+3. **Supporting extractions:** the mini-CSE operand tree into `ArrayOperands.cs` (Phase 1 watch item);
+   `OrderSelection` promoted to its own internal file with `KthOfSorted` and `KthValueStreaming(..., ignoreErrors)`;
+   `StatisticsMath.Median/Mode/QuartileInclusive/QuartileExclusive` extracted from the four nodes; **one** mini-CSE
+   gate `ArrayEvaluation.TryStream` replacing FIVE copies (OrderSelection, AggregateCodes.Feed, Aggregate,
+   CriteriaScan.OpenArrayOrRange, Index.Evaluate) — `NumericAggregation.Fold`'s default arm deliberately kept on its
+   two-condition gate (its switch owns the reference dispatch; routing would be a no-op today).
+4. **Behaviour fixes found on the way (all oracle-measured on Aspose.Cells 26.6.0 by the Fable final reviewer):**
+   a whole-argument non-reference error now propagates under options 2/3/6/7 (`AGGREGATE(9,6,1/0)` → `#DIV/0!`, was 0)
+   while an error CELL reached through a reference is still ignored; the nested-aggregate skip now sees through a
+   `SharedFormulaSlave` (a filled-down SUBTOTAL row in a loaded .xlsx was never skipped — pre-existing SUBTOTAL bug).
+5. **Docs:** function-reference (AGGREGATE row alphabetical, SUBTOTAL row, counts 304 → 306 with INDIRECT finally
+   documented, coverage lists), serialization compatibility subsection for tag 322, workbook-and-expressions
+   implicit-array lists, README counts; pt-BR mirrors throughout; inferred Excel semantics labelled, and those the
+   oracle confirmed relabelled as measured.
+
+### The decision this phase got wrong, and how it was caught
+
+The controller ruled — on an UNMEASURED claim inherited from the design verifier ("Excel gives 6") — that SUBTOTAL
+and AGGREGATE 1-13 should FOLD a computed-array argument like SUM, and shipped it as a fix. The three-part final
+review caught it: GLM-5.3 and Copilot approved the branch; the Fable reviewer ran the plan's designated oracle
+(Aspose.Cells, restored offline from the NuGet cache) and measured `#VALUE!` for every such shape (including
+`SUBTOTAL(9,{1,2,3})` and CSE entry) while the array form 14-19 folds — the documented Excel rule that `ref`
+arguments must be references. Commit b7c7464 reversed 11f5eaf: `Feed` now REJECTS a non-reference array-eligible
+argument in the reference form; the five pins, the docs and the master plan's "Measured" line were corrected.
+`SUBTOTAL(9,ROW(A1:A3))` = 1 before the phase was wrong; the right answer is `#VALUE!`, not 6. Lesson recorded in
+`tasks/lessons.md`: a ruling about Excel behaviour runs the oracle first.
+
+### Oracle-settled open questions (Aspose.Cells 26.6.0)
+
+SUBTOTAL does NOT skip a nested AGGREGATE (agrees with MySheet); the array form's nested skip over a plain range
+works; all-error population under option 6 → `#NUM!`; COUNTA under option 6 excludes error cells; k out of range →
+`#NUM!`; `AGGREGATE(15,6,7,1)` = 7 (the array slot takes a scalar; only an error scalar is rejected → `#DIV/0!`).
+Aspose DISAGREES with the Microsoft options table on a nested AGGREGATE under options 0-3 (Aspose counts it; the page
+says skip) — the page wins, code unchanged, recorded.
+
+### Still open (carried to the master plan's open decisions)
+
+- A direct literal in a ref slot: `SUBTOTAL(9,7)` = 7, `AGGREGATE(9,4,A1:A3,7)` = 21; oracle `#VALUE!`. Pre-existing
+  SUBTOTAL behaviour; a `#VALUE!` for any non-reference non-array argument would be a further SUBTOTAL change.
+- `AGGREGATE(15,6,E2,1)` with E2 an error cell: `#NUM!` here, `#DIV/0!` on the oracle (Aspose may scalarise a lone cell).
+- 2-D scan order: every MySheet reference consumer is column-major, the mini-CSE and the oracle row-major — the FIRST
+  error in a 2-D range differs. Engine-wide, pre-existing.
+- `MODE.SNGL` tie-break (first to REACH the count vs first encountered) — now one line in `StatisticsMath.Mode`.
+- Date serial epoch (1899-12-31 vs Excel's 1900-01-01) — found by Phase 8's verifier; outside every phase.
+- Perf: the array form over a plain range collects and sorts per evaluation while SMALL/LARGE reuse the per-epoch
+  sorted snapshot — `AGGREGATE(15,6,A:A,k)` re-sorts per formula. Not required by S6.
+
+### Verification Plan — stale expectations corrected
+
+Core counts `[Arguments]` rows: 1280 → 1349 (not "+ new [Test] methods"). `grep -c 'MemoryPackUnion('` = 323 (tags
+0-322). `OrderSelection` is `internal static class` in `Danfma.MySheet/Expressions/OrderSelection.cs`;
+`Subtotal.Aggregate` no longer exists (it is `AggregateCodes.Fold`). The plan's item 12 text used the old one-argument
+`IsArrayEligible` — the live gate is `ArrayEvaluation.TryStream(Expression, EvaluationContext, out ArrayStream)`.

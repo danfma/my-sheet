@@ -250,3 +250,14 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   `ColumnNumbersOperand` espelhando `RowNumbersOperand`; colapsar em `PositionNumbersOperand` parametrizado por
   eixo encolheu o arquivo e eliminou o drift por construção. Regra: o plano é o argumento; a regra de elegância
   do projeto e a evidência do revisor podem revogá-lo — registrado como Ruling no ledger com o custo se errado.
+- **`zclaude` é o `claude` CLI com ambiente GLM; o wrapper não repassa argumentos.** Chamei `zclaude --print …` e
+  falhou; o script (12 linhas, que eu já tinha impresso) termina em `claude` sem `"$@"`. Regra: para invocar o
+  GLM não-interativo, exportar os `export` do wrapper e chamar `$HOME/.local/bin/claude --print --model opus
+  "<prompt>" < /dev/null` (`opus` → `glm-5.3[1m]`). E: quando imprimo um script para entender a invocação,
+  ler até a última linha antes de chamar — a resposta estava lá.
+- **Ruling sobre "o que o Excel faz" sem rodar o oráculo disponível.** Decidi que SUBTOTAL/AGGREGATE 1-13 dobram
+  um argumento array "como o SUM" a partir de uma afirmação não medida de um verificador de design ("Excel dá 6").
+  O Aspose.Cells 26.6.0 — designado no plano como oráculo — estava no cache NuGet e responde `#VALUE!`; o revisor
+  Fable rodou e derrubou o ruling. Regra: toda decisão que afirme comportamento do Excel roda o oráculo Aspose
+  ANTES de virar ruling; "P0-driven" sem medição é só inferência com capa. Custo real: um commit `fix(eval)` na
+  direção errada, cinco pins e três valores nos docs a inverter.
