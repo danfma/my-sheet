@@ -244,14 +244,25 @@ internal static class AggregateCodes
 
     // The two rules are deliberately DIFFERENT widths: SUBTOTAL's page documents only "nested subtotals are
     // ignored", while "nested SUBTOTAL and AGGREGATE functions" is AGGREGATE's own options-table wording
-    // (options 0-3). The converse — SUBTOTAL skipping a nested AGGREGATE — is unverified and is not guessed
-    // into the engine, which is why NestedSkip.Subtotal stays narrow.
+    // (options 0-3). The narrow arm is also the MEASURED one: on Aspose.Cells 26.6.0 (2026-09-09), a range
+    // holding A3 = "=AGGREGATE(9,0,A1:A2)" = 3 gives =SUBTOTAL(9,A1:A3) = 6 — SUBTOTAL does NOT skip a
+    // nested AGGREGATE — which is why NestedSkip.Subtotal stays narrow.
+    //
+    // A SharedFormulaSlave is UNWRAPPED first, because it is a whole-cell wrapper, not a different kind of
+    // cell: WorksheetStreamLoader stores every slave of a shared-formula group as one of these over the
+    // group's single master tree (WorksheetStreamLoader.ExpandSlave), so in any loaded .xlsx a SUBTOTAL row
+    // filled downwards has a SharedFormulaSlave — not a Subtotal — as its STORED expression. Without this
+    // arm the scan asks the wrapper's type, misses every filled-down aggregate row and double counts it.
+    // Pre-existing for SUBTOTAL since the slave wrapper landed; AGGREGATE inherited it through this shared
+    // predicate.
     private static bool IsNested(Expression? expression, NestedSkip skip) =>
-        skip switch
+        skip != NestedSkip.None
+        && expression switch
         {
-            NestedSkip.None => false,
-            NestedSkip.Subtotal => expression is Subtotal,
-            _ => expression is Subtotal or Aggregate,
+            SharedFormulaSlave { Master: var master } => IsNested(master, skip),
+            Subtotal => true,
+            Aggregate => skip == NestedSkip.SubtotalAndAggregate,
+            _ => false,
         };
 
     // Accumulates the exact shape the aggregate needs, directly from the per-cell scan — no intermediate

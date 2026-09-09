@@ -316,6 +316,87 @@ public class AggregateCodesTests
             .IsEqualTo(6.0);
     }
 
+    // Uma linha de agregado PREENCHIDA PARA BAIXO, como qualquer .xlsx carregado produz: a célula mestre
+    // guarda a árvore ancorada e cada linha abaixo dela guarda um SharedFormulaSlave sobre ESSA MESMA árvore
+    // com um delta de linha (WorksheetStreamLoader.ExpandSlave). A expressão ARMAZENADA da célula escrava é,
+    // portanto, o WRAPPER — e é ela que o scan interroga para decidir o skip.
+    //
+    // B1 = mestre (vale 1), B2 = escrava com delta +1 (vale 2), B3 = 5 simples. Com o skip: 5. Sem ele: 8.
+    private static double GatherOverAFilledDownAggregateRow(
+        AggregateCodes.NestedSkip skip,
+        string body = "SUBTOTAL(9,A1:A1)"
+    )
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(2);
+
+        var master = ExpressionParser.ParseAnchoredMasterBody(
+            ExpressionParser.TokenizeFormulaBody(body),
+            sheet
+        );
+
+        sheet["B1"] = master;
+        sheet["B2"] = new SharedFormulaSlave(master, 1, 0);
+        sheet["B3"] = new NumberValue(5);
+
+        var accumulator = new AggregateCodes.Accumulator(9, ignoreErrors: false);
+
+        AggregateCodes.Gather(
+            ExpressionParser.Parse("=B1:B3", sheet),
+            new EvaluationContext(workbook),
+            ref accumulator,
+            skip
+        );
+
+        return Number(accumulator.Finish());
+    }
+
+    [Test]
+    public async Task Gather_SkipsANestedSubtotalStoredAsASharedFormulaSlave()
+    {
+        // ANTI-VACUIDADE primeiro: as duas células têm que estar valendo o que se espera, senão o 5 sairia
+        // por coincidência (uma escrava com o delta não aplicado valeria 1, e 1 + 5 não é 5 mesmo assim,
+        // mas 8 é a única soma que prova que as duas linhas foram lidas).
+        await Assert
+            .That(GatherOverAFilledDownAggregateRow(AggregateCodes.NestedSkip.None))
+            .IsEqualTo(8.0);
+
+        // A escrava é um SUBTOTAL como qualquer outro — o wrapper não muda o que a célula É. Sem o
+        // desembrulho, a linha preenchida para baixo entra na população e a soma vira 7.
+        await Assert
+            .That(GatherOverAFilledDownAggregateRow(AggregateCodes.NestedSkip.Subtotal))
+            .IsEqualTo(5.0);
+        await Assert
+            .That(GatherOverAFilledDownAggregateRow(AggregateCodes.NestedSkip.SubtotalAndAggregate))
+            .IsEqualTo(5.0);
+    }
+
+    [Test]
+    public async Task Gather_SkipsANestedAggregateStoredAsASharedFormulaSlave_OnlyOnTheWideArm()
+    {
+        // O mesmo desembrulho mantém as DUAS larguras do predicado: um AGGREGATE embrulhado é pulado pelo
+        // arm largo (options 0-3) e CONTADO pelo estreito (a regra do SUBTOTAL), exatamente como um
+        // AGGREGATE não embrulhado. Se o desembrulho ignorasse o `skip`, o 8 abaixo viraria 5.
+        await Assert
+            .That(
+                GatherOverAFilledDownAggregateRow(
+                    AggregateCodes.NestedSkip.SubtotalAndAggregate,
+                    "AGGREGATE(9,0,A1:A1)"
+                )
+            )
+            .IsEqualTo(5.0);
+        await Assert
+            .That(
+                GatherOverAFilledDownAggregateRow(
+                    AggregateCodes.NestedSkip.Subtotal,
+                    "AGGREGATE(9,0,A1:A1)"
+                )
+            )
+            .IsEqualTo(8.0);
+    }
+
     // --- CollectStream: the mini-CSE feed into the same accumulator ---
 
     private static ArrayEvaluation.ArrayStream StreamOf(string formula)

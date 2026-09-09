@@ -14,7 +14,8 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
     // The scan, the accumulator and the code map live in AggregateCodes, shared with AGGREGATE. The nested
     // skip stays at NestedSkip.Subtotal: Microsoft's SUBTOTAL page documents only "nested subtotals are
     // ignored", while the "nested SUBTOTAL and AGGREGATE" wording appears solely in AGGREGATE's own options
-    // table — the converse is unverified and is not guessed into the engine.
+    // table — and the narrow reading is the MEASURED one (Aspose.Cells 26.6.0, 2026-09-09: over A1=1, A2=2,
+    // A3="=AGGREGATE(9,0,A1:A2)"=3, =SUBTOTAL(9,A1:A3) is 6, so the nested AGGREGATE is counted).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var rawCode) is { } codeError)
