@@ -23,17 +23,20 @@ public sealed partial record Days(Expression[] Arguments) : Function
             return ComputedValue.Error(startError);
         }
 
-        if (DateSerial.ToDateTime(endSerial, out var endDate) is { } endRange)
+        // The map supplies the range policy only. The COUNT is a serial subtraction: the two serials 59 and
+        // 60 both map to 1900-02-28, so a DateTime difference silently swallows the phantom day whenever the
+        // span straddles it (measured DAYS(60,59) = 1, DAYS(61,59) = 2, DAYS(59,61) = -2).
+        if (DateSerial.ToDateTime(endSerial, out _) is { } endRange)
         {
             return ComputedValue.Error(endRange);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var startDate) is { } startRange)
+        if (DateSerial.ToDateTime(startSerial, out _) is { } startRange)
         {
             return ComputedValue.Error(startRange);
         }
 
-        return ComputedValue.Number((endDate.Date - startDate.Date).Days);
+        return ComputedValue.Number(Math.Truncate(endSerial) - Math.Truncate(startSerial));
     }
 }
 
@@ -63,57 +66,81 @@ public sealed partial record Days360(Expression[] Arguments) : Function
             return ComputedValue.Error(methodError);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var start) is { } startRange)
+        // The 30/360 arithmetic reads the LOTUS calendar: serial 60 is 1900-02-29 and February 1900 has 29
+        // days, so serial 59 is NOT that month's last day (measured DAYS360(59,61) = 3).
+        if (
+            DateSerial.TryGetCalendar(
+                startSerial,
+                phantomFeb29: true,
+                out var y1,
+                out var m1,
+                out var d1
+            ) is
+            { } startRange
+        )
         {
             return ComputedValue.Error(startRange);
         }
 
-        if (DateSerial.ToDateTime(endSerial, out var end) is { } endRange)
+        if (
+            DateSerial.TryGetCalendar(
+                endSerial,
+                phantomFeb29: true,
+                out var y2,
+                out var m2,
+                out var d2
+            ) is
+            { } endRange
+        )
         {
             return ComputedValue.Error(endRange);
         }
 
-        var days = european
-            ? DayCount.Euro360Days(start.Date, end.Date)
-            : UsDays360(start.Date, end.Date);
+        // MEASURED and not derivable from the rules below: the phantom day counts as day 30 when it OPENS the
+        // span and as day 29 when it closes it (DAYS360(60,61) = DAYS360(60,61,TRUE) = 1 against
+        // DAYS360(59,60) = DAYS360(59,60,TRUE) = 1), and a span from the phantom day to itself is 0 rather
+        // than the -1 those two roles would otherwise produce (DAYS360(60,60) = DAYS360(60.5,60.9) = 0).
+        if (Math.Truncate(startSerial) == Math.Truncate(endSerial))
+        {
+            return ComputedValue.Number(0d);
+        }
 
-        return ComputedValue.Number(days);
-    }
-
-    // US (NASD) DAYS360 (support.microsoft.com + MS-OI29500 §18.17.7.79). Distinct from YEARFRAC basis 0:
-    // when the end date is the last day of a month and the (adjusted) start day is < 30, the end rolls to
-    // the 1st of the next month.
-    private static int UsDays360(DateTime start, DateTime end)
-    {
-        int d1 = start.Day,
-            m1 = start.Month,
-            y1 = start.Year;
-        int d2 = end.Day,
-            m2 = end.Month,
-            y2 = end.Year;
-
-        if (d1 == DateTime.DaysInMonth(y1, m1))
+        if (DateSerial.IsPhantomFeb29(startSerial))
         {
             d1 = 30;
         }
 
-        if (d2 == DateTime.DaysInMonth(y2, m2))
-        {
-            if (d1 < 30)
-            {
-                d2 = 1;
-                m2++;
+        var days = european
+            ? DayCount.Euro360Days(y1, m1, d1, y2, m2, d2)
+            : UsDays360(y1, m1, d1, y2, m2, d2);
 
-                if (m2 > 12)
-                {
-                    m2 = 1;
-                    y2++;
-                }
-            }
-            else
-            {
-                d2 = 30;
-            }
+        return ComputedValue.Number(days);
+    }
+
+    // US (NASD) DAYS360 as MEASURED on Aspose.Cells 26.6.0 (PLAIN entry). Two things separate it from
+    // YEARFRAC's basis 0 in DayCount.Nasd360Days:
+    //   * the February pull runs BEFORE the end-31 test, so a February-end start DOES drag a day-31 end down
+    //     with it — DAYS360(DATE(2023,2,28),DATE(2023,3,31)) = 30 against YEARFRAC(…,0) = 31/360; and
+    //   * the month length is the LOTUS one, so 1900-02-29 is February's last day and 1900-02-28 is not.
+    // There is NO "end rolls to the 1st of the next month" rule, which support.microsoft.com and
+    // MS-OI29500 §18.17.7.79 both describe and Aspose does not have: measured
+    // DAYS360(DATE(2011,1,1),DATE(2011,4,30)) = 119 (not 120), (DATE(2024,1,16),DATE(2024,2,29)) = 43
+    // (not 45), (DATE(2011,1,15),DATE(2011,9,30)) = 255.
+    private static int UsDays360(int y1, int m1, int d1, int y2, int m2, int d2)
+    {
+        if (d1 == 31)
+        {
+            d1 = 30;
+        }
+
+        if (m1 == 2 && d1 == DateSerial.LotusDaysInMonth(y1, 2))
+        {
+            d1 = 30;
+        }
+
+        if (d2 == 31 && d1 >= 30)
+        {
+            d2 = 30;
         }
 
         return (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1);
@@ -365,8 +392,9 @@ public sealed partial record IsoWeekNum(Expression[] Arguments) : Function
 public sealed partial record DateDif(Expression[] Arguments) : Function
 {
     // DATEDIF(start, end, unit) — Lotus-compatibility function with the 6 documented units. start > end is
-    // #NUM!. The "MD" unit is officially warned to be unreliable (may be negative/zero/inaccurate); its
-    // classic Excel behavior is reproduced, not corrected.
+    // #NUM!. "Y", "M" and "YM" are whole calendar counts read off the DateTime map; "D", "MD" and "YD" count
+    // SERIALS from an anchor (see MonthAnchor/YearAnchor), because a Gregorian difference is a day short over
+    // the phantom 1900-02-29. Measured on Aspose.Cells 26.6.0, PLAIN entry.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var startSerial) is { } startError)
@@ -396,23 +424,48 @@ public sealed partial record DateDif(Expression[] Arguments) : Function
 
         var start = startDt.Date;
         var end = endDt.Date;
+        var startDay = Math.Truncate(startSerial);
+        var endDay = Math.Truncate(endSerial);
 
-        if (start > end)
+        // The pair is ordered on the SERIALS, not on the mapped dates: 60 and 59 both map to 1900-02-28, and
+        // measured DATEDIF(60,59,"d") and DATEDIF(61,60,"d") are #NUM! while DATEDIF(0,0,"d") is 0.
+        if (startDay > endDay)
         {
             return ComputedValue.Error(Error.Num);
         }
 
+        // The three calendar units read the map; the three day units subtract serials from an ANCHOR — the
+        // start pushed forward by the whole months (or years) the span contains, which is the date the
+        // leftover days are counted from. Anchoring is what makes the day units agree with Excel across the
+        // phantom day (measured DATEDIF(60,61,"md") = 2, DATEDIF(31,60,"md") = 29) and away from it
+        // (DATEDIF(DATE(2024,1,31),DATE(2024,3,1),"md") = 1, where a plain "borrow the previous month's
+        // length" gives -1).
         return unit.ToUpperInvariant() switch
         {
             "Y" => ComputedValue.Number(CompleteYears(start, end)),
             "M" => ComputedValue.Number(CompleteMonths(start, end)),
-            "D" => ComputedValue.Number((end - start).Days),
-            "MD" => ComputedValue.Number(DayDifferenceIgnoringMonths(start, end)),
+            "D" => ComputedValue.Number(endDay - startDay),
+            "MD" => ComputedValue.Number(endDay - MonthAnchor(start, end)),
             "YM" => ComputedValue.Number(MonthDifferenceIgnoringYears(start, end)),
-            "YD" => ComputedValue.Number(DayDifferenceIgnoringYears(start, end)),
+            "YD" => ComputedValue.Number(endDay - YearAnchor(start, end)),
             _ => ComputedValue.Error(Error.Num),
         };
     }
+
+    /// <summary>
+    /// The serial of the start pushed forward by every WHOLE month the span contains — the anchor "MD"
+    /// counts its leftover days from. <see cref="DateTime.AddMonths"/> clamps to the target month's last day,
+    /// which is what makes a day-31 start land on February 29 rather than rolling into March.
+    /// </summary>
+    private static double MonthAnchor(DateTime start, DateTime end) =>
+        DateSerial.FromDateTime(start.AddMonths(CompleteMonths(start, end)));
+
+    /// <summary>
+    /// The serial of the start pushed forward by every WHOLE year the span contains — the anchor "YD" counts
+    /// its leftover days from. <see cref="DateTime.AddYears"/> clamps February 29 to February 28.
+    /// </summary>
+    private static double YearAnchor(DateTime start, DateTime end) =>
+        DateSerial.FromDateTime(start.AddYears(CompleteYears(start, end)));
 
     private static int CompleteYears(DateTime start, DateTime end)
     {
@@ -438,19 +491,6 @@ public sealed partial record DateDif(Expression[] Arguments) : Function
         return months;
     }
 
-    private static int DayDifferenceIgnoringMonths(DateTime start, DateTime end)
-    {
-        if (end.Day >= start.Day)
-        {
-            return end.Day - start.Day;
-        }
-
-        var previousMonth = end.AddMonths(-1);
-        var daysInPreviousMonth = DateTime.DaysInMonth(previousMonth.Year, previousMonth.Month);
-
-        return daysInPreviousMonth - start.Day + end.Day;
-    }
-
     private static int MonthDifferenceIgnoringYears(DateTime start, DateTime end)
     {
         var months = end.Month - start.Month;
@@ -461,18 +501,6 @@ public sealed partial record DateDif(Expression[] Arguments) : Function
         }
 
         return months < 0 ? months + 12 : months;
-    }
-
-    private static int DayDifferenceIgnoringYears(DateTime start, DateTime end)
-    {
-        var anchoredStart = start.AddYears(end.Year - start.Year);
-
-        if (anchoredStart > end)
-        {
-            anchoredStart = anchoredStart.AddYears(-1);
-        }
-
-        return (end - anchoredStart).Days;
     }
 }
 
@@ -511,19 +539,24 @@ public sealed partial record YearFrac(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var startDt) is { } startRange)
+        // The map supplies the range policy; the day counting itself stays on the serials, so that bases 1-3
+        // span the phantom day and bases 0/4 can read it as February 29 (measured YEARFRAC(1,61,1) = 60/365,
+        // (60,61,0) = 2/360).
+        if (DateSerial.ToDateTime(startSerial, out _) is { } startRange)
         {
             return ComputedValue.Error(startRange);
         }
 
-        if (DateSerial.ToDateTime(endSerial, out var endDt) is { } endRange)
+        if (DateSerial.ToDateTime(endSerial, out _) is { } endRange)
         {
             return ComputedValue.Error(endRange);
         }
 
-        var start = startDt.Date;
-        var end = endDt.Date;
+        var start = Math.Floor(startSerial);
+        var end = Math.Floor(endSerial);
 
+        // Measured YEARFRAC(60,60,0) = YEARFRAC(59,59,0) = 0: the same whole day on both ends is no time at
+        // all, ahead of the phantom day's asymmetric roles in the 30/360 count.
         if (start == end)
         {
             return ComputedValue.Number(0d);

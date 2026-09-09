@@ -214,6 +214,45 @@ public class DateEpochTests
         // above, so it is pinned on modern dates as well.
         await Assert.That(Num("=DAYS360(DATE(2024,1,31),DATE(2024,2,29))")).IsEqualTo(29d);
         await Assert.That(Num("=DAYS360(DATE(2024,2,28),DATE(2024,2,29))")).IsEqualTo(1d);
+        await Assert.That(Num("=DAYS360(DATE(2024,1,16),DATE(2024,2,29))")).IsEqualTo(43d);
+    }
+
+    [Test]
+    public async Task Days360_HasNoEndOfMonthRollAtAll()
+    {
+        // Generic (not epoch), and the other half of the rule the 1900 rows need: support.microsoft.com and
+        // MS-OI29500 §18.17.7.79 both roll a month-end END to the 1st of the next month when the adjusted
+        // start is below day 30. Aspose has no such rule — a 30-day month end simply stays day 30.
+        await Assert.That(Num("=DAYS360(DATE(2011,1,1),DATE(2011,4,30))")).IsEqualTo(119d);
+        await Assert.That(Num("=DAYS360(DATE(2011,1,15),DATE(2011,9,30))")).IsEqualTo(255d);
+        await Assert.That(Num("=DAYS360(DATE(2011,2,1),DATE(2011,4,30))")).IsEqualTo(89d);
+        // A day-31 end still drops to 30 when the adjusted start reached 30, so these two do not move.
+        await Assert.That(Num("=DAYS360(DATE(2011,1,1),DATE(2011,12,31))")).IsEqualTo(360d);
+        await Assert.That(Num("=DAYS360(DATE(2024,1,30),DATE(2024,3,31))")).IsEqualTo(60d);
+    }
+
+    [Test]
+    public async Task Days360_PullsAFebruaryEndBeforeTestingTheEnd()
+    {
+        // DAYS360 and YEARFRAC basis 0 order the same two 30/360 steps differently, so these rows and the
+        // YEARFRAC ones below deliberately disagree: here the February-end start becomes day 30 FIRST and
+        // therefore drags the day-31 end down to 30 as well.
+        await Assert.That(Num("=DAYS360(DATE(2023,2,28),DATE(2023,3,31))")).IsEqualTo(30d);
+        await Assert.That(Num("=DAYS360(DATE(2024,2,29),DATE(2024,5,31))")).IsEqualTo(90d);
+        // 2024-02-28 is not February's last day, so nothing is pulled and the day-31 end survives.
+        await Assert.That(Num("=DAYS360(DATE(2024,2,28),DATE(2024,5,31))")).IsEqualTo(93d);
+    }
+
+    [Test]
+    public async Task Days360_OverThePhantomDayAloneIsZero()
+    {
+        // The phantom day counts as day 30 when it opens a span and day 29 when it closes one, which would
+        // make a span from it to itself -1. Aspose answers 0.
+        await Assert.That(Num("=DAYS360(60,60)")).IsEqualTo(0d);
+        await Assert.That(Num("=DAYS360(60.5,60.9)")).IsEqualTo(0d);
+        // The two roles themselves, and a reversed pair, which stays negative.
+        await Assert.That(Num("=DAYS360(60,61)")).IsEqualTo(1d);
+        await Assert.That(Num("=DAYS360(61,60)")).IsEqualTo(-2d);
     }
 
     [Test]
@@ -225,6 +264,56 @@ public class DateEpochTests
         await Assert.That(Num("=YEARFRAC(59,60)")).IsEqualTo(0d).Within(RatioTolerance);
         await Assert.That(Num("=YEARFRAC(1,60)")).IsEqualTo(59d / 360d).Within(RatioTolerance);
         await Assert.That(Num("=YEARFRAC(31,60,4)")).IsEqualTo(30d / 360d).Within(RatioTolerance);
+    }
+
+    [Test]
+    public async Task YearFrac_Basis0HasNoEndOfFebruaryRule()
+    {
+        // Generic (not epoch), and a prerequisite for the 1900 rows: MS-OI29500 pulls an END on the last day
+        // of February to a nominal 30 when the start is one too, which makes all four of these exactly 1.
+        // Aspose has no such rule.
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2024,2,29),DATE(2025,2,28),0)"))
+            .IsEqualTo(358d / 360d)
+            .Within(RatioTolerance);
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2011,2,28),DATE(2012,2,29),0)"))
+            .IsEqualTo(359d / 360d)
+            .Within(RatioTolerance);
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2023,2,28),DATE(2024,2,29),0)"))
+            .IsEqualTo(359d / 360d)
+            .Within(RatioTolerance);
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2012,2,29),DATE(2013,2,28),0)"))
+            .IsEqualTo(358d / 360d)
+            .Within(RatioTolerance);
+        // The same rule inside the 1900 window: serial 59 to serial 425 is 1900-02-28 to 1901-02-28.
+        await Assert.That(Num("=YEARFRAC(59,425,0)")).IsEqualTo(358d / 360d).Within(RatioTolerance);
+    }
+
+    [Test]
+    public async Task YearFrac_Basis0PullsAFebruaryEndAfterTestingTheEnd()
+    {
+        // The start-of-February pull SURVIVES (these are 1/360 and 31/360, not 3/360 and 33/360) but it runs
+        // AFTER the day-31 end test, so unlike DAYS360 it does not drag a day-31 end down to 30.
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2023,2,28),DATE(2023,3,1),0)"))
+            .IsEqualTo(1d / 360d)
+            .Within(RatioTolerance);
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2023,2,28),DATE(2023,3,31),0)"))
+            .IsEqualTo(31d / 360d)
+            .Within(RatioTolerance);
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2024,2,29),DATE(2024,5,31),0)"))
+            .IsEqualTo(91d / 360d)
+            .Within(RatioTolerance);
+        // Reached through the day-31 start rule instead, the pull-to-30 DOES take the end with it.
+        await Assert
+            .That(Num("=YEARFRAC(DATE(2024,1,31),DATE(2024,3,31),0)"))
+            .IsEqualTo(60d / 360d)
+            .Within(RatioTolerance);
     }
 
     // --- NETWORKDAYS / WORKDAY: the working-day family walks the shifted calendar. ---
@@ -268,6 +357,35 @@ public class DateEpochTests
         await Assert.That(Num("=DATEDIF(60,61,\"md\")")).IsEqualTo(2d);
         await Assert.That(Num("=DATEDIF(1,366,\"y\")")).IsEqualTo(0d);
         await Assert.That(Num("=DATEDIF(29,60,\"m\")")).IsEqualTo(0d);
+    }
+
+    [Test]
+    public async Task DateDif_AnchorsTheDayUnitsOnTheWholeMonthsAndYears()
+    {
+        // "MD" and "YD" count serials from the start pushed forward by every WHOLE month (year) the span
+        // contains, with the shift CLAMPED to the target month's last day. Inside the 1900 window that is
+        // what spans the phantom day; outside it, it is what keeps a day-31 start from overshooting the end
+        // (the "borrow the previous month's length" formula answers -1 to the first two rows).
+        await Assert.That(Num("=DATEDIF(DATE(2024,1,31),DATE(2024,3,1),\"md\")")).IsEqualTo(1d);
+        await Assert.That(Num("=DATEDIF(DATE(2023,1,31),DATE(2023,3,1),\"md\")")).IsEqualTo(1d);
+        await Assert.That(Num("=DATEDIF(DATE(2024,1,31),DATE(2024,4,1),\"md\")")).IsEqualTo(1d);
+        await Assert.That(Num("=DATEDIF(DATE(2024,1,31),DATE(2024,2,29),\"md\")")).IsEqualTo(29d);
+        await Assert.That(Num("=DATEDIF(DATE(2024,2,29),DATE(2025,3,1),\"yd\")")).IsEqualTo(1d);
+        await Assert.That(Num("=DATEDIF(DATE(2024,2,29),DATE(2025,2,28),\"yd\")")).IsEqualTo(365d);
+        await Assert.That(Num("=DATEDIF(0,60,\"md\")")).IsEqualTo(29d);
+        await Assert.That(Num("=DATEDIF(60,60,\"md\")")).IsEqualTo(1d);
+        await Assert.That(Num("=DATEDIF(1,366,\"yd\")")).IsEqualTo(365d);
+        await Assert.That(Num("=DATEDIF(31,60,\"yd\")")).IsEqualTo(29d);
+    }
+
+    [Test]
+    public async Task DateDif_OrdersThePairOnTheSerials()
+    {
+        // Serials 59 and 60 map to the same 1900-02-28, so a DateTime comparison lets a reversed pair through
+        // and answers -1. Aspose rejects it.
+        await Assert.That(Calc("=DATEDIF(60,59,\"d\")")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=DATEDIF(61,60,\"d\")")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Num("=DATEDIF(0,0,\"d\")")).IsEqualTo(0d);
     }
 
     // --- The bond / coupon family reads the DateTime map. ---

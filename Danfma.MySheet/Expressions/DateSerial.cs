@@ -24,10 +24,12 @@ namespace Danfma.MySheet.Expressions;
 /// REAL calendar below serial 61, because Aspose has no consistent rule there. This is NOT the
 /// <see cref="DateTime.DayOfWeek"/> of the mapped value, which the one-day shift moves.</item>
 /// <item><b>The Lotus calendar</b> — serial 60 IS 1900-02-29 and February 1900 has 29 days, exposed by
-/// <c>phantomFeb29: true</c>. Its intended consumers are the number formatter (<c>TEXT</c> and cell display)
-/// and the 30/360 arithmetic of DAYS360/YEARFRAC; none of the three reads it yet — the pins for all of them
-/// are still red and Phase 9's remaining items own the migration. Everything that COUNTS days counts
-/// serials instead.</item>
+/// <c>phantomFeb29: true</c> and by <see cref="LotusDaysInMonth"/>. Read by the 30/360 arithmetic of
+/// DAYS360 and of YEARFRAC's bases 0 and 4; the number formatter (<c>TEXT</c> and cell display) is meant to
+/// join it and still reads the collapsed map, so its pins are red and Phase 9's TEXT item owns that move.
+/// Everything that COUNTS days counts serials instead — DAYS, DATEDIF, YEARFRAC's bases 1-3 and
+/// XNPV/XIRR all subtract serials, because subtracting mapped <see cref="DateTime"/>s loses the phantom
+/// day whenever the span straddles it.</item>
 /// </list>
 ///
 /// Functions treat a negative serial as out of range → <c>#NUM!</c>.
@@ -55,6 +57,26 @@ internal static class DateSerial
     /// the OADate, because Excel counts the phantom 1900-02-29 that the Gregorian calendar does not have.
     /// </summary>
     private static readonly DateTime FirstAlignedDate = new(1900, 3, 1);
+
+    /// <summary>
+    /// Whether the serial falls inside the phantom day, i.e. the whole half-open day
+    /// <c>[60, 61)</c> — the window in which <see cref="TryGetCalendar"/> with
+    /// <c>phantomFeb29: true</c> answers 1900/2/29 and the round trip through a
+    /// <see cref="DateTime"/> loses a day.
+    /// </summary>
+    public static bool IsPhantomFeb29(double serial) =>
+        serial >= PhantomFeb29Serial && serial < PhantomFeb29Serial + 1d;
+
+    /// <summary>
+    /// The length of a month on the Lotus calendar: February 1900 has <b>29</b> days there, because serial
+    /// 60 is the phantom 1900-02-29. Only the 30/360 day counts ask this (the DAYS360 start rule needs to
+    /// know whether a February day is the month's last), and only DAYS360 asks it with the Lotus length —
+    /// YEARFRAC's basis 0 tests the same thing with <see cref="DateTime.DaysInMonth"/>, so serial 59 is a
+    /// February end there and is not one here (measured <c>DAYS360(59,61)</c> = 3 against
+    /// <c>YEARFRAC(59,61,0)</c> = 1/360).
+    /// </summary>
+    public static int LotusDaysInMonth(int year, int month) =>
+        year == 1900 && month == 2 ? 29 : DateTime.DaysInMonth(year, month);
 
     /// <summary>
     /// serial → <see cref="DateTime"/>. Returns <see cref="Error.Num"/> when the serial is negative or
@@ -146,7 +168,7 @@ internal static class DateSerial
             return null;
         }
 
-        if (phantomFeb29 && serial >= PhantomFeb29Serial && serial < PhantomFeb29Serial + 1d)
+        if (phantomFeb29 && IsPhantomFeb29(serial))
         {
             (year, month, day) = (1900, 2, 29);
             return null;
