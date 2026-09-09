@@ -115,6 +115,122 @@ public class MathAggregateTests
         await Assert.That(Calc("=SUMPRODUCT(A1:A2,B1:B3)", cells)).IsEqualTo(ErrorValue.NotValue);
     }
 
+    // --- SUMPRODUCT sobre um array COMPUTADO — mesma página golden (16753e75). As duas regras
+    // documentadas em jogo: "SUMPRODUCT treats non-numeric array entries as if they were zeros" e
+    // "The array arguments must have the same dimensions. If they do not, SUMPRODUCT returns the
+    // #VALUE! error value." A2 = 0 é a mentira deliberada do fixture — é a ÚNICA célula cujo sinal
+    // (<>0) é FALSE, então um resultado 3 provaria que os sinais nunca chegaram à soma. ---
+
+    private static readonly (string, object)[] FlagData =
+    [
+        ("A1", 5),
+        ("A2", 0),
+        ("A3", 9),
+        ("B1", 2),
+        ("B2", 4),
+        ("B3", 6),
+    ];
+
+    [Test]
+    public async Task SumProduct_ConsumesAComputedArrayArgument()
+    {
+        // (A1:A3<>0)*1 is [1,0,1] — a computed array, not a range. SUMPRODUCT reads its arguments
+        // through PositionalRange, which gained an array backing for exactly this: before it, a
+        // computed-array argument was evaluated ONCE as a scalar (#VALUE! for the operation forms,
+        // and the leftmost row number for ROW(range) — a wrong NUMBER, not an error).
+        await Assert.That(Num(Calc("=SUMPRODUCT((A1:A3<>0)*1)", FlagData))).IsEqualTo(2.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT((A1:A3<>0)*1,B1:B3)", FlagData))).IsEqualTo(8.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT((A1:A3>0)*(B1:B3>3))", FlagData))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT(ROW(A1:A3))", FlagData))).IsEqualTo(6.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT(IF(A1:A3>0,1,0))", FlagData))).IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task SumProduct_DoesNotCoerceTheLogicalsOfAComputedArray()
+    {
+        // The "non-numeric entries count as zero" rule covers the TRUE/FALSE of a bare comparison too:
+        // (A1:A3<>0) is [TRUE,FALSE,TRUE] and sums to 0 — which is precisely why the Excel idiom
+        // multiplies the flags by 1.
+        await Assert.That(Num(Calc("=SUMPRODUCT((A1:A3<>0))", FlagData))).IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task SumProduct_OrientationMismatch_IsValueError()
+    {
+        // "The array arguments must have the same DIMENSIONS" — not the same cell count: a 3x1 column
+        // and a 1x3 row both hold 3 cells and are still #VALUE! in Excel. A count-only check accepted
+        // this pair and answered 25 (5*5 + 0*0 + 9*0, pairing column A against row 1).
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:A3,A1:C1)", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUMPRODUCT((A1:A3<>0)*1,A1:D1)", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task SumProduct_OrientationMismatch_IsValueError_EvenFromTheRangeSnapshot()
+    {
+        // The dimension rule must not depend on WHICH backing answered. The shared per-epoch
+        // RangeSnapshot is admitted only on a range's SECOND read of the epoch and only above
+        // RangeCacheMinimumCells (256) populated cells, and it hands the values over as a flat list —
+        // so a snapshot-served range has to carry its rectangle's shape along, or two cells holding
+        // the IDENTICAL formula would disagree (measured with the shape dropped: ZZ1 #VALUE!, ZZ2
+        // 9045054). A1:A300 is 300x1 and A5:KN5 is 1x300 — 300 cells each, above the threshold.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        for (var row = 1; row <= 300; row++)
+        {
+            sheet["A" + row] = new NumberValue(row);
+        }
+
+        for (var column = 2; column <= 300; column++) // A5 is already populated by the column above
+        {
+            sheet[new CellAddress(column, 5).ToId()] = new NumberValue(column);
+        }
+
+        var rowEnd = new CellAddress(300, 5).ToId(); // KN5 — the 300th column
+        var formula = $"=SUMPRODUCT(A1:A300,A5:{rowEnd})";
+        sheet["ZZ1"] = ExpressionParser.Parse(formula, sheet);
+        sheet["ZZ2"] = ExpressionParser.Parse(formula, sheet);
+
+        // ZZ1 reads both ranges cold (streaming cursor); ZZ2 is the second read, served by the snapshot.
+        await Assert
+            .That(workbook.GetCellValue("Sheet1", "ZZ1").AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(workbook.GetCellValue("Sheet1", "ZZ2").AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task SumProduct_PropagatesAnErrorElementOfAComputedArray()
+    {
+        // An error INSIDE the computed array propagates as the function result (Excel agrees); it is
+        // never absorbed by the "non-numeric counts as zero" rule. E2/E3 are blank, so only E1 errs.
+        (string, object)[] cells = [("A1", 5), ("A2", 0), ("A3", 9), ("E1", "=1/0")];
+
+        await Assert
+            .That(Calc("=SUMPRODUCT((E1:E3)*1,A1:A3)", cells))
+            .IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
+    public async Task SumProduct_PairsRangesAndArraysInTheSamePositionOrder()
+    {
+        // The transpose quartet: a range cursor walks COLUMN-major while the element-wise array stream
+        // is ROW-major, so one side must be transposed on read. All four forms are the same sum of
+        // squares, 1*1 + 2*2 + 3*3 + 4*4 = 30; without the transpose the two MIXED forms silently
+        // return 29, because they pair A2 with B1.
+        (string, object)[] grid = [("A1", 1), ("A2", 2), ("B1", 3), ("B2", 4)];
+
+        await Assert.That(Num(Calc("=SUMPRODUCT(A1:B2,A1:B2)", grid))).IsEqualTo(30.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT(A1:B2,(A1:B2)*1)", grid))).IsEqualTo(30.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT((A1:B2)*1,A1:B2)", grid))).IsEqualTo(30.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT((A1:B2)*1,(A1:B2)*1)", grid))).IsEqualTo(30.0);
+    }
+
     // --- SUMX2MY2 / SUMX2PY2 / SUMXMY2 — golden: páginas oficiais (9e599cc5, 826b60b4,
     // 9d144ac1): array_x {2,3,9,1,8,7,5}, array_y {6,5,11,7,5,4,4}. ---
 

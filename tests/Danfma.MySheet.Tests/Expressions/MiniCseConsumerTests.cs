@@ -293,15 +293,14 @@ public class MiniCseConsumerTests
     }
 
     [Test]
-    public async Task SumProduct_OfRowAndColumn_StaysScalarUntilSumProductOptsIn()
+    public async Task SumProduct_OfRowAndColumn_ConsumesTheMiniCse()
     {
-        // SUMPRODUCT does NOT consume the mini-CSE (PositionalRange has no array backing yet — FIX C of
-        // plans/structured-table-references-and-aggregate.md adds one): both arguments still evaluate to
-        // their scalar position, so this is 1*1 = 1, not the 9 of the element-wise pairing above. Pinned so
-        // the FIX C task sees this assertion flip.
+        // SUMPRODUCT opts into the mini-CSE too (PositionalRange gained an array backing): ROW(A1:B2) =
+        // [1,1,2,2] and COLUMN(A1:B2) = [1,2,1,2] are zipped position by position, so this is the same 9
+        // as the SUM form above — not the 1*1 of two collapsed scalars.
         await Assert
             .That(Num(OnPositionGrid("=SUMPRODUCT(ROW(A1:B2),COLUMN(A1:B2))")))
-            .IsEqualTo(1.0);
+            .IsEqualTo(9.0);
     }
 
     [Test]

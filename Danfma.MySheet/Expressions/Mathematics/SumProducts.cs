@@ -22,17 +22,20 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
         // Walk the arrays as parallel positional cursors (PositionalRange: snapshot zero-copy → dense
         // rectangle stream → materialized fallback) instead of materializing one List per argument. The
         // only allocation is this tiny per-argument cursor array; the O(cells) range data is never copied.
+        // OpenArrayOrRange is the SUMPRODUCT-only factory: it adds the element-wise array backing, so a
+        // COMPUTED argument — (A1:A3<>0)*1, ROW(A1:A3), IF(A1:A3>0,1,0) — is a vector rather than a single
+        // collapsed scalar. The *IFS family keeps plain Open, where Excel requires real ranges.
         var ranges = new PositionalRange[Arguments.Length];
-        ranges[0] = PositionalRange.Open(Arguments[0], context);
+        ranges[0] = PositionalRange.OpenArrayOrRange(Arguments[0], context);
         var length = ranges[0].Count;
 
-        // Every argument's cell count is known up front, so validate all dimensions before scanning any
-        // value — a length mismatch is #VALUE! ahead of any cell error, exactly like the pre-refactor code.
+        // Every argument's cell count AND shape is known up front, so validate all dimensions before scanning
+        // any value — a mismatch is #VALUE! ahead of any cell error, exactly like the pre-refactor code.
         for (var a = 1; a < ranges.Length; a++)
         {
-            ranges[a] = PositionalRange.Open(Arguments[a], context);
+            ranges[a] = PositionalRange.OpenArrayOrRange(Arguments[a], context);
 
-            if (ranges[a].Count != length)
+            if (ranges[a].Count != length || !SameShape(ranges[0], ranges[a]))
             {
                 return ComputedValue.Error(Error.Value);
             }
@@ -64,6 +67,17 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
 
         return ComputedValue.Number(total);
     }
+
+    // The documented rule is about DIMENSIONS, not the cell count: "The array arguments must have the same
+    // dimensions. If they do not, SUMPRODUCT returns the #VALUE! error value." A 3x1 column and a 1x3 row
+    // hold the same three cells and are still #VALUE! in Excel, so the count check alone is not enough.
+    // A shape of 0 rows means the argument HAS no rectangle (an open range, a union, a defined name or a
+    // scalar served by the materialized fallback): the shape is unknown there, so the pair is judged by its
+    // count alone rather than rejected — SUMPRODUCT(MyName,(A1:A3<>0)*1) is legal in Excel.
+    private static bool SameShape(in PositionalRange first, in PositionalRange other) =>
+        first.Rows == 0
+        || other.Rows == 0
+        || (first.Rows == other.Rows && first.Columns == other.Columns);
 }
 
 [MemoryPackable]
