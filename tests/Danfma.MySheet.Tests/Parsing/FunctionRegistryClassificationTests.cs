@@ -6,10 +6,11 @@ namespace Danfma.MySheet.Tests.Parsing;
 
 /// <summary>
 /// Pins the registry's array-lifting classification: the flag's default-deny zero value, the two sibling
-/// factories that set it, the 180/126 split over the 306 registered built-ins, and the exclusions that no
-/// automatic signal catches. The classification is what the mini-CSE consults before lifting a function over
-/// an array element by element, so a wrong flag on a range-aware function is a SILENT wrong number: it would
-/// see only the top-left element of the rectangle it was supposed to consume whole.
+/// factories that set it, the 180/126 split over the 306 registered built-ins, the ROSTER that pins the
+/// Elementwise half by name (see <c>TheElementwiseRoster</c> — a count alone is not a pin), and the
+/// exclusions that no automatic signal catches. The classification is what the mini-CSE consults before
+/// lifting a function over an array element by element, so a wrong flag on a range-aware function is a SILENT
+/// wrong number: it would see only the top-left element of the rectangle it was supposed to consume whole.
 /// </summary>
 public class FunctionRegistryClassificationTests
 {
@@ -54,8 +55,9 @@ public class FunctionRegistryClassificationTests
     }
 
     // The split is a derived number, not a taste: 180 pure-scalar built-ins may be lifted, the remaining 126
-    // consume ranges/arrays themselves. Asserting the totals catches a conversion that strays from the list
-    // (either direction) the moment it is added.
+    // consume ranges/arrays themselves. These totals are the cheap sanity check on the shape of the table;
+    // the actual pin is TheElementwiseSet_IsExactlyTheCommittedRoster below, because a total is satisfiable
+    // by a compensating swap while a name is not.
     [Test]
     public async Task TheClassificationSplitsThe306BuiltInsInto180Elementwise_And126Consumes()
     {
@@ -64,6 +66,255 @@ public class FunctionRegistryClassificationTests
         await Assert.That(entries.Length).IsEqualTo(306);
         await Assert.That(entries.Count(e => e.Lifting is ArrayLifting.Elementwise)).IsEqualTo(180);
         await Assert.That(entries.Count(e => e.Lifting is ArrayLifting.Consumes)).IsEqualTo(126);
+    }
+
+    // THE ROSTER. The exact set of names the registry flags Elementwise, committed as a sorted list, because
+    // a COUNT is not a pin: the 180/126 totals above survive a compensating swap (one entry mis-flagged
+    // Elementwise while another is corrected to Consumes), and they survive the honest-looking edit a
+    // contributor adding a function makes — flip the factory, bump the number. Measured: mis-flagging
+    // Entry<HLookup> as Elementwise<HLookup> and bumping 180→181 / 126→125 (plus the two anti-vacuity
+    // constants in ElementwiseLiftingTests) left the whole suite GREEN before this roster existed, shipping a
+    // range-aware lookup as liftable — a SILENT wrong number, since the lift would hand HLOOKUP one element
+    // of the table it was meant to search whole.
+    //
+    // So the roster is what a new name has to pass through. Adding one fails this test naming the newcomer;
+    // removing one fails naming the loss. Editing the roster is then a one-line diff a reviewer can see and
+    // ask about — which is the whole point, because the flag itself is not derivable from the signature.
+    //
+    // HOW THE CLASSIFICATION WAS DERIVED, and where it is NOT oracle-verified. Each name below was measured
+    // against the designated P0 oracle, Aspose.Cells 26.6.0, by handing it a rectangle and comparing the
+    // array-entered answer against the element-by-element one — EXCEPT for these SIXTEEN, which Aspose does
+    // not implement at all (it answers #NAME? for both the scalar and the array-entered call, measured
+    // 2026-09-09): ACOT, ACOTH, ARABIC, BASE, COMBINA, CSC, CSCH, DECIMAL, FLOOR.PRECISE, ISO.CEILING,
+    // PDURATION, PERMUTATIONA, PHI, RRI, SEC, SECH. Their Elementwise flag is INFERRED from the node bodies
+    // (each is a closed-form scalar computation that never reads a range) and from the always-on
+    // ElementwiseLiftingTests sweep, NOT measured on the oracle. A future reader must not take those sixteen
+    // as oracle-verified; if Aspose ever gains them, measure them and say so here.
+    private static readonly string[] TheElementwiseRoster =
+    [
+        "ABS",
+        "ACCRINT",
+        "ACCRINTM",
+        "ACOS",
+        "ACOSH",
+        "ACOT",
+        "ACOTH",
+        "ADDRESS",
+        "AMORDEGRC",
+        "AMORLINC",
+        "ARABIC",
+        "ASIN",
+        "ASINH",
+        "ATAN",
+        "ATAN2",
+        "ATANH",
+        "BASE",
+        "CEILING",
+        "CEILING.MATH",
+        "CEILING.PRECISE",
+        "CHAR",
+        "CLEAN",
+        "CODE",
+        "COMBIN",
+        "COMBINA",
+        "COS",
+        "COSH",
+        "COT",
+        "COTH",
+        "COUPDAYBS",
+        "COUPDAYS",
+        "COUPDAYSNC",
+        "COUPNCD",
+        "COUPNUM",
+        "COUPPCD",
+        "CSC",
+        "CSCH",
+        "CUMIPMT",
+        "CUMPRINC",
+        "DATE",
+        "DATEDIF",
+        "DATEVALUE",
+        "DAY",
+        "DAYS",
+        "DAYS360",
+        "DB",
+        "DDB",
+        "DECIMAL",
+        "DEGREES",
+        "DISC",
+        "DOLLAR",
+        "DOLLARDE",
+        "DOLLARFR",
+        "DURATION",
+        "EDATE",
+        "EFFECT",
+        "EOMONTH",
+        "ERROR.TYPE",
+        "EVEN",
+        "EXACT",
+        "EXP",
+        "FACT",
+        "FACTDOUBLE",
+        "FIND",
+        "FISHER",
+        "FISHERINV",
+        "FIXED",
+        "FLOOR",
+        "FLOOR.MATH",
+        "FLOOR.PRECISE",
+        "FV",
+        "HOUR",
+        "IFERROR",
+        "IFNA",
+        "IFS",
+        "INT",
+        "INTRATE",
+        "IPMT",
+        "ISBLANK",
+        "ISERR",
+        "ISERROR",
+        "ISEVEN",
+        "ISLOGICAL",
+        "ISNA",
+        "ISNONTEXT",
+        "ISNUMBER",
+        "ISO.CEILING",
+        "ISODD",
+        "ISOWEEKNUM",
+        "ISPMT",
+        "ISTEXT",
+        "LEFT",
+        "LEN",
+        "LN",
+        "LOG",
+        "LOG10",
+        "LOWER",
+        "MDURATION",
+        "MID",
+        "MINUTE",
+        "MOD",
+        "MONTH",
+        "MROUND",
+        "N",
+        "NOMINAL",
+        "NOT",
+        "NPER",
+        "NUMBERVALUE",
+        "ODD",
+        "ODDFPRICE",
+        "ODDFYIELD",
+        "ODDLPRICE",
+        "ODDLYIELD",
+        "PDURATION",
+        "PERMUT",
+        "PERMUTATIONA",
+        "PHI",
+        "PMT",
+        "POWER",
+        "PPMT",
+        "PRICE",
+        "PRICEDISC",
+        "PRICEMAT",
+        "PROPER",
+        "PV",
+        "QUOTIENT",
+        "RADIANS",
+        "RATE",
+        "RECEIVED",
+        "REGEXEXTRACT",
+        "REGEXREPLACE",
+        "REGEXTEST",
+        "REPLACE",
+        "REPT",
+        "RIGHT",
+        "ROMAN",
+        "ROUND",
+        "ROUNDDOWN",
+        "ROUNDUP",
+        "RRI",
+        "SEARCH",
+        "SEC",
+        "SECH",
+        "SECOND",
+        "SIGN",
+        "SIN",
+        "SINH",
+        "SLN",
+        "SQRT",
+        "SQRTPI",
+        "STANDARDIZE",
+        "SUBSTITUTE",
+        "SWITCH",
+        "SYD",
+        "T",
+        "TAN",
+        "TANH",
+        "TBILLEQ",
+        "TBILLPRICE",
+        "TBILLYIELD",
+        "TEXT",
+        "TEXTAFTER",
+        "TEXTBEFORE",
+        "TIME",
+        "TIMEVALUE",
+        "TRIM",
+        "TRUNC",
+        "UNICHAR",
+        "UNICODE",
+        "UPPER",
+        "VALUE",
+        "VALUETOTEXT",
+        "VDB",
+        "WEEKDAY",
+        "WEEKNUM",
+        "YEAR",
+        "YEARFRAC",
+        "YIELD",
+        "YIELDDISC",
+        "YIELDMAT",
+    ];
+
+    [Test]
+    public async Task TheElementwiseSet_IsExactlyTheCommittedRoster()
+    {
+        var actual = FunctionRegistry
+            .ByName.Values.Where(e => e.Lifting is ArrayLifting.Elementwise)
+            .Select(e => e.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        // Named in BOTH directions, so the failure says which flag moved and which way.
+        var difference = actual
+            .Except(TheElementwiseRoster, StringComparer.Ordinal)
+            .Select(name =>
+                $"+{name} is now Elementwise but is not in TheElementwiseRoster — measure it on the "
+                + "oracle, then add it to the roster"
+            )
+            .Concat(
+                TheElementwiseRoster
+                    .Except(actual, StringComparer.Ordinal)
+                    .Select(name =>
+                        $"-{name} is in TheElementwiseRoster but is no longer Elementwise — remove it "
+                        + "from the roster"
+                    )
+            )
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        await Assert.That(difference).IsEmpty();
+
+        // The roster is a hand-maintained list, so keep it sorted and duplicate-free — that is what makes a
+        // one-line addition to it readable in a diff.
+        await Assert
+            .That(string.Join(',', TheElementwiseRoster))
+            .IsEqualTo(
+                string.Join(
+                    ',',
+                    TheElementwiseRoster
+                        .Order(StringComparer.Ordinal)
+                        .Distinct(StringComparer.Ordinal)
+                )
+            );
     }
 
     // Neither the body-marker grep nor the executable range-awareness oracle flags these as consumers: the
