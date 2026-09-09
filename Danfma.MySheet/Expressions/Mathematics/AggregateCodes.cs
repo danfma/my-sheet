@@ -27,13 +27,19 @@ internal static class AggregateCodes
     /// THE entry point of both callers: routes one argument into <paramref name="accumulator"/>.
     ///
     /// <para>A non-<see cref="Reference"/> argument that the mini-CSE can evaluate element-wise — the
-    /// <c>ROW(A1:A3)</c> / <c>(A1:A3&lt;&gt;0)*1</c> shapes — is STREAMED, exactly as SUM/COUNT/AVERAGE do
-    /// through <c>NumericAggregation.Fold</c>'s default arm, so SUBTOTAL folds a computed array the way Excel
-    /// does (<c>=SUBTOTAL(9,ROW(A1:A3))</c> is 6, like <c>=SUM(ROW(A1:A3))</c>). Reaching such an argument
-    /// through <see cref="Gather"/>'s <c>default:</c> instead would evaluate it as a SCALAR — silently the
-    /// first row number for <c>ROW(range)</c>, and <c>#VALUE!</c> for an operation over a range, which has no
-    /// scalar value. Every <see cref="Reference"/> shape keeps the cell-by-cell scan below, which is what
-    /// carries the nested-aggregate skip.</para>
+    /// <c>ROW(A1:A3)</c> / <c>(A1:A3&lt;&gt;0)*1</c> shapes — is <c>#VALUE!</c> here, NOT folded. SUBTOTAL's
+    /// <c>ref1, ref2, …</c> and AGGREGATE's 1-13 <c>ref1, ref2, …</c> are declared as references, and Excel
+    /// enforces that literally: measured on Aspose.Cells 26.6.0 (2026-09-09), <c>=SUBTOTAL(9,ROW(A1:A3))</c>,
+    /// <c>=SUBTOTAL(9,(A1:A3&lt;&gt;0)*1)</c>, <c>=AGGREGATE(9,4,ROW(A1:A3))</c> and even the constant
+    /// <c>=SUBTOTAL(9,{1,2,3})</c> are all <c>#VALUE!</c> — under CSE entry too. AGGREGATE's ARRAY form
+    /// (14-19) is where an array IS accepted, which is the whole reason Excel documents two syntaxes; that
+    /// path does not come through here (see <c>Aggregate.ArrayForm</c>).</para>
+    ///
+    /// <para>The rejection is expressed with the SAME <see cref="ArrayEvaluation.TryStream"/> gate the array
+    /// consumers use, rather than a hand-written pair of conditions, so the "what counts as an array
+    /// argument" question keeps exactly one answer in the codebase; the built stream is discarded, which
+    /// costs one evaluation on a path whose result is an error anyway. Every <see cref="Reference"/> shape
+    /// falls through to the cell-by-cell scan below, which is what carries the nested-aggregate skip.</para>
     /// </summary>
     public static Error? Feed(
         Expression argument,
@@ -41,8 +47,8 @@ internal static class AggregateCodes
         ref Accumulator accumulator,
         NestedSkip skip
     ) =>
-        ArrayEvaluation.TryStream(argument, context, out var stream)
-            ? CollectStream(stream, ref accumulator)
+        ArrayEvaluation.TryStream(argument, context, out _)
+            ? Error.Value
             : Gather(argument, context, ref accumulator, skip);
 
     // Walks a ref argument cell by cell — numerically, wherever the shape allows it, so a big range pays
@@ -200,9 +206,10 @@ internal static class AggregateCodes
     }
 
     /// <summary>Feeds a mini-CSE array element by element into the SAME accumulator, so every option rule —
-    /// ignoreErrors, COUNTA's error exclusion — stays in one place. Used for an array-eligible argument of
-    /// any code, and by AGGREGATE's array form for 16-19, which need the whole population anyway (the bounded
-    /// heap of <c>OrderSelection.KthValueStreaming</c> buys nothing there).</summary>
+    /// ignoreErrors, COUNTA's error exclusion — stays in one place. The one caller is AGGREGATE's ARRAY form
+    /// for codes 16-19, which need the whole population anyway (the bounded heap of
+    /// <c>OrderSelection.KthValueStreaming</c> buys nothing there); the reference form has no array path at
+    /// all, since <see cref="Feed"/> rejects an array argument.</summary>
     public static Error? CollectStream(
         ArrayEvaluation.ArrayStream stream,
         ref Accumulator accumulator

@@ -268,6 +268,28 @@ accepting `INDEX(...)`.
 - Under options 4/5 ('ignore nothing') over a 2-D reference holding two DIFFERENT error values, which error does Excel return? MySheet returns the first in column-major order (Subtotal.cs:74-77); Excel scans row-major. Only observable with a multi-column range and two distinct errors. Pre-existing for SUBTOTAL, inherited here — low value to chase, but it should not be claimed as Excel-exact in the docs.
 - Does Excel truncate a non-integer function_num (e.g. `AGGREGATE(9.7,0,A1:A3)` → SUM) or reject it as #VALUE!? This plan truncates, following `Subtotal.Evaluate`'s `(int)Math.Truncate(rawCode)` at Subtotal.cs:20. Same question for options.
 
+### SETTLED 2026-09-09 by the oracle (Aspose.Cells 26.6.0)
+
+The final review ran every question above against the plan's designated oracle. Measured answers, and what
+each one changed:
+
+- **Does SUBTOTAL skip a nested AGGREGATE?** NO. A1=1, A2=2, A3=`=AGGREGATE(9,0,A1:A2)`=3 → `SUBTOTAL(9,A1:A3)` = 6. `NestedSkip.Subtotal` stays narrow, and the docs stop calling it an unverified guess.
+- **Does the ARRAY form honour the nested skip at options 0-3?** YES. A1=1, A2=2, A3=`=SUBTOTAL(9,A1:A2)`=3 → `AGGREGATE(14,0,A1:A3,1)` = 2 against `AGGREGATE(14,4,A1:A3,1)` = 3. Pinned.
+- **Is a whole non-reference error argument ignored under options 2/3/6/7?** NO. `AGGREGATE(9,6,1/0)` = `#DIV/0!`, `AGGREGATE(2,6,1/0)` = `#DIV/0!`, `AGGREGATE(9,6,E1:E3,1/0)` = `#DIV/0!`. Bit 1 covers error CELLS reached through a reference and array ELEMENTS, not an argument that IS an error. Fixed.
+- **Is truncation right for a non-integer function_num / options?** YES. `AGGREGATE(9.7,4,A1:A3)` = 14 and `AGGREGATE(9,4.9,A1:A3)` = 14, both the plain SUM answer. Unchanged.
+- **The 2-D two-error scan-order question is still open**: Aspose returns `#N/A` for `AGGREGATE(9,4,A1:B2)`, `SUBTOTAL(9,A1:B2)` and `SUM(A1:B2)` alike on the probed fixture, so it did not discriminate column-major from row-major.
+
+And the one the phase got WRONG, reversed by the same run:
+
+- **Does SUBTOTAL/AGGREGATE 1-13 fold a computed-array argument like SUM?** NO — it is `#VALUE!`. `SUBTOTAL(9,ROW(A1:A3))`, `SUBTOTAL(9,(A1:A3<>0)*1)`, `SUBTOTAL(2,…)`, `SUBTOTAL(3,…)`, `AGGREGATE(9,4,ROW(A1:A3))`, `AGGREGATE(2,4,…)`, `AGGREGATE(9,6,…)`, the constants `SUBTOTAL(9,{1,2,3})` / `AGGREGATE(9,4,{1,2,3})`, and every one of them entered as CSE: all `#VALUE!`. The array form over the same vectors is fine (`AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>"")*(A1:A3<>0)),1)` = 1, `k`=2 → 3), which is what the two syntaxes are for. Commit 11f5eaf shipped the fold on an unmeasured analogy with `SUM` and is reverted.
+
+One DISAGREEMENT with Microsoft's own page is left standing on purpose: the AGGREGATE options table says
+0-3 "Ignore nested SUBTOTAL and AGGREGATE functions", but Aspose COUNTS a nested AGGREGATE under those
+options (A3=`=AGGREGATE(9,0,A1:A2)`=3 → `AGGREGATE(9,0,A1:A3)` = 6, not 3), while it does skip a nested
+SUBTOTAL (3). The documented page wins over the oracle here — the code keeps
+`NestedSkip.SubtotalAndAggregate` for options 0-3 — but the divergence is recorded so it is a decision, not
+an oversight.
+
 ## Phase Summary
 
 _(write when phase completes)_

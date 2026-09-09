@@ -468,13 +468,23 @@ public class MathAggregateTests
         await Assert.That(Num(Calc("=SUBTOTAL(9,A:A)", cells))).IsEqualTo(3.0);
     }
 
-    // --- SUBTOTAL sobre um argumento que é um ARRAY calculado (não uma referência) ---
-    // A página oficial define ref1 como "the first named range or reference", mas o Excel dobra um
-    // argumento-array em SUBTOTAL exatamente como o SUM dobra: =SUBTOTAL(9,ROW(A1:A3)) é 6, não 1.
-    // Antes da correção o argumento caía no `default:` do scan, era avaliado como ESCALAR (ROW de um
-    // range → o primeiro número) ou virava #VALUE! (uma BinaryOperation sobre um range não tem valor
-    // escalar), então os quatro valores abaixo eram 1, #VALUE!, 0 e 1. Fixture deliberadamente
-    // "mentirosa": nenhum valor de célula coincide com a resposta correta.
+    // --- SUBTOTAL / AGGREGATE 1-13 sobre um argumento que é um ARRAY calculado (não uma referência) ---
+    // A página oficial define ref1 como "the first named range or reference", e o oráculo do plano
+    // (Aspose.Cells 26.6.0, medido em 2026-09-09) mostra que a definição é LITERAL: os `ref` do SUBTOTAL e da
+    // forma-referência do AGGREGATE (function_num 1-13) têm que ser REFERÊNCIAS, e um array calculado nessa
+    // posição é #VALUE! — inclusive a constante `=SUBTOTAL(9,{1,2,3})`, e inclusive com a fórmula entrada
+    // como CSE. É exatamente por isso que a forma-array (14-19) existe: só ELA aceita um array, e continua
+    // presa mais abaixo (`=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/…,1)` = 1 no mesmo oráculo).
+    //
+    // REVERSÃO do 11f5eaf, que dobrava o array como o SUM dobra. Aquela premissa era uma INFERÊNCIA por
+    // analogia com o SUM — nunca medida — e está errada. Medido no oráculo:
+    //   =SUBTOTAL(9,ROW(A1:A3))      -> #VALUE!      (o 11f5eaf pinava 6)
+    //   =SUBTOTAL(9,(A1:A3<>0)*1)    -> #VALUE!      (pinava 2)
+    //   =SUBTOTAL(2,(A1:A3<>0)*1)    -> #VALUE!      (pinava 3)
+    //   =SUBTOTAL(3,(A1:A3<>0)*1)    -> #VALUE!      (pinava 3)
+    //   =AGGREGATE(9,4,ROW(A1:A3))   -> #VALUE!      (pinava 6)
+    //   =AGGREGATE(2,4,(A1:A3<>0)*1) -> #VALUE!      (pinava 3)
+    //   =AGGREGATE(9,6,(A1:A3<>0)*1) -> #VALUE!      (pinava 2)
     private static readonly (string, object)[] SubtotalArrayData =
     [
         ("A1", 5),
@@ -483,62 +493,85 @@ public class MathAggregateTests
     ];
 
     [Test]
-    public async Task Subtotal_Sum_FoldsARowNumberArray()
+    public async Task Subtotal_Sum_RejectsARowNumberArray()
     {
-        // ROW(A1:A3) = {1;2;3} → 6 (o mesmo que =SUM(ROW(A1:A3))). Antes: 1 (escalarizado).
-        await Assert.That(Num(Calc("=SUBTOTAL(9,ROW(A1:A3))", SubtotalArrayData))).IsEqualTo(6.0);
         await Assert
-            .That(Num(Calc("=SUBTOTAL(9,ROW(A1:A3))", SubtotalArrayData)))
-            .IsEqualTo(Num(Calc("=SUM(ROW(A1:A3))", SubtotalArrayData)));
+            .That(Calc("=SUBTOTAL(9,ROW(A1:A3))", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // ANTI-VACUIDADE: o #VALUE! é a REJEIÇÃO da posição `ref`, não um mini-CSE quebrado — o mesmo array,
+        // no mesmo fixture, continua dobrando dentro de um consumidor que aceita array. (O Excel só dá 6 aqui
+        // sob CSE; sem CSE ele intersecta implicitamente e dá 1. O MySheet avalia sempre como array — modelo
+        // documentado em workbook-and-expressions.md, "Implicit array arguments" — e isso não muda aqui.)
+        await Assert.That(Num(Calc("=SUM(ROW(A1:A3))", SubtotalArrayData))).IsEqualTo(6.0);
     }
 
     [Test]
-    public async Task Subtotal_Sum_FoldsAComputedBooleanArray()
+    public async Task Subtotal_Sum_RejectsAComputedBooleanArray()
     {
-        // (A1:A3<>0)*1 = {1;0;1} → 2. Antes: #VALUE!.
-        await Assert.That(Num(Calc("=SUBTOTAL(9,(A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(2.0);
-    }
-
-    [Test]
-    public async Task Subtotal_Count_CountsEveryArrayElement()
-    {
-        // Os três elementos do array são números → COUNT = 3. Antes: 0 (o #VALUE! escalar não é número).
-        await Assert.That(Num(Calc("=SUBTOTAL(2,(A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(3.0);
-    }
-
-    [Test]
-    public async Task Subtotal_CountA_CountsEveryArrayElement()
-    {
-        // COUNTA sobre os mesmos três elementos → 3. Antes: 1 (o único escalar #VALUE!).
-        await Assert.That(Num(Calc("=SUBTOTAL(3,(A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(3.0);
-    }
-
-    [Test]
-    public async Task Aggregate_ReferenceForm_FoldsAComputedArray()
-    {
-        // O GÊMEO AGGREGATE dos quatro testes acima, na MESMA fixture: a forma-referência (function_num
-        // 1-13) passa por AggregateCodes.Feed exatamente como o SUBTOTAL, então um argumento-array
-        // calculado dobra elemento a elemento aqui também. PIN DE REGRESSÃO: o comportamento já existe —
-        // o AGGREGATE nasceu chamando o Feed, que já trazia o gate mini-CSE do SUBTOTAL — e este teste só
-        // o prende, porque a documentação cita =AGGREGATE(9,4,ROW(A1:A3)) = 6 e nada na suíte fixava a
-        // forma 1-13 sobre um array calculado (só a forma 14-19 estava presa).
-        //
-        // ROW(A1:A3) = {1;2;3} → 6, o mesmo que =SUBTOTAL(9,ROW(A1:A3)) e =SUM(ROW(A1:A3)). Pelo caminho
-        // escalar (Gather) daria 1: nenhum valor da fixture (5, 0, 9) coincide com 6.
         await Assert
-            .That(Num(Calc("=AGGREGATE(9,4,ROW(A1:A3))", SubtotalArrayData)))
-            .IsEqualTo(6.0);
+            .That(Calc("=SUBTOTAL(9,(A1:A3<>0)*1)", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Num(Calc("=SUM((A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(2.0);
+    }
 
-        // Discriminação: sobre o MESMO array {1;0;1}, COUNT conta os três elementos e SUM soma 2 — dois
-        // números diferentes que só saem se o array for realmente percorrido. Pelo caminho escalar a
-        // BinaryOperation sobre um range não tem valor escalar (#VALUE!), logo COUNT seria 0 e SUM 0 (a
-        // option 6 engole o erro).
+    [Test]
+    public async Task Subtotal_Count_RejectsAComputedArray()
+    {
+        // COUNT e COUNTA nunca propagam erro de CÉLULA (o acumulador só tallia), então o #VALUE! aqui prova
+        // que a rejeição acontece ANTES da varredura, no roteamento do argumento — e não vem do acumulador.
         await Assert
-            .That(Num(Calc("=AGGREGATE(2,4,(A1:A3<>0)*1)", SubtotalArrayData)))
+            .That(Calc("=SUBTOTAL(2,(A1:A3<>0)*1)", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Subtotal_CountA_RejectsAComputedArray()
+    {
+        await Assert
+            .That(Calc("=SUBTOTAL(3,(A1:A3<>0)*1)", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Aggregate_ReferenceForm_RejectsAComputedArray()
+    {
+        // O GÊMEO AGGREGATE dos quatro testes acima, no MESMO fixture: a forma-referência (1-13) passa pelo
+        // AggregateCodes.Feed exatamente como o SUBTOTAL, então a rejeição vale para os dois. As três options
+        // cobrem os dois estados do bit de erro (4 = "ignore nothing", 6 = "ignore error values"): nem uma
+        // nem outra transforma o argumento-array em população.
+        await Assert
+            .That(Calc("=AGGREGATE(9,4,ROW(A1:A3))", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AGGREGATE(2,4,(A1:A3<>0)*1)", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AGGREGATE(9,6,(A1:A3<>0)*1)", SubtotalArrayData))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // A forma-ARRAY (14-19) sobre o MESMO array continua sendo o caminho que ACEITA — é o discriminador
+        // que prova que a rejeição é da posição `ref`, não do array: medido 1 e 3 no oráculo.
+        await Assert
+            .That(
+                Num(
+                    Calc(
+                        "=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>\"\")*(A1:A3<>0)),1)",
+                        SubtotalArrayData
+                    )
+                )
+            )
+            .IsEqualTo(1.0);
+        await Assert
+            .That(
+                Num(
+                    Calc(
+                        "=AGGREGATE(15,6,(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>\"\")*(A1:A3<>0)),2)",
+                        SubtotalArrayData
+                    )
+                )
+            )
             .IsEqualTo(3.0);
-        await Assert
-            .That(Num(Calc("=AGGREGATE(9,6,(A1:A3<>0)*1)", SubtotalArrayData)))
-            .IsEqualTo(2.0);
     }
 
     [Test]

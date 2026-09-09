@@ -413,21 +413,22 @@ ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // →
 ```
 
 **Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX` e —
-através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUCT` e a dupla de funções por
-código de agregação `SUBTOTAL` e [`AGGREGATE`](function-reference.md), que encaminham seus argumentos por
-uma única alimentação compartilhada: `SUBTOTAL(9,ROW(A1:A3))` = 6, exatamente como no `SUM`, e o
-`AGGREGATE` aceita um array computado nas **duas** formas — como `ref` da forma-referência 1-13
-(`AGGREGATE(9,4,ROW(A1:A3))` = 6) e como `array` da forma-array 14-19, onde a opção 6 descarta os
-elementos `#DIV/0!` que fazem um `SMALL` simples sobre o mesmo vetor falhar. Um argumento é avaliado
-como um array quando é uma comparação de **intervalo fechado** (`B2:B5="Show"`), um `IF` cuja condição é um
-array assim (com ou sem ramo `else`), ou `ROW`/`COLUMN` sobre um retângulo. Esse retângulo pode estar
-escrito literalmente (`SUM(ROW(A1:C3))` = 18, `SUM(COLUMN(A1:C3))` = 18) ou apenas ser *denotado* pelo
-argumento — um [nome definido](#intervalos-nomeados) (`SUM(ROW(MyName))` = 6 e `COUNT(ROW(MyName))` = 3 para
-um nome sobre três linhas, enquanto `COUNT(MyName)` conta os valores das próprias células) ou um intervalo
-`:` com extremidades que retornam referências (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Escalares são
-propagados (*broadcast*) por todo o vetor. Um `IF` sem ramo produz um lógico `FALSE` onde a condição é
-falsa, e os agregadores ignoram lógicos/texto (exatamente por isso `SMALL(IF(…))` pula as linhas sem
-correspondência). O primeiro erro por elemento prevalece, como no Excel.
+através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUCT` e a **forma-array** do
+[`AGGREGATE`](function-reference.md) (`function_num` 14-19), onde a opção 6 descarta os elementos
+`#DIV/0!` que fazem um `SMALL` simples sobre o mesmo vetor falhar. O `SUBTOTAL` e a forma-*referência* do
+`AGGREGATE` (1-13) deliberadamente **não** são consumidores: os argumentos deles são `ref`, e o Excel
+rejeita um array computado em um deles — `SUBTOTAL(9,ROW(A1:A3))` e `AGGREGATE(9,4,ROW(A1:A3))` são
+`#VALUE!` ali, medido no Aspose.Cells 26.6.0, e é exatamente por isso que o AGGREGATE documenta uma
+segunda sintaxe para arrays. Um argumento é avaliado como um array quando é uma comparação de **intervalo
+fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim (com ou sem ramo `else`), ou
+`ROW`/`COLUMN` sobre um retângulo. Esse retângulo pode estar escrito literalmente (`SUM(ROW(A1:C3))` = 18,
+`SUM(COLUMN(A1:C3))` = 18) ou apenas ser *denotado* pelo argumento — um
+[nome definido](#intervalos-nomeados) (`SUM(ROW(MyName))` = 6 e `COUNT(ROW(MyName))` = 3 para um nome sobre
+três linhas, enquanto `COUNT(MyName)` conta os valores das próprias células) ou um intervalo `:` com
+extremidades que retornam referências (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Escalares são propagados
+(*broadcast*) por todo o vetor. Um `IF` sem ramo produz um lógico `FALSE` onde a condição é falsa, e os
+agregadores ignoram lógicos/texto (exatamente por isso `SMALL(IF(…))` pula as linhas sem correspondência).
+O primeiro erro por elemento prevalece, como no Excel.
 
 **Não suportado (por design).**
 
@@ -453,8 +454,9 @@ correspondência). O primeiro erro por elemento prevalece, como no Excel.
   `COUNTIF`/`COUNTIFS` igualmente contam essa varredura vazia como `0`; e `AVERAGEIF` a divide por uma
   contagem zero — `#DIV/0!`. As três últimas são respostas **silenciosas**, não erros. O `SUMPRODUCT` é o
   único membro dessa família que optou por aceitar arrays computados; os consumidores de dobra listados em
-  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram, e o `SUBTOTAL`/`AGGREGATE` chegam
-  neles pela mesma dobra.
+  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram. O `SUBTOTAL` e a forma-referência do
+  `AGGREGATE` não seguem nem um caminho nem o outro — eles rejeitam um array computado de saída; quem o
+  consome é a forma-array do `AGGREGATE`.
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
