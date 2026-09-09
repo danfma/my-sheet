@@ -54,6 +54,10 @@ internal static class DateTextParser
         "d-MMM-yyyy H:mm:ss",
     ];
 
+    // A REAL leap year, four digits wide like 1900, so substituting it leaves every format's field widths
+    // untouched.
+    private const int PhantomSubstituteYear = 2000;
+
     public static bool TryParseDate(string text, out DateTime date) =>
         DateTime.TryParseExact(
             text.Trim(),
@@ -63,11 +67,38 @@ internal static class DateTextParser
             out date
         );
 
+    /// <summary>
+    /// Whether the text spells Excel's phantom 1900-02-29 (the caller answers
+    /// <see cref="DateSerial.PhantomFeb29Serial"/>). <c>DATEVALUE</c> is the only path that reaches that
+    /// serial, and it accepts every spelling the ordinary formats do — measured on Aspose.Cells 26.6.0:
+    /// <c>1900-02-29</c>, <c>1900/02/29</c>, <c>2/29/1900</c>, <c>29-Feb-1900</c>, <c>Feb 29, 1900</c>,
+    /// <c>February 29, 1900</c> and any of them with a trailing time all give 60.
+    /// </summary>
+    public static bool TryParsePhantomFeb29(string text) =>
+        TrySwapPhantomYear(text.Trim(), out var substituted)
+        && TryParseDate(substituted, out var date)
+        && date is { Year: PhantomSubstituteYear, Month: 2, Day: 29 };
+
     public static bool TryParseTime(string text, out double fraction)
+    {
+        var trimmed = text.Trim();
+
+        if (TryParseTimeExact(trimmed, out fraction))
+        {
+            return true;
+        }
+
+        // The phantom day carries a time of day like any other date: TIMEVALUE("1900-02-29 12:00") is 0.5
+        // (measured), even though no proleptic-Gregorian parse accepts that calendar day.
+        return TrySwapPhantomYear(trimmed, out var substituted)
+            && TryParseTimeExact(substituted, out fraction);
+    }
+
+    private static bool TryParseTimeExact(string text, out double fraction)
     {
         if (
             DateTime.TryParseExact(
-                text.Trim(),
+                text,
                 TimeFormats,
                 CultureInfo.InvariantCulture,
                 Styles,
@@ -81,5 +112,28 @@ internal static class DateTextParser
 
         fraction = 0d;
         return false;
+    }
+
+    // February 1900 has 29 days in Excel and 28 in every calendar .NET knows, so TryParseExact rejects the
+    // phantom day whatever the spelling. Swapping the year for a real leap year lets the SAME format tables
+    // recognise it, which is why no second table is needed; the caller then checks the parsed date really is
+    // the 29th of February, so an ordinary 1900 date (or a literal 2000 one) is not mistaken for the phantom.
+    private static bool TrySwapPhantomYear(string trimmed, out string substituted)
+    {
+        const string phantomYear = "1900";
+
+        if (!trimmed.Contains(phantomYear, StringComparison.Ordinal))
+        {
+            substituted = trimmed;
+            return false;
+        }
+
+        substituted = trimmed.Replace(
+            phantomYear,
+            PhantomSubstituteYear.ToString(CultureInfo.InvariantCulture),
+            StringComparison.Ordinal
+        );
+
+        return true;
     }
 }

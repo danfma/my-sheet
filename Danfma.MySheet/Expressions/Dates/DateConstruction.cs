@@ -75,7 +75,9 @@ public sealed partial record Time(Expression[] Arguments) : Function
 public sealed partial record DateValue(Expression[] Arguments) : Function
 {
     // DATEVALUE(date_text) → whole-day serial (the time part of a date+time string is dropped). Unparseable
-    // text → #VALUE!.
+    // text → #VALUE!, and so is any date before 1900-01-01: below serial 1 there is nothing to return, since
+    // serial 0 is the day zero that no real date names (measured: DATEVALUE("1899-12-31") and
+    // DATEVALUE("1900-01-00") are both #VALUE!). This is also the ONLY path to Excel's phantom 1900-02-29.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments[0].Evaluate(context).CoerceToText(out var text) is { } error)
@@ -83,9 +85,19 @@ public sealed partial record DateValue(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        return DateTextParser.TryParseDate(text, out var date)
-            ? ComputedValue.Number(Math.Floor(DateSerial.FromDateTime(date)))
-            : ComputedValue.Error(Error.Value);
+        if (DateTextParser.TryParsePhantomFeb29(text))
+        {
+            return ComputedValue.Number(DateSerial.PhantomFeb29Serial);
+        }
+
+        if (!DateTextParser.TryParseDate(text, out var date))
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        var serial = Math.Floor(DateSerial.FromDateTime(date));
+
+        return serial < 1d ? ComputedValue.Error(Error.Value) : ComputedValue.Number(serial);
     }
 }
 

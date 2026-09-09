@@ -109,6 +109,18 @@ public class DateConstructionTests
             .Within(Tolerance);
     }
 
+    [Test]
+    public async Task TimeValue_ReadsTheTimeOfThePhantomFebruary29()
+    {
+        // Excel's phantom 1900-02-29 carries a time like any other date, and TIMEVALUE discards the date
+        // part as usual. Measured on Aspose.Cells 26.6.0 (2026-09-09, PLAIN cell entry): 0.5, where the
+        // proleptic-Gregorian parse alone rejects the day and would answer #VALUE!.
+        await Assert
+            .That(Num(Calc("=TIMEVALUE(\"1900-02-29 12:00\")")))
+            .IsEqualTo(0.5d)
+            .Within(Tolerance);
+    }
+
     // --- YEAR/MONTH/DAY and HOUR/MINUTE/SECOND. ---
 
     [Test]
