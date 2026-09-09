@@ -13,11 +13,41 @@ using Compat = Danfma.MySheet.Expressions.Compatibility;
 namespace Danfma.MySheet.Parsing;
 
 /// <summary>
+/// Whether the mini-CSE (<see cref="Danfma.MySheet.Expressions.ArrayEvaluation"/>) may lift a built-in over
+/// an array argument element by element.
+/// </summary>
+/// <remarks>
+/// <see cref="Consumes"/> is the ZERO value on purpose: lifting is opt-in, so a default-constructed entry —
+/// or a future entry whose author forgets the flag — keeps today's behaviour (the function is evaluated once,
+/// as an opaque scalar) instead of silently answering from a single element of the rectangle it was meant to
+/// consume whole. The two failure modes are not symmetric: forgetting the flag on a new scalar function only
+/// loses the feature, while forgetting it on a new range-aware one produces wrong numbers with no error.
+/// </remarks>
+internal enum ArrayLifting : byte
+{
+    /// <summary>
+    /// The function reads ranges, arrays or references itself (an aggregate, a criteria scan, a lookup, a
+    /// shape or position query). It is NEVER lifted: it is handed the whole argument, as today.
+    /// </summary>
+    Consumes,
+
+    /// <summary>
+    /// The function is pure-scalar — every argument is a single value — so the mini-CSE may evaluate its node
+    /// once per element of an array argument, broadcasting the scalar arguments.
+    /// </summary>
+    Elementwise,
+}
+
+/// <summary>
 /// The single source of truth for every built-in Excel function: name, arity, the factory that builds its
-/// AST node (used by <see cref="Parser"/>), and the accessor that reads its argument array back out (used by
-/// <see cref="FormulaWriter"/>). One entry per function serves both directions, so adding a function is one
-/// line here plus the node itself and its <see cref="Expression"/> union tag — no more hand-syncing a parser
-/// table and a writer table.
+/// AST node (used by <see cref="Parser"/>), the accessor that reads its argument array back out (used by
+/// <see cref="FormulaWriter"/>), and its <see cref="ArrayLifting"/> classification. One entry per function
+/// serves all of those, so adding a function is one line here — <c>Entry&lt;T&gt;</c> for a function that
+/// consumes ranges/arrays itself, <c>Elementwise&lt;T&gt;</c> for a pure-scalar one the mini-CSE may lift per
+/// element — plus the node itself and its <see cref="Expression"/> union tag, with no hand-syncing of a
+/// parser table and a writer table. Lifting is opt-in (<see cref="ArrayLifting.Consumes"/> is the default)
+/// because a forgotten flag on a scalar function only loses the feature, while a forgotten flag on a
+/// range-aware one would answer from one element and be silently wrong.
 /// </summary>
 /// <remarks>
 /// Excludes <see cref="FunctionCall"/>: that node is not a built-in, it is the runtime fallback the Parser
@@ -29,9 +59,10 @@ internal static class FunctionRegistry
 {
     /// <summary>
     /// One built-in function: its Excel name, argument-count bounds, the factory that builds its AST node
-    /// from parsed arguments, its CLR node type, and the accessor that reads the arguments back out of an
+    /// from parsed arguments, its CLR node type, the accessor that reads the arguments back out of an
     /// instance of that node (almost always its <c>Arguments</c> property — <see cref="Sum"/> is the one
-    /// exception, whose parameter is named <c>Expressions</c>).
+    /// exception, whose parameter is named <c>Expressions</c>), and whether the mini-CSE may lift it over an
+    /// array element by element.
     /// </summary>
     internal readonly record struct RegistryEntry(
         string Name,
@@ -39,7 +70,8 @@ internal static class FunctionRegistry
         int MaxArgs,
         Func<Expression[], Expression> Create,
         Type NodeType,
-        Func<Function, Expression[]> GetArguments
+        Func<Function, Expression[]> GetArguments,
+        ArrayLifting Lifting
     );
 
     // Ordinal by declaration order below (mirrors the historical Parser table / FormulaWriter dictionary
@@ -2162,5 +2194,18 @@ internal static class FunctionRegistry
         Func<Expression[], Expression> create,
         Func<Function, Expression[]> getArguments
     )
-        where T : Function => new(name, minArgs, maxArgs, create, typeof(T), getArguments);
+        where T : Function =>
+        new(name, minArgs, maxArgs, create, typeof(T), getArguments, ArrayLifting.Consumes);
+
+    // The sibling of Entry<T> for a pure-scalar function: same five arguments, so a liftable entry above
+    // still reads as one line, and the classification is greppable (`grep -c '^        Elementwise<'`).
+    private static RegistryEntry Elementwise<T>(
+        string name,
+        int minArgs,
+        int maxArgs,
+        Func<Expression[], Expression> create,
+        Func<Function, Expression[]> getArguments
+    )
+        where T : Function =>
+        new(name, minArgs, maxArgs, create, typeof(T), getArguments, ArrayLifting.Elementwise);
 }
