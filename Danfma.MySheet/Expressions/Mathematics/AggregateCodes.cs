@@ -199,9 +199,25 @@ internal static class AggregateCodes
 
                 // A reference produced by a function (OFFSET, CHOOSE, …) still carries the actual
                 // Reference node, so the nested-aggregate skip applies to it as well.
-                return computed.TryGetReference(out var reference)
-                    ? Gather(reference, context, ref accumulator, skip)
-                    : accumulator.Add(computed);
+                if (computed.TryGetReference(out var reference))
+                {
+                    return Gather(reference, context, ref accumulator, skip);
+                }
+
+                // A whole argument that IS an error propagates UNCONDITIONALLY — it never reaches the
+                // accumulator, so AGGREGATE's ignore-errors bit cannot swallow it. The bit is about error
+                // VALUES inside the aggregated data (cells reached through a reference, elements of an
+                // array), not about an argument that failed to produce data at all. Measured on
+                // Aspose.Cells 26.6.0 (2026-09-09): =AGGREGATE(9,6,1/0) and =AGGREGATE(2,6,1/0) are
+                // #DIV/0!, and =AGGREGATE(9,6,E1:E3,1/0) is #DIV/0! rather than the 14 the surviving ref
+                // alone would give — while =AGGREGATE(9,6,E2), the same division living in a referenced
+                // CELL, stays 0 on both sides.
+                if (computed.TryGetError(out var argumentError))
+                {
+                    return argumentError;
+                }
+
+                return accumulator.Add(computed);
         }
     }
 
@@ -248,7 +264,12 @@ internal static class AggregateCodes
     // (the default arm returns before _numbers.Add), so for codes 1-13 "ignore errors" is purely the
     // suppression of that propagation channel — plus one genuine behavioural difference in COUNTA, which
     // otherwise counts the very error cells the option says to ignore (measured: =SUBTOTAL(3,A1:A3) with an
-    // error cell → 3, so AGGREGATE(3,6,A1:A3) must be 2). COUNT needs no rule: it only tallies Numbers.
+    // error cell → 3, and =AGGREGATE(3,6,E1:E3) → 2 on Aspose.Cells 26.6.0). COUNT needs no rule: it only
+    // tallies Numbers.
+    //
+    // Everything that reaches Add is DATA — a cell behind a reference or an element of an array — which is
+    // exactly the scope of the option. An argument that is itself an error never gets here: Gather's
+    // default arm returns it before the accumulator sees it, so ignoreErrors cannot reach that far.
     internal struct Accumulator(int code, bool ignoreErrors)
     {
         private int _count; // code 2 (COUNT): cells whose value is a Number

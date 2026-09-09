@@ -685,6 +685,52 @@ public class MathAggregateTests
     }
 
     [Test]
+    public async Task Aggregate_WholeArgumentError_PropagatesThroughTheIgnoreErrorsBit()
+    {
+        // O bit 1 ("ignore error values") vale para as CÉLULAS alcançadas através de uma referência e para
+        // os ELEMENTOS de um array — NÃO para um argumento inteiro que É um erro. Medido no oráculo do plano
+        // (Aspose.Cells 26.6.0, em 2026-09-09), com o MySheet de antes entre parênteses:
+        //   =AGGREGATE(9,6,1/0)       -> #DIV/0!   (devolvia 0)
+        //   =AGGREGATE(2,6,1/0)       -> #DIV/0!   (devolvia 0)
+        //   =AGGREGATE(9,6,A1:A3,1/0) -> #DIV/0!   (devolvia 14 — o ref válido somava e o erro sumia)
+        await Assert
+            .That(Calc("=AGGREGATE(9,6,1/0)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Calc("=AGGREGATE(2,6,1/0)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Calc("=AGGREGATE(9,6,A1:A3,1/0)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+
+        // ANTI-VACUIDADE do caso de dois argumentos: sem o erro ao lado, o MESMO primeiro ref responde 14.
+        await Assert.That(Num(Calc("=AGGREGATE(9,6,A1:A3)", AggregateErrorData))).IsEqualTo(14.0);
+
+        // CONTROLE: o SUBTOTAL já propagava (ele nunca ignora erros), e o oráculo concorda —
+        // =SUBTOTAL(9,A1:A3,1/0) -> #DIV/0!. É o mesmo caminho de código com o bit desligado.
+        await Assert
+            .That(Calc("=SUBTOTAL(9,A1:A3,1/0)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+
+        // CONTRASTE que prova que o bit continua valendo onde deve: a mesma divisão por zero, agora dentro
+        // de uma CÉLULA alcançada por referência (A2), continua sendo ignorada. 0 nos dois lados, medido.
+        await Assert.That(Num(Calc("=AGGREGATE(9,6,A2)", AggregateErrorData))).IsEqualTo(0.0);
+        await Assert.That(Num(Calc("=AGGREGATE(3,6,A2)", AggregateErrorData))).IsEqualTo(0.0);
+
+        // A forma-array sobre o MESMO escalar-erro: o erro passa a propagar em vez de ser engolido (antes a
+        // população ficava vazia e o SMALL respondia #NUM!).
+        //
+        // DIVERGÊNCIA CONHECIDA, registrada como decisão em aberto no plano mestre: o oráculo devolve
+        // #VALUE! aqui — mas devolve 7 para =AGGREGATE(15,6,7,1), ou seja, ele ACEITA um escalar comum na
+        // posição `array` e só rejeita um escalar de ERRO. Essa assimetria é a mesma de =SUBTOTAL(9,7) = 7
+        // no MySheet contra #VALUE! no oráculo (um literal numa posição de referência), e não é resolvida
+        // aqui. Propagar o erro de verdade é a resposta principiada e é o que fica pinado.
+        await Assert
+            .That(Calc("=AGGREGATE(15,6,1/0,1)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
     public async Task Aggregate_HiddenRowBit_IsANoOp()
     {
         // §S6 do plano — CAVEAT DE MODELO: o MySheet não tem linhas ocultas, então o bit 0 ("ignore hidden
