@@ -108,11 +108,18 @@ internal static class OrderSelection
     // heap can be sized, but its error is DEFERRED behind the array error — matching the linear order, where
     // Collect returns the array's first error before arguments[1] is ever evaluated. Evaluating k early is
     // observationally inert (pure functional; a volatile k taints the same enclosing cell frame either way).
-    private static ComputedValue KthValueStreaming(
+    //
+    // ignoreErrors (AGGREGATE's option bit 1, e.g. AGGREGATE(15,6,…) = SMALL ignoring error values) changes
+    // exactly ONE thing: an error element is not RECORDED. The scan still visits it, and everything else
+    // follows for free — `count` was already incremented for NUMERIC elements only, so k is bounded by the
+    // POST-skip population, and an all-error array falls through count == 0 to the same #NUM! that SMALL
+    // already answers for an empty population.
+    public static ComputedValue KthValueStreaming(
         ArrayEvaluation.ArrayStream stream,
         Expression kArgument,
         EvaluationContext context,
-        bool largest
+        bool largest,
+        bool ignoreErrors = false
     )
     {
         var kError = kArgument.Evaluate(context).CoerceToNumber(out var k);
@@ -133,7 +140,10 @@ internal static class OrderSelection
             {
                 if (element.TryGetError(out var cellError))
                 {
-                    arrayError ??= cellError;
+                    if (!ignoreErrors)
+                    {
+                        arrayError ??= cellError;
+                    }
                 }
                 else if (element.TryGetNumber(out var number))
                 {

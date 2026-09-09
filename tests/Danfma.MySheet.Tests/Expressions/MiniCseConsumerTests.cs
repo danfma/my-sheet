@@ -143,6 +143,56 @@ public class MiniCseConsumerTests
     }
 
     [Test]
+    public async Task KthValueStreaming_IgnoringErrors_SelectsOverThePostSkipPopulation()
+    {
+        // Phase 2 groundwork for AGGREGATE(15,6,…) — "SMALL, ignoring error values". No engine node passes
+        // ignoreErrors:true yet, so the flag is pinned on OrderSelection directly (the test project sees the
+        // assembly's internals). Fixture shape of Small_OfIfArray_ErrorAfterKthElement_StillPropagates:
+        // A2:A5 = [1, 2, 3, #DIV/0!] behind an all-"Show" filter, so the stream is those four elements.
+        //
+        // ignoreErrors:true does ONE thing — the error element is not RECORDED (the scan still visits every
+        // element) — and that alone yields AGGREGATE's contract, because `count` only ever counted the
+        // NUMERIC elements: the population is {1,2,3}, so k=1 → 1, k=3 → 3, and k=4 is past the POST-skip
+        // count → #NUM! (the four PRE-skip elements would have made 4 a legal k). ignoreErrors:false is the
+        // unchanged SMALL behaviour: the trailing #DIV/0! wins over any k/bounds outcome.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A2"] = new NumberValue(1);
+        sheet["A3"] = new NumberValue(2);
+        sheet["A4"] = new NumberValue(3);
+        sheet["A5"] = ExpressionParser.Parse("=1/0", sheet); // #DIV/0! at the LAST position
+        sheet["B2"] = new StringValue("Show");
+        sheet["B3"] = new StringValue("Show");
+        sheet["B4"] = new StringValue("Show");
+        sheet["B5"] = new StringValue("Show");
+
+        var context = new EvaluationContext(workbook, sheet.Name);
+        var array = ExpressionParser.Parse("=IF(B2:B5=\"Show\",A2:A5)", sheet);
+
+        await Assert
+            .That(ArrayEvaluation.TryEvaluateStream(array, context, out var stream))
+            .IsTrue();
+
+        var built = stream;
+
+        object? Kth(double k, bool ignoreErrors) =>
+            OrderSelection
+                .KthValueStreaming(
+                    built,
+                    new NumberValue(k),
+                    context,
+                    largest: false,
+                    ignoreErrors: ignoreErrors
+                )
+                .AsObject();
+
+        await Assert.That(Num(Kth(1, ignoreErrors: true))).IsEqualTo(1.0);
+        await Assert.That(Num(Kth(3, ignoreErrors: true))).IsEqualTo(3.0);
+        await Assert.That(Kth(4, ignoreErrors: true)).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Kth(1, ignoreErrors: false)).IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
     public async Task Small_OfTheCorpusDivisionIdiom_PropagatesTheErrorElement()
     {
         // The corpus's "nth row that is neither blank nor zero" idiom, which divides BY the filter instead of
