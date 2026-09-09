@@ -244,12 +244,12 @@ public class ElementwiseLiftingTests
         // 9; Aspose CSE agrees. Today #VALUE!.
         await Assert.That(Num(OnRealDates("=SUM(MONTH(D1:D3))"))).IsEqualTo(9.0);
 
-        // (b) Over the plan's own E6:E8 = 1,2,3, whose golden it states as 3 (Excel: serial 1 is 1900-01-01,
-        // so MONTH is 1,1,1 — Aspose CSE 3). This engine's serial 1 is 1899-12-31, so MONTH(1)=12,
-        // MONTH(2)=1, MONTH(3)=1 and the lifted sum is 14. That epoch gap is a PRE-EXISTING divergence
-        // recorded in the master plan's open decisions, not something this phase introduces or fixes: 14 is
-        // pinned here so that closing the epoch gap updates this line deliberately. Today #VALUE!.
-        await Assert.That(Num(OnNumeric("=SUM(MONTH(E6:E8))"))).IsEqualTo(14.0);
+        // (b) Over the plan's own E6:E8 = 1,2,3. Phase 8 pinned 14 here — MONTH(1)=12, MONTH(2)=1,
+        // MONTH(3)=1 under the OLE Automation epoch — precisely so that closing the epoch gap would have to
+        // update this line deliberately. Phase 9 closed it: serial 1 is 1900-01-01, so MONTH is 1,1,1 and the
+        // lifted sum is 3, which is what Aspose.Cells 26.6.0 answers (measured 2026-09-09, CSE column, where
+        // this SUM-over-a-lifted-array shape lives; the PLAIN column is #VALUE! for both halves of this test).
+        await Assert.That(Num(OnNumeric("=SUM(MONTH(E6:E8))"))).IsEqualTo(3.0);
     }
 
     // --- Edges: shape pairing and broadcast ---

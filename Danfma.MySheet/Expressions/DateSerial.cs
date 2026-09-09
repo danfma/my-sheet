@@ -3,15 +3,27 @@ namespace Danfma.MySheet.Expressions;
 /// <summary>
 /// Excel serial-date arithmetic for the date/time functions. A date IS a <c>double</c> serial (fiel ao
 /// Excel; no dedicated value kind): the integer part counts days and the fraction is the time of day.
-/// Conversion goes through .NET's OLE Automation date (<see cref="DateTime.FromOADate"/> /
-/// <see cref="DateTime.ToOADate"/>), whose epoch is 1899-12-30 (serial 0) — this reproduces Excel's
-/// fictitious 1900 leap year for serials on or after 61 (1900-03-01), which is the whole point of the
-/// OA epoch.
+/// Serial 1 is 1900-01-01 and serial 0 is Excel's "day zero" 1900-01-00, so the map is .NET's OLE
+/// Automation date (<see cref="DateTime.FromOADate"/> / <see cref="DateTime.ToOADate"/>, epoch 1899-12-30)
+/// shifted one day below 1900-03-01 and unshifted from 1900-03-01 on, where the two systems agree.
 ///
-/// Documented limitation (§A6 of the roadmap): serials 1..59 (Jan–Feb 1900) render one day AHEAD of Excel
-/// (serial 1 is 1899-12-31 here, 1900-01-01 in Excel) and serial 60 (Excel's phantom 1900-02-29) is not
-/// representable — <c>FromOADate(60)</c> yields 1900-02-28, colliding with serial 59. This is registered,
-/// not corrected: real-world dates (≥ 1900-03-01) are exact and round-trip losslessly.
+/// Excel is really THREE calendars over the January–February 1900 window, and each function is pinned to
+/// the one it uses (all three MEASURED on Aspose.Cells 26.6.0, the oracle for "Excel"):
+/// <list type="number">
+/// <item><b>The DateTime map</b> — <see cref="ToDateTimeUnchecked"/> and its inverse
+/// <see cref="FromDateTime"/>: 0 → 1899-12-31, 1 → 1900-01-01, 59 → 1900-02-28, 60 → 1900-02-28 (the
+/// phantom day COLLAPSES onto Feb 28) and 61 → 1900-03-01. The inverse never yields 60, so no
+/// <see cref="DateTime"/> denotes the phantom day. Used by YEAR/MONTH/DAY (through
+/// <see cref="TryGetCalendar"/>, which adds the day-zero rule), EDATE, EOMONTH, WEEKNUM, ISOWEEKNUM,
+/// NETWORKDAYS, the bond/coupon family, DATEDIF's calendar units, <c>DATE</c>'s inverse, the xlsx loader
+/// and the volatile clock.</item>
+/// <item><b>The Lotus weekday</b> — <see cref="LotusDayOfWeek"/>: <c>((⌊s⌋ − 1) mod 7) + 1</c>, with 60
+/// collapsed onto 59. Used by WEEKDAY, <c>TEXT</c>'s <c>ddd</c>/<c>dddd</c> and WORKDAY's remainder walk.
+/// It is NOT the <see cref="DateTime.DayOfWeek"/> of the mapped value, which the one-day shift moves.</item>
+/// <item><b>The Lotus calendar</b> — serial 60 IS 1900-02-29 and February 1900 has 29 days. Only the
+/// number formatter (<c>TEXT</c> and cell display, via <c>phantomFeb29: true</c>) and the 30/360
+/// arithmetic of DAYS360/YEARFRAC see that day; everything that COUNTS days counts serials instead.</item>
+/// </list>
 ///
 /// Functions treat a negative serial as out of range → <c>#NUM!</c>.
 /// </summary>
@@ -21,8 +33,21 @@ internal static class DateSerial
     public static readonly double MaxSerial = new DateTime(9999, 12, 31, 23, 59, 59).ToOADate();
 
     /// <summary>
-    /// serial → <see cref="DateTime"/> via OADate. Returns <see cref="Error.Num"/> when the serial is
-    /// negative or beyond the representable range; <c>null</c> on success.
+    /// Excel's phantom 1900-02-29. No <see cref="DateTime"/> maps to it — <see cref="FromDateTime"/> never
+    /// produces it and <see cref="ToDateTimeUnchecked"/> collapses it onto 1900-02-28 — so it is reachable
+    /// only by arithmetic on serials and by <c>DATEVALUE</c>'s text parse.
+    /// </summary>
+    public const double PhantomFeb29Serial = 60d;
+
+    /// <summary>
+    /// The first date the Excel and OLE Automation epochs agree on. Below it Excel's serial is one less than
+    /// the OADate, because Excel counts the phantom 1900-02-29 that the Gregorian calendar does not have.
+    /// </summary>
+    private static readonly DateTime FirstAlignedDate = new(1900, 3, 1);
+
+    /// <summary>
+    /// serial → <see cref="DateTime"/>. Returns <see cref="Error.Num"/> when the serial is negative or
+    /// beyond the representable range; <c>null</c> on success.
     /// </summary>
     public static Error? ToDateTime(double serial, out DateTime dateTime)
     {
@@ -53,14 +78,92 @@ internal static class DateSerial
     /// <see cref="DateTime.FromOADate"/> does.
     /// </summary>
     /// <remarks>
-    /// THIS is the method the epoch change edits (Phase 9 item 2). Editing <see cref="ToDateTime"/> instead
-    /// compiles, passes its own tests, and silently leaves <c>TEXT</c> on the OLE-Automation epoch, because
-    /// <c>TEXT</c> calls this method directly to keep its <c>#VALUE!</c> policy.
+    /// THIS is the method the epoch lives in. Shifting <see cref="ToDateTime"/> instead compiles, passes its
+    /// own tests, and silently leaves <c>TEXT</c> on the OLE-Automation epoch, because <c>TEXT</c> calls this
+    /// method directly to keep its <c>#VALUE!</c> policy.
     /// </remarks>
-    public static DateTime ToDateTimeUnchecked(double serial) => DateTime.FromOADate(serial);
+    public static DateTime ToDateTimeUnchecked(double serial) =>
+        // Below the phantom day Excel's serial trails the OADate by one, so +1 recovers the OADate; at 60 and
+        // above the two agree, which is why 59 and 60 both land on 1900-02-28.
+        DateTime.FromOADate(serial < PhantomFeb29Serial ? serial + 1d : serial);
 
-    /// <summary><see cref="DateTime"/> → serial (OADate). A date-only value yields an integer serial.</summary>
-    public static double FromDateTime(DateTime dateTime) => dateTime.ToOADate();
+    /// <summary>
+    /// <see cref="DateTime"/> → serial, the inverse of <see cref="ToDateTimeUnchecked"/>. A date-only value
+    /// yields an integer serial; <see cref="PhantomFeb29Serial"/> is never produced, and a date before
+    /// 1899-12-31 yields a negative serial that the callers reject as <c>#NUM!</c>.
+    /// </summary>
+    public static double FromDateTime(DateTime dateTime)
+    {
+        var oaDate = dateTime.ToOADate();
+
+        return dateTime < FirstAlignedDate ? oaDate - 1d : oaDate;
+    }
+
+    /// <summary>
+    /// serial → calendar year/month/day, adding the two rules the raw <see cref="ToDateTime"/> map does not
+    /// carry:
+    /// <list type="bullet">
+    /// <item>a serial in <c>[0, 1)</c> is Excel's day zero — 1900/1/<b>0</b>, not the 1899-12-31 the map
+    /// returns (measured: <c>DAY(0)</c> = <c>DAY(0.999)</c> = 0, <c>MONTH(0)</c> = 1, <c>YEAR(0)</c> =
+    /// 1900);</item>
+    /// <item>a serial in <c>[60, 61)</c> is the phantom 1900/2/<b>29</b> for the callers that PRINT it or
+    /// count 30/360 over it (<c>phantomFeb29: true</c>) and 1900/2/<b>28</b> for everyone else — YEAR, MONTH
+    /// and DAY read the collapsed value (measured: <c>DAY(60)</c> = <c>DAY(60.5)</c> = 28).</item>
+    /// </list>
+    /// Returns <see cref="Error.Num"/> for an out-of-range serial, exactly as <see cref="ToDateTime"/> does.
+    /// </summary>
+    public static Error? TryGetCalendar(
+        double serial,
+        bool phantomFeb29,
+        out int year,
+        out int month,
+        out int day
+    )
+    {
+        year = 0;
+        month = 0;
+        day = 0;
+
+        if (ToDateTime(serial, out var dateTime) is { } rangeError)
+        {
+            return rangeError;
+        }
+
+        if (serial < 1d)
+        {
+            (year, month, day) = (1900, 1, 0);
+            return null;
+        }
+
+        if (phantomFeb29 && serial >= PhantomFeb29Serial && serial < PhantomFeb29Serial + 1d)
+        {
+            (year, month, day) = (1900, 2, 29);
+            return null;
+        }
+
+        (year, month, day) = (dateTime.Year, dateTime.Month, dateTime.Day);
+        return null;
+    }
+
+    /// <summary>
+    /// The weekday Excel names for a serial: a plain mod-7 walk in which serial 1 (1900-01-01) is a
+    /// <b>Sunday</b> — it was really a Monday, but the walk is anchored on the day-zero Saturday — and the
+    /// phantom day is skipped, so serial 60 repeats serial 59's Tuesday. Deliberately NOT the
+    /// <see cref="DateTime.DayOfWeek"/> of <see cref="ToDateTimeUnchecked"/>: the epoch shift moves that by a
+    /// day, which would break every weekday answer in the 1900 window.
+    /// </summary>
+    public static DayOfWeek LotusDayOfWeek(double serial)
+    {
+        var day = (long)Math.Floor(serial);
+
+        if (day == (long)PhantomFeb29Serial)
+        {
+            day--;
+        }
+
+        // The extra "+ 7" only guards a negative serial, which every caller rejects as #NUM! before asking.
+        return (DayOfWeek)(int)(((day + 6L) % 7L + 7L) % 7L);
+    }
 
     /// <summary>
     /// Builds a date serial from year/month/day with Excel's overflow rules (used by <c>DATE</c>, and the
@@ -71,7 +174,11 @@ internal static class DateSerial
     /// the previous year);</item>
     /// <item>day outside 1..(days in month) rolls the month (day 0 → last day of the previous month).</item>
     /// </list>
-    /// year &lt; 0 or ≥ 10000, or any result outside 1900..9999, returns <see cref="Error.Num"/>.
+    /// year &lt; 0 or ≥ 10000, or any result outside 1900..9999, returns <see cref="Error.Num"/>. The floor is
+    /// the day zero: <c>DATE(1900,1,0)</c> is serial 0 and <c>DATE(1900,1,-1)</c> would be −1, which the
+    /// <c>result &lt; 0</c> guard below turns into <c>#NUM!</c>. Because this builds a proleptic-Gregorian
+    /// date, <c>DATE(1900,2,29)</c> rolls to 1900-03-01 = serial <b>61</b> and never yields
+    /// <see cref="PhantomFeb29Serial"/> — measured, and true of Excel too.
     /// </summary>
     public static Error? FromComponents(
         double yearArg,
