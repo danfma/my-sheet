@@ -209,6 +209,9 @@ accepting `INDEX(...)`.
       explicitly warns to count the attributes rather than trust a written number. Spelling out what does NOT
       break saves the implementer from regenerating a golden unnecessarily.
 
+
+> **Landed differently (2026-09-09, Phase 1 Task 2):** the ROW/COLUMN axis mirror this item describes was collapsed at implementation time. The live symbols are `PositionNumbersOperand(origin, PositionAxis, rows, columns)`, `ProbePosition`/`TryBuildPositionOperand`, `ResolvePositionRange` and `PositionArgumentShape` in `Danfma.MySheet/Expressions/ArrayEvaluation.cs`. `RowNumbersOperand`, `ColumnNumbersOperand`, `ResolveRowRange` and `RowArgumentShape` no longer exist — read the file, not this text.
+
 ## Verification Plan
 
 - [ ] `cd /Volumes/Work/Develop/MySheet && dotnet build Danfma.MySheet.slnx -c Release`

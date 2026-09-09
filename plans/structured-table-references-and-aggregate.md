@@ -69,11 +69,11 @@ which is why it goes first.
 
 | # | Phase | File | Items | Blockers | Majors | Status |
 | --: | --- | --- | --: | --: | --: | --- |
-| 1 | ROW/COLUMN over any reference, Excel's implicit intersectio | [`phase-1-reference-semantics.md`](structured-table-references-and-aggregate/phase-1-reference-semantics.md) | 26 | 2 | 2 | Not started |
-| 2 | AGGREGATE(function_num, options, ref1, [k]) on a shared SUB | [`phase-2-aggregate.md`](structured-table-references-and-aggregate/phase-2-aggregate.md) | 18 | 1 | 1 | Not started |
-| 3 | Table model, Workbook.DefineTable/Tables, and the third ser | [`phase-3-table-model-registry.md`](structured-table-references-and-aggregate/phase-3-table-model-registry.md) | 26 | 3 | 2 | Not started |
+| 1 | ROW/COLUMN over any reference, Excel's implicit intersection, array-native SUMPRODUCT | [`phase-1-reference-semantics.md`](structured-table-references-and-aggregate/phase-1-reference-semantics.md) | 27 | 2 | 2 | **Complete** — `feat/reference-semantics`, `32a67f6..c04e78b`, pending merge |
+| 2 | AGGREGATE(function_num, options, ref1, [k]) on a shared SUBTOTAL/order-statistics core | [`phase-2-aggregate.md`](structured-table-references-and-aggregate/phase-2-aggregate.md) | 18 | 1 | 1 | Not started |
+| 3 | Table model, Workbook.DefineTable/Tables, and the third serialized Workbook member | [`phase-3-table-model-registry.md`](structured-table-references-and-aggregate/phase-3-table-model-registry.md) | 26 | 3 | 2 | Not started |
 | 4 | Bracket lexing and the structured-reference grammar | [`phase-4-lexer-parser.md`](structured-table-references-and-aggregate/phase-4-lexer-parser.md) | 18 | 2 | 1 | Not started |
-| 5 | Structured-reference resolution and cross-cutting graph int | [`phase-5-resolution-and-graph.md`](structured-table-references-and-aggregate/phase-5-resolution-and-graph.md) | 24 | 1 | 5 | Not started |
+| 5 | Structured-reference resolution and cross-cutting graph integration | [`phase-5-resolution-and-graph.md`](structured-table-references-and-aggregate/phase-5-resolution-and-graph.md) | 24 | 1 | 5 | Not started |
 | 6 | The .xlsx loader reads <table> parts into Workbook.Tables | [`phase-6-excel-loader.md`](structured-table-references-and-aggregate/phase-6-excel-loader.md) | 25 | 1 | 4 | Not started |
 | 7 | FILTER / SORT / UNIQUE / SEQUENCE as mini-CSE producers | [`phase-7-dynamic-arrays.md`](structured-table-references-and-aggregate/phase-7-dynamic-arrays.md) | 21 | 2 | 4 | Not started |
 

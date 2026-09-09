@@ -230,3 +230,23 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
 - **Subagente de review adversarial com instrução de PROVAR por execução acha o que a revisão por leitura não
   acha.** Os cinco defeitos acima vieram de um revisor que montou projeto de probe fora do repo e executou
   cada alegação. Instrução que fez a diferença: "onde for barato, PROVE com probe; medido vence argumentado".
+
+## MySheet — Fase 1 por subagentes (2026-09-09)
+
+- **`TaskOutput` num agente local despeja o transcript JSONL inteiro no contexto.** Usei uma vez com `block:true`
+  e recebi dezenas de KB de transcript. Regra: nunca chamar `TaskOutput` para agente local; a notificação de
+  conclusão chega sozinha, e o `.output` de agente é o transcript, não o resultado.
+- **Fato de repositório no prompt de despacho vem do repositório, não da memória.** Escrevi o GUID da página
+  SUMPRODUCT de cabeça (`…f4b6`) e o repo tinha `…fd2e`; o implementador precisou escolher. Regra: qualquer
+  identificador/valor citado num brief é copiado por `grep` do repo na hora do despacho.
+- **Agente travado no meio de "experimento de mutação" pode ter deixado a mutação no disco.** Antes de retomar,
+  verifiquei a árvore eu mesmo (csharpier, build, suíte) e só então mandei "finalize, não refaça". Regra: estado
+  da working tree é medido, não inferido do último log do agente.
+- **A review final de branch acha o que a review por tarefa não pode ver.** Cinco reviews por tarefa aprovaram
+  ROW e ROWS separadamente; só a review do branch inteiro viu que `ROWS(INDEX(Ghost!…))` = 1 enquanto
+  `ROW(INDEX(Ghost!…))` = `#REF!` — a família divergindo no mesmo argumento, o objetivo declarado do item 27.
+  Regra: a review final compara COMPORTAMENTOS entre tarefas para o mesmo shape de entrada, não só o diff.
+- **Item de plano "verbatim" não é autoridade quando a review oferece a forma elegante.** O plano mandava
+  `ColumnNumbersOperand` espelhando `RowNumbersOperand`; colapsar em `PositionNumbersOperand` parametrizado por
+  eixo encolheu o arquivo e eliminou o drift por construção. Regra: o plano é o argumento; a regra de elegância
+  do projeto e a evidência do revisor podem revogá-lo — registrado como Ruling no ledger com o custo se errado.

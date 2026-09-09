@@ -325,6 +325,9 @@ already prevents warm-start from bypassing.
       construction, since the node carries no SheetName for the sentinel `Sheet { Name = "" }` at :572 to
       stamp with the empty string.
 
+
+> **Landed differently (2026-09-09, Phase 1 Task 2):** the ROW/COLUMN axis mirror this item describes was collapsed at implementation time. The live symbols are `PositionNumbersOperand(origin, PositionAxis, rows, columns)`, `ProbePosition`/`TryBuildPositionOperand`, `ResolvePositionRange` and `PositionArgumentShape` in `Danfma.MySheet/Expressions/ArrayEvaluation.cs`. `RowNumbersOperand`, `ColumnNumbersOperand`, `ResolveRowRange` and `RowArgumentShape` no longer exist — read the file, not this text.
+
 ## Verification Plan
 
 - [ ] `dotnet build /Volumes/Work/Develop/MySheet/Danfma.MySheet.slnx -c Release`
