@@ -320,4 +320,41 @@ public class CellBoundaryIntersectionTests
             File.Delete(path);
         }
     }
+
+    // === Phase 8: the array half of the boundary is still ABSENT (Phase 7 owns it) ==========================
+
+    [Test]
+    public async Task BareLiftedFunction_IsStillValueError_TheArrayHalfBelongsToPhase7()
+    {
+        // Phase 8 lifts pure-scalar built-ins and unary '-'/'%' over an array — but ONLY inside the mini-CSE,
+        // which is entered exclusively by consumers that call ArrayEvaluation themselves (SUM/COUNT/
+        // SUMPRODUCT, SMALL/LARGE, INDEX, AGGREGATE). Workbook.EvaluateCell is NOT one of them: it inspects
+        // only value.TryGetReference(...) → ImplicitIntersection.Apply, and a lifted function is not a
+        // reference — it is Len.Evaluate's untouched #VALUE!.
+        //
+        // So a bare =LEN(A1:A3) typed in a cell still answers #VALUE! after Phase 8, exactly as =A1:A3*2 and
+        // =IF(B2:B5="Show",1,0) do (this class's own comment: the ARRAY half "has no producer in this engine
+        // yet and is deliberately absent"). That is a documented GAP, not a rule: the array half means giving
+        // EvaluateCell a second arm that runs IsArrayEligible over the WHOLE cell expression and takes
+        // ElementAt(0) — a new call site on every cell's hot path — and it belongs to PHASE 7, the phase that
+        // creates producers users will type bare. Pinning it here means Phase 7 must change this assertion
+        // deliberately instead of discovering the behaviour by accident.
+        //
+        // Aspose.Cells 26.6.0, measured 2026-09-09: =LEN(A1:A3) entered plainly is #VALUE! (CSE-entered it is
+        // 1 — the column this engine does not reproduce at the boundary), and so are =-A1:A3 and
+        // =ROUND(A1:A3,0).
+        await Assert.That(InCell("C2", "=LEN(A1:A3)")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(InCell("C2", "=-A1:A3")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(InCell("C2", "=ROUND(A1:A3,0)")).IsEqualTo(ErrorValue.NotValue);
+
+        // The RANGE half — Phase 1's FIX B, commit b89b856 — DID land and is unaffected: the same cell, same
+        // row, holding the bare range intersects to A2 = 0 (and row 3 to A3 = 9, so the 0 is not a blank
+        // coercion in disguise). The contrast is the whole point: the boundary knows references, not arrays.
+        await Assert.That(InCell("C2", "=A1:A3")).IsEqualTo(0.0);
+        await Assert.That(InCell("C3", "=A1:A3")).IsEqualTo(9.0);
+
+        // And a CONSUMED lift in the same cell is fine — the consumer enters the mini-CSE itself.
+        // LEN(5)+LEN(0)+LEN(9) = 3 (Aspose 26.6.0, CSE-entered, 2026-09-09).
+        await Assert.That(InCell("C2", "=SUM(LEN(A1:A3))")).IsEqualTo(3.0);
+    }
 }

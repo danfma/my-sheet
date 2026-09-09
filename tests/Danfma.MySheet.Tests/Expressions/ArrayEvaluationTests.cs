@@ -1,6 +1,7 @@
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Expressions.Logical;
 using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Expressions.Text;
 using static Danfma.MySheet.Expressions.Expression;
 
 namespace Danfma.MySheet.Tests.Expressions;
@@ -22,6 +23,20 @@ public class ArrayEvaluationTests
         sheet["B3"] = String("Show");
         sheet["B4"] = String("Hide");
         sheet["B5"] = String("Show");
+
+        return (workbook, sheet);
+    }
+
+    // A1:A3 = 1, 22, 333 — the Phase 8 lift fixture: three numbers whose TEXT LENGTHS (1, 2, 3) are all
+    // different, so an element assertion cannot be satisfied by a neighbour.
+    private static (Workbook Workbook, Sheet Sheet) Lengths()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        sheet["A1"] = Number(1);
+        sheet["A2"] = Number(22);
+        sheet["A3"] = Number(333);
 
         return (workbook, sheet);
     }
@@ -268,5 +283,66 @@ public class ArrayEvaluationTests
 
         // Directly, too.
         await Assert.That(ArrayEvaluation.TryEvaluate(openColumn, context, out _)).IsFalse();
+    }
+
+    // --- Phase 8: the EAGER twin of the lifted shapes (the lazy stream is pinned by the consumers) ---
+
+    [Test]
+    public async Task LiftedFunction_MaterializesElementByElement()
+    {
+        // ArrayEvaluationTests is the only place that drives the EAGER TryEvaluate path. The class comment
+        // promises the eager vector and the lazy ArrayStream are bit-for-bit the same sequence, and nothing
+        // else would notice if LiftedFunctionOperand broke that: the eager loop calls At() in a FRESH loop,
+        // so a scratch-slot bug that depended on call order (a slot left bound from the previous element, a
+        // node rebuilt between calls) shows up here first.
+        //
+        // The node is HAND-BUILT rather than parsed, so this also pins that the lift keys off the registry
+        // classification of the node TYPE, not off anything the parser attaches.
+        //
+        // A1:A3 = 1, 22, 333 — three text lengths that are all different, so no element can stand in for
+        // another. Aspose.Cells 26.6.0, measured 2026-09-09 (CSE-entered): ROWS(LEN(A1:A3)) = 3,
+        // COLUMNS(LEN(A1:A3)) = 1, and INDEX(LEN(A1:A3),n) = 1 / 2 / 3.
+        var (workbook, sheet) = Lengths();
+        var context = new EvaluationContext(workbook);
+
+        var node = new Len([Range("A1", "A3", sheet)]);
+
+        await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
+        await Assert.That(result.Rows).IsEqualTo(3);
+        await Assert.That(result.Columns).IsEqualTo(1);
+        await Assert.That(result.Length).IsEqualTo(3);
+        await Assert.That(NumberAt(result, 0)).IsEqualTo(1.0);
+        await Assert.That(NumberAt(result, 1)).IsEqualTo(2.0);
+        await Assert.That(NumberAt(result, 2)).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task LiftedUnaryNegate_MaterializesElementByElement()
+    {
+        // The unary half of the same contract. Aspose.Cells 26.6.0, measured 2026-09-09 (CSE-entered):
+        // INDEX(-A1:A3,n) = -1 / -22 / -333 and SUM(-A1:A3) = -356.
+        var (workbook, sheet) = Lengths();
+        var context = new EvaluationContext(workbook);
+
+        var node = new UnaryOperation(UnaryOperator.Negate, Range("A1", "A3", sheet));
+
+        await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
+        await Assert.That(result.Rows).IsEqualTo(3);
+        await Assert.That(result.Columns).IsEqualTo(1);
+        await Assert.That(NumberAt(result, 0)).IsEqualTo(-1.0);
+        await Assert.That(NumberAt(result, 1)).IsEqualTo(-22.0);
+        await Assert.That(NumberAt(result, 2)).IsEqualTo(-333.0);
+
+        // Unary '+' is Excel's reference-preserving no-op and is NEVER lifted — it stays the opaque scalar
+        // that carries the reference, which is what keeps SUM(+A1:A3) reading the cells.
+        await Assert
+            .That(
+                ArrayEvaluation.TryEvaluate(
+                    new UnaryOperation(UnaryOperator.Plus, Range("A1", "A3", sheet)),
+                    context,
+                    out _
+                )
+            )
+            .IsFalse();
     }
 }

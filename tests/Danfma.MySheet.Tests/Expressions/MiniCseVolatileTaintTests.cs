@@ -1,3 +1,4 @@
+using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 using StringValue = Danfma.MySheet.Expressions.StringValue;
 
@@ -137,5 +138,80 @@ public class MiniCseVolatileTaintTests
         workbook.Recalculate();
         var second = Cell(workbook, "A1");
         await Assert.That(second).IsNotEqualTo(first); // volatile range cells tainted A1 → refreshed
+    }
+
+    // --- Phase 8: a LIFTED node carries the taint exactly as the IF-array does ---
+
+    [Test]
+    public async Task Sum_OfLiftedFunction_WithBroadcastVolatileArgument_IsTaintedAndRefreshes()
+    {
+        // The lifted twin of Sum_OfIfArray_WithBroadcastVolatileBranch_… above. ROUND is an
+        // ArrayLifting.Elementwise built-in, so =SUM(ROUND(A1:A3, RAND()*4)) builds a LiftedFunctionOperand
+        // whose second argument is a broadcast ScalarOperand — RAND() is drawn ONCE at build time (the draw
+        // count itself is pinned by ElementwiseLiftingMechanismTests) and its MarkVolatileTouched lands in
+        // the enclosing cell frame, never through a cell. If the lift swallowed that, B1 would be untainted
+        // and Recalculate would serve the same stale number forever.
+        //
+        // RAND()*4 spans num_digits 0..3, and the fixture's decimals differ at every one of those places, so
+        // a fresh draw genuinely moves the sum.
+        var workbook = new Workbook { RandomSeed = 3 };
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1.23456);
+        sheet["A2"] = new NumberValue(2.34567);
+        sheet["A3"] = new NumberValue(3.45678);
+        sheet["B1"] = ExpressionParser.Parse("=SUM(ROUND(A1:A3,RAND()*4))", sheet);
+
+        var first = Cell(workbook, "B1");
+        await Assert.That(Cell(workbook, "B1")).IsEqualTo(first); // same epoch → cached, stable
+
+        var seen = new HashSet<double>();
+        for (var i = 0; i < 40; i++)
+        {
+            seen.Add(Cell(workbook, "B1"));
+            workbook.Recalculate();
+        }
+
+        // Moved across epochs ⇒ B1 was in the tainted set Recalculate dropped.
+        await Assert.That(seen.Count).IsGreaterThan(1);
+    }
+
+    [Test]
+    public async Task Sum_OfNonVolatileLiftedFunction_IsStableAcrossRecalculate()
+    {
+        // The control, and the proof that the taint is PRECISE: the same lifted shape with a constant second
+        // argument must NOT be marked. 1.23 + 2.35 + 3.46 = 7.04.
+        var workbook = new Workbook { RandomSeed = 3 };
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1.23456);
+        sheet["A2"] = new NumberValue(2.34567);
+        sheet["A3"] = new NumberValue(3.45678);
+        sheet["B1"] = ExpressionParser.Parse("=SUM(ROUND(A1:A3,2))", sheet);
+
+        var first = Cell(workbook, "B1");
+        await Assert.That(first).IsEqualTo(7.04);
+
+        workbook.Recalculate();
+        await Assert.That(Cell(workbook, "B1")).IsEqualTo(first);
+    }
+
+    [Test]
+    public async Task Sum_OfLiftedUnary_OverAVolatileOperand_RefreshesAcrossEpochs()
+    {
+        // The unary half: -(A1:A3*RAND()) is a UnaryOperand over a BinaryOperand whose right side is the
+        // broadcast volatile. Negating cannot lose the taint (it is a thread-local flag on the cell frame,
+        // not a value property), and this pins that it does not.
+        var workbook = new Workbook { RandomSeed = 5 };
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(2);
+        sheet["A3"] = new NumberValue(3);
+        sheet["B1"] = ExpressionParser.Parse("=SUM(-(A1:A3*RAND()))", sheet);
+
+        var first = Cell(workbook, "B1");
+        await Assert.That(Cell(workbook, "B1")).IsEqualTo(first);
+        await Assert.That(first).IsLessThan(0d); // 6 * a positive draw, negated
+
+        workbook.Recalculate();
+        await Assert.That(Cell(workbook, "B1")).IsNotEqualTo(first);
     }
 }

@@ -25,6 +25,20 @@ public class MiniCseConsumerTests
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
+    // D7="abc", D8="def", E9=" " (ONE space) — the Phase 8 Textual fixture (ElementwiseLiftingTests owns its
+    // rationale). LEN over the 3x3 D7:F9 is [3,0,0 / 3,0,0 / 0,1,0]; after TRIM the single space collapses,
+    // so the ninth-smallest is still 3 while the population loses its only 1.
+    private static object? OnTextual(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["D7"] = new StringValue("abc");
+        sheet["D8"] = new StringValue("def");
+        sheet["E9"] = new StringValue(" ");
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
     private static double Num(object? value) => value is double d ? d : double.NaN;
 
     // A1:C3 grid plus the defined names the ROW/COLUMN array cases resolve THROUGH. The cell contents are
@@ -582,5 +596,43 @@ public class MiniCseConsumerTests
         // reference, 1 — exactly as before this fix; the scalar answer is correct, only the array shape is
         // deferred.
         await Assert.That(Num(OnPositionGrid("=SUM(ROW(INDEX(A1:A3,1,1)))"))).IsEqualTo(1.0);
+    }
+
+    // --- Phase 8: every consumer over a LIFTED argument (elementwise unary / pure-scalar built-in) ---
+
+    [Test]
+    public async Task Consumers_OverALiftedFunctionArgument_StreamItElementByElement()
+    {
+        // The mini-CSE has six consumers and Phase 8 changes what every one of them accepts: a pure-scalar
+        // built-in over a range used to be an OPAQUE SCALAR (#VALUE!, broadcast), and is now an array. One
+        // case per consumer family, all on the Textual fixture, all measured against the P0 oracle
+        // (Aspose.Cells 26.6.0, 2026-09-09 — plain and CSE-entered agree on every line below).
+        //
+        // OrderSelection (SMALL/LARGE). The 1st smallest of [3,0,0,3,0,0,0,1,0] is 0 and the 9th is 3; the
+        // PAIR is what makes this an array rather than a single value, since a one-element population makes
+        // k=9 a #NUM!.
+        await Assert.That(Num(OnTextual("=SMALL(LEN(D7:F9),1)"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnTextual("=SMALL(LEN(D7:F9),9)"))).IsEqualTo(3.0);
+
+        // INDEX. Element 1 of the row-major vector is LEN("abc") = 3.
+        await Assert.That(Num(OnTextual("=INDEX(LEN(D7:F9),1)"))).IsEqualTo(3.0);
+
+        // AGGREGATE's array form, over two STACKED lifts (LEN over TRIM). Same k pair, same reasoning.
+        await Assert.That(Num(OnTextual("=AGGREGATE(15,6,LEN(TRIM(D7:F9)),1)"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnTextual("=AGGREGATE(15,6,LEN(TRIM(D7:F9)),9)"))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task CriteriaFamily_StillRefusesAComputedArray()
+    {
+        // The sixth consumer is the ODD ONE OUT and stays that way: CriteriaScan.Open (the criteria family's
+        // entry point) is deliberately NOT CriteriaScan.OpenArrayOrRange, so SUMIFS/COUNTIFS/… never see a
+        // computed array — only a real range. Widening the eligible set does not reach them.
+        //
+        // Aspose.Cells 26.6.0, measured 2026-09-09: #VALUE! entered plainly (and #REF! CSE-entered, which is
+        // not the column this engine reproduces — the mini-CSE is never entered at the cell boundary).
+        await Assert
+            .That(OnTextual("=SUMIFS(LEN(A1:A3),A1:A3,\">0\")"))
+            .IsEqualTo(ErrorValue.NotValue);
     }
 }

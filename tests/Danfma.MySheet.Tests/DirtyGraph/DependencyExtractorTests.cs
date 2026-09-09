@@ -154,4 +154,26 @@ public class DependencyExtractorTests
 
         await Assert.That(scan.AlwaysDirty).IsTrue();
     }
+
+    // Fase 8 (lifting elementwise): a fórmula lifted não muda NADA aqui, e é isso que o pin registra. O arm
+    // `case Function function:` visita os argumentos via FormulaWriter.Call — o mesmo acessor do registry que
+    // o writer e o AnchoredFormulaSupport usam — e esta fase não acrescenta nó nenhum à árvore, então o range
+    // dentro do LEN continua sendo uma RangeDep normal. Se não fosse, a célula ficaria fora do cone dirty de
+    // uma edição em A1:A3 e serviria valor stale.
+    [Test]
+    public async Task LiftedFunctionArgument_IsStillARangeDep()
+    {
+        var scan = Scan("=SUM(LEN(A1:A3))");
+
+        await Assert.That(scan.AlwaysDirty).IsFalse();
+        await Assert.That(scan.Ranges).Contains(new RangeDep("Sheet1", 1, 1, 1, 3));
+
+        // O mesmo para a metade unária do lifting, e para dois lifts empilhados.
+        await Assert
+            .That(Scan("=SUM(-(A1:A3>1))").Ranges)
+            .Contains(new RangeDep("Sheet1", 1, 1, 1, 3));
+        await Assert
+            .That(Scan("=SUM(LEN(TRIM(A1:A3)))").Ranges)
+            .Contains(new RangeDep("Sheet1", 1, 1, 1, 3));
+    }
 }

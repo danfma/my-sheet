@@ -34,6 +34,10 @@ public class FormulaWriterTests
     [Arguments("TRUE")]
     [Arguments("SUM(A1:B10)")]
     [Arguments("SUM(A1:A3,C1,5)")]
+    // Fase 8 (lifting elementwise): a árvore não ganhou nó nenhum, então o writer alcança os argumentos da
+    // função lifted pelo MESMO acessor do registry (FormulaWriter.Call) e o texto é idêntico ao de entrada.
+    [Arguments("SUM(LEN(A1:A3))")]
+    [Arguments("SUM(-(A1:A3>1))")]
     [Arguments("SUM((A1:A3,C1:C3))")] // união de ranges
     [Arguments("IF(A1>0,\"yes\",\"no\")")]
     [Arguments("IFERROR(1/0,42)")]
