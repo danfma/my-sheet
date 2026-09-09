@@ -49,7 +49,7 @@ public sealed partial record Subtotal(Expression[] Arguments) : Function
         foreach (var argument in refs)
         {
             if (
-                AggregateCodes.Gather(
+                AggregateCodes.Feed(
                     argument,
                     context,
                     ref accumulator,

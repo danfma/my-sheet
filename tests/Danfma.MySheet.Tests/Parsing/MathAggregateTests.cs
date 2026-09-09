@@ -468,6 +468,51 @@ public class MathAggregateTests
         await Assert.That(Num(Calc("=SUBTOTAL(9,A:A)", cells))).IsEqualTo(3.0);
     }
 
+    // --- SUBTOTAL sobre um argumento que é um ARRAY calculado (não uma referência) ---
+    // A página oficial define ref1 como "the first named range or reference", mas o Excel dobra um
+    // argumento-array em SUBTOTAL exatamente como o SUM dobra: =SUBTOTAL(9,ROW(A1:A3)) é 6, não 1.
+    // Antes da correção o argumento caía no `default:` do scan, era avaliado como ESCALAR (ROW de um
+    // range → o primeiro número) ou virava #VALUE! (uma BinaryOperation sobre um range não tem valor
+    // escalar), então os quatro valores abaixo eram 1, #VALUE!, 0 e 1. Fixture deliberadamente
+    // "mentirosa": nenhum valor de célula coincide com a resposta correta.
+    private static readonly (string, object)[] SubtotalArrayData =
+    [
+        ("A1", 5),
+        ("A2", 0),
+        ("A3", 9),
+    ];
+
+    [Test]
+    public async Task Subtotal_Sum_FoldsARowNumberArray()
+    {
+        // ROW(A1:A3) = {1;2;3} → 6 (o mesmo que =SUM(ROW(A1:A3))). Antes: 1 (escalarizado).
+        await Assert.That(Num(Calc("=SUBTOTAL(9,ROW(A1:A3))", SubtotalArrayData))).IsEqualTo(6.0);
+        await Assert
+            .That(Num(Calc("=SUBTOTAL(9,ROW(A1:A3))", SubtotalArrayData)))
+            .IsEqualTo(Num(Calc("=SUM(ROW(A1:A3))", SubtotalArrayData)));
+    }
+
+    [Test]
+    public async Task Subtotal_Sum_FoldsAComputedBooleanArray()
+    {
+        // (A1:A3<>0)*1 = {1;0;1} → 2. Antes: #VALUE!.
+        await Assert.That(Num(Calc("=SUBTOTAL(9,(A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task Subtotal_Count_CountsEveryArrayElement()
+    {
+        // Os três elementos do array são números → COUNT = 3. Antes: 0 (o #VALUE! escalar não é número).
+        await Assert.That(Num(Calc("=SUBTOTAL(2,(A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task Subtotal_CountA_CountsEveryArrayElement()
+    {
+        // COUNTA sobre os mesmos três elementos → 3. Antes: 1 (o único escalar #VALUE!).
+        await Assert.That(Num(Calc("=SUBTOTAL(3,(A1:A3<>0)*1)", SubtotalArrayData))).IsEqualTo(3.0);
+    }
+
     [Test]
     public async Task Subtotal_InvalidCode_IsValueError()
     {

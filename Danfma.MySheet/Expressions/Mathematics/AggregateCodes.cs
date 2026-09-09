@@ -23,6 +23,30 @@ internal static class AggregateCodes
         SubtotalAndAggregate,
     }
 
+    /// <summary>
+    /// THE entry point of both callers: routes one argument into <paramref name="accumulator"/>.
+    ///
+    /// <para>A non-<see cref="Reference"/> argument that the mini-CSE can evaluate element-wise — the
+    /// <c>ROW(A1:A3)</c> / <c>(A1:A3&lt;&gt;0)*1</c> shapes — is STREAMED, exactly as SUM/COUNT/AVERAGE do
+    /// through <c>NumericAggregation.Fold</c>'s default arm, so SUBTOTAL folds a computed array the way Excel
+    /// does (<c>=SUBTOTAL(9,ROW(A1:A3))</c> is 6, like <c>=SUM(ROW(A1:A3))</c>). Reaching such an argument
+    /// through <see cref="Gather"/>'s <c>default:</c> instead would evaluate it as a SCALAR — silently the
+    /// first row number for <c>ROW(range)</c>, and <c>#VALUE!</c> for an operation over a range, which has no
+    /// scalar value. Every <see cref="Reference"/> shape keeps the cell-by-cell scan below, which is what
+    /// carries the nested-aggregate skip.</para>
+    /// </summary>
+    public static Error? Feed(
+        Expression argument,
+        EvaluationContext context,
+        ref Accumulator accumulator,
+        NestedSkip skip
+    ) =>
+        argument is not Reference
+        && ArrayEvaluation.IsArrayEligible(argument, context)
+        && ArrayEvaluation.TryEvaluateStream(argument, context, out var stream)
+            ? CollectStream(stream, ref accumulator)
+            : Gather(argument, context, ref accumulator, skip);
+
     // Walks a ref argument cell by cell — numerically, wherever the shape allows it, so a big range pays
     // neither a CellAddress.ToId() build (to ask "is this cell's stored formula a nested aggregate") nor a
     // second one (to read its value) per cell — folding straight into the accumulator instead of building an
