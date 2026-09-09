@@ -157,8 +157,19 @@ public class MathAggregateTests
         //
         // PAIRED forms — a real criteria range beside the collapsed argument — see 1 element against 3 and
         // raise the scan's up-front length mismatch. Excel says #VALUE! here too, so this half is parity.
+        // All four are listed because the docs name them as a group: a family member drifting off this
+        // shared mismatch check would otherwise leave the docs' "four shapes" sentence quietly wrong.
         await Assert
             .That(Calc("=SUMIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AVERAGEIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=MAXIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=MINIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
             .IsEqualTo(ErrorValue.NotValue);
 
         // SINGLE-criteria forms have nothing to mismatch against: the lone #VALUE! element matches no
@@ -168,6 +179,10 @@ public class MathAggregateTests
         // change this line deliberately.
         await Assert.That(Calc("=SUMIF((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
         await Assert.That(Calc("=COUNTIF((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
+        // COUNTIFS belongs to the SILENT half despite its plural name: its first argument IS the criteria
+        // range, so a single pair has no second length to disagree with. The docs state the four shapes as
+        // pinned, and this is the line that makes COUNTIFS part of that claim.
+        await Assert.That(Calc("=COUNTIFS((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
         await Assert
             .That(Calc("=AVERAGEIF((A1:A3)*1,\">0\")", FlagData))
             .IsEqualTo(ErrorValue.DivByZero);
