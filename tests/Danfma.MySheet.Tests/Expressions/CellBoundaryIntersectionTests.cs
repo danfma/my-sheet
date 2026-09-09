@@ -88,6 +88,27 @@ public class CellBoundaryIntersectionTests
     }
 
     [Test]
+    public async Task RangeBounds_AreInclusiveOnEveryEdge()
+    {
+        // The containment test is >= / <= on both axes, and only an EDGE case can tell that from > / <. Of
+        // the four edges the cases above pin exactly one (C3 of A1:A3 is the BOTTOM row); the rest sit
+        // strictly inside the span (C2 of A1:A3, B5's middle column of A1:C1). One line per edge here, each
+        // discriminating against the #VALUE! an exclusive bound would give, with the bottom row repeated so
+        // the rule reads as one piece.
+        //
+        // Rows of the single-COLUMN range A1:A3, from the formula cell's own row: TOP then BOTTOM.
+        await Assert.That(InCell("C1", "=A1:A3")).IsEqualTo(5.0);
+        await Assert.That(InCell("C3", "=A1:A3")).IsEqualTo(9.0);
+
+        // Columns of the single-ROW range A1:C1, from the formula cell's own column: LEFT (column A) and
+        // RIGHT (column C). C1 is EMPTY in the fixture, so the right edge shows the boundary's blank→0 — a 0
+        // that still separates it from #VALUE! (an exclusive right bound), from A1's 5, from B1's 2 and from
+        // D1's "txt" (a bound one column too wide).
+        await Assert.That(InCell("A5", "=A1:C1")).IsEqualTo(5.0);
+        await Assert.That(InCell("C5", "=A1:C1")).IsEqualTo(0.0);
+    }
+
+    [Test]
     public async Task BareTwoDimensionalRange_IsValueError()
     {
         // Both axes span more than one cell: the @ operator has no single answer, so #VALUE! stands.
@@ -177,6 +198,25 @@ public class CellBoundaryIntersectionTests
     {
         await Assert.That(InCell("C1", "=D1:D3")).IsEqualTo("txt");
         await Assert.That(InCell("C1", "=E1:E3")).IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
+    public async Task ComputedArrayInACell_StaysValueError_WhereABareRangeIntersects()
+    {
+        // The boundary intersects a REFERENCE, and a computed array is not one: IF returns the taken
+        // branch's own Evaluate — RangeReference.Evaluate's #VALUE! — so NamedReferences.CaptureValue (which
+        // only looks at the TOP node) never sees a reference and there is nothing to intersect. The array
+        // half of Excel's rule, which would collapse a computed array to its top-left value, has no producer
+        // here and is deliberately absent (see ImplicitIntersection's summary).
+        //
+        // MiniCseConsumerTests.DryCell_IfArray_StaysValueError pins the same rule on the direct
+        // Expression.Evaluate path, which never crosses the cell boundary; this is the CELL path, the only
+        // one where an intersection could have happened.
+        await Assert.That(InCell("C3", "=IF(TRUE,A1:A3,B1)")).IsEqualTo(ErrorValue.NotValue);
+
+        // The same formula CELL, so the two answers differ by the node kind alone and not by position: the
+        // bare range there intersects to A3.
+        await Assert.That(InCell("C3", "=A1:A3")).IsEqualTo(9.0);
     }
 
     // === Every producer of a reference-kind final value ==================================================

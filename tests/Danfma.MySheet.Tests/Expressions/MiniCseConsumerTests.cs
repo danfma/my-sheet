@@ -318,8 +318,8 @@ public class MiniCseConsumerTests
     {
         // The cost guard: an open column in an array position is REFUSED, so the consumer keeps its scalar
         // path and reads the DECLARED top row / leftmost column (1) instead of materializing 1,048,576 rows.
-        // The literal form is refused syntactically; the NAME form is what pins ResolveRowRange's Refused
-        // arm (MyColumn = Sheet1!$A:$A resolves to an OpenRangeReference).
+        // The literal form is refused syntactically; the NAME form is what pins the Refused arm of
+        // ResolvePositionRange (MyColumn = Sheet1!$A:$A resolves to an OpenRangeReference).
         await Assert.That(Num(OnPositionGrid("=SUM(ROW(A:A))"))).IsEqualTo(1.0);
         await Assert.That(Num(OnPositionGrid("=SUM(COLUMN(A:A))"))).IsEqualTo(1.0);
         await Assert.That(Num(OnPositionGrid("=SUM(ROW(MyColumn))"))).IsEqualTo(1.0);
@@ -351,6 +351,23 @@ public class MiniCseConsumerTests
         await Assert
             .That(OnPositionGrid("=SUM(COLUMN(GhostName))"))
             .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap()
+    {
+        // The counterweight to the test above, and the one asymmetry between the syntactic fast-path arms
+        // and the oracle: a LITERAL rectangle goes straight to a position operand, with no
+        // ReferenceGuard.MissingSheet pass, while the oracle degrades a missing sheet to Scalar so ROW's own
+        // guard reports #REF!. This is a KNOWN DIVERGENCE, not a rule — Excel answers #REF! for both — and it
+        // is pinned only so that closing it (running the guard in the syntactic arms too) is a deliberate
+        // edit that updates this line, instead of a silent change of answer. The same gap reaches the
+        // anchored arm, whose comment in ArrayEvaluation.TryBuildPositionOperand cites this test.
+        await Assert.That(Num(OnPositionGrid("=SUM(ROW(Ghost!A1:A3))"))).IsEqualTo(6.0);
+
+        // The scalar path over the SAME reference is already right, which is what makes the divergence a gap
+        // in the array path alone.
+        await Assert.That(OnPositionGrid("=ROW(Ghost!A1:A3)")).IsEqualTo(ErrorValue.Reference);
     }
 
     [Test]

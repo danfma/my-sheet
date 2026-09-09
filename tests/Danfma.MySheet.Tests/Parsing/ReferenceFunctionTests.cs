@@ -117,6 +117,16 @@ public class ReferenceFunctionTests
             .That(Calc(workbook, sheet, "=ROW(INDEX(Ghost!A1:A3,2,1))"))
             .IsEqualTo(ErrorValue.Reference);
 
+        // COLUMN runs the SAME two passes (its own ReferenceGuard.MissingSheet over the arguments, then
+        // ReferencePosition's re-check of the RESOLVED target), so both #REF! arms mirror on the column
+        // axis: a resolved target on a deleted sheet, and an argument whose own failure IS #REF!.
+        await Assert
+            .That(Calc(workbook, sheet, "=COLUMN(INDEX(Ghost!A1:C1,1,2))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(workbook, sheet, "=COLUMN(INDIRECT(\"zz\"))"))
+            .IsEqualTo(ErrorValue.Reference);
+
         // A scalar is not a reference at all: #VALUE!.
         await Assert.That(Calc(workbook, sheet, "=ROW(1)")).IsEqualTo(ErrorValue.NotValue);
 
@@ -136,6 +146,47 @@ public class ReferenceFunctionTests
                     .AsObject()
             )
             .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task RowAndColumn_NoArgument_WithNoCurrentCell_IsValueError()
+    {
+        // ROW()/COLUMN() report the cell they are IN, and a ROOT evaluation has none: Calc passes a sheet
+        // name but no cell id, so EvaluationContext.CellId is null and the zero-argument arm — guarded by
+        // `when context.CellId is { } id` — is skipped. What is left is the terminal #VALUE!, never an
+        // invented row 1. Row_NoArgument_UsesCurrentCell pins the other side of that guard.
+        var (workbook, sheet) = PositionGrid();
+
+        await Assert.That(Calc(workbook, sheet, "=ROW()")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc(workbook, sheet, "=COLUMN()")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task RowAndColumn_WithTwoArguments_AreRejectedAtParseTime()
+    {
+        // FunctionRegistry declares both as 0..1 arguments, so a second argument never reaches evaluation:
+        // the parser refuses the formula, as Excel refuses it at entry. That is why the `_` arm of
+        // Row/Column.Evaluate is NOT reachable through this door — the only ways in are the zero-argument
+        // ROW() with no current cell (above) and a host-built node the parser never wrote.
+        var (_, sheet) = PositionGrid();
+
+        string[] formulas = ["=ROW(A1,A2)", "=COLUMN(A1,A2)"];
+
+        foreach (var formula in formulas)
+        {
+            ParseException? thrown = null;
+
+            try
+            {
+                ExpressionParser.Parse(formula, sheet);
+            }
+            catch (ParseException exception)
+            {
+                thrown = exception;
+            }
+
+            await Assert.That(thrown?.Kind).IsEqualTo(ParseErrorKind.InvalidArgumentCount);
+        }
     }
 
     // ROWS/COLUMNS/AREAS share ROW/COLUMN's error recovery: a broken reference reports the argument's own

@@ -146,6 +146,34 @@ public class MathAggregateTests
     }
 
     [Test]
+    public async Task CriteriaFamily_StillRefusesAComputedArray()
+    {
+        // The negative control for the arm above: SUMPRODUCT is the one member of the positional-scan family
+        // that opted IN to computed arrays (PositionalRange.OpenArrayOrRange), and its siblings keep the
+        // plain PositionalRange.Open, where a non-reference argument falls to ArgumentFlattening's `default`
+        // arm and is EVALUATED as a scalar — (A1:A3)*1 is then a one-element sequence holding the #VALUE! of
+        // a range in an arithmetic operation. "Refuses" therefore has two SHAPES, and both are pinned
+        // because only one of them is an error.
+        //
+        // PAIRED forms — a real criteria range beside the collapsed argument — see 1 element against 3 and
+        // raise the scan's up-front length mismatch. Excel says #VALUE! here too, so this half is parity.
+        await Assert
+            .That(Calc("=SUMIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // SINGLE-criteria forms have nothing to mismatch against: the lone #VALUE! element matches no
+        // criterion, so SUMIF/COUNTIF report an empty scan (0) and AVERAGEIF divides by a zero count. These
+        // are SILENT answers, not errors, which is exactly why they are pinned — a reader who assumes the
+        // whole family errors would be wrong, and any move of these consumers onto OpenArrayOrRange has to
+        // change this line deliberately.
+        await Assert.That(Calc("=SUMIF((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
+        await Assert.That(Calc("=COUNTIF((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
+        await Assert
+            .That(Calc("=AVERAGEIF((A1:A3)*1,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
     public async Task SumProduct_DoesNotCoerceTheLogicalsOfAComputedArray()
     {
         // The "non-numeric entries count as zero" rule covers the TRUE/FALSE of a bare comparison too:

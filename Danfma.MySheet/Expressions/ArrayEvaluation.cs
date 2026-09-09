@@ -126,7 +126,11 @@ internal static class ArrayEvaluation
     /// no type-walk can know. That case costs one reference RESOLUTION — a dictionary lookup plus a virtual
     /// call for a name, never an evaluation of the <c>ROW</c>/<c>COLUMN</c> node itself, though resolving a
     /// <c>':'</c> range with reference-returning endpoints does evaluate those endpoints' own arguments — and
-    /// it is the only case that costs more than the type-walk. See <see cref="ResolvePositionRange"/>.
+    /// it is the only case that costs more than the type-walk. That cost normally buys something, because a
+    /// <c>true</c> answer is followed by the build that reuses the shape; the exception is
+    /// <c>Index.TryResolveReference</c>, which probes only to REJECT the array forms and never builds, so
+    /// there the resolution (a <c>':'</c> range's endpoint arguments included) is spent and thrown away.
+    /// See <see cref="ResolvePositionRange"/>.
     /// </remarks>
     public static bool IsArrayEligible(Expression expression, EvaluationContext context) =>
         Probe(expression, context).IsArray;
@@ -549,7 +553,14 @@ internal static class ArrayEvaluation
     // to the opaque-scalar branch, and AnchoredRangeReference.Evaluate is always #VALUE! since a range has no
     // scalar value), but the oracle arm below now resolves an anchored range to the same delta-applied
     // rectangle — verified by deleting both anchored arms and watching SharedFormulaSlaveFunctionTests stay
-    // green. So no assertion can distinguish them from the fallback; what the tests there pin is the delta.
+    // green. So no assertion in the suite distinguishes them from the fallback; what the tests there pin is
+    // the delta.
+    //
+    // They are not EQUIVALENT to it, though, and one case would tell them apart: the fallback also runs
+    // ReferenceGuard.MissingSheet and degrades a reference on a DELETED sheet to Scalar, where these arms
+    // hand back a plausible position vector for a sheet that no longer exists. That is the same pre-existing
+    // gap ResolvePositionRange's comment records for a literal Ghost!A1:A3 — pinned, on the literal arm, by
+    // MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap.
     //
     // `node` is the ROW/COLUMN call and `argument` its single argument: Function declares no Arguments member,
     // so the caller — which has already destructured the argument to pattern-match it — passes both. The node
