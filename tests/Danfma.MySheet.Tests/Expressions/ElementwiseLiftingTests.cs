@@ -8,16 +8,16 @@ namespace Danfma.MySheet.Tests.Expressions;
 
 /// <summary>
 /// Phase 8 of <c>plans/structured-table-references-and-aggregate.md</c> — ELEMENTWISE LIFTING of unary
-/// operators and pure-scalar built-ins inside the mini-CSE (<see cref="ArrayEvaluation"/>). Today the
-/// evaluator recognizes only five array-producing shapes; a <c>UnaryOperation</c> or a scalar function over a
-/// range falls to the opaque-scalar arm, is evaluated ONCE over a range (<c>#VALUE!</c>, since a range has no
-/// scalar value) and broadcasts that error into every element — or, worse, has it silently CONSUMED by the
-/// enclosing node (a comparison, IFERROR's error arm, COUNT's non-numeric skip), which is where the 0.0
-/// answers pinned below come from.
+/// operators and pure-scalar built-ins inside the mini-CSE (<see cref="ArrayEvaluation"/>). Before this
+/// phase the evaluator recognized only five array-producing shapes; a <c>UnaryOperation</c> or a scalar
+/// function over a range fell to the opaque-scalar arm, was evaluated ONCE over a range (<c>#VALUE!</c>,
+/// since a range has no scalar value) and broadcast that error into every element — or, worse, had it
+/// silently CONSUMED by the enclosing node (a comparison, IFERROR's error arm, COUNT's non-numeric skip),
+/// which is where the 0.0 answers pinned below came from.
 ///
 /// <para>These are the phase's TDD pins, written BEFORE the engine change: every assertion whose comment says
-/// "today" names the value measured on this tree at the time of writing, so the fix is a deliberate change of
-/// answer rather than a silent one.</para>
+/// "today" named the value measured on this tree at the time of writing, so the fix was a deliberate change
+/// of answer rather than a silent one.</para>
 ///
 /// <para>Oracles. Excel semantics per the Microsoft support pages "Guidelines and examples of array formulas"
 /// (support.microsoft.com 7d94a64e-3ff3-4686-9372-ecfd5caa57c7) and "Implicit intersection operator: @"
@@ -354,45 +354,112 @@ public class ElementwiseLiftingTests
 
     // --- Item 9: the classification guard (the regression defence for the next contributor) ---
 
-    // A1:A3 = 1,2,3 and C4:C6 = 100,"x",blank — two rectangles that differ in POSITION and in CONTENTS, and
-    // in the KIND of their contents. Handing a function one and then the other is the range-awareness probe
-    // that produced the 180/126 split, re-run on every build instead of trusting a frozen list — see
-    // PositionZeroProbe for what it can and cannot see.
-    private static (Workbook Workbook, Sheet Sheet) TwoRectangles()
+    // THREE rectangles that differ in POSITION, in SHAPE and in CONTENTS (and in the KIND of their
+    // contents), plus the rectangle the probe puts in the slots that are NOT under test. Handing a
+    // function one rectangle and then another is the range-awareness probe that produced the 180/126 split,
+    // re-run on every build instead of trusting a frozen list — see EveryPositionProbe for what it can and
+    // cannot see.
+    private static (Workbook Workbook, Sheet Sheet) ThreeRectangles()
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
+
+        // R1 = A1:A3 — a 3x1 column of small ascending numbers.
         sheet["A1"] = new NumberValue(1);
         sheet["A2"] = new NumberValue(2);
         sheet["A3"] = new NumberValue(3);
+
+        // R2 = C4:C6 — a 3x1 column elsewhere, holding a large number, a text, and a BLANK (C6 is
+        // deliberately left empty — a third element kind the other two rectangles do not have).
         sheet["C4"] = new NumberValue(100);
         sheet["C5"] = new StringValue("x");
-        // C6 is deliberately BLANK — a third element kind the first rectangle does not have.
+
+        // R3 = E1:G1 — a 1x3 ROW, so a body that reads the SHAPE rather than the contents (ROWS, COLUMNS,
+        // MATCH's match_type over a row) tells it apart from the two columns.
+        sheet["E1"] = new NumberValue(-7);
+        sheet["F1"] = new BooleanValue(true);
+        sheet["G1"] = new StringValue("zz");
+
+        // H1:H3 — the RANGE filler, for the slots the sweep is not currently probing. It is deliberately
+        // THREE cells, the same element count as each rectangle, so that a body needing a SECOND population
+        // of matching length (CORREL, SUMXMY2, SUMIFS's criteria range) gets one and can therefore answer
+        // differently for two rectangles instead of erroring identically on all of them.
+        sheet["H1"] = new NumberValue(4);
+        sheet["H2"] = new NumberValue(5);
+        sheet["H3"] = new NumberValue(6);
 
         return (workbook, sheet);
     }
 
+    // The three rectangles, in the order the probe compares them.
+    private static readonly string[] Rectangles = ["A1:A3", "C4:C6", "E1:G1"];
+
+    // What the probe puts in every slot that is NOT holding the rectangle. Four kinds, because a body can be
+    // range-aware in one slot only while the OTHER slots decide whether it gets that far: a number, a text, a
+    // logical, and a rectangle of its own (which is what un-blinds the functions whose range slot is the one
+    // the sweep is currently filling — VLOOKUP's table, NETWORKDAYS's holidays, CORREL's second array).
+    private static readonly string[] Fillers = ["1", "\"a\"", "TRUE", "H1:H3"];
+
     // THE probe, shared by the oracle test (over the Elementwise half of the registry) and by the
     // completeness assertion (over the Consumes half), so the two can never disagree about what "blind"
-    // means: hand the entry `F(A1:A3, 1, …)` and then `F(C4:C6, 1, …)` — MinArgs arguments, the rectangle in
-    // SLOT 0 — and evaluate both on the ORDINARY scalar path, which never enters the mini-CSE.
+    // means. It SWEEPS: for every arity from MinArgs to MinArgs+3 (capped at MaxArgs), every argument
+    // POSITION in that arity, and every filler for the remaining slots, it hands the entry each of the three
+    // rectangles in turn and evaluates on the ORDINARY scalar path, which never enters the mini-CSE. The
+    // first call whose answers are not all equal is returned as a diagnostic; `null` means the entry is BLIND
+    // to the whole sweep.
     //
-    // What it sees: a body that READS the rectangle in slot 0 answers differently for 1,2,3 than for
-    // 100,"x",blank. What it CANNOT see: a body that reads a range in a LATER slot (the whole lookup family
-    // takes its table there, and the holiday-aware date functions their holidays), one whose slot 0 is a
-    // scalar (CHOOSE's index), or one that answers a shape or a reference test rather than a value (ROWS,
-    // ISREF). Those are blind here and must be NAMED — which is what
-    // TheShapeAndPositionAndCriteriaFamilies_StayConsumes does, and what
+    // What it sees: any body that READS a rectangle handed to ANY of its slots (1,2,3 against 100,"x",blank
+    // against -7,TRUE,"zz"), and any body that reads a rectangle's SHAPE (3x1 against 1x3). What it still
+    // CANNOT see: a body that answers the same thing for every rectangle — a reference test (ISREF,
+    // ISFORMULA), a type code, a fold over a whole population that errors identically on all three, or a
+    // slot whose range-awareness needs a second population the fillers cannot supply. Those are blind here
+    // and must be NAMED — which is what TheShapeAndPositionAndCriteriaFamilies_StayConsumes does, and what
     // NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere proves is exhaustive.
-    private static (object? Here, object? There) PositionZeroProbe(
+    private static string? EveryPositionProbe(
         FunctionRegistry.RegistryEntry entry,
         Workbook workbook,
         Sheet sheet
     )
     {
-        var filler = string.Concat(Enumerable.Repeat(",1", Math.Max(0, entry.MinArgs - 1)));
+        var top = Math.Min(entry.MaxArgs, entry.MinArgs + 3);
 
-        return (Answer($"{entry.Name}(A1:A3{filler})"), Answer($"{entry.Name}(C4:C6{filler})"));
+        for (var arity = Math.Max(1, entry.MinArgs); arity <= top; arity++)
+        {
+            for (var position = 0; position < arity; position++)
+            {
+                foreach (var filler in Fillers)
+                {
+                    var answers = Rectangles
+                        .Select(rectangle => Answer(Call(rectangle, arity, position, filler)))
+                        .ToArray();
+
+                    for (var other = 1; other < answers.Length; other++)
+                    {
+                        if (Equals(answers[0], answers[other]))
+                        {
+                            continue;
+                        }
+
+                        return $"{Call(Rectangles[0], arity, position, filler)} → {answers[0]}, "
+                            + $"{Call(Rectangles[other], arity, position, filler)} → {answers[other]}";
+                    }
+                }
+            }
+        }
+
+        return null;
+
+        string Call(string rectangle, int arity, int position, string filler)
+        {
+            var slots = new string[arity];
+
+            for (var slot = 0; slot < arity; slot++)
+            {
+                slots[slot] = slot == position ? rectangle : filler;
+            }
+
+            return $"{entry.Name}({string.Join(',', slots)})";
+        }
 
         object? Answer(string body)
         {
@@ -402,7 +469,7 @@ public class ElementwiseLiftingTests
             }
             catch (Exception exception)
             {
-                // A throw is an answer too: the two rectangles must still reach the SAME one.
+                // A throw is an answer too: every rectangle must still reach the SAME one.
                 return $"{exception.GetType().Name}: {exception.Message}";
             }
         }
@@ -411,34 +478,43 @@ public class ElementwiseLiftingTests
     [Test]
     public async Task EveryElementwiseEntry_IsBlindToTheRangeItIsHanded()
     {
-        // THE guard. For every entry the registry flags Elementwise, evaluate `F(A1:A3, 1, 1, …)` and
-        // `F(C4:C6, 1, 1, …)` — MinArgs arguments, the rectangle in the first slot — on the ORDINARY scalar
-        // path (Parse(...).Evaluate, which never enters the mini-CSE) and require the two answers to be
-        // IDENTICAL. A pure-scalar body cannot tell the two rectangles apart: a range has no scalar value, so
-        // it answers the same #VALUE! (or the same constant made from the other arguments) for both. A
-        // RANGE-AWARE body reads the cells and therefore answers differently — 1,2,3 against 100,"x",blank —
-        // which is exactly the mis-flag this test exists to catch, and the mis-flag that would otherwise ship
-        // as a SILENT wrong number (the lift would hand the function one element of the rectangle it was
-        // meant to consume whole; see the three measured silent cases in this file's class comment).
+        // THE guard. For every entry the registry flags Elementwise, SWEEP the probe over it — every arity
+        // from MinArgs to MinArgs+3, every argument position in that arity, each of four fillers in the
+        // remaining slots — handing it three different rectangles in turn on the ORDINARY scalar path
+        // (Parse(...).Evaluate, which never enters the mini-CSE) and require every call to answer IDENTICALLY
+        // for all three. A pure-scalar body cannot tell the rectangles apart: a range has no scalar value, so
+        // it answers the same #VALUE! (or the same constant made from the other arguments) for each. A
+        // RANGE-AWARE body reads the cells (1,2,3 against 100,"x",blank against -7,TRUE,"zz") or their shape
+        // (3x1 against 1x3) and therefore answers differently — which is exactly the mis-flag this test
+        // exists to catch, and the mis-flag that would otherwise ship as a SILENT wrong number (the lift
+        // would hand the function one element of the rectangle it was meant to consume whole; see the three
+        // measured silent cases in this file's class comment).
         //
-        // KNOWN LIMITATION, and the reason the named list below exists. The derivation oracle probed EVERY
-        // argument position; this test places the rectangle at POSITION 0 only. A function that reads a range
-        // in a LATER slot — or whose first slot is a scalar it ignores the rectangle-ness of — is invisible
-        // here: measured, 64 of the 126 Consumes entries answer identically for the two rectangles under this
-        // position-0 probe, the whole lookup family among them (HLOOKUP takes its table in slot 1). So this is
-        // the CHEAP, always-on half of the derivation, not the derivation itself, and
-        // TheShapeAndPositionAndCriteriaFamilies_StayConsumes is its complement: what the probe cannot see
-        // must be named by hand.
+        // KNOWN LIMITATION, and the reason the named list below exists. The sweep sees a body that reads a
+        // rectangle in ANY slot, but not one that answers the same thing for every rectangle: a reference
+        // test, a type code, or a fold that errors identically on all three. Measured, 21 of the 126 Consumes
+        // entries are still blind, so this is the CHEAP, always-on half of the derivation, not the derivation
+        // itself, and TheShapeAndPositionAndCriteriaFamilies_StayConsumes is its complement: what the probe
+        // cannot see must be named by hand.
         //
-        // Verified by mutation, twice. Flagging SUM `Elementwise` fails with
-        // "SUM: A1:A3 → 6, C4:C6 → 100"; flagging COUNT — a range-aware function the explicit list below
-        // does NOT name — fails with "COUNT: A1:A3 → 3, C4:C6 → 1". The second is the point: the oracle
-        // catches a mis-flag nobody remembered to enumerate.
+        // Verified by mutation, three times. Flagging SUM `Elementwise` fails with
+        // "SUM(A1:A3) → 6, SUM(C4:C6) → 100"; flagging COUNT — a range-aware function the explicit list
+        // below does NOT name — fails with "COUNT(A1:A3) → 3, COUNT(C4:C6) → 1"; and flagging HLOOKUP, whose
+        // table sits in a LATER slot and which the old position-0 probe could not see at all, now fails with
+        // "HLOOKUP: HLOOKUP(1,A1:A3,1) → 1, HLOOKUP(1,C4:C6,1) → #N/A". The last two are the point: the
+        // sweep catches a mis-flag nobody remembered to enumerate — the HLOOKUP mutation, made the way a
+        // contributor would (flip the factory, delete the [Arguments("HLOOKUP")] row below, bump the four
+        // count constants), left the whole suite GREEN at 1485/0 under the position-0 probe.
         //
-        // Item 9(a) rides along: MinArgs arguments can only be built when the entry takes at least one, and a
+        // Item 9(a) rides along: arguments can only be built when the entry takes at least one, and a
         // zero-argument entry has nothing to lift (FunctionRegistryClassificationTests pins the same rule
         // from the registry side).
-        var (workbook, sheet) = TwoRectangles();
+        //
+        // NOT oracle-verified: sixteen of the 180 names this loop walks are functions Aspose.Cells 26.6.0
+        // does not implement (#NAME? for every call), so their Elementwise flag is inferred from the node
+        // bodies and from this sweep rather than measured. FunctionRegistryClassificationTests
+        // .TheElementwiseRoster names all sixteen.
+        var (workbook, sheet) = ThreeRectangles();
         var lifted = new List<string>();
         var offenders = new List<string>();
 
@@ -457,11 +533,9 @@ public class ElementwiseLiftingTests
                 continue;
             }
 
-            var (here, there) = PositionZeroProbe(entry, workbook, sheet);
-
-            if (!Equals(here, there))
+            if (EveryPositionProbe(entry, workbook, sheet) is { } discriminated)
             {
-                offenders.Add($"{entry.Name}: A1:A3 → {here}, C4:C6 → {there}");
+                offenders.Add($"{entry.Name}: {discriminated}");
             }
         }
 
@@ -473,7 +547,7 @@ public class ElementwiseLiftingTests
     [Test]
     public async Task EveryElementwiseEntryWithAnOptionalSlot_KeepsTheOmittedSlotUnderTheLift()
     {
-        // Verifier correction M2, and the guard that the scalar-blindness test above cannot be: it compares
+        // Verifier correction M2, and the guard that the scalar-blindness sweep above cannot be: it compares
         // the LIFTED element against the SCALAR answer for the same cell, so it fails whenever the lift
         // changes what the body sees. The shape it drives is the one B1 fixed — an OMITTED optional slot,
         // which ten of the lifted built-ins (FIXED, DOLLAR, NUMBERVALUE, TEXTBEFORE/TEXTAFTER, VALUETOTEXT,
@@ -575,19 +649,20 @@ public class ElementwiseLiftingTests
     [Arguments("TYPE")]
     [Arguments("MATCH")]
     [Arguments("VLOOKUP")]
-    // The lookup family in full. Every one of these is BLIND to the position-0 probe above — HLOOKUP,
-    // VLOOKUP, XLOOKUP, LOOKUP, MATCH and XMATCH all take their table/lookup_array in a LATER slot, and
-    // CHOOSE's first slot is the index — so naming them is the only defence they have. Measured: mutating
-    // Entry<HLookup> to Elementwise<HLookup> leaves the oracle's offender list EMPTY, and the only failures
-    // are the two anti-vacuity counts, which carry no diagnostic and survive a compensating swap.
+    // The lookup family in full. These were the position-0 probe's blindest spot — HLOOKUP, VLOOKUP,
+    // XLOOKUP, LOOKUP, MATCH and XMATCH all take their table/lookup_array in a LATER slot, and CHOOSE's first
+    // slot is the index — which is what motivated the sweep over every position: measured, mutating
+    // Entry<HLookup> to Elementwise<HLookup> left the position-0 oracle's offender list EMPTY, while the
+    // sweep now fails it with a diagnostic. They stay named all the same, because a name is the cheapest
+    // documentation of WHY each one consumes.
     [Arguments("HLOOKUP")]
     [Arguments("XLOOKUP")]
     [Arguments("XMATCH")]
     [Arguments("LOOKUP")]
     [Arguments("CHOOSE")]
-    // The reference-TAKING siblings of ISREF/TYPE/ROW/COLUMN, blind for the same reason (their argument is a
-    // reference whose CELLS they never read, so two rectangles look alike): a lift would hand them one
-    // element and lose the reference entirely.
+    // The reference-TAKING siblings of ISREF/TYPE/ROW/COLUMN. Their argument is a reference whose CELLS they
+    // never read, so EVERY rectangle looks alike to them and the sweep is blind to them for good: a lift
+    // would hand them one element and lose the reference entirely.
     [Arguments("ISFORMULA")]
     [Arguments("FORMULATEXT")]
     [Arguments("SHEET")]
@@ -634,19 +709,21 @@ public class ElementwiseLiftingTests
     [Arguments("PROB")]
     [Arguments("INTERCEPT")]
     // The holiday-aware date functions: their optional `holidays` argument is a RANGE, in a later slot — the
-    // same reason the lookup family above is blind to the probe.
+    // same shape that hid the lookup family above from the old position-0 probe.
     [Arguments("NETWORKDAYS")]
     [Arguments("NETWORKDAYS.INTL")]
     [Arguments("WORKDAY")]
     [Arguments("WORKDAY.INTL")]
     public async Task TheShapeAndPositionAndCriteriaFamilies_StayConsumes(string name)
     {
-        // The explicit half of the guard, and the COMPLEMENT to the executable oracle above: everything named
-        // here answers the SAME thing for two different rectangles at position 0 (a 1x1 shape, a type code, a
-        // reference test, a table read from a later slot), so scalar-blindness holds for them while they are
-        // still range-aware. Naming them here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns
-        // a dedicated operand arm; lifting a volatile would draw once per element) and LET binds names to
-        // whole sub-expressions.
+        // The explicit half of the guard, and the COMPLEMENT to the executable oracle above. The sweep sees
+        // most of these now; the ones it cannot see (the shapes, the reference tests, the type code, the
+        // whole-population folds — the 21 pinned by name in
+        // NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere) answer the SAME thing for every rectangle in
+        // every slot, so scalar-blindness holds for them while they are still range-aware, and being named
+        // here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns a dedicated
+        // operand arm; lifting a volatile would draw once per element) and LET binds names to whole
+        // sub-expressions.
         //
         // Deliberately NOT in this list: the logical IFS and DATEDIF, whose names end in IF/IFS but which are
         // pure-scalar and therefore correctly Elementwise.
@@ -777,12 +854,27 @@ public class ElementwiseLiftingTests
     public async Task NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere()
     {
         // THE CLOSING ASSERTION, and what makes the whole guard self-maintaining rather than three lists that
-        // drift apart. A range-aware function is protected if EITHER the position-0 probe sees it OR a test
-        // names it. This computes the complement — {Consumes entries blind at position 0} minus {every name
-        // asserted Consumes by either test} — and requires it to be EMPTY.
+        // drift apart. A range-aware function is protected if EITHER the sweeping probe sees it OR a test
+        // names it. This computes the complement — {Consumes entries blind to the whole sweep} minus {every
+        // name asserted Consumes by either test} — and requires it to be EMPTY.
         //
-        // So a contributor who adds a range-aware built-in and forgets the classification does not get a
-        // silent hole: if the probe cannot see it, THIS test fails, and the message carries its own name.
+        // WHAT THIS GUARANTEES, precisely, because the distinction matters and an earlier version of this
+        // comment overstated it. It walks the Consumes half only, so it certifies nothing about an entry
+        // flagged Elementwise; the two mistakes are protected by different tests:
+        //
+        //   * a FORGOTTEN flag is safe by construction — Consumes is the enum's zero value, so a new
+        //     range-aware built-in registered with the default Entry<T> factory is never lifted. Nothing has
+        //     to catch it. What this test adds is the guarantee that such an entry is still WATCHED: if the
+        //     sweep cannot see it, it must be named above, and if it is neither, THIS test fails carrying its
+        //     own name.
+        //   * a WRONG flag — Elementwise on a range-aware built-in, the mistake that ships a silent wrong
+        //     number — is caught by FunctionRegistryClassificationTests
+        //     .TheElementwiseSet_IsExactlyTheCommittedRoster, which pins the Elementwise set BY NAME and so
+        //     fails naming the newcomer, and (for anything the sweep can see) by
+        //     EveryElementwiseEntry_IsBlindToTheRangeItIsHanded with a diagnostic. For the 21 entries the
+        //     sweep is blind to, the roster is the ONLY defence, which is why it is pinned by name below
+        //     rather than by a count.
+        //
         // Verified by mutation: deleting the [Arguments("AND")] row above fails this test with
         // "Expected to be empty but collection contains items: [AND]".
         //
@@ -809,7 +901,7 @@ public class ElementwiseLiftingTests
             StringComparer.Ordinal
         );
 
-        var (workbook, sheet) = TwoRectangles();
+        var (workbook, sheet) = ThreeRectangles();
         var blind = new List<string>();
         var unnamed = new List<string>();
 
@@ -822,9 +914,7 @@ public class ElementwiseLiftingTests
                 continue;
             }
 
-            var (here, there) = PositionZeroProbe(entry, workbook, sheet);
-
-            if (!Equals(here, there))
+            if (EveryPositionProbe(entry, workbook, sheet) is not null)
             {
                 continue; // the probe sees it — a mis-flag would fail the oracle test with a diagnostic
             }
@@ -839,9 +929,21 @@ public class ElementwiseLiftingTests
 
         await Assert.That(unnamed).IsEmpty();
 
-        // Anti-vacuity, from both ends: the probe really is blind to a large minority of the Consumes half
-        // (so the named list is load-bearing, not decoration), and the loop really walked all 126 of them.
-        await Assert.That(blind.Count).IsEqualTo(64);
+        // Anti-vacuity, from both ends. The blind set is pinned BY NAME, not by a count: a count is
+        // satisfiable by a compensating swap (one entry leaving the blind set as another joins it), which is
+        // exactly the weakness TheElementwiseSet_IsExactlyTheCommittedRoster exists to close on the other
+        // half. Pinning the names says out loud which 21 entries the sweep cannot see and therefore depend
+        // ENTIRELY on being named above — and it fails, naming the newcomer, if a change to the probe or to
+        // the registry adds one.
+        await Assert
+            .That(string.Join(", ", blind.Order(StringComparer.Ordinal)))
+            .IsEqualTo(
+                "AND, AREAS, FORECAST, FORECAST.LINEAR, FORMULATEXT, IF, INDIRECT, IRR, ISFORMULA, "
+                    + "ISREF, LET, MIRR, OFFSET, OR, PERCENTILE.EXC, PROB, RANDBETWEEN, SHEET, TRIMMEAN, "
+                    + "TYPE, XNPV"
+            );
+
+        // … and the loop really walked all 126 Consumes entries.
         await Assert
             .That(FunctionRegistry.ByName.Values.Count(e => e.Lifting is ArrayLifting.Consumes))
             .IsEqualTo(126);
