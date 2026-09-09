@@ -1,3 +1,4 @@
+using Danfma.MySheet.DirtyGraph;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 using StringValue = Danfma.MySheet.Expressions.StringValue; // TUnit also defines a StringValue
@@ -111,6 +112,20 @@ public class ElementwiseLiftingTests
         sheet["D1"] = ExpressionParser.Parse("=DATE(2024,3,15)", sheet);
         sheet["D2"] = ExpressionParser.Parse("=DATE(2024,3,16)", sheet);
         sheet["D3"] = ExpressionParser.Parse("=DATE(2024,3,17)", sheet);
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
+    // Lengths(): A1:A3 = 1, 22, 333 — three numbers whose TEXT LENGTHS are 1, 2, 3, all different. Any pin
+    // that names a position (INDEX's n-th, AGGREGATE's k-th) is satisfiable by exactly one element, which a
+    // fixture of equal-length numbers could never do.
+    private static object? OnLengths(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(22);
+        sheet["A3"] = new NumberValue(333);
 
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
@@ -334,5 +349,346 @@ public class ElementwiseLiftingTests
         // It also contrasts with the documented SUM(ROW(Ghost!A1:A3)) = 6 divergence pinned in
         // MiniCseConsumerTests, which survives because PositionNumbersOperand never touches a cell.
         await Assert.That(OnBlank("=SUM(LEN(Ghost!A1:A3))")).IsEqualTo(ErrorValue.Reference);
+    }
+
+    // --- Item 9: the classification guard (the regression defence for the next contributor) ---
+
+    // A1:A3 = 1,2,3 and C4:C6 = 100,"x",blank — two rectangles that differ in POSITION and in CONTENTS, and
+    // in the KIND of their contents. This is the executable form of the range-awareness oracle that produced
+    // the 180/126 split, so the derivation re-runs on every build instead of trusting a frozen list.
+    private static (Workbook Workbook, Sheet Sheet) TwoRectangles()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(2);
+        sheet["A3"] = new NumberValue(3);
+        sheet["C4"] = new NumberValue(100);
+        sheet["C5"] = new StringValue("x");
+        // C6 is deliberately BLANK — a third element kind the first rectangle does not have.
+
+        return (workbook, sheet);
+    }
+
+    [Test]
+    public async Task EveryElementwiseEntry_IsBlindToTheRangeItIsHanded()
+    {
+        // THE guard. For every entry the registry flags Elementwise, evaluate `F(A1:A3, 1, 1, …)` and
+        // `F(C4:C6, 1, 1, …)` — MinArgs arguments, the rectangle in the first slot — on the ORDINARY scalar
+        // path (Parse(...).Evaluate, which never enters the mini-CSE) and require the two answers to be
+        // IDENTICAL. A pure-scalar body cannot tell the two rectangles apart: a range has no scalar value, so
+        // it answers the same #VALUE! (or the same constant made from the other arguments) for both. A
+        // RANGE-AWARE body reads the cells and therefore answers differently — 1,2,3 against 100,"x",blank —
+        // which is exactly the mis-flag this test exists to catch, and the mis-flag that would otherwise ship
+        // as a SILENT wrong number (the lift would hand the function one element of the rectangle it was
+        // meant to consume whole; see the three measured silent cases in this file's class comment).
+        //
+        // Verified by mutation, twice. Flagging SUM `Elementwise` fails with
+        // "SUM: A1:A3 → 6, C4:C6 → 100"; flagging COUNT — a range-aware function the explicit list below
+        // does NOT name — fails with "COUNT: A1:A3 → 3, C4:C6 → 1". The second is the point: the oracle
+        // catches a mis-flag nobody remembered to enumerate.
+        //
+        // Item 9(a) rides along: MinArgs arguments can only be built when the entry takes at least one, and a
+        // zero-argument entry has nothing to lift (FunctionRegistryClassificationTests pins the same rule
+        // from the registry side).
+        var (workbook, sheet) = TwoRectangles();
+        var lifted = new List<string>();
+        var offenders = new List<string>();
+
+        object? Answer(string body)
+        {
+            try
+            {
+                return ExpressionParser.ParseFormulaBody(body, sheet).Evaluate(workbook).AsObject();
+            }
+            catch (Exception exception)
+            {
+                // A throw is an answer too: the two rectangles must still reach the SAME one.
+                return $"{exception.GetType().Name}: {exception.Message}";
+            }
+        }
+
+        foreach (var entry in FunctionRegistry.ByName.Values)
+        {
+            if (entry.Lifting is not ArrayLifting.Elementwise)
+            {
+                continue;
+            }
+
+            lifted.Add(entry.Name);
+
+            if (entry.MaxArgs is 0)
+            {
+                offenders.Add($"{entry.Name}: Elementwise with MaxArgs 0 — nothing to lift over");
+                continue;
+            }
+
+            var filler = string.Concat(Enumerable.Repeat(",1", Math.Max(0, entry.MinArgs - 1)));
+            var here = Answer($"{entry.Name}(A1:A3{filler})");
+            var there = Answer($"{entry.Name}(C4:C6{filler})");
+
+            if (!Equals(here, there))
+            {
+                offenders.Add($"{entry.Name}: A1:A3 → {here}, C4:C6 → {there}");
+            }
+        }
+
+        await Assert.That(offenders).IsEmpty();
+        // Anti-vacuity: the loop must actually have walked the whole lifted half of the registry.
+        await Assert.That(lifted.Count).IsEqualTo(180);
+    }
+
+    [Test]
+    public async Task EveryElementwiseEntryWithAnOptionalSlot_KeepsTheOmittedSlotUnderTheLift()
+    {
+        // Verifier correction M2, and the guard that the scalar-blindness test above cannot be: it compares
+        // the LIFTED element against the SCALAR answer for the same cell, so it fails whenever the lift
+        // changes what the body sees. The shape it drives is the one B1 fixed — an OMITTED optional slot,
+        // which ten of the lifted built-ins (FIXED, DOLLAR, NUMBERVALUE, TEXTBEFORE/TEXTAFTER, VALUETOTEXT,
+        // the REGEX family, ADDRESS) detect by pattern-matching the parser's literal BlankValue node. A
+        // scratch slot there silently turns "omitted" into "blank, coerced to 0"; measured, that costs
+        // FIXED(A1:A3,,TRUE) its two decimals.
+        //
+        // Verified by mutation: dropping B1's `arguments[j] is BlankValue ? arguments[j] : …` guard in
+        // LiftedFunctionOperand fails this test on ADDRESS, DOLLAR, TEXTAFTER, NUMBERVALUE and the rest of
+        // the ten — e.g. "DOLLAR(A1:A3,)[0] → $1, scalar DOLLAR(A1,) → $1.00".
+        //
+        // The arity is the smallest one that HAS a slot to omit plus, where the entry allows it, one slot
+        // after it — `F(A1:A3, 1, …, , 1)` — because a trailing omission is indistinguishable from simply
+        // writing fewer arguments. The filler 1 makes several of these answer an error; that is fine and
+        // still discriminating, since the assertion is lifted == scalar, not lifted == some golden.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(22);
+        sheet["A3"] = new NumberValue(333);
+
+        var context = new EvaluationContext(workbook, sheet.Name);
+        var covered = new List<string>();
+        var offenders = new List<string>();
+
+        foreach (var entry in FunctionRegistry.ByName.Values)
+        {
+            if (entry.Lifting is not ArrayLifting.Elementwise || entry.MaxArgs <= entry.MinArgs)
+            {
+                continue;
+            }
+
+            covered.Add(entry.Name);
+
+            // MinArgs + 2 keeps a slot AFTER the omitted one wherever the entry has room for it; the cap is
+            // MaxArgs (int.MaxValue for the variadic IFS/SWITCH, so the cap never binds there).
+            var arity = Math.Min(entry.MaxArgs, entry.MinArgs + 2);
+            var omitted = arity >= 3 ? arity - 2 : arity - 1;
+
+            string Call(string first)
+            {
+                var slots = new string[arity];
+                slots[0] = first;
+
+                for (var i = 1; i < arity; i++)
+                {
+                    slots[i] = i == omitted ? string.Empty : "1";
+                }
+
+                return $"{entry.Name}({string.Join(',', slots)})";
+            }
+
+            if (
+                !ArrayEvaluation.TryEvaluate(
+                    ExpressionParser.ParseFormulaBody(Call("A1:A3"), sheet),
+                    context,
+                    out var result
+                )
+            )
+            {
+                offenders.Add($"{Call("A1:A3")}: not array-eligible — the lift did not fire");
+                continue;
+            }
+
+            for (var element = 0; element < 3; element++)
+            {
+                var lifted = result.Values[element].AsObject();
+                var scalar = ExpressionParser
+                    .ParseFormulaBody(Call($"A{element + 1}"), sheet)
+                    .Evaluate(context)
+                    .AsObject();
+
+                if (!Equals(lifted, scalar))
+                {
+                    offenders.Add(
+                        $"{Call("A1:A3")}[{element}] → {lifted}, scalar {Call($"A{element + 1}")} → {scalar}"
+                    );
+                }
+            }
+        }
+
+        await Assert.That(offenders).IsEmpty();
+        // Anti-vacuity: 65 of the 180 lifted entries have at least one optional slot.
+        await Assert.That(covered.Count).IsEqualTo(65);
+    }
+
+    [Test]
+    [Arguments("SUM")]
+    [Arguments("SUMPRODUCT")]
+    [Arguments("INDEX")]
+    [Arguments("ROW")]
+    [Arguments("COLUMN")]
+    [Arguments("ROWS")]
+    [Arguments("COLUMNS")]
+    [Arguments("AREAS")]
+    [Arguments("OFFSET")]
+    [Arguments("INDIRECT")]
+    [Arguments("ISREF")]
+    [Arguments("TYPE")]
+    [Arguments("MATCH")]
+    [Arguments("VLOOKUP")]
+    [Arguments("SUBTOTAL")]
+    [Arguments("AGGREGATE")]
+    [Arguments("IF")]
+    [Arguments("LET")]
+    [Arguments("RANDBETWEEN")]
+    // The whole criteria family — every *IF/*IFS built-in. CriteriaScan.Open reads the range itself, so a
+    // lift would hand it one element and answer from that alone.
+    [Arguments("SUMIF")]
+    [Arguments("SUMIFS")]
+    [Arguments("COUNTIF")]
+    [Arguments("COUNTIFS")]
+    [Arguments("AVERAGEIF")]
+    [Arguments("AVERAGEIFS")]
+    [Arguments("MAXIFS")]
+    [Arguments("MINIFS")]
+    public async Task TheShapeAndPositionAndCriteriaFamilies_StayConsumes(string name)
+    {
+        // The explicit half of the guard. ROWS/COLUMNS/AREAS/OFFSET/ISREF/TYPE are the family the executable
+        // oracle above CANNOT see — they answer the SAME thing for two different rectangles (1x1 shapes, a
+        // type code, a reference test), so scalar-blindness holds for them while they are still range-aware.
+        // Naming them here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns
+        // a dedicated operand arm; lifting a volatile would draw once per element) and LET binds names to
+        // whole sub-expressions.
+        //
+        // Deliberately NOT in this list: the logical IFS and DATEDIF, whose names end in IF/IFS but which are
+        // pure-scalar and therefore correctly Elementwise.
+        await Assert.That(FunctionRegistry.ByName[name].Lifting).IsEqualTo(ArrayLifting.Consumes);
+    }
+
+    // --- Item 11: INDEX's widened rejection, and the array path it now falls into ---
+
+    [Test]
+    public async Task Index_OverALiftedArgument_TakesTheArrayPath()
+    {
+        // Index.TryResolveReference returns false — falling back to normal evaluation — when its first
+        // argument is not a Reference but IS array-eligible. This phase widens "array-eligible", so
+        // INDEX(LEN(…), n) now takes the ARRAY path where it previously took the reference path and failed.
+        // The pin makes that widening intentional and visible; it is the ONE integration point where this
+        // phase changes an existing decision rather than adding a new one.
+        //
+        // Aspose.Cells 26.6.0, measured 2026-09-09 (plain AND CSE-entered, identical): INDEX(LEN(D7:F9),1)
+        // = 3 and ROWS(INDEX(LEN(D7:F9),1)) = 1.
+        await Assert.That(Num(OnTextual("=INDEX(LEN(D7:F9),1)"))).IsEqualTo(3.0);
+
+        // A lifted INDEX result is a VALUE, not a reference — it has no cell address, and INDEX deliberately
+        // does not invent one. A scalar counts as 1x1 (Phase 1 item 2), so ROWS of it is 1.
+        await Assert.That(Num(OnTextual("=ROWS(INDEX(LEN(D7:F9),1))"))).IsEqualTo(1.0);
+
+        // The positional half, on the fixture whose element lengths are all different, so n selects. Aspose
+        // (26.6.0, 2026-09-09, plain and CSE): 1 / 2 / 3, and #REF! past the end.
+        await Assert.That(Num(OnLengths("=INDEX(LEN(A1:A3),1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnLengths("=INDEX(LEN(A1:A3),2)"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnLengths("=INDEX(LEN(A1:A3),3)"))).IsEqualTo(3.0);
+        await Assert.That(OnLengths("=INDEX(LEN(A1:A3),4)")).IsEqualTo(ErrorValue.Reference);
+
+        // The unary half of the lift reaches INDEX the same way. Aspose: -22.
+        await Assert.That(Num(OnLengths("=INDEX(-A1:A3,2)"))).IsEqualTo(-22.0);
+    }
+
+    // --- The AGGREGATE/SUBTOTAL reference slot: Phase 2's rule meets the widened eligibility ---
+
+    [Test]
+    public async Task Subtotal_And_Aggregate_ReferenceSlot_RefuseALiftedArgument()
+    {
+        // Phase 2 gave AggregateCodes.Feed Excel's REF-SLOT rule: function_num 1-13 of SUBTOTAL and
+        // AGGREGATE take a REFERENCE, so a non-reference array-eligible argument is #VALUE!. Making LEN
+        // Elementwise brings LEN(A1:A3) into "array-eligible", so these two forms flip from a broadcast
+        // scalar error to a deliberate, Excel-correct refusal — the SAME #VALUE!, now for the right reason.
+        // Aspose.Cells 26.6.0, measured 2026-09-09 (plain and CSE-entered, identical).
+        await Assert.That(OnLengths("=SUBTOTAL(9,LEN(A1:A3))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnLengths("=AGGREGATE(9,4,LEN(A1:A3))")).IsEqualTo(ErrorValue.NotValue);
+
+        // The unary lift lands in the same slot and is refused identically (Aspose: #VALUE! for both).
+        await Assert.That(OnLengths("=SUBTOTAL(9,-A1:A3)")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnLengths("=AGGREGATE(9,4,-A1:A3)")).IsEqualTo(ErrorValue.NotValue);
+
+        // AGGREGATE's ARRAY form (14-19) takes an array, so there the SAME lifted argument is streamed —
+        // which is what makes the four refusals above a rule about the SLOT rather than about the lift.
+        // Aspose: SMALL k=1 → 1, k=3 → 3, LARGE k=1 → 3.
+        await Assert.That(Num(OnLengths("=AGGREGATE(15,6,LEN(A1:A3),1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnLengths("=AGGREGATE(15,6,LEN(A1:A3),3)"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnLengths("=AGGREGATE(14,4,LEN(A1:A3),1)"))).IsEqualTo(3.0);
+    }
+
+    // --- Item 12 (c) and the end-to-end integration through a real cell ---
+
+    [Test]
+    public async Task LiftedFormula_ThroughARealCell_AndTheDirtyGraph()
+    {
+        // The consumers are reached through Workbook.EvaluateCell/GetCellValue in production, not through
+        // Parse(...).Evaluate as every other case in this file. This drives one lifted formula end to end:
+        // stored in a real cell, read back through the host API, then INVALIDATED through the dirty graph by
+        // an edit to a cell of the range the lift reads.
+        //
+        // The dirty half is the load-bearing one. DependencyExtractor reaches a function's arguments through
+        // FormulaWriter.Call, so the range inside LEN is a real RangeDep and B1 lands in the dirty cone of an
+        // A3 edit (DependencyExtractorTests pins the scan itself). If the lift had hidden its argument from
+        // the extractor, B1 would answer the stale 6 here.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(22);
+        sheet["A3"] = new NumberValue(333);
+        sheet["B1"] = ExpressionParser.Parse("=SUM(LEN(A1:A3))", sheet);
+
+        var engine = DirtyEngine.Build(workbook);
+
+        // 1 + 2 + 3 = 6 (Aspose.Cells 26.6.0, CSE-entered, measured 2026-09-09).
+        await Assert.That(workbook.GetCellValue("Sheet1", "B1").AsObject()).IsEqualTo(6.0);
+
+        sheet["A3"] = new NumberValue(1234);
+        var dirty = engine.CalculateDirty([new CellDep("Sheet1", 1, 3)]);
+
+        // B1 is in the cone — the lifted node's range dependency reached the graph.
+        await Assert.That(dirty!.Contains(new CellDep("Sheet1", 2, 1))).IsTrue();
+
+        // … and the evicted cell recomputes to 1 + 2 + 4 = 7 (Aspose 26.6.0, CSE-entered, 2026-09-09).
+        await Assert.That(workbook.GetCellValue("Sheet1", "B1").AsObject()).IsEqualTo(7.0);
+    }
+
+    [Test]
+    public async Task AnchoredMaster_OverALiftedFormula_StaysFullyAnchored()
+    {
+        // Item 12 (c). AnchoredFormulaSupport decides whether a shared-formula group may share ONE anchored
+        // master tree. Its `Function function =>` arm accepts a function when every argument is anchored,
+        // reaching the arguments through the same registry accessor (FormulaWriter.Call) the writer and the
+        // dependency extractor use — and this phase adds no node type, so there is nothing new for it to
+        // learn. The pin says so out loud, because a lifted formula is exactly the shape a reader would
+        // expect to have broken it.
+        var sheet = new Sheet { Name = "Sheet1" };
+        var tokens = ExpressionParser.TokenizeFormulaBody("SUM(LEN($A$1:$A$3))");
+        var master = ExpressionParser.ParseAnchoredMasterBody(tokens, sheet);
+
+        await Assert.That(AnchoredFormulaSupport.IsFullyAnchored(master)).IsTrue();
+
+        // The unary half too, and a control that still falls back (an open range is not anchorable).
+        var unary = ExpressionParser.ParseAnchoredMasterBody(
+            ExpressionParser.TokenizeFormulaBody("SUM(-($A$1:$A$3>1))"),
+            sheet
+        );
+        await Assert.That(AnchoredFormulaSupport.IsFullyAnchored(unary)).IsTrue();
+
+        var openRange = ExpressionParser.ParseAnchoredMasterBody(
+            ExpressionParser.TokenizeFormulaBody("SUM(LEN($A:$A))"),
+            sheet
+        );
+        await Assert.That(AnchoredFormulaSupport.IsFullyAnchored(openRange)).IsFalse();
     }
 }
