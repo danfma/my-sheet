@@ -261,3 +261,8 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   Fable rodou e derrubou o ruling. Regra: toda decisão que afirme comportamento do Excel roda o oráculo Aspose
   ANTES de virar ruling; "P0-driven" sem medição é só inferência com capa. Custo real: um commit `fix(eval)` na
   direção errada, cinco pins e três valores nos docs a inverter.
+
+## 2026-09-09 — "Excel" means Aspose (user ruling)
+
+- The user's compatibility target is **Aspose.Cells as measured**, not the Microsoft page and not an imagined Excel. When a page and the oracle disagree, the oracle wins; a page is consulted only where the oracle cannot be made to answer. I had ruled "page wins" on the nested-AGGREGATE skip in Phase 2 — reversed into Phase 11.
+- Every recorded divergence is a WORK ITEM under this rule, never a documented limitation, unless the engine structurally cannot match (no spill model, no hidden-row model). Do not offer "keep and document" as an option for a measured divergence; offer the phase that fixes it.
