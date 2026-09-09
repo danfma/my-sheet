@@ -1017,19 +1017,24 @@ internal static class BondMath
     internal static double XNpv(
         double rate,
         IReadOnlyList<double> cashFlows,
-        IReadOnlyList<DateTime> dates
-    ) => XNpv(rate, cashFlows, XNpvYearFractions(dates));
+        IReadOnlyList<double> dateSerials
+    ) => XNpv(rate, cashFlows, XNpvYearFractions(dateSerials));
 
-    // Per-flow (Days(dates[i], d0) / 365d) exponents, independent of `rate` — computed once and reused
-    // across every XIRR solver iteration instead of being recomputed (Days() included) each time.
-    private static double[] XNpvYearFractions(IReadOnlyList<DateTime> dates)
+    // Per-flow ((serial[i] - serial[0]) / 365d) exponents, independent of `rate` — computed once and reused
+    // across every XIRR solver iteration instead of being recomputed each time.
+    //
+    // The dates arrive as whole-day Excel SERIALS and are subtracted as such. Mapping them to DateTime first
+    // would collapse the phantom 1900-02-29 onto February 28 and lose a day from any span that straddles it:
+    // measured XNPV(0.1,{-100;110},{1;366}) = -1.4e-14 (365 serial days discount 110 back to exactly 100) and
+    // {59;61} = 9.942567766564366 (2 days), against 0.026 and 9.971 for the Gregorian counts 364 and 1.
+    private static double[] XNpvYearFractions(IReadOnlyList<double> dateSerials)
     {
-        var d0 = dates[0];
-        var yearFractions = new double[dates.Count];
+        var d0 = dateSerials[0];
+        var yearFractions = new double[dateSerials.Count];
 
-        for (var i = 0; i < dates.Count; i++)
+        for (var i = 0; i < dateSerials.Count; i++)
         {
-            yearFractions[i] = (double)Days(dates[i], d0) / 365d;
+            yearFractions[i] = (dateSerials[i] - d0) / 365d;
         }
 
         return yearFractions;
@@ -1049,11 +1054,11 @@ internal static class BondMath
 
     internal static double XIrr(
         IReadOnlyList<double> cashFlows,
-        IReadOnlyList<DateTime> dates,
+        IReadOnlyList<double> dateSerials,
         double guess
     )
     {
-        var yearFractions = XNpvYearFractions(dates);
+        var yearFractions = XNpvYearFractions(dateSerials);
         return TimeValueOfMoney.Solve(rate => XNpv(rate, cashFlows, yearFractions), guess);
     }
 

@@ -86,16 +86,22 @@ internal static class DatedFlows
     /// Reads the values (argument 0) and dates (argument 1) into aligned parallel lists. Returns an error if
     /// a cell fails to coerce, the two ranges differ in length, or a date precedes the anchor (first date).
     /// </summary>
+    /// <remarks>
+    /// The dates come out as whole-day Excel SERIALS, not <see cref="DateTime"/>s: XNPV and XIRR discount on
+    /// the DIFFERENCE between two dates, and the map collapses the phantom 1900-02-29 onto February 28, so a
+    /// span that straddles serial 60 would come out a day short. The map is still consulted, for its range
+    /// policy (a negative or out-of-range serial is <c>#NUM!</c>).
+    /// </remarks>
     public static Error? Read(
         Expression[] arguments,
         int valuesIndex,
         EvaluationContext context,
         out List<double> flows,
-        out List<DateTime> dates
+        out List<double> dates
     )
     {
         flows = new List<double>();
-        dates = new List<DateTime>();
+        dates = new List<double>();
 
         var valueCells = ArgumentFlattening.ExpandComputedValues(arguments[valuesIndex], context);
         var dateCells = ArgumentFlattening.ExpandComputedValues(
@@ -120,13 +126,15 @@ internal static class DatedFlows
                 return serialError;
             }
 
-            if (DateSerial.ToDateTime(Math.Floor(serial), out var date) is { } rangeError)
+            var day = Math.Floor(serial);
+
+            if (DateSerial.ToDateTime(day, out _) is { } rangeError)
             {
                 return rangeError;
             }
 
             flows.Add(flow);
-            dates.Add(date);
+            dates.Add(day);
         }
 
         if (dates.Count == 0)
