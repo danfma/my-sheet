@@ -226,6 +226,28 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Files:* `Danfma.MySheet/Expressions/Lookup/Index.cs`, `tests/Danfma.MySheet.Tests/Expressions/MiniCseConsumerTests.cs`
       *Why:* Task 4 measured it while pinning INDEX over a lifted array; leaving it out would make item 13 fix the reference form and leave the computed-array form diverging.
 
+## Controller additions after verification, part 2 (2026-09-09) — measured by Phase 9's Task 3
+
+- [ ] **16.** `BondMath.Diff360Us` keeps a start-of-February rule Aspose lacks — the same shape as the one Phase 9
+      removed from `DayCount`'s basis 0, but in the bond path, which Phase 9 deliberately left alone because no
+      1900 row depends on it. Measured on Aspose.Cells 26.6.0 (PLAIN, 2026-09-09):
+      `ACCRINT(DATE(2023,2,28),DATE(2023,8,31),DATE(2023,3,31),0.1,1000,2,0)` = **9.1667** (33/360) against
+      **8.611** (31/360) here. Measure the whole 30/360 matrix for the bond and coupon family first (February
+      starts and ends, day-31 starts and ends, both orders, every basis), then match. NOTE: after Phase 9
+      `DAYS360` and `YEARFRAC` basis 0 deliberately DISAGREE on February-end / day-31 pairs because Aspose does —
+      do not "unify" them.
+      *Files:* `Danfma.MySheet/Expressions/Financial/BondMath.cs`, the bond and coupon test files, `docs/function-reference.md`, `docs/pt-BR/function-reference.md`
+      *Why:* A generic divergence on modern dates in the accrual functions, not a 1900 edge, so every real bond
+      workbook is affected.
+
+- [ ] **17.** `YEARFRAC` basis 1 computes its denominator from the MAPPED years, so Excel's day zero contributes
+      1899: measured `YEARFRAC(0,366,1)` = **1** on Aspose against 366/365 here, and `YEARFRAC(0,1500,1)` =
+      1500/365.1667 here against `(1,1500,1)` = 1499/365.2. Phase 9 left basis 1 on the mapped years on purpose.
+      Derive the denominator rule from the oracle across a year boundary and match it.
+      *Files:* `Danfma.MySheet/Expressions/DayCount.cs`, `tests/Danfma.MySheet.Tests/Parsing/DateEpochTests.cs` or the nearest sibling, both docs twins
+      *Why:* Basis 1 is the actual/actual convention most financial models use; a denominator off by a fraction of
+      a day moves every interest figure derived from it.
+
 ## Implementation items
 
 - [ ] **1.** Create `tests/Danfma.MySheet.Tests/Expressions/ExcelCompatibilitySweepTests.cs` holding the acceptance pins for (a)-(f) ONLY, each carrying **Aspose's** value and each therefore failing on `1b1e2d3` with the MySheet value named in the comment. Reuse `MathAggregateTests`'s `Calc(formula, params (string Id, object Value)[] cells)` shape (it is the nearest sibling; copy the helper rather than making it public). Pins, with today's failing value in brackets: **(a)** on the (a) fixture — `AGGREGATE(9,o,C1:C3)` = 8 for o in 0..3 [today 5] and 11 for o in 4..7 [passes], `AGGREGATE(9,o,F1:F3)` = 11 for all o in 0..7 [today 8 at 0-3], `AGGREGATE(3,o,C1:C3)` = 2 for 0..3 [today 1] and 3 for 4..7, `AGGREGATE(3,o,F1:F3)` = 3 for all o [today 2 at 0-3], `AGGREGATE(9,o,D1:D3)` = 8 / 11 and `SUBTOTAL(9,C1:C3)` = 8, `SUBTOTAL(3,C1:C3)` = 2, `SUBTOTAL(9,F1:F3)` = 11 as no-regression pins [all pass today]. **(b)** `SUBTOTAL(9,7)`, `SUBTOTAL(9,A1:A3,7)`, `SUBTOTAL(2,7)`, `SUBTOTAL(3,7)`, `SUBTOTAL(9,"7")`, `SUBTOTAL(9,TRUE)`, `SUBTOTAL(9,A1:A3,"")`, `AGGREGATE(9,4,7)`, `AGGREGATE(9,6,7)`, `AGGREGATE(9,4,A1:A3,7)`, `AGGREGATE(9,0,A1:A3,7)` → `ErrorValue.NotValue` [today 7/21/1/1/0/0/14/7/7/21/21], plus the no-regression pins `AGGREGATE(9,4,A1:A3,B1)` = 15, `SUBTOTAL(9,A1)` = 5, `AGGREGATE(15,6,7,1)` = `AGGREGATE(15,4,7,1)` = `AGGREGATE(14,6,7,1)` = `AGGREGATE(16,6,7,0.5)` = 7, and `AGGREGATE(15,6,1/0,1)` → `ErrorValue.NotValue` [today `#DIV/0!`]. **(c)** `MODE.SNGL(A1:A4)` = 2 on 2,1,1,2 [today 1]; = 1 on 1,2,2,1 [today 2]; `MODE.SNGL(A1:A6)` = 3 on 3,1,2,1,2,3 [today 1]; and `MODE(...)` / `AGGREGATE(13,4,...)` equal to it on each. **(d)** the seven `#DIV/0!` rows of (d)'s table [today `#NUM!`], plus `AGGREGATE(15,0,E2:E2,1)` = `#DIV/0!`, `AGGREGATE(15,6,G1:G1,1)` = `#NUM!`, `AGGREGATE(15,6,E1:E1,1)` = 5, `AGGREGATE(15,6,E1:E2,1)` = 5, `AGGREGATE(15,6,E2:E3,1)` = 9, `AGGREGATE(9,6,E2)` = 0 as no-regression pins. **(e)** `COUNT((Rng<>"")*1)` = 3 [today 1], `SUM((Rng<>0)*1)` = 2 [today 1], `SMALL(IF(Rng>0,Rng),1)` = 5 [today 0], each asserted EQUAL to its literal-range twin in the same assertion so the pin states the invariant, not just the number. **(f)** all fifteen `IF`/`CHOOSE` rows of (f)'s table.
