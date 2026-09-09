@@ -6,6 +6,11 @@ namespace Danfma.MySheet.Expressions.Dates;
 // number of working days from a start. Holidays arrive as a range and are flattened with the shared
 // ArgumentFlattening helper. The weekend pattern (which weekdays are non-working) is a WeekendSchedule,
 // built either from the fixed Sat/Sun default, a weekend number (1..7, 11..17), or a 7-char "0000011" mask.
+//
+// Both walks run on SERIALS and derive each weekday from the serial through the central map, so Excel's
+// phantom 1900-02-29 (serial 60) is a day of the walk like any other; below serial 61 the walk deliberately
+// follows the REAL calendar rather than Aspose's answers — see WorkdayMath.IsWorkingSerial for the ruling and
+// the evidence.
 
 /// <summary>
 /// Which days of the week are non-working. Indexed by <see cref="DayOfWeek"/> (Sunday = 0 .. Saturday = 6).
@@ -16,7 +21,7 @@ internal readonly struct WeekendSchedule(bool[] weekend)
     public static WeekendSchedule Default { get; } =
         new([true, false, false, false, false, false, true]); // Sunday and Saturday
 
-    public bool IsWeekend(DateTime date) => weekend[(int)date.DayOfWeek];
+    public bool IsWeekend(DayOfWeek dayOfWeek) => weekend[(int)dayOfWeek];
 
     public bool AllWeekend => Array.TrueForAll(weekend, day => day);
 
@@ -118,14 +123,60 @@ internal static class WorkdayMath
         return null;
     }
 
-    /// <summary>Inclusive count of working days between the two dates; negative when end precedes start.</summary>
+    /// <summary>
+    /// Whether a whole-day serial is a working day: its weekday is not in the schedule's weekend and the
+    /// serial is not a holiday. The weekday is the REAL (Gregorian) one the central map defines — serial 0 is
+    /// 1899-12-31, a Sunday; serial 1 is 1900-01-01, a Monday; and Excel's phantom serial 60 repeats serial
+    /// 59's 1900-02-28, a Wednesday, so both 59 and 60 count as working days.
+    /// </summary>
+    /// <remarks>
+    /// <b>Do not "fix" this to Aspose's answers below serial 61.</b> By CONTROLLER RULING under the user's
+    /// exception (2026-09-09) the working-day family walks the REAL calendar for every serial, and only
+    /// serials ≥ 61 are pinned to the oracle. Aspose.Cells 26.6.0 has no derivable rule in the
+    /// January–February 1900 window — the phase verifier fitted fourteen candidate rules and the best still
+    /// missed 17 of 580 rows — and its answers there contradict one another, so there is nothing consistent to
+    /// reproduce (every value below MEASURED on Aspose.Cells 26.6.0, 2026-09-09, PLAIN cell entry):
+    /// <list type="number">
+    /// <item><c>WORKDAY(6,4)</c> = <c>WORKDAY(6,5)</c> = 12 — the 4th and the 5th working day from the same
+    /// start are the same day, so the result is not a function of <c>days</c>.</item>
+    /// <item><c>WORKDAY.INTL(1,5,"1000000")</c> = <c>WORKDAY.INTL(1,6,"1000000")</c> = 7 — the same collapse
+    /// under a one-day weekend.</item>
+    /// <item><c>WORKDAY(58,4)</c> = 64, and serial 64 is a weekend on BOTH calendars
+    /// (<c>WEEKDAY(64)</c> = 1, <c>NETWORKDAYS(64,64)</c> = 0, <c>TEXT(64,"dddd")</c> = Sunday): the answer is
+    /// a day Aspose itself does not count as a working day.</item>
+    /// <item><c>NETWORKDAYS</c> is not additive over a split range: <c>NETWORKDAYS(58,62)</c> = 4 while
+    /// <c>NETWORKDAYS(58,58)</c> + <c>NETWORKDAYS(59,61)</c> + <c>NETWORKDAYS(62,62)</c> = 1 + 3 + 1 = 5, so
+    /// no per-serial working-day indicator — this one included — can produce that count.</item>
+    /// </list>
+    /// Serials ≥ 61 are untouched by the exception: from 1900-03-01 on the map is the identity, and this walk
+    /// reproduces the oracle exactly there (see the <c>Modern_*</c> pins in <c>DateEpochTests</c>).
+    /// </remarks>
+    public static bool IsWorkingSerial(
+        int serial,
+        in WeekendSchedule schedule,
+        HashSet<int> holidays
+    ) =>
+        !schedule.IsWeekend(DateSerial.ToDateTimeUnchecked(serial).DayOfWeek)
+        && !holidays.Contains(serial);
+
+    /// <summary>
+    /// Inclusive count of working days between the two serials; negative when end precedes start. The callers
+    /// have already range-checked both ends through <see cref="DateSerial.ToDateTime"/>.
+    /// </summary>
     public static int CountNetworkDays(
-        DateTime start,
-        DateTime end,
+        double startSerial,
+        double endSerial,
         in WeekendSchedule schedule,
         HashSet<int> holidays
     )
     {
+        // The SERIAL is the source of truth and the calendar day is derived from it, never the reverse: under
+        // Excel's epoch serials 59 and 60 both denote 1900-02-28 and no DateTime yields 60, so a counter
+        // walked alongside a DateTime desynchronizes across that boundary and the holiday lookups silently
+        // read the wrong day. Walking serials also keeps the phantom day in the count, which is what makes
+        // NETWORKDAYS(59,61) = 3 instead of 2.
+        var start = (int)Math.Floor(startSerial);
+        var end = (int)Math.Floor(endSerial);
         var sign = 1;
 
         if (start > end)
@@ -136,20 +187,9 @@ internal static class WorkdayMath
 
         var count = 0;
 
-        // Walk the serial alongside the DateTime instead of calling DateSerial.FromDateTime every step:
-        // whole-day DateTime values advance the serial by exactly 1 per AddDays(1), so an int++ is bit-exact
-        // and skips the per-day double conversion. DayOfWeek still needs the DateTime (WeekendSchedule).
-        // The shortcut assumes FromDateTime is affine over the walked span. That holds for the OADate map and
-        // BREAKS under Excel's 1900 epoch (Phase 9): serials 59 and 60 both denote 1900-02-28 there — 60 is
-        // Excel's phantom 1900-02-29 and no DateTime yields it — so the walked int and the real serial drift
-        // apart by one across that boundary and the HashSet<int> holiday lookups start reading the wrong day,
-        // with no error to show for it. Phase 9's working-day item must walk SERIALS as the source of truth
-        // and derive each calendar day from the serial, never the reverse.
-        var serial = (int)DateSerial.FromDateTime(start);
-
-        for (var day = start; day <= end; day = day.AddDays(1), serial++)
+        for (var serial = start; serial <= end; serial++)
         {
-            if (!schedule.IsWeekend(day) && !holidays.Contains(serial))
+            if (IsWorkingSerial(serial, schedule, holidays))
             {
                 count++;
             }
@@ -182,12 +222,14 @@ public sealed partial record NetworkDays(Expression[] Arguments) : Function
             return ComputedValue.Error(endError);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var start) is { } startRange)
+        // The map is asked only to police the range (negative or past 9999-12-31 → #NUM!); the walk itself
+        // runs on the serials, per WorkdayMath.CountNetworkDays.
+        if (DateSerial.ToDateTime(startSerial, out _) is { } startRange)
         {
             return ComputedValue.Error(startRange);
         }
 
-        if (DateSerial.ToDateTime(endSerial, out var end) is { } endRange)
+        if (DateSerial.ToDateTime(endSerial, out _) is { } endRange)
         {
             return ComputedValue.Error(endRange);
         }
@@ -203,7 +245,7 @@ public sealed partial record NetworkDays(Expression[] Arguments) : Function
         }
 
         return ComputedValue.Number(
-            WorkdayMath.CountNetworkDays(start.Date, end.Date, WeekendSchedule.Default, holidays)
+            WorkdayMath.CountNetworkDays(startSerial, endSerial, WeekendSchedule.Default, holidays)
         );
     }
 }
@@ -242,12 +284,13 @@ public sealed partial record NetworkDaysIntl(Expression[] Arguments) : Function
             return ComputedValue.Error(weekendError);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var start) is { } startRange)
+        // The map only polices the range; the count walks the serials (WorkdayMath.CountNetworkDays).
+        if (DateSerial.ToDateTime(startSerial, out _) is { } startRange)
         {
             return ComputedValue.Error(startRange);
         }
 
-        if (DateSerial.ToDateTime(endSerial, out var end) is { } endRange)
+        if (DateSerial.ToDateTime(endSerial, out _) is { } endRange)
         {
             return ComputedValue.Error(endRange);
         }
@@ -263,7 +306,7 @@ public sealed partial record NetworkDaysIntl(Expression[] Arguments) : Function
         }
 
         return ComputedValue.Number(
-            WorkdayMath.CountNetworkDays(start.Date, end.Date, schedule, holidays)
+            WorkdayMath.CountNetworkDays(startSerial, endSerial, schedule, holidays)
         );
     }
 }
@@ -291,7 +334,8 @@ public sealed partial record Workday(Expression[] Arguments) : Function
             return ComputedValue.Error(daysError);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var start) is { } startRange)
+        // The map only polices the range; the step walks the serials (see Advance).
+        if (DateSerial.ToDateTime(startSerial, out _) is { } startRange)
         {
             return ComputedValue.Error(startRange);
         }
@@ -306,53 +350,64 @@ public sealed partial record Workday(Expression[] Arguments) : Function
             return ComputedValue.Error(holidayError);
         }
 
-        return Advance(start.Date, daysArg, WeekendSchedule.Default, holidays);
+        return Advance(startSerial, daysArg, WeekendSchedule.Default, holidays);
     }
 
+    /// <summary>
+    /// The serial <paramref name="daysArg"/> working days from <paramref name="startSerial"/> (the start
+    /// itself is never counted); a negative count walks backward. Stepping below serial 0 or past
+    /// <see cref="DateSerial.MaxSerial"/> is <see cref="Error.Num"/>.
+    /// </summary>
+    /// <remarks>
+    /// Walks SERIALS and derives each weekday from the serial — see
+    /// <see cref="WorkdayMath.IsWorkingSerial"/> for why, and for the controller ruling that keeps this walk on
+    /// the real calendar below serial 61 instead of chasing Aspose's self-contradicting composite.
+    /// </remarks>
     internal static ComputedValue Advance(
-        DateTime start,
+        double startSerial,
         double daysArg,
         in WeekendSchedule schedule,
         HashSet<int> holidays
     )
     {
-        if (schedule.AllWeekend)
-        {
-            return ComputedValue.Error(Error.Num);
-        }
-
+        var serial = (int)Math.Floor(startSerial);
         var days = (int)Math.Truncate(daysArg);
 
         if (days == 0)
         {
-            return ComputedValue.Number(DateSerial.FromDateTime(start));
+            // Zero days never moves, so it answers the start even when every day is a weekend. Measured on
+            // Aspose.Cells 26.6.0 (2026-09-09, PLAIN): WORKDAY.INTL(45366,0,"1111111") = 45366 and
+            // WORKDAY.INTL(1,0,"1111111") = 1 — the all-weekend guard below must NOT run first.
+            return ComputedValue.Number(serial);
+        }
+
+        if (schedule.AllWeekend)
+        {
+            // No day to land on. Measured on Aspose.Cells 26.6.0 (2026-09-09, PLAIN):
+            // WORKDAY.INTL(45366,5,"1111111") = WORKDAY.INTL(1,5,"1111111") =
+            // WORKDAY.INTL(DATE(2012,1,1),30,"1111111") = #VALUE!, not the #NUM! the Microsoft page implies.
+            return ComputedValue.Error(Error.Value);
         }
 
         var step = days > 0 ? 1 : -1;
         var remaining = Math.Abs(days);
-        var current = start;
-        // See CountNetworkDays: walk the serial alongside current instead of converting per step.
-        var serial = (int)DateSerial.FromDateTime(start);
 
-        try
+        while (remaining > 0)
         {
-            while (remaining > 0)
-            {
-                current = current.AddDays(step);
-                serial += step;
+            serial += step;
 
-                if (!schedule.IsWeekend(current) && !holidays.Contains(serial))
-                {
-                    remaining--;
-                }
+            if (serial < 0 || serial > DateSerial.MaxSerial)
+            {
+                return ComputedValue.Error(Error.Num);
+            }
+
+            if (WorkdayMath.IsWorkingSerial(serial, schedule, holidays))
+            {
+                remaining--;
             }
         }
-        catch (ArgumentOutOfRangeException)
-        {
-            return ComputedValue.Error(Error.Num);
-        }
 
-        return ComputedValue.Number(DateSerial.FromDateTime(current));
+        return ComputedValue.Number(serial);
     }
 }
 
@@ -360,7 +415,7 @@ public sealed partial record Workday(Expression[] Arguments) : Function
 public sealed partial record WorkdayIntl(Expression[] Arguments) : Function
 {
     // WORKDAY.INTL(start, days, [weekend], [holidays]) — WORKDAY with a configurable weekend. An invalid
-    // weekend number (e.g. 0) → #NUM!; an all-weekend schedule has no day to land on → #NUM!.
+    // weekend number (e.g. 0) → #NUM!; an all-weekend schedule has no day to land on → #VALUE! (measured).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         // A missing-sheet reference (start cell or the holidays range) is a structural #REF!.
@@ -390,7 +445,8 @@ public sealed partial record WorkdayIntl(Expression[] Arguments) : Function
             return ComputedValue.Error(weekendError);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var start) is { } startRange)
+        // The map only polices the range; the step walks the serials (see Workday.Advance).
+        if (DateSerial.ToDateTime(startSerial, out _) is { } startRange)
         {
             return ComputedValue.Error(startRange);
         }
@@ -405,6 +461,6 @@ public sealed partial record WorkdayIntl(Expression[] Arguments) : Function
             return ComputedValue.Error(holidayError);
         }
 
-        return Workday.Advance(start.Date, daysArg, schedule, holidays);
+        return Workday.Advance(startSerial, daysArg, schedule, holidays);
     }
 }

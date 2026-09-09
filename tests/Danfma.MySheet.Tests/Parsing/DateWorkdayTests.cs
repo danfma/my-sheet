@@ -125,12 +125,18 @@ public class DateWorkdayTests
     }
 
     [Test]
-    public async Task WorkdayIntl_AllWeekendIsNum()
+    public async Task WorkdayIntl_AllWeekendIsValue()
     {
-        // WORKDAY.INTL with every day off has no day to land on → #NUM! (unlike NETWORKDAYS.INTL → 0).
+        // WORKDAY.INTL with every day off has no day to land on (unlike NETWORKDAYS.INTL, which answers 0).
+        // The error is #VALUE!, not the #NUM! the Microsoft page implies — MEASURED on Aspose.Cells 26.6.0 on
+        // 2026-09-09, PLAIN cell entry: WORKDAY.INTL(DATE(2012,1,1),30,"1111111") =
+        // WORKDAY.INTL(45366,5,"1111111") = WORKDAY.INTL(1,5,"1111111") = #VALUE!. Under the master plan's P0
+        // rule a measurement beats a documentation page.
         await Assert
             .That(Calc("=WORKDAY.INTL(DATE(2012,1,1),30,\"1111111\")"))
-            .IsEqualTo(ErrorValue.Number);
+            .IsEqualTo(ErrorValue.NotValue);
+        // Zero days never moves, so it answers the start even under an all-weekend schedule (measured 45366).
+        await Assert.That(Num(Calc("=WORKDAY.INTL(45366,0,\"1111111\")"))).IsEqualTo(45366d);
     }
 
     [Test]

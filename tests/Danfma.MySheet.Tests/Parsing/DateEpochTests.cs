@@ -36,6 +36,14 @@ public class DateEpochTests
         sheet["K10"] = new NumberValue(59d);
         sheet["K11"] = new NumberValue(61d);
 
+        // The modern working-day pins read their holidays from column M. March 2024: 45362 = Monday the 11th
+        // … 45366 = Friday the 15th, 45367 Saturday, 45369 Monday, 45370 Tuesday, 45371 Wednesday.
+        sheet["M1"] = new NumberValue(45367d); // Saturday — a holiday that falls ON a weekend
+        sheet["M2"] = new NumberValue(45369d); // Monday — a holiday that falls on a working day
+        sheet["M3"] = new NumberValue(45370d); // Tuesday
+        sheet["M4"] = new NumberValue(45371d); // Wednesday
+        sheet["M6"] = new NumberValue(45363d); // Tuesday, inside the span 45362..45366
+
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
@@ -317,13 +325,23 @@ public class DateEpochTests
     }
 
     // --- NETWORKDAYS / WORKDAY: the working-day family walks the shifted calendar. ---
+    //
+    // The walk runs on SERIALS and reads each weekday off the serial through the central map, so Excel's
+    // phantom serial 60 is a day of the walk (a working Wednesday, the same day serial 59 names) and a holiday
+    // set keyed by serial can never drift. Below serial 61 the walk is the REAL calendar by CONTROLLER RULING
+    // under the USER RULING of 2026-09-09, not Aspose's composite; every row in the two tests immediately
+    // below happens to agree with Aspose anyway, and the rows that do not are re-pinned in
+    // Guard_WorkdayRowsTheShiftedCalendarMustNotMove with both numbers recorded.
 
     [Test]
     public async Task NetworkDays_CountsOnTheShiftedCalendar()
     {
+        // Aspose (26.6.0, 2026-09-09, PLAIN) and the real-calendar serial walk agree on every row here.
         await Assert.That(Num("=NETWORKDAYS(1,10)")).IsEqualTo(8d);
         await Assert.That(Num("=NETWORKDAYS(1,1)")).IsEqualTo(1d);
         await Assert.That(Num("=NETWORKDAYS(6,6)")).IsEqualTo(0d);
+        // The span straddles the phantom day, so it counts one serial more than the Gregorian calendar has
+        // days: 44 on a DateTime walk, 45 on the serial walk.
         await Assert.That(Num("=NETWORKDAYS(1,61)")).IsEqualTo(45d);
         await Assert.That(Num("=NETWORKDAYS(0,1)")).IsEqualTo(1d);
         await Assert.That(Num("=NETWORKDAYS.INTL(1,8,\"0000011\")")).IsEqualTo(6d);
@@ -332,6 +350,9 @@ public class DateEpochTests
     [Test]
     public async Task Workday_StepsOnTheShiftedCalendar()
     {
+        // Every argument is a serial <= 60, so by the CONTROLLER RULING these pin the real-calendar walk — and
+        // on these six shapes the walk reproduces Aspose exactly (26.6.0, 2026-09-09, PLAIN: 8, 12, 15, 15, 1,
+        // 5), so the expectation and the oracle coincide and nothing had to be re-pinned.
         await Assert.That(Num("=WORKDAY(1,5)")).IsEqualTo(8d);
         await Assert.That(Num("=WORKDAY(6,5)")).IsEqualTo(12d);
         await Assert.That(Num("=WORKDAY(8,5)")).IsEqualTo(15d);
@@ -343,8 +364,9 @@ public class DateEpochTests
     [Test]
     public async Task Workday_SteppingBelowSerialZeroIsNum()
     {
-        // Serial 1 is a Monday on the shifted calendar, so one working day back is serial 0 — which is not a
-        // date, and Aspose answers #NUM! rather than the -1 the OA epoch produces.
+        // Serial 1 is a Monday on the real calendar and serial 0 is the Sunday 1899-12-31, so the backward walk
+        // skips 0 as a weekend and the next candidate is the negative serial -1, which is not a date: #NUM!,
+        // where the OA epoch answered -2. Aspose agrees (WORKDAY(1,-1) = #NUM!, measured 26.6.0, PLAIN).
         await Assert.That(Calc("=WORKDAY(1,-1)")).IsEqualTo(ErrorValue.Number);
     }
 
@@ -438,16 +460,26 @@ public class DateEpochTests
     [Test]
     public async Task Guard_WorkdayRowsTheShiftedCalendarMustNotMove()
     {
-        // The working-day walk lands on the same serial on both calendars for these shapes. WORKDAY(1,0) is
-        // the cheapest proof that the days == 0 shortcut converts through the central map: it returned 2 on
-        // the prototype that changed the map while that branch still called DateTime.ToOADate directly.
-        await Assert.That(Num("=WORKDAY(1,0)")).IsEqualTo(1d);
-        await Assert.That(Num("=WORKDAY(59,1)")).IsEqualTo(60d);
-        await Assert.That(Num("=WORKDAY(60,-1)")).IsEqualTo(59d);
-        await Assert.That(Num("=WORKDAY(5,1)")).IsEqualTo(6d);
-        await Assert.That(Num("=WORKDAY(6,1)")).IsEqualTo(9d);
-        await Assert.That(Num("=WORKDAY(6,4)")).IsEqualTo(12d);
-        await Assert.That(Num("=WORKDAY(13,1)")).IsEqualTo(16d);
+        // RE-PINNED by CONTROLLER RULING at Task 2 close, under the USER RULING of 2026-09-09: every argument
+        // here is a serial <= 60, so these rows are NOT Aspose pins any more. They pin the REAL-calendar serial
+        // walk, and each row records BOTH numbers — the walk's value (the expectation) and Aspose's answer (the
+        // accepted deviation, MEASURED on Aspose.Cells 26.6.0 on 2026-09-09, PLAIN cell entry). No row is
+        // deleted: the size of the exception has to stay visible. WorkdayMath.IsWorkingSerial carries the
+        // evidence that Aspose has no derivable rule below serial 61.
+        //
+        // WORKDAY(1,0) is the cheapest proof that the days == 0 shortcut converts through the central map: it
+        // returned 2 on the prototype that changed the map while that branch still called DateTime.ToOADate.
+        await Assert.That(Num("=WORKDAY(1,0)")).IsEqualTo(1d); // walk 1, Aspose 1 — agree
+        await Assert.That(Num("=WORKDAY(59,1)")).IsEqualTo(60d); // walk 60, Aspose 60 — agree; the phantom
+        // serial 60 is a working Wednesday, so the walk must not skip it (a DateTime walk answers 61).
+        await Assert.That(Num("=WORKDAY(60,-1)")).IsEqualTo(59d); // walk 59, Aspose 59 — agree
+        // The four rows below are the exception itself: 1900-01-05 is a Friday on the real calendar and a
+        // Thursday on Aspose's Lotus weekday, and Aspose's own forward rule is not a function of `days`
+        // (WORKDAY(6,4) = WORKDAY(6,5) = 12), so no walk can hold both.
+        await Assert.That(Num("=WORKDAY(5,1)")).IsEqualTo(8d); // walk 8, Aspose 6 — accepted deviation
+        await Assert.That(Num("=WORKDAY(6,1)")).IsEqualTo(8d); // walk 8, Aspose 9 — accepted deviation
+        await Assert.That(Num("=WORKDAY(6,4)")).IsEqualTo(11d); // walk 11, Aspose 12 — accepted deviation
+        await Assert.That(Num("=WORKDAY(13,1)")).IsEqualTo(15d); // walk 15, Aspose 16 — accepted deviation
     }
 
     [Test]
@@ -463,5 +495,128 @@ public class DateEpochTests
         // A root-finder: pinned with a tolerance, not to four digits. Aspose 0.10000000000000009,
         // MySheet today 0.09999990463256836.
         await Assert.That(Num("=XIRR(K6:K7,K8:K9)")).IsEqualTo(0.1d).Within(1e-6);
+    }
+
+    // =========================== MODERN-SERIAL PINS — MUST NEVER MOVE ===========================
+    // Serials >= 61 must match Aspose byte-identical, and that is where every real workbook lives: the user's
+    // exception covers ONLY the January–February 1900 window. Below serial 61 the working-day walk answers the
+    // real calendar; from serial 61 on the epoch map is the identity, so the same walk is the oracle's own
+    // answer and these rows are the regression guard for the whole family.
+    //
+    // Every value below MEASURED on Aspose.Cells 26.6.0 on 2026-09-09 — PLAIN cell entry (a formula assigned
+    // to a cell), not CSE. March 2024: 45362 = Monday the 11th, 45366 = Friday the 15th.
+
+    [Test]
+    public async Task Modern_WorkdayStepsMatchTheOracle()
+    {
+        // Monday start: zero, one, a week, four weeks, and the same backward.
+        await Assert.That(Num("=WORKDAY(45362,0)")).IsEqualTo(45362d);
+        await Assert.That(Num("=WORKDAY(45362,1)")).IsEqualTo(45363d);
+        await Assert.That(Num("=WORKDAY(45362,5)")).IsEqualTo(45369d);
+        await Assert.That(Num("=WORKDAY(45362,20)")).IsEqualTo(45390d);
+        await Assert.That(Num("=WORKDAY(45362,-1)")).IsEqualTo(45359d);
+        await Assert.That(Num("=WORKDAY(45362,-5)")).IsEqualTo(45355d);
+        await Assert.That(Num("=WORKDAY(45362,-20)")).IsEqualTo(45334d);
+        // Friday start: the +1 step has to cross the weekend, the -1 step must not.
+        await Assert.That(Num("=WORKDAY(45366,0)")).IsEqualTo(45366d);
+        await Assert.That(Num("=WORKDAY(45366,1)")).IsEqualTo(45369d);
+        await Assert.That(Num("=WORKDAY(45366,5)")).IsEqualTo(45373d);
+        await Assert.That(Num("=WORKDAY(45366,20)")).IsEqualTo(45394d);
+        await Assert.That(Num("=WORKDAY(45366,-1)")).IsEqualTo(45365d);
+        await Assert.That(Num("=WORKDAY(45366,-5)")).IsEqualTo(45359d);
+        await Assert.That(Num("=WORKDAY(45366,-20)")).IsEqualTo(45338d);
+        // Holidays: one that falls on a Saturday costs nothing (M1); one on a Monday costs a day (M2).
+        await Assert.That(Num("=WORKDAY(45366,5,M1)")).IsEqualTo(45373d);
+        await Assert.That(Num("=WORKDAY(45366,5,M2)")).IsEqualTo(45376d);
+        await Assert.That(Num("=WORKDAY(45366,5,M3:M4)")).IsEqualTo(45377d);
+        await Assert.That(Num("=WORKDAY(45366,-5,M3:M4)")).IsEqualTo(45359d);
+        await Assert.That(Num("=WORKDAY(45369,5,M3)")).IsEqualTo(45377d);
+        await Assert.That(Num("=WORKDAY(45369,10,M3:M4)")).IsEqualTo(45385d);
+        await Assert.That(Num("=WORKDAY(45372,-3,M3:M4)")).IsEqualTo(45365d);
+        await Assert.That(Num("=WORKDAY(45366,0,M1)")).IsEqualTo(45366d);
+        // `days` truncates toward zero, so a fraction never buys an extra step in either direction.
+        await Assert.That(Num("=WORKDAY(45362,1.9)")).IsEqualTo(45363d);
+        await Assert.That(Num("=WORKDAY(45362,-1.9)")).IsEqualTo(45359d);
+    }
+
+    [Test]
+    public async Task Modern_WorkdayIntlWeekendFormsMatchTheOracle()
+    {
+        // Weekend numbers: 1 Sat+Sun (the default), 2 Sun+Mon, 3 Mon+Tue, 7 Fri+Sat; 11..17 are single days
+        // (11 Sunday, 14 Wednesday, 17 Saturday).
+        await Assert.That(Num("=WORKDAY.INTL(45362,5)")).IsEqualTo(45369d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,1)")).IsEqualTo(45369d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,2)")).IsEqualTo(45367d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,3)")).IsEqualTo(45368d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,7)")).IsEqualTo(45369d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,11)")).IsEqualTo(45367d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,14)")).IsEqualTo(45368d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,17)")).IsEqualTo(45368d);
+        await Assert.That(Num("=WORKDAY.INTL(45366,5,11)")).IsEqualTo(45372d);
+        await Assert.That(Num("=WORKDAY.INTL(45366,5,17)")).IsEqualTo(45372d);
+        // String masks, Monday→Sunday: the two-day default, a one-day Sunday mask, a one-day Monday mask and a
+        // mid-week pair.
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,\"0000011\")")).IsEqualTo(45369d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,\"0000001\")")).IsEqualTo(45367d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,5,\"1000000\")")).IsEqualTo(45367d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,20,\"0011000\")")).IsEqualTo(45390d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,-5,\"0000011\")")).IsEqualTo(45355d);
+        await Assert.That(Num("=WORKDAY.INTL(45362,0,\"0000011\")")).IsEqualTo(45362d);
+        await Assert.That(Num("=WORKDAY.INTL(45366,5,\"0000011\",M3:M4)")).IsEqualTo(45377d);
+        await Assert.That(Num("=WORKDAY.INTL(45366,5,11,M3:M4)")).IsEqualTo(45374d);
+        // Weekend 17 is Saturday-only, so the Saturday holiday in M1 is a real working-day loss.
+        await Assert.That(Num("=WORKDAY.INTL(45366,20,17,M1)")).IsEqualTo(45390d);
+        // An all-weekend mask has no day to land on: #VALUE!, not #NUM! (M4 of the phase's verifier).
+        await Assert
+            .That(Calc("=WORKDAY.INTL(45366,5,\"1111111\")"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Num("=WORKDAY.INTL(45366,0,\"1111111\")")).IsEqualTo(45366d);
+        // An out-of-table weekend number is #NUM! whichever side of the table it falls on.
+        await Assert.That(Calc("=WORKDAY.INTL(45366,5,0)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=WORKDAY.INTL(45366,5,8)")).IsEqualTo(ErrorValue.Number);
+    }
+
+    [Test]
+    public async Task Modern_NetworkDaysCountsMatchTheOracle()
+    {
+        await Assert.That(Num("=NETWORKDAYS(45362,45366)")).IsEqualTo(5d);
+        await Assert.That(Num("=NETWORKDAYS(45362,45362)")).IsEqualTo(1d);
+        await Assert.That(Num("=NETWORKDAYS(45367,45367)")).IsEqualTo(0d);
+        await Assert.That(Num("=NETWORKDAYS(45366,45373)")).IsEqualTo(6d);
+        await Assert.That(Num("=NETWORKDAYS(45366,45362)")).IsEqualTo(-5d);
+        await Assert.That(Num("=NETWORKDAYS(45362,45376)")).IsEqualTo(11d);
+        await Assert.That(Num("=NETWORKDAYS(45362,45391)")).IsEqualTo(22d);
+        await Assert.That(Num("=NETWORKDAYS(45366,45386)")).IsEqualTo(15d);
+        // A holiday on a Saturday is already excluded (M1); one on a Tuesday inside the span costs a day (M6);
+        // a range holding one of each costs exactly one (M1:M2).
+        await Assert.That(Num("=NETWORKDAYS(45362,45366,M1)")).IsEqualTo(5d);
+        await Assert.That(Num("=NETWORKDAYS(45362,45366,M6)")).IsEqualTo(4d);
+        await Assert.That(Num("=NETWORKDAYS(45369,45373,M3:M4)")).IsEqualTo(3d);
+        await Assert.That(Num("=NETWORKDAYS(45362,45376,M1:M2)")).IsEqualTo(10d);
+        // Both ends floor to their whole day, so a time of day never adds or drops one.
+        await Assert.That(Num("=NETWORKDAYS(45362.75,45366.25)")).IsEqualTo(5d);
+    }
+
+    [Test]
+    public async Task Modern_NetworkDaysIntlWeekendFormsMatchTheOracle()
+    {
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45366)")).IsEqualTo(5d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,1)")).IsEqualTo(11d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,2)")).IsEqualTo(10d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,3)")).IsEqualTo(10d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,7)")).IsEqualTo(11d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,11)")).IsEqualTo(13d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,14)")).IsEqualTo(13d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,17)")).IsEqualTo(13d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,\"0000011\")")).IsEqualTo(11d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,\"0000001\")")).IsEqualTo(13d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,\"1000000\")")).IsEqualTo(12d);
+        // Unlike WORKDAY.INTL, an all-weekend mask is a legitimate zero here.
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,\"1111111\")")).IsEqualTo(0d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,\"0000011\",M3:M4)")).IsEqualTo(9d);
+        // Weekend 11 is Sunday-only, so the Saturday holiday in M1 does cost a day.
+        await Assert.That(Num("=NETWORKDAYS.INTL(45362,45376,11,M1)")).IsEqualTo(12d);
+        await Assert.That(Num("=NETWORKDAYS.INTL(45376,45362,\"0000011\")")).IsEqualTo(-11d);
+        await Assert.That(Calc("=NETWORKDAYS.INTL(45362,45376,0)")).IsEqualTo(ErrorValue.Number);
     }
 }
