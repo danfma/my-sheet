@@ -106,7 +106,9 @@ internal static class NumericAggregation
                     // RANGE semantics (logicals/text ignored, so the FALSE of a branch-less IF drops out; the
                     // first cell error propagates). The cheap gate keeps the scalar hot path below at a
                     // shallow type-walk (one reference resolution for that ROW/COLUMN case — never an
-                    // evaluation of the ROW/COLUMN node itself) and avoids any double evaluation
+                    // evaluation of the ROW/COLUMN node itself, though resolving a ':' range with
+                    // reference-returning endpoints does evaluate those endpoints' own arguments, as
+                    // IsArrayEligible's remark records) and avoids any double evaluation
                     // (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
                     if (
                         ArrayEvaluation.IsArrayEligible(argument, context)

@@ -549,18 +549,22 @@ internal static class ArrayEvaluation
     // then anything that merely DENOTES a reference, through the oracle.
     //
     // The two rectangle arms are FAST PATHS, not requirements: they exist so the common case pays no
-    // resolution at all. The anchored one was a correctness fix when it was written (a slave's ROW(A1:A3) fell
+    // resolution at all. The ANCHORED one was a correctness fix when it was written (a slave's ROW(A1:A3) fell
     // to the opaque-scalar branch, and AnchoredRangeReference.Evaluate is always #VALUE! since a range has no
     // scalar value), but the oracle arm below now resolves an anchored range to the same delta-applied
-    // rectangle — verified by deleting both anchored arms and watching SharedFormulaSlaveFunctionTests stay
-    // green. So no assertion in the suite distinguishes them from the fallback; what the tests there pin is
-    // the delta.
+    // rectangle. So no assertion in the suite distinguishes THE ANCHORED ARMS — this one and ProbePosition's
+    // twin — from that fallback: deleting both leaves the whole suite green (re-verified, 1280/1280), because
+    // what SharedFormulaSlaveFunctionTests pins is the delta, which the two routes apply alike.
     //
-    // They are not EQUIVALENT to it, though, and one case would tell them apart: the fallback also runs
-    // ReferenceGuard.MissingSheet and degrades a reference on a DELETED sheet to Scalar, where these arms
-    // hand back a plausible position vector for a sheet that no longer exists. That is the same pre-existing
-    // gap ResolvePositionRange's comment records for a literal Ghost!A1:A3 — pinned, on the literal arm, by
-    // MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap.
+    // Neither rectangle arm is EQUIVALENT to the fallback, though, and one case tells them apart: the
+    // fallback also runs ReferenceGuard.MissingSheet and degrades a reference on a DELETED sheet to Scalar,
+    // where these arms hand back a plausible position vector for a sheet that no longer exists. That is the
+    // same pre-existing gap ResolvePositionRange's comment records for a literal Ghost!A1:A3. On the LITERAL
+    // arm an assertion DOES pin it —
+    // MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap — which is no
+    // contradiction of the paragraph above: the anchored twin of that case (a shared-formula slave whose
+    // ROW argument names a deleted sheet) is simply not written, and it is the one assertion that would
+    // make deleting the anchored arms visible.
     //
     // `node` is the ROW/COLUMN call and `argument` its single argument: Function declares no Arguments member,
     // so the caller — which has already destructured the argument to pattern-match it — passes both. The node
