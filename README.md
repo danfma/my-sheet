@@ -190,7 +190,8 @@ workbook.MergeIntoExcel("report.xlsx");
 MySheet implements 306 of the ~520 functions in Microsoft's official Excel function catalog. The full
 per-category coverage table (implemented vs. not yet) lives in the
 [function reference](docs/function-reference.md#excel-function-coverage); the authoritative registered
-list is the `Functions` map in [`Danfma.MySheet/Parsing/Parser.cs`](Danfma.MySheet/Parsing/Parser.cs).
+list is the `ByName` map in
+[`Danfma.MySheet/Parsing/FunctionRegistry.cs`](Danfma.MySheet/Parsing/FunctionRegistry.cs).
 
 ## License
 

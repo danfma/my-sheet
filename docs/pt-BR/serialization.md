@@ -255,7 +255,7 @@ Este é um limite de compatibilidade em **uma única direção**, como qualquer 
 **O que uma tag nova *não* quebra.** A tag é escrita por nó, não por arquivo, então um workbook que não usa
 o `AGGREGATE` é serializado exatamente nos mesmos bytes de antes: as goldens binárias congeladas da suíte
 de testes — o snapshot em base64 do formato de fio do armazenamento de células e a fixture pré-2.0
-`.msgpack.bin` — continuam válidas e não precisam ser regeradas. Só um novo **membro no próprio
+`.msgpack.bin` — continuam válidas e não precisam ser regeneradas. Só um novo **membro no próprio
 `Workbook`** mudaria o formato de todo arquivo salvo e obrigaria a isso.
 
 ### Compatibilidade futura: container v3 (Brotli em chunks)
