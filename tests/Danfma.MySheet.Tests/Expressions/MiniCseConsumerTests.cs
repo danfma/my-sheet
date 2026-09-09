@@ -334,6 +334,12 @@ public class MiniCseConsumerTests
         // own error recovery reports the argument's #NAME? rather than inventing a row number.
         await Assert.That(OnPositionGrid("=SUM(ROW(Nope))")).IsEqualTo(ErrorValue.Name);
         await Assert.That(OnPositionGrid("=SUM(COLUMN(Nope))")).IsEqualTo(ErrorValue.Name);
+
+        // The case that actually distinguishes Scalar from Refused, and the one the oracle's comment cites:
+        // nested in an operation with a real array, Scalar broadcasts the #NAME? into every element, while a
+        // REFUSAL would collapse the whole operation to the scalar path, where a range in an addition is
+        // #VALUE! — the argument's own error lost.
+        await Assert.That(OnPositionGrid("=SUM(A1:A3+ROW(Nope))")).IsEqualTo(ErrorValue.Name);
     }
 
     [Test]

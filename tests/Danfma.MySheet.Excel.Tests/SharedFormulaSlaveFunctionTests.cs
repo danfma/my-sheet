@@ -472,4 +472,46 @@ public class SharedFormulaSlaveFunctionTests
             }
         );
     }
+
+    // The COLUMN twin of the ROW coverage above: SUM(COLUMN(range)) drives the mini-CSE's OTHER axis over an
+    // anchored range, so the anchored arm of the shared position walk (ArrayEvaluation.ProbePosition /
+    // TryBuildPositionOperand) is exercised on both axes. A column-shifting shared formula is what makes the
+    // assertion delta-sensitive: COLUMN cannot tell A1:C1 from A2:C2, so the master and the slave must differ
+    // by COLUMNS for a "delta silently not applied" regression to show up.
+    [Test]
+    public async Task ArrayIdiom_SumColumn_OverAnchoredRange_AppliesSlaveDelta()
+    {
+        await WithFixture(
+            """
+            <row r="1"><c r="E1"><f t="shared" ref="E1:F1" si="0">SUM(COLUMN(A1:C1))</f><v>0</v></c><c r="F1"><f t="shared" si="0"/><v>0</v></c></row>
+            """,
+            async workbook =>
+            {
+                // E1 (dc=0): COLUMN(A1:C1) is the vector [1,2,3] → 6, not the scalar 1 of the leftmost column.
+                await Assert.That(workbook.GetCellValue("S", "E1").ToDouble()).IsEqualTo(6.0);
+                // F1 (dc=1): the range shifts to B1:D1 → [2,3,4] → 9.
+                await Assert.That(workbook.GetCellValue("S", "F1").ToDouble()).IsEqualTo(9.0);
+            }
+        );
+    }
+
+    // The ROW-axis twin of the case above — SUM(ROW(range)) rather than the SMALL(IF(…)) idiom, so the same
+    // shape of formula covers both axes, over a ROW-shifting shared formula.
+    [Test]
+    public async Task ArrayIdiom_SumRow_OverAnchoredRange_AppliesSlaveDelta()
+    {
+        await WithFixture(
+            """
+            <row r="1"><c r="E1"><f t="shared" ref="E1:E2" si="0">SUM(ROW(A1:A3))</f><v>0</v></c></row>
+            <row r="2"><c r="E2"><f t="shared" si="0"/><v>0</v></c></row>
+            """,
+            async workbook =>
+            {
+                // E1 (dr=0): ROW(A1:A3) is [1,2,3] → 6, not the scalar 1 of the top row.
+                await Assert.That(workbook.GetCellValue("S", "E1").ToDouble()).IsEqualTo(6.0);
+                // E2 (dr=1): the range shifts to A2:A4 → [2,3,4] → 9.
+                await Assert.That(workbook.GetCellValue("S", "E2").ToDouble()).IsEqualTo(9.0);
+            }
+        );
+    }
 }
