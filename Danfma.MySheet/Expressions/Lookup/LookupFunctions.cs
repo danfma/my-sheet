@@ -293,6 +293,9 @@ public sealed partial record Column(Expression[] Arguments) : Function
                 [] when context.CellId is { } id => ComputedValue.Number(
                     CellAddress.Parse(id).Column
                 ),
+                // Terminal fallback over any reference-producing argument — the mirror of Row.cs's arm; see
+                // that file (and ReferencePosition) for the rationale. Must stay AFTER the [] arm.
+                [var only] => ReferencePosition.Column(only, context),
                 _ => ComputedValue.Error(Error.Value),
             };
 }
@@ -303,26 +306,36 @@ public sealed partial record Columns(Expression[] Arguments) : Function
     // A defined name that stands for a range counts its columns; a whole-column/row reference uses the
     // exact structural count on a bounded column axis (COLUMNS(A:C) = 3) and the populated extent on an
     // open one; anything else is 1.
-    public override ComputedValue Evaluate(EvaluationContext context) =>
+    public override ComputedValue Evaluate(EvaluationContext context)
+    {
         // A reference to a missing sheet is a structural #REF!, not an empty (0-column) extent.
-        ReferenceGuard.MissingSheet(Arguments[0], context)
-            is { } missing
-            ? ComputedValue.Error(missing)
-            : ComputedValue.Number(
-                NamedReferences.TryResolveReference(
-                    Arguments[0],
-                    context,
-                    out var reference,
-                    boundOpenRanges: false
-                )
-                    ? reference switch
-                    {
-                        RangeReference range => range.ColumnCount,
-                        OpenRangeReference open => open.ColumnExtent(context),
-                        _ => 1.0,
-                    }
-                    : 1.0
-            );
+        if (ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing)
+        {
+            return ComputedValue.Error(missing);
+        }
+
+        if (
+            !NamedReferences.TryResolveReference(
+                Arguments[0],
+                context,
+                out var reference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            // Same error recovery as ROWS: the argument's own error instead of a plausible 1.
+            return ReferencePosition.Unresolved(Arguments[0], context, ComputedValue.Number(1));
+        }
+
+        return ComputedValue.Number(
+            reference switch
+            {
+                RangeReference range => range.ColumnCount,
+                OpenRangeReference open => open.ColumnExtent(context),
+                _ => 1.0,
+            }
+        );
+    }
 }
 
 [MemoryPackable]
@@ -492,7 +505,7 @@ public sealed partial record Areas(Expression[] Arguments) : Function
     // AREAS(reference) — the number of areas (contiguous ranges or single cells) in the reference.
     // A syntactic check on the argument node (a defined name resolves to the reference it stands for),
     // like ISREF: a union counts its areas (recursively, for nested unions), any other reference is one
-    // area, a non-reference -> #VALUE!.
+    // area, a non-reference -> #VALUE! (or, for a reference that failed to resolve, its own error).
     public override ComputedValue Evaluate(EvaluationContext context) =>
         NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
             ? reference switch
@@ -500,7 +513,9 @@ public sealed partial record Areas(Expression[] Arguments) : Function
                 UnionReference union => ComputedValue.Number(CountAreas(union)),
                 _ => ComputedValue.Number(1),
             }
-            : ComputedValue.Error(Error.Value);
+            // Same error recovery as ROW/ROWS: a broken reference reports its own error (#NAME? for an
+            // unknown name, #REF! for a failed INDIRECT/OFFSET); a plain non-reference value stays #VALUE!.
+            : ReferencePosition.Unresolved(Arguments[0], context, ComputedValue.Error(Error.Value));
 
     private static int CountAreas(UnionReference union)
     {

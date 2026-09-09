@@ -31,6 +31,11 @@ public sealed partial record Row(Expression[] Arguments) : Function
                 // SheetName/CellId untouched — only the ambient delta changes), so this arm is already
                 // correct for a shared-formula slave without any change; see SharedFormulaSlaveFunctionTests.
                 [] when context.CellId is { } id => ComputedValue.Number(CellAddress.Parse(id).Row),
+                // Terminal fallback: ANY other single argument that denotes a reference — a defined name,
+                // INDEX/OFFSET/INDIRECT/CHOOSE, a ':' range with reference-returning endpoints — is resolved
+                // and its top row reported, which is Excel's definition of ROW(reference). It must come
+                // AFTER the [] arm, or a zero-argument ROW() would never reach it.
+                [var only] => ReferencePosition.Row(only, context),
                 _ => ComputedValue.Error(Error.Value),
             };
 }
