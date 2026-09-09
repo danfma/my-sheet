@@ -421,6 +421,43 @@ public class ElementwiseLiftingMechanismTests
     }
 
     [Test]
+    public async Task ShapeMismatch_ErrorConsumingBody_SeesTheMarkerAsAValue()
+    {
+        // TODAY'S behaviour, pinned as a regression guard ahead of the broadcasting phase (Phase 10), which
+        // replaces the mismatch marker with Excel's row/column broadcast. The #VALUE! of a shape mismatch is
+        // produced by the mismatched ARGUMENT operand's guard and handed to the lifted body as an ordinary
+        // value, so only an error-PROPAGATING body (LEN, LEFT, arithmetic) fills the result with #VALUE! —
+        // an error-CONSUMING body keeps going: IFERROR(A1:C3, E1:E3) sees the 3x1 side's marker in its error
+        // slot and returns the 3x3 side's element, nine numbers.
+        var (workbook, sheet) = Sheet();
+        foreach (var column in new[] { "A", "B", "C", "E" })
+        {
+            for (var row = 1; row <= 3; row++)
+            {
+                sheet[$"{column}{row}"] = new NumberValue(row);
+            }
+        }
+
+        await Assert.That(Evaluate("=COUNT(IFERROR(A1:C3,E1:E3))", sheet, workbook)).IsEqualTo(9.0);
+    }
+
+    [Test]
+    public async Task ShapeMismatch_ErrorConsumingBody_RecoversTheMarkerOneLevelDown()
+    {
+        // The companion of the pin above, TODAY'S behaviour ahead of Phase 10: LEFT(D7:F9,E6:E8) is nine
+        // markers (the pinned #VALUE! of ElementwiseLiftingTests.ShapeMismatch_…), IFERROR turns each into
+        // "zz", and LEN sums to 18 — the marker is recoverable exactly like any other error element.
+        var (textbook, textSheet) = Sheet();
+        textSheet["D7"] = new StringValue("abc");
+        textSheet["D8"] = new StringValue("def");
+        textSheet["E9"] = new StringValue(" ");
+
+        await Assert
+            .That(Evaluate("=SUM(LEN(IFERROR(LEFT(D7:F9,E6:E8),\"zz\")))", textSheet, textbook))
+            .IsEqualTo(18.0);
+    }
+
+    [Test]
     public async Task Build_UnaryOverAScalar_IsTheScalarAnswer()
     {
         // Nested inside an array expression, -(scalar) is an opaque scalar evaluated once and broadcast.

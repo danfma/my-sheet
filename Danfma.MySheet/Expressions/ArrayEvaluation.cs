@@ -651,38 +651,54 @@ internal static class ArrayEvaluation
     }
 
     // The shape of a binary result: a scalar takes the other side's shape; two equal-shaped arrays keep it;
-    // mismatched arrays produce the per-axis maximum, filled entirely with #VALUE! by the At() mismatch rule.
-    // Expressed as two steps of the N-ary Fold so the lift and the binary operation share ONE rule.
+    // mismatched arrays produce the per-axis maximum, in which every mismatched operand answers the #VALUE!
+    // marker from its own At() guard. Expressed as two steps of the N-ary ShapeFold so the lift and the
+    // binary operation share ONE rule.
     private static (int Rows, int Columns) ResultShape(ArrayOperand left, ArrayOperand right)
     {
-        var rows = 0;
-        var columns = 0;
-        Fold(ref rows, ref columns, left);
-        Fold(ref rows, ref columns, right);
+        var shape = new ShapeFold();
+        shape.Fold(left);
+        shape.Fold(right);
 
-        return (rows, columns);
+        return (shape.Rows, shape.Columns);
     }
 
-    // Folds one more operand into a running result shape, where (0, 0) means "no array seen yet" (an array
-    // operand always has at least one row and one column): a scalar contributes nothing; the first array
+    // The running result shape of an N-ary element-wise node: a scalar contributes nothing; the first array
     // sets the shape; every further array keeps it when equal and otherwise widens it to the per-axis
-    // maximum — the shape that the operands' own At() guard then fills entirely with #VALUE!.
-    private static void Fold(ref int rows, ref int columns, ArrayOperand operand)
+    // maximum. "No array seen yet" is an explicit flag rather than a (0, 0) sentinel, because a 0-row array is
+    // a legitimate shape once an empty FILTER result exists (Phase 7): (0x2, 0x1) must fold to (0, 2), not
+    // restart at (0, 1).
+    //
+    // In a widened shape each mismatched operand answers the #VALUE! marker from its own At() guard, and the
+    // node's body receives that marker as an ordinary VALUE: an error-propagating body (arithmetic, LEN,
+    // ROUND, …) fills the result with #VALUE!, while an error-consuming body (IFERROR, IS*, N, T, IFS,
+    // SWITCH) keeps going — COUNT(IFERROR(A1:C3,E1:E3)) is 9, nearer to Excel's broadcasting than a wholesale
+    // #VALUE!. That is today's behaviour, pinned, ahead of the broadcasting phase that replaces the marker.
+    private struct ShapeFold
     {
-        if (!operand.IsArray)
-        {
-            return;
-        }
+        private bool _seen;
 
-        if (rows == 0)
-        {
-            rows = operand.Rows;
-            columns = operand.Columns;
-            return;
-        }
+        public int Rows { get; private set; }
+        public int Columns { get; private set; }
 
-        rows = Math.Max(rows, operand.Rows);
-        columns = Math.Max(columns, operand.Columns);
+        public void Fold(ArrayOperand operand)
+        {
+            if (!operand.IsArray)
+            {
+                return;
+            }
+
+            if (!_seen)
+            {
+                _seen = true;
+                Rows = operand.Rows;
+                Columns = operand.Columns;
+                return;
+            }
+
+            Rows = Math.Max(Rows, operand.Rows);
+            Columns = Math.Max(Columns, operand.Columns);
+        }
     }
 
     // Whether `function` is a registered built-in the mini-CSE may lift, handing back its arguments. The
@@ -777,8 +793,7 @@ internal static class ArrayEvaluation
         }
 
         var operands = new ArrayOperand[arguments.Length];
-        var rows = 0;
-        var columns = 0;
+        var shape = new ShapeFold();
 
         for (var i = 0; i < arguments.Length; i++)
         {
@@ -788,7 +803,7 @@ internal static class ArrayEvaluation
                 return false;
             }
 
-            Fold(ref rows, ref columns, operands[i]);
+            shape.Fold(operands[i]);
         }
 
         operand = new LiftedFunctionOperand(
@@ -796,8 +811,8 @@ internal static class ArrayEvaluation
             arguments,
             operands,
             context,
-            rows,
-            columns
+            shape.Rows,
+            shape.Columns
         );
         return true;
     }

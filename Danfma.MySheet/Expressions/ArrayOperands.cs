@@ -300,8 +300,11 @@ internal sealed class UnaryOperand : ArrayOperand
 // node is created ONCE, through the registry's own factory, over a slot per argument; At() rebinds the slots
 // to the element's values and evaluates that one node — the scalar body of the function is reused verbatim,
 // so the lifted answer is the scalar answer element by element. The shape rule is BinaryOperand's, applied
-// N-ary by the builder (scalars broadcast; arrays must share the shape or every element is #VALUE! through
-// the guard below).
+// N-ary by the builder: scalars broadcast; arrays must share the shape, or the mismatched ones answer the
+// #VALUE! marker from their own At() guard, which the body then receives as a VALUE — an error-propagating
+// body (LEN, ROUND, LEFT, arithmetic) fills the result with #VALUE!, while an error-consuming body (IFERROR,
+// IS*, N, T, IFS, SWITCH) sees the marker as its error argument and keeps going (today's behaviour, pinned,
+// ahead of the broadcasting phase). The guard below is this operand's OWN shape check for its consumer.
 //
 // An OMITTED optional argument is the one slot that is not scratch. The parser leaves a literal BlankValue in
 // it, and ten of the lifted built-ins (FIXED, DOLLAR, NUMBERVALUE, TEXTBEFORE/TEXTAFTER, VALUETOTEXT, the
