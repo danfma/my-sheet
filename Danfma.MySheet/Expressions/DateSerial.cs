@@ -18,11 +18,16 @@ namespace Danfma.MySheet.Expressions;
 /// NETWORKDAYS, the bond/coupon family, DATEDIF's calendar units, <c>DATE</c>'s inverse, the xlsx loader
 /// and the volatile clock.</item>
 /// <item><b>The Lotus weekday</b> — <see cref="LotusDayOfWeek"/>: <c>((⌊s⌋ − 1) mod 7) + 1</c>, with 60
-/// collapsed onto 59. Used by WEEKDAY, <c>TEXT</c>'s <c>ddd</c>/<c>dddd</c> and WORKDAY's remainder walk.
-/// It is NOT the <see cref="DateTime.DayOfWeek"/> of the mapped value, which the one-day shift moves.</item>
-/// <item><b>The Lotus calendar</b> — serial 60 IS 1900-02-29 and February 1900 has 29 days. Only the
-/// number formatter (<c>TEXT</c> and cell display, via <c>phantomFeb29: true</c>) and the 30/360
-/// arithmetic of DAYS360/YEARFRAC see that day; everything that COUNTS days counts serials instead.</item>
+/// collapsed onto 59. Used TODAY by WEEKDAY only; <c>TEXT</c>'s <c>ddd</c>/<c>dddd</c> is meant to join it
+/// and still reads <see cref="DateTime.DayOfWeek"/> (Phase 9's TEXT item owns that move). WORKDAY and
+/// NETWORKDAYS deliberately do NOT use it: by controller ruling under the user's exception they walk the
+/// REAL calendar below serial 61, because Aspose has no consistent rule there. This is NOT the
+/// <see cref="DateTime.DayOfWeek"/> of the mapped value, which the one-day shift moves.</item>
+/// <item><b>The Lotus calendar</b> — serial 60 IS 1900-02-29 and February 1900 has 29 days, exposed by
+/// <c>phantomFeb29: true</c>. Its intended consumers are the number formatter (<c>TEXT</c> and cell display)
+/// and the 30/360 arithmetic of DAYS360/YEARFRAC; none of the three reads it yet — the pins for all of them
+/// are still red and Phase 9's remaining items own the migration. Everything that COUNTS days counts
+/// serials instead.</item>
 /// </list>
 ///
 /// Functions treat a negative serial as out of range → <c>#NUM!</c>.
@@ -37,6 +42,12 @@ internal static class DateSerial
     /// produces it and <see cref="ToDateTimeUnchecked"/> collapses it onto 1900-02-28 — so it is reachable
     /// only by arithmetic on serials and by <c>DATEVALUE</c>'s text parse.
     /// </summary>
+    /// <remarks>
+    /// Measured: the round trip <c>FromDateTime(ToDateTimeUnchecked(s))</c> is the identity for every serial
+    /// EXCEPT the whole half-open day <c>[60, 61)</c>, which comes back as <c>s − 1</c> (60.5 → 59.5, not just
+    /// the integer point). Anything that must preserve a serial across the phantom day has to carry the serial
+    /// itself rather than a <see cref="DateTime"/> derived from it.
+    /// </remarks>
     public const double PhantomFeb29Serial = 60d;
 
     /// <summary>
