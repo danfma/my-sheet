@@ -193,6 +193,40 @@ public class MiniCseConsumerTests
     }
 
     [Test]
+    public async Task Aggregate_OfIfArray_OptionSixSelectsOverThePostSkipPopulation()
+    {
+        // AGGREGATE as the fifth mini-CSE consumer, on the SAME fixture and the same array as
+        // KthValueStreaming_IgnoringErrors_… above — but driven end to end through the engine node instead
+        // of through OrderSelection directly. A2:A5 = [1, 2, 3, #DIV/0!] behind an all-"Show" filter.
+        //
+        // function_num 15 = SMALL. Option 4 ("ignore nothing") keeps SMALL's own propagation — the trailing
+        // #DIV/0! wins over any k — while option 6 ("ignore error values") drops that element, leaving the
+        // population {1,2,3}: k = 1 → 1, k = 3 → 3, and k = 4 is past the POST-skip count → #NUM! (the four
+        // PRE-skip elements would have made 4 a legal k). This pair is the direct regression for the
+        // ignoreErrors flag on the streaming heap.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A2"] = new NumberValue(1);
+        sheet["A3"] = new NumberValue(2);
+        sheet["A4"] = new NumberValue(3);
+        sheet["A5"] = ExpressionParser.Parse("=1/0", sheet); // #DIV/0! at the LAST position
+        sheet["B2"] = new StringValue("Show");
+        sheet["B3"] = new StringValue("Show");
+        sheet["B4"] = new StringValue("Show");
+        sheet["B5"] = new StringValue("Show");
+
+        object? Calc(string formula) =>
+            ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+        const string Array = "IF(B2:B5=\"Show\",A2:A5)";
+
+        await Assert.That(Calc($"=AGGREGATE(15,4,{Array},1)")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Num(Calc($"=AGGREGATE(15,6,{Array},1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc($"=AGGREGATE(15,6,{Array},3)"))).IsEqualTo(3.0);
+        await Assert.That(Calc($"=AGGREGATE(15,6,{Array},4)")).IsEqualTo(ErrorValue.Number);
+    }
+
+    [Test]
     public async Task Small_OfTheCorpusDivisionIdiom_PropagatesTheErrorElement()
     {
         // The corpus's "nth row that is neither blank nor zero" idiom, which divides BY the filter instead of
@@ -236,6 +270,36 @@ public class MiniCseConsumerTests
         await Assert
             .That(Num(Calc("=SMALL(IF((A1:A3<>\"\")*(A1:A3<>0),ROW(A1:A3)),2)")))
             .IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task Aggregate_OfTheCorpusDivisionIdiom_OptionSixSkipsTheErrorElement()
+    {
+        // The AFTER of the pin directly above: the SAME corpus idiom, on the SAME A1=5 / A2=0 / A3=9
+        // fixture, is what AGGREGATE(15,6,…) turns from #DIV/0! into the answer the corpus wants. The
+        // quotient is [1, #DIV/0!, 3]; function 15 = SMALL, option 6 = ignore error values, so the
+        // population is {1,3} and k picks the 1st and the 2nd of it.
+        //
+        // k is written as the corpus writes it — ROWS($B$2:B2) / ROWS($B$2:B3) = 1 / 2, the expanding-range
+        // counter a filled-down column uses — so the whole shape, not just the aggregate, is pinned.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(0);
+        sheet["A3"] = new NumberValue(9);
+
+        object? Calc(string formula) =>
+            ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+        const string Quotient = "(ROW(A1:A3)-ROW(A1)+1)/((A1:A3<>\"\")*(A1:A3<>0))";
+
+        await Assert.That(Num(Calc($"=AGGREGATE(15,6,{Quotient},ROWS($B$2:B2))"))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc($"=AGGREGATE(15,6,{Quotient},ROWS($B$2:B3))"))).IsEqualTo(3.0);
+
+        // Anti-vacuidade: sem a option 6 o mesmo shape continua sendo o #DIV/0! que o teste acima fixa.
+        await Assert
+            .That(Calc($"=AGGREGATE(15,4,{Quotient},ROWS($B$2:B2))"))
+            .IsEqualTo(ErrorValue.DivByZero);
     }
 
     // --- INDEX over a materialized array first argument ---

@@ -526,4 +526,256 @@ public class MathAggregateTests
             .That(Calc("=SUBTOTAL(112,A2:A5)", SubtotalData))
             .IsEqualTo(ErrorValue.NotValue);
     }
+
+    // --- AGGREGATE — golden: página oficial "AGGREGATE function"
+    // (43b9278e-6aa7-4f17-92b6-e19993fa26df, fetched em 2026-09-09). A página fornece DUAS sintaxes —
+    // "AGGREGATE(function_num, options, ref1, [ref2], …)" (forma-referência) e
+    // "AGGREGATE(function_num, options, array, [k])" (forma-array) — a tabela function_num 1-19 e a
+    // tabela options 0-7, todas transcritas nos testes abaixo. ---
+
+    // Fixture da tabela function_num: seis números com um valor REPETIDO (5), porque MODE.SNGL precisa de
+    // uma moda única, mais uma célula de texto para que COUNT (6) e COUNTA (7) não coincidam.
+    private static readonly (string, object)[] AggregateData =
+    [
+        ("A1", 5),
+        ("A2", 0),
+        ("A3", 9),
+        ("A4", 5),
+        ("A5", 3),
+        ("A6", 8),
+        ("A7", "text"),
+    ];
+
+    // Compara um AGGREGATE com a função homônima sobre a MESMA população, com guarda anti-vacuidade: o
+    // lado AGGREGATE tem que ser um número de verdade (um #VALUE! dos dois lados passaria calado).
+    private static async Task AssertSameAsNamesake(string aggregate, string namesake)
+    {
+        var actual = Num(Calc(aggregate, AggregateData));
+
+        await Assert.That(double.IsNaN(actual)).IsFalse();
+        await Assert.That(actual).IsEqualTo(Num(Calc(namesake, AggregateData)));
+    }
+
+    [Test]
+    public async Task Aggregate_MapsEveryDocumentedFunctionNum()
+    {
+        // A tabela function_num inteira, 1-19, contra a função homônima. options = 4 ("ignore nothing") é
+        // exatamente a semântica da homônima, então a igualdade é a própria definição da tabela.
+        await AssertSameAsNamesake("=AGGREGATE(1,4,A1:A7)", "=AVERAGE(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(2,4,A1:A7)", "=COUNT(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(3,4,A1:A7)", "=COUNTA(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(4,4,A1:A7)", "=MAX(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(5,4,A1:A7)", "=MIN(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(6,4,A1:A7)", "=PRODUCT(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(7,4,A1:A7)", "=STDEV.S(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(8,4,A1:A7)", "=STDEV.P(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(9,4,A1:A7)", "=SUM(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(10,4,A1:A7)", "=VAR.S(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(11,4,A1:A7)", "=VAR.P(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(12,4,A1:A7)", "=MEDIAN(A1:A7)");
+        await AssertSameAsNamesake("=AGGREGATE(13,4,A1:A7)", "=MODE.SNGL(A1:A7)");
+
+        // 14-19 são a forma-array: o quarto argumento (k / quart) é obrigatório e vai para a homônima.
+        await AssertSameAsNamesake("=AGGREGATE(14,4,A1:A7,2)", "=LARGE(A1:A7,2)");
+        await AssertSameAsNamesake("=AGGREGATE(15,4,A1:A7,2)", "=SMALL(A1:A7,2)");
+        await AssertSameAsNamesake("=AGGREGATE(16,4,A1:A7,0.25)", "=PERCENTILE.INC(A1:A7,0.25)");
+        await AssertSameAsNamesake("=AGGREGATE(17,4,A1:A7,1)", "=QUARTILE.INC(A1:A7,1)");
+        await AssertSameAsNamesake("=AGGREGATE(18,4,A1:A7,0.25)", "=PERCENTILE.EXC(A1:A7,0.25)");
+        await AssertSameAsNamesake("=AGGREGATE(19,4,A1:A7,1)", "=QUARTILE.EXC(A1:A7,1)");
+    }
+
+    // Fixture das options: A2 é um #DIV/0! entre dois números. Mentira deliberada — 14 (a soma dos
+    // sobreviventes) não coincide com nenhum valor de célula nem com a contagem.
+    private static readonly (string, object)[] AggregateErrorData =
+    [
+        ("A1", 5),
+        ("A2", "=1/0"),
+        ("A3", 9),
+    ];
+
+    [Test]
+    public async Task Aggregate_IgnoreErrorsBit_SelectsTheSurvivingPopulation()
+    {
+        // Tabela options: 4 = "ignore nothing" (o erro propaga, como em SUM) e 6 = "ignore error values"
+        // (a célula de erro sai da população). Este par é o bit 1 inteiro.
+        await Assert
+            .That(Calc("=AGGREGATE(9,4,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Num(Calc("=AGGREGATE(9,6,A1:A3)", AggregateErrorData))).IsEqualTo(14.0);
+
+        // COUNTA é a ÚNICA diferença comportamental real do bit: sem ele a célula de erro conta (medido
+        // em SUBTOTAL(3,…) = 3), com ele sai da contagem.
+        await Assert.That(Num(Calc("=AGGREGATE(3,4,A1:A3)", AggregateErrorData))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=AGGREGATE(3,6,A1:A3)", AggregateErrorData))).IsEqualTo(2.0);
+
+        // COUNT não precisa de regra nenhuma: só conta números, e um erro nunca foi um.
+        await Assert.That(Num(Calc("=AGGREGATE(2,4,A1:A3)", AggregateErrorData))).IsEqualTo(2.0);
+        await Assert.That(Num(Calc("=AGGREGATE(2,6,A1:A3)", AggregateErrorData))).IsEqualTo(2.0);
+
+        // "0 or omitted": um argumento options omitido chega como BlankValue e coage para 0.
+        await Assert
+            .That(Calc("=AGGREGATE(9,,A1:A3)", AggregateErrorData))
+            .IsEqualTo(Calc("=AGGREGATE(9,0,A1:A3)", AggregateErrorData));
+        await Assert
+            .That(Calc("=AGGREGATE(9,,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
+    public async Task Aggregate_HiddenRowBit_IsANoOp()
+    {
+        // §S6 do plano — CAVEAT DE MODELO: o MySheet não tem linhas ocultas, então o bit 0 ("ignore hidden
+        // rows") não tem nada para ignorar e 1/3/5/7 são idênticos a 0/2/4/6. As quatro igualdades abaixo
+        // são o registro executável desse limite; num engine com filtro elas poderiam divergir.
+        foreach (var (hidden, plain) in new[] { (1, 0), (3, 2), (5, 4), (7, 6) })
+        {
+            await Assert
+                .That(Calc($"=AGGREGATE(9,{hidden},A1:A3)", AggregateErrorData))
+                .IsEqualTo(Calc($"=AGGREGATE(9,{plain},A1:A3)", AggregateErrorData));
+        }
+
+        // Anti-vacuidade: os dois LADOS do par têm que ser respostas de verdade, e os pares entre si têm
+        // que DIFERIR — senão a igualdade acima passaria com tudo devolvendo o mesmo erro.
+        await Assert
+            .That(Calc("=AGGREGATE(9,1,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Num(Calc("=AGGREGATE(9,3,A1:A3)", AggregateErrorData))).IsEqualTo(14.0);
+        await Assert
+            .That(Calc("=AGGREGATE(9,5,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Num(Calc("=AGGREGATE(9,7,A1:A3)", AggregateErrorData))).IsEqualTo(14.0);
+    }
+
+    // Fixture do skip aninhado: B1 é um SUBTOTAL (3) e B2 um AGGREGATE (3), B3 = 5 é o único valor
+    // "normal". 5 (tudo pulado) e 11 (nada pulado) não coincidem com nenhum valor de célula.
+    private static readonly (string, object)[] AggregateNestedData =
+    [
+        ("A1", 1),
+        ("A2", 2),
+        ("B1", "=SUBTOTAL(9,A1:A2)"),
+        ("B2", "=AGGREGATE(9,0,A1:A2)"),
+        ("B3", 5),
+    ];
+
+    [Test]
+    public async Task Aggregate_NestedBit_SkipsBothSubtotalAndAggregateCells()
+    {
+        // Tabela options: 0-3 dizem "Ignore nested SUBTOTAL and AGGREGATE functions"; 4-7 não dizem
+        // ("Ignore nothing" / hidden rows / error values). O bit 2 é, portanto, o INVERSO do skip.
+        foreach (var options in new[] { 0, 1, 2, 3 })
+        {
+            await Assert
+                .That(Num(Calc($"=AGGREGATE(9,{options},B1:B3)", AggregateNestedData)))
+                .IsEqualTo(5.0);
+        }
+
+        foreach (var options in new[] { 4, 5, 6, 7 })
+        {
+            await Assert
+                .That(Num(Calc($"=AGGREGATE(9,{options},B1:B3)", AggregateNestedData)))
+                .IsEqualTo(11.0);
+        }
+
+        // COUNTA enxerga o mesmo skip: 1 célula sobrevivente contra 3.
+        await Assert.That(Num(Calc("=AGGREGATE(3,0,B1:B3)", AggregateNestedData))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc("=AGGREGATE(3,4,B1:B3)", AggregateNestedData))).IsEqualTo(3.0);
+
+        // Discriminador dos dois arms do enum: a regra do SUBTOTAL é ESTREITA de propósito (a página do
+        // SUBTOTAL só documenta "nested subtotals are ignored"; a redação "SUBTOTAL and AGGREGATE" só
+        // aparece na tabela de options do AGGREGATE), então B2 — um AGGREGATE — CONTA aqui: 3 + 5 = 8.
+        // Se as duas regras fossem a mesma, o teste acima passaria com o predicado errado.
+        await Assert.That(Num(Calc("=SUBTOTAL(9,B1:B3)", AggregateNestedData))).IsEqualTo(8.0);
+    }
+
+    [Test]
+    public async Task Aggregate_InvalidFunctionNumOrOptions_IsValueError()
+    {
+        // function_num fora de 1-19 e options fora de 0-7 → #VALUE!.
+        await Assert
+            .That(Calc("=AGGREGATE(20,0,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AGGREGATE(0,0,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AGGREGATE(9,8,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AGGREGATE(9,-1,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task Aggregate_ArrayForm_RequiresItsFourthArgument()
+    {
+        // "If a second ref argument is necessary but not provided, AGGREGATE returns a #VALUE! error":
+        // 14-19 precisam do k, e três argumentos não o fornecem.
+        await Assert
+            .That(Calc("=AGGREGATE(15,6,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=AGGREGATE(19,6,A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // Menos de 3 argumentos é erro de ARIDADE, rejeitado já no parse (como o Excel rejeita na entrada).
+        await Assert
+            .That(() => Calc("=AGGREGATE(15,6)", AggregateErrorData))
+            .Throws<ParseException>();
+    }
+
+    [Test]
+    public async Task Aggregate_KOutsideThePostSkipPopulation_IsNumError()
+    {
+        // Option 6 tira o #DIV/0! da população, que fica com DOIS números — então k = 3 já passou do fim,
+        // mesmo havendo três células. É a fronteira que prova que k é medido DEPOIS do skip.
+        await Assert.That(Num(Calc("=AGGREGATE(15,6,A1:A3,2)", AggregateErrorData))).IsEqualTo(9.0);
+        await Assert
+            .That(Calc("=AGGREGATE(15,6,A1:A3,3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.Number);
+
+        // População inteiramente de erros sob a option 6 → população vazia → #NUM! (o mesmo que o SMALL
+        // já responde para um range vazio).
+        (string, object)[] allErrors = [("A1", "=1/0"), ("A2", "=1/0"), ("A3", "=1/0")];
+
+        await Assert.That(Calc("=AGGREGATE(15,6,A1:A3,1)", allErrors)).IsEqualTo(ErrorValue.Number);
+    }
+
+    [Test]
+    public async Task Aggregate_MissingSheetReference_IsRefError()
+    {
+        // Guarda estrutural ANTES do scan: sem ela a option 6 (que engole erros) veria um range vazio e
+        // responderia 0 em vez de #REF!.
+        await Assert
+            .That(Calc("=AGGREGATE(9,6,Ghost!A1:A3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=AGGREGATE(15,6,Ghost!A1:A3,1)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    // Fixture das duas formas: mesma FORMA de chamada (quatro argumentos), significados diferentes.
+    private static readonly (string, object)[] AggregateFormsData =
+    [
+        ("A1", 5),
+        ("A2", 0),
+        ("A3", 9),
+        ("B1", 1),
+        ("B2", 2),
+        ("B3", 3),
+    ];
+
+    [Test]
+    public async Task Aggregate_FormIsChosenByFunctionNumAlone()
+    {
+        // function_num 9 ≤ 13 → forma-referência: B1:B3 é um SEGUNDO ref, não um k. 14 + 6 = 20 (e
+        // SUM(A1:A3) sozinho é 14, então o segundo ref realmente entra).
+        await Assert
+            .That(Num(Calc("=AGGREGATE(9,6,A1:A3,B1:B3)", AggregateFormsData)))
+            .IsEqualTo(20.0);
+        await Assert.That(Num(Calc("=SUM(A1:A3)", AggregateFormsData))).IsEqualTo(14.0);
+
+        // function_num 15 ≥ 14 → forma-array: o 2 é o k do SMALL sobre {0,5,9}, logo 5. Se o 2 fosse lido
+        // como um segundo ref (a forma-referência), a resposta seria 14 + 2 = 16.
+        await Assert.That(Num(Calc("=AGGREGATE(15,6,A1:A3,2)", AggregateFormsData))).IsEqualTo(5.0);
+    }
 }

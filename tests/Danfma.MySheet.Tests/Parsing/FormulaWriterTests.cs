@@ -266,6 +266,8 @@ public class FormulaWriterTests
             "SUMX2PY2(A1:A3,B1:B3)",
             "SUMXMY2(A1:A3,B1:B3)",
             "SUBTOTAL(9,A1:A3)",
+            "AGGREGATE(9,6,A1:A3)",
+            "AGGREGATE(15,6,A1:A3,2)",
             "MEDIAN(A1:A3)",
             "MODE.SNGL(A1:A3)",
             "LARGE(A1:A3,2)",
