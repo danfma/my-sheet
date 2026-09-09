@@ -112,6 +112,8 @@ section); use it BEFORE coding an arm, not after shipping it:
 
 - **The self-verifying fixture.** Author a `.xlsx` in real Excel containing the formula in question, then read the cached `<v>`/`t="e"` Excel stored next to it — the loader already reads that cache, so the fixture answers the question by itself and becomes a regression test.
 - **Aspose.Cells 26.6.0**, already referenced by `benchmarks/Danfma.MySheet.Benchmark`. It resolves every formula in the original report correctly, so it can serve as the oracle for anything Excel is not on hand for.
+- **Vector broadcasting in the mini-CSE (found by Phase 8 Task 1, 2026-09-09).** Excel and Aspose.Cells 26.6.0 broadcast a 3x1 vector across a 3x3 rectangle: `SUM(A1:C3*E1:E3)` = 108, `SUM(ROUND(A1:C3,E1:E3))` = 45, `SUM(LEFT(D7:F9,E6:E8))` = 0 on the oracle. MySheet's `BinaryOperand` requires equal shapes (scalar broadcast only) and answers `#VALUE!` per element — pre-existing, independent of Phase 8, and pinned as-is by `ElementwiseLiftingTests` with the divergence stated. Fix belongs to a later phase (extend the operand shape rule to 1xN / Nx1 against MxN, Excel's rule); Phase 8 must not change it by accident.
+
 
 ## Final Recap
 
