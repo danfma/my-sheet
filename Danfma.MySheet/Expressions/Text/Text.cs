@@ -24,8 +24,10 @@ public sealed partial record Text(Expression[] Arguments) : Function
         {
             return ComputedValue.Text(
                 ExcelDateFormat.IsDateOrTime(format)
-                    ? DateTime
-                        .FromOADate(number)
+                    // The unchecked map, not ToDateTime: an unrepresentable serial is #VALUE! here (the
+                    // catch below), not the #NUM! the date functions answer.
+                    ? DateSerial
+                        .ToDateTimeUnchecked(number)
                         .ToString(ExcelDateFormat.ToDotNet(format), CultureInfo.InvariantCulture)
                     : number.ToString(format, CultureInfo.InvariantCulture)
             );

@@ -685,7 +685,7 @@ internal static class WorksheetStreamLoader
     {
         if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
         {
-            return new NumberValue(date.ToOADate());
+            return new NumberValue(DateSerial.FromDateTime(date));
         }
 
         context.Options?.OnWarning?.Invoke(

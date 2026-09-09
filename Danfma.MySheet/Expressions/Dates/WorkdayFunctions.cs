@@ -136,10 +136,12 @@ internal static class WorkdayMath
 
         var count = 0;
 
-        // Walk the serial alongside the DateTime instead of calling ToOADate() every step: whole-day
-        // DateTime values advance the OADate by exactly 1 per AddDays(1), so an int++ is bit-exact and
-        // skips the per-day double conversion. DayOfWeek still needs the DateTime (WeekendSchedule).
-        var serial = (int)start.ToOADate();
+        // Walk the serial alongside the DateTime instead of calling DateSerial.FromDateTime every step:
+        // whole-day DateTime values advance the serial by exactly 1 per AddDays(1), so an int++ is bit-exact
+        // and skips the per-day double conversion. DayOfWeek still needs the DateTime (WeekendSchedule).
+        // The shortcut assumes FromDateTime is affine over the walked span — it holds while the map is the
+        // OADate one, and must be revisited if the map ever gains a discontinuity.
+        var serial = (int)DateSerial.FromDateTime(start);
 
         for (var day = start; day <= end; day = day.AddDays(1), serial++)
         {
@@ -319,14 +321,14 @@ public sealed partial record Workday(Expression[] Arguments) : Function
 
         if (days == 0)
         {
-            return ComputedValue.Number(start.ToOADate());
+            return ComputedValue.Number(DateSerial.FromDateTime(start));
         }
 
         var step = days > 0 ? 1 : -1;
         var remaining = Math.Abs(days);
         var current = start;
-        // See CountNetworkDays: walk the serial alongside current instead of calling ToOADate() per step.
-        var serial = (int)start.ToOADate();
+        // See CountNetworkDays: walk the serial alongside current instead of converting per step.
+        var serial = (int)DateSerial.FromDateTime(start);
 
         try
         {
@@ -346,7 +348,7 @@ public sealed partial record Workday(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Num);
         }
 
-        return ComputedValue.Number(current.ToOADate());
+        return ComputedValue.Number(DateSerial.FromDateTime(current));
     }
 }
 

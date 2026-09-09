@@ -34,7 +34,7 @@ internal static class DateSerial
 
         try
         {
-            dateTime = DateTime.FromOADate(serial);
+            dateTime = ToDateTimeUnchecked(serial);
             return null;
         }
         catch (ArgumentException)
@@ -43,6 +43,16 @@ internal static class DateSerial
             return Error.Num;
         }
     }
+
+    /// <summary>
+    /// The serial → <see cref="DateTime"/> map itself, with no range policy of its own: the single place the
+    /// epoch lives. <see cref="ToDateTime"/> wraps it with the negative/out-of-range →
+    /// <see cref="Error.Num"/> guard; callers that answer a different error for an unrepresentable serial
+    /// (<c>TEXT</c> answers <c>#VALUE!</c>) call this directly and keep their own policy. Throws
+    /// <see cref="ArgumentException"/> outside the representable range, exactly as
+    /// <see cref="DateTime.FromOADate"/> does.
+    /// </summary>
+    public static DateTime ToDateTimeUnchecked(double serial) => DateTime.FromOADate(serial);
 
     /// <summary><see cref="DateTime"/> → serial (OADate). A date-only value yields an integer serial.</summary>
     public static double FromDateTime(DateTime dateTime) => dateTime.ToOADate();
@@ -98,7 +108,7 @@ internal static class DateSerial
         try
         {
             var date = new DateTime((int)year, 1, 1).AddMonths((int)months - 1).AddDays(days - 1d);
-            var result = date.ToOADate();
+            var result = FromDateTime(date);
 
             if (result < 0d)
             {
