@@ -428,11 +428,14 @@ consumers above asks for one, by applying a scalar body element by element:
 **180 of the 306 registered built-ins** are liftable: the pure-scalar ones (text, mathematics, financial,
 date, information, the scalar statistics helpers (`FISHER`, `PERMUT`, `PHI`, `STANDARDIZE`, …),
 `IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). The
-other 126 are **range-aware** and are never lifted, because they consume ranges or arrays themselves —
+other 126 are **range-aware** and MySheet never lifts them, because they consume ranges or arrays themselves —
 `SUM`, `COUNT`, `INDEX`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`,
 `VLOOKUP`, `MATCH`, `OFFSET`, `INDIRECT`, `IF`, `LET`, `RANDBETWEEN`, `AND`/`OR`/`XOR`, the cash-flow series
 (`NPV`, `IRR`, …), the whole-population and paired-array statistics (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …)
-and the criteria family. A [custom function](custom-functions.md) is never lifted either — it has no registry entry, so it
+and the criteria family. That is MySheet's rule and **not** Excel's: Excel lifts a range-aware function too,
+over the slots that take a *scalar*, while still consuming the range in the slot that takes one — the last of
+the known divergences below, with the twelve measured cases. A
+[custom function](custom-functions.md) is never lifted either — it has no registry entry, so it
 stays a scalar evaluated once.
 
 Inside a lifted call:
@@ -456,19 +459,36 @@ Inside a lifted call:
 **Which factory a new built-in uses (contributors).** The classification is one explicit flag per entry in
 [`FunctionRegistry`](../Danfma.MySheet/Parsing/FunctionRegistry.cs): `Entry<T>(…)` registers a function that
 consumes ranges/arrays itself and is never lifted, `Elementwise<T>(…)` a pure-scalar one the mini-CSE may
-lift. **The default is `Entry<T>` — deny** — because the two mistakes are not symmetric: a forgotten
-`Elementwise<T>` on a scalar function only loses the optimization, while a forgotten `Entry<T>` on a
-range-aware function would answer from a single element of the rectangle it was meant to consume whole and
-be **silently wrong**, with no error for anyone to notice. Two guard tests hold that line. One re-runs the
-derivation on every build: every `Elementwise` entry is handed two different rectangles in argument 0 on the
-ordinary scalar path and must answer identically, which a range-aware body cannot do. That probe is blind to
-64 of the 126 range-aware entries — those whose answer depends on a rectangle's shape, position or
-reference-ness rather than its contents (`ROWS`, `AREAS`, `ISREF`, `OFFSET`, `INDIRECT`, `TYPE`), those whose
-range argument sits in a later slot (`VLOOKUP`, `MATCH`, `NETWORKDAYS`'s holidays), and those needing a
-second population the probe cannot supply (`CORREL`, `PEARSON`, `TRIMMEAN`, `SUMX2MY2`, …) — so every one of
-them is named individually by a second test, and a third test requires the difference between "blind" and
-"named" to be empty. A new range-aware built-in with a forgotten flag therefore fails the suite by name
-instead of shipping.
+lift. **The default is `Entry<T>` — deny** — because the two mistakes are not symmetric: writing `Entry<T>`
+where `Elementwise<T>` belonged only loses the optimization, while writing `Elementwise<T>` where `Entry<T>`
+belonged makes the function answer from a single element of the rectangle it was meant to consume whole and
+be **silently wrong**, with no error for anyone to notice. Since `Entry<T>` is also what an entry gets when
+nobody chooses, *forgetting* the flag lands on the safe side by construction — the dangerous mistake is the
+deliberate one.
+
+The guard tests are precise about which of those two mistakes each one catches:
+
+- A **forgotten** flag is safe by *construction*, not by a test. `Consumes` is the enum's zero value, so a
+  new built-in registered through the default `Entry<T>` factory is never lifted, whatever it does with its
+  arguments — the mistake costs nothing but the optimization. A test still requires such an entry to be
+  *watched*: every range-aware entry must either be visible to the probe below or be named by hand, and one
+  that is neither fails the suite carrying its own name.
+- A **wrong** flag — `Elementwise<T>` on a range-aware built-in, the mistake that ships a silent wrong number
+  — is caught by name. The exact set of the 180 `Elementwise` names is committed as a sorted roster, so
+  adding a name fails the suite naming the newcomer and removing one fails naming the loss. A count would not
+  do: a count survives a compensating swap, and it survives the honest-looking edit of flipping the factory
+  and bumping the number. Measured, that edit used to leave the whole suite green.
+- The same wrong flag is *also* caught with a diagnostic wherever the probe can see it, and that probe
+  re-runs the derivation on every build. It sweeps every argument position of every arity from `MinArgs` to
+  `MinArgs+3`, filling the remaining slots with a number, a text, a logical and a three-cell range in turn,
+  and hands the entry three rectangles differing in position, shape and contents. A pure-scalar body answers
+  identically for all three; a range-aware one does not, and the failure names the discriminating call. The
+  sweep is still blind to **21** of the 126 range-aware entries — the ones that answer the same thing for
+  every rectangle: the shape and reference tests (`AREAS`, `ISREF`, `ISFORMULA`, `FORMULATEXT`, `SHEET`,
+  `TYPE`), `OFFSET`/`INDIRECT`, the design exclusions (`IF`, `LET`, `RANDBETWEEN`), and the folds that error
+  identically on all three (`AND`, `OR`, `IRR`, `MIRR`, `XNPV`, `PROB`, `FORECAST`, `FORECAST.LINEAR`,
+  `PERCENTILE.EXC`, `TRIMMEAN`). Those 21 have the roster and the by-hand list as their only defence, so the
+  blind set is itself pinned by name and gaining a member fails the suite too.
 
 **Not supported (by design).**
 
@@ -559,8 +579,43 @@ element-wise evaluation reproduces without the keystroke.
   `A1` = 1 (measured 2026-09-09). With the slot fully absent both engines agree — `FIXED(A1)` and
   `DOLLAR(A1)` are `1.00` and `$1.00` on each — so the divergence is the *empty* slot, not the default, and
   it applies equally to the scalar call and to the lifted `FIXED(A1:A3,,TRUE)`.
+- **A lifted call under a unary `+` is not lifted either.** `+` is Excel's reference-preserving no-op and
+  MySheet keeps the whole `+`-expression opaque, which hides what is *inside* it from the mini-CSE: over
+  `A1:A3` = 1, 22, 333, `SUM(+LEN(A1:A3))` is `#VALUE!` here and **6** in Excel (measured 2026-09-09). It is
+  the sibling of the `SUM(-(+A1:A3))` = -6 case above — the same opaque `+`, with a lifted *function* inside
+  it instead of a unary operator — and `SUM(LEN(+A1:A3))`, the `+` on the inside, is the same `#VALUE!` here
+  against the same **6** there. Write `SUM(LEN(A1:A3))`. Pinned by
+  `ElementwiseLiftingTests.LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence`.
+- **A lifted call over a defined NAME is not lifted.** A name is captured as a reference *value*, so it
+  reaches the mini-CSE as an opaque scalar unless the consuming shape resolves it itself (`ROW`/`COLUMN` do —
+  `SUM(ROW(MyName))` is 6 on both engines). Every other array shape over a name is therefore a gap. For
+  `MyName` = `A1:A3` = 1, 22, 333, all measured 2026-09-09: `SUM(LEN(MyName))` is `#VALUE!` here and **6**
+  there, `SUM(-MyName)` `#VALUE!` against **-356**, `SUM(MyName%)` `#VALUE!` against **3.56**, and
+  `SUM(MyName*2)` `#VALUE!` against **712**. The *comparison* shapes are worse than an error because they are
+  silent: `SUM(IF(MyName>1,1,0))`, `SUMPRODUCT(--(MyName>1))` and `SUM((MyName>1)*1)` each answer **1** here
+  — the scalar comparison of the name's first cell — where Excel answers **2**. Reading the name itself is
+  unaffected (`SUM(MyName)` is 356 on both); the gap is the array shapes over it, unary, function and binary
+  alike. Pinned by
+  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreNotLifted_KnownDivergence`.
+- **A range-aware function is never lifted over its SCALAR slots.** Excel lifts a range-aware function too:
+  it consumes the range in the slot that takes one and repeats the *whole call* per element of a rectangle
+  handed to any other slot. MySheet's classification is per *function*, not per slot, so a rectangle in a
+  scalar slot stays a range and the call answers once. Over `A1:A3` = 1, 2, 3 and `B1:B3` = 10, 20, 30, with
+  Excel's answer first and MySheet's in brackets, all measured 2026-09-09:
+  `SUM(MATCH(A1:A3,A1:A3,0))` **6** [`#N/A`], `SUM(VLOOKUP(A1:A3,A1:B3,2,FALSE))` **60** [`#VALUE!`],
+  `SUM(CHOOSE(A1:A3,10,20,30))` **60** [`#VALUE!`], `SUM(LARGE(A1:A3,A1:A3))` **6** [`#VALUE!`],
+  `SUM(COUNTIF(A1:A3,A1:A3))` **3** [`0`], `SUM(INDEX(B1:B3,A1:A3))` **60** [`#VALUE!`],
+  `SUM(RANK(A1:A3,A1:A3))` **6** [`#VALUE!`], `SUM(WORKDAY(A1:A3,1))` **9** [`#VALUE!`],
+  `SUM(NETWORKDAYS.INTL(A1:A3,4))` **9** [`#VALUE!`], `SUM(NPV(A1:A3/10,10,20,30))` **120.92** [`#VALUE!`],
+  `SUM(TYPE(A1:A3))` **3** [`16`], `SUM(RANDBETWEEN(A1:A3,A1:A3))` **6** [`#VALUE!`]. Two of MySheet's
+  answers are **silent** rather than errors: `COUNTIF`'s `0` (the collapsed argument matches no criterion,
+  the criteria-family rule above) and `TYPE`'s `16` (the type code of the `#VALUE!` it was handed). Plain
+  `NETWORKDAYS` is the one member of the family Excel does *not* lift — `SUM(NETWORKDAYS(A1:A3,B1:B3))` is
+  **8** there, which is `NETWORKDAYS(A1,B1)` alone, an implicit intersection to the first element rather than
+  a per-element lift, and `#VALUE!` here. Pinned by
+  `ElementwiseLiftingTests.AConsumesFunction_IsNotLiftedOverItsScalarSlots_KnownDivergence`.
 
-Both of the last two are recorded for a planned Excel-compatibility sweep and are deliberately left as they
+The last five are recorded for a planned Excel-compatibility sweep and are deliberately left as they
 are for now.
 
 Volatile sub-expressions inside the array behave like any other volatile: a `RAND()` (broadcast, or in a

@@ -444,15 +444,16 @@ array onde qualquer um dos consumidores acima pede um, aplicando um corpo escala
   `IF(SUMPRODUCT(--(LEN(TRIM($D$7:$F$9))>0))>0,"Show","Hide")`.
 
 **180 das 306 funções nativas registradas** podem ser elevadas: as puramente escalares (texto, matemática,
-financeiras, datas, informação, as auxiliares estatísticas escalares (`FISHER`, `PERMUT`, `PHI`,
-`STANDARDIZE`, …), `IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). As outras 126 são **cientes de intervalos** e nunca são
-elevadas, porque já consomem intervalos ou arrays por conta própria — `SUM`, `COUNT`, `INDEX`, `ROW`,
-`COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`, `VLOOKUP`, `MATCH`, `OFFSET`,
-`INDIRECT`, `IF`, `LET`, `RANDBETWEEN`, `AND`/`OR`/`XOR`, as séries de fluxo de caixa (`NPV`, `IRR`, …), as
-estatísticas de população inteira e de arrays pareados (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …) e a
-família de critérios. Uma
-[função personalizada](custom-functions.md) também nunca é elevada — ela não tem entrada no registro, então
-permanece um escalar avaliado uma única vez.
+financeiras, datas, informação, as auxiliares estatísticas escalares (`FISHER`, `PERMUT`, `PHI`, `STANDARDIZE`, …),
+`IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). As outras 126 são **cientes de intervalos** e o MySheet nunca as
+eleva, porque já consomem intervalos ou arrays por conta própria — `SUM`, `COUNT`, `INDEX`, `ROW`, `COLUMN`, `ROWS`,
+`COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`, `VLOOKUP`, `MATCH`, `OFFSET`, `INDIRECT`, `IF`, `LET`,
+`RANDBETWEEN`, `AND`/`OR`/`XOR`, as séries de fluxo de caixa (`NPV`, `IRR`, …), as estatísticas de população inteira e
+de arrays pareados (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …) e a família de critérios. Essa é a regra do MySheet,
+**não** a do Excel: o Excel também eleva uma função ciente de intervalos, sobre os slots que recebem um *escalar*,
+enquanto continua consumindo o intervalo no slot que recebe um — a última das divergências conhecidas abaixo, com os
+doze casos medidos. Uma [função personalizada](custom-functions.md) também nunca é elevada — ela não tem entrada no
+registro, então permanece um escalar avaliado uma única vez.
 
 Dentro de uma chamada elevada:
 
@@ -478,20 +479,37 @@ Dentro de uma chamada elevada:
 explícito por entrada em [`FunctionRegistry`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs):
 `Entry<T>(…)` registra uma função que consome intervalos/arrays por conta própria e nunca é elevada, e
 `Elementwise<T>(…)` uma puramente escalar que o mini-CSE pode elevar. **O padrão é `Entry<T>` — negar** —
-porque os dois erros não são simétricos: esquecer o `Elementwise<T>` em uma função escalar apenas perde a
-otimização, enquanto esquecer o `Entry<T>` em uma função ciente de intervalos faria com que ela respondesse
-a partir de um único elemento do retângulo que deveria consumir inteiro, ficando **silenciosamente errada**,
-sem erro nenhum para alguém notar. Dois testes de guarda sustentam essa linha. Um deles reexecuta a
-derivação a cada build: cada entrada `Elementwise` recebe dois retângulos diferentes no argumento 0 pelo
-caminho escalar comum e precisa responder de forma idêntica, o que um corpo ciente de intervalos não
-consegue fazer. Essa sonda é cega para 64 das 126 entradas cientes de intervalos — aquelas cuja resposta
-depende do formato, da posição ou de ser uma referência, e não do conteúdo do retângulo (`ROWS`, `AREAS`,
-`ISREF`, `OFFSET`, `INDIRECT`, `TYPE`), aquelas cujo argumento de intervalo fica em um slot posterior
-(`VLOOKUP`, `MATCH`, os feriados de `NETWORKDAYS`) e aquelas que precisam de uma segunda população que a
-sonda não fornece (`CORREL`, `PEARSON`, `TRIMMEAN`, `SUMX2MY2`, …) — por isso cada uma delas é nomeada
-individualmente por um segundo teste, e um terceiro teste exige que a diferença entre "cega" e "nomeada"
-seja vazia. Uma nova função nativa ciente de intervalos com o sinalizador esquecido, portanto, quebra a
-suíte pelo nome em vez de ser publicada.
+porque os dois erros não são simétricos: escrever `Entry<T>` onde cabia `Elementwise<T>` apenas perde a
+otimização, enquanto escrever `Elementwise<T>` onde cabia `Entry<T>` faz a função responder a partir de um
+único elemento do retângulo que deveria consumir inteiro, ficando **silenciosamente errada**, sem erro
+nenhum para alguém notar. E como `Entry<T>` é também o que uma entrada recebe quando ninguém escolhe,
+*esquecer* o sinalizador cai no lado seguro por construção — o erro perigoso é o deliberado.
+
+Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
+
+- Um sinalizador **esquecido** é seguro por *construção*, não por um teste. `Consumes` é o valor zero do
+  enum, então uma nova função nativa registrada pela fábrica padrão `Entry<T>` nunca é elevada, faça ela o
+  que fizer com os argumentos — o erro custa apenas a otimização. Um teste ainda exige que essa entrada seja
+  *vigiada*: toda entrada ciente de intervalos precisa ser visível para a sonda abaixo ou ser nomeada à mão,
+  e uma que não seja nenhuma das duas quebra a suíte carregando o próprio nome.
+- Um sinalizador **errado** — `Elementwise<T>` em uma função ciente de intervalos, o erro que publica um
+  número silenciosamente errado — é pego pelo nome. O conjunto exato dos 180 nomes `Elementwise` está
+  registrado como uma lista ordenada, então acrescentar um nome quebra a suíte nomeando o recém-chegado e
+  remover um quebra nomeando a perda. Uma contagem não serviria: ela sobrevive a uma troca compensada e
+  sobrevive à edição de aparência honesta de virar a fábrica e ajustar o número. Medido: essa edição deixava
+  a suíte inteira verde.
+- O mesmo sinalizador errado é *também* pego com um diagnóstico onde a sonda consegue vê-lo, e essa sonda
+  reexecuta a derivação a cada build. Ela varre cada posição de argumento de cada aridade de `MinArgs` até
+  `MinArgs+3`, preenchendo os slots restantes com um número, um texto, um lógico e um intervalo de três
+  células por vez, e entrega à entrada três retângulos que diferem em posição, formato e conteúdo. Um corpo
+  puramente escalar responde de forma idêntica para os três; um ciente de intervalos não, e a falha nomeia a
+  chamada que os distinguiu. A varredura ainda é cega para **21** das 126 entradas cientes de intervalos —
+  as que respondem a mesma coisa para todo retângulo: os testes de formato e de referência (`AREAS`,
+  `ISREF`, `ISFORMULA`, `FORMULATEXT`, `SHEET`, `TYPE`), `OFFSET`/`INDIRECT`, as exclusões de projeto (`IF`,
+  `LET`, `RANDBETWEEN`) e as reduções que erram de forma idêntica nos três (`AND`, `OR`, `IRR`, `MIRR`,
+  `XNPV`, `PROB`, `FORECAST`, `FORECAST.LINEAR`, `PERCENTILE.EXC`, `TRIMMEAN`). Essas 21 têm a lista
+  registrada e a lista à mão como única defesa, então o próprio conjunto cego é fixado pelo nome e ganhar um
+  membro também quebra a suíte.
 
 **Não suportado (por design).**
 
@@ -589,8 +607,44 @@ combinação de teclas.
   `A1` = 1 (medido em 2026-09-09). Com o slot totalmente ausente os dois motores concordam — `FIXED(A1)` e
   `DOLLAR(A1)` são `1.00` e `$1.00` em cada um — então a divergência é o slot *vazio*, e não o padrão, e ela
   vale igualmente para a chamada escalar e para o `FIXED(A1:A3,,TRUE)` elevado.
+- **Uma chamada elevada sob um `+` unário também não é elevada.** O `+` é o no-op do Excel que preserva
+  referências, e o MySheet mantém toda a expressão com `+` opaca, o que esconde do mini-CSE o que está
+  *dentro* dela: com `A1:A3` = 1, 22 e 333, `SUM(+LEN(A1:A3))` é `#VALUE!` aqui e **6** no Excel (medido em
+  2026-09-09). É a irmã do caso `SUM(-(+A1:A3))` = -6 acima — o mesmo `+` opaco, com uma *função* elevada
+  dentro em vez de um operador unário — e `SUM(LEN(+A1:A3))`, com o `+` do lado de dentro, é o mesmo
+  `#VALUE!` aqui contra os mesmos **6** lá. Escreva `SUM(LEN(A1:A3))`. Fixado por
+  `ElementwiseLiftingTests.LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence`.
+- **Uma chamada elevada sobre um NOME definido não é elevada.** Um nome é capturado como um *valor* de
+  referência, então chega ao mini-CSE como um escalar opaco a menos que a forma consumidora o resolva ela
+  mesma (`ROW`/`COLUMN` resolvem — `SUM(ROW(MyName))` é 6 nos dois motores). Toda outra forma de array sobre
+  um nome é, portanto, uma lacuna. Para `MyName` = `A1:A3` = 1, 22 e 333, todos medidos em 2026-09-09:
+  `SUM(LEN(MyName))` é `#VALUE!` aqui e **6** lá, `SUM(-MyName)` `#VALUE!` contra **-356**, `SUM(MyName%)`
+  `#VALUE!` contra **3.56** e `SUM(MyName*2)` `#VALUE!` contra **712**. As formas de *comparação* são piores
+  que um erro porque são silenciosas: `SUM(IF(MyName>1,1,0))`, `SUMPRODUCT(--(MyName>1))` e
+  `SUM((MyName>1)*1)` respondem **1** aqui — a comparação escalar da primeira célula do nome — onde o Excel
+  responde **2**. Ler o nome em si não é afetado (`SUM(MyName)` é 356 nos dois); a lacuna são as formas de
+  array sobre ele, unária, de função e binária igualmente. Fixado por
+  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreNotLifted_KnownDivergence`.
+- **Uma função ciente de intervalos nunca é elevada sobre os slots ESCALARES dela.** O Excel também eleva
+  uma função ciente de intervalos: ele consome o intervalo no slot que recebe um e repete a *chamada
+  inteira* por elemento de um retângulo entregue a qualquer outro slot. A classificação do MySheet é por
+  *função*, e não por slot, então um retângulo em um slot escalar continua um intervalo e a chamada responde
+  uma única vez. Com `A1:A3` = 1, 2 e 3 e `B1:B3` = 10, 20 e 30, com a resposta do Excel primeiro e a do
+  MySheet entre colchetes, todos medidos em 2026-09-09: `SUM(MATCH(A1:A3,A1:A3,0))` **6** [`#N/A`],
+  `SUM(VLOOKUP(A1:A3,A1:B3,2,FALSE))` **60** [`#VALUE!`], `SUM(CHOOSE(A1:A3,10,20,30))` **60** [`#VALUE!`],
+  `SUM(LARGE(A1:A3,A1:A3))` **6** [`#VALUE!`], `SUM(COUNTIF(A1:A3,A1:A3))` **3** [`0`],
+  `SUM(INDEX(B1:B3,A1:A3))` **60** [`#VALUE!`], `SUM(RANK(A1:A3,A1:A3))` **6** [`#VALUE!`],
+  `SUM(WORKDAY(A1:A3,1))` **9** [`#VALUE!`], `SUM(NETWORKDAYS.INTL(A1:A3,4))` **9** [`#VALUE!`],
+  `SUM(NPV(A1:A3/10,10,20,30))` **120.92** [`#VALUE!`], `SUM(TYPE(A1:A3))` **3** [`16`] e
+  `SUM(RANDBETWEEN(A1:A3,A1:A3))` **6** [`#VALUE!`]. Duas das respostas do MySheet são **silenciosas** em
+  vez de erros: o `0` do `COUNTIF` (o argumento colapsado não corresponde a critério nenhum, a regra da
+  família de critérios acima) e o `16` do `TYPE` (o código de tipo do `#VALUE!` que ele recebeu). O
+  `NETWORKDAYS` simples é o único membro da família que o Excel *não* eleva — `SUM(NETWORKDAYS(A1:A3,B1:B3))`
+  é **8** lá, que é `NETWORKDAYS(A1,B1)` sozinho, uma interseção implícita ao primeiro elemento e não uma
+  elevação por elemento, e `#VALUE!` aqui. Fixado por
+  `ElementwiseLiftingTests.AConsumesFunction_IsNotLiftedOverItsScalarSlots_KnownDivergence`.
 
-As duas últimas estão registradas para uma varredura de compatibilidade com o Excel já planejada e são
+As cinco últimas estão registradas para uma varredura de compatibilidade com o Excel já planejada e são
 deliberadamente mantidas como estão por enquanto.
 
 Subexpressões voláteis dentro do array se comportam como qualquer outra volátil: um `RAND()` (propagado,
