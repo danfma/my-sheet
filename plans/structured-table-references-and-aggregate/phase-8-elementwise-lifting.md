@@ -1,6 +1,6 @@
 # Phase 8: Elementwise lifting of unary operators and scalar functions in the mini-CSE
 
-Status: Not started   <!-- Not started | In progress | Complete -->
+Status: Complete   <!-- Not started | In progress | Complete -->
 
 Adversarial verifier verdict: **needs-revision** (1 blocker, 3 majors, 7 minors — folded in below; every one was MEASURED with probes against the Release build, not argued). Executes AFTER Phase 2 and BEFORE Phase 7.
 
@@ -313,4 +313,58 @@ All 15 adversarially-sampled range-taking-non-aggregate functions are `Consumes`
 
 ## Phase Summary
 
-_(write when phase completes)_
+**Status: Complete** — branch `feat/elementwise-lifting`, commits `3d030ae..dc29d30` (26 commits: 13 from
+Tasks 1-5 and their review fix rounds, 5 from the consolidated wave after the three-part final review, 8 the
+controller's `docs(plans)`/`docs(lessons)` commits about Phases 9-11 and the standing Aspose rule), pending
+fast-forward merge to `main`. Gates at the head: csharpier clean (355 files), Release build 0 warnings, core
+**1490/1490** (1349 → +141 cases), Excel **90/90**, no MemoryPack union tag added (`ScratchLiteral` is
+deliberately not serializable), no public API removed, function counts unchanged at **306**.
+
+**What it fixes.** The mini-CSE recognised only five array-producing shapes, so a unary operator or any of the
+~180 pure-scalar built-ins over a range fell to the opaque-scalar arm: evaluated once over a range it yielded
+`#VALUE!`, which then poisoned every element — or, worse, was silently CONSUMED by the enclosing node. The
+user's production formula `=IF(SUMPRODUCT(--(LEN(TRIM($D$7:$F$22))>0))>0,"Show","Hide")` returned `#VALUE!`
+where the oracle returns `Show`, and 43 formulas in one workbook used that shape. Three answers were silently
+wrong rather than erroring: `SUM(ISNUMBER(E6:E8)*1)` = 0, `SUM(IFERROR(E6:E8,0))` = 0, `COUNT(LEN(D7:F9))` = 0.
+All ten rows of the report now match Aspose.Cells 26.6.0's CSE column and are pinned.
+
+**How.** An explicit `ArrayLifting { Consumes, Elementwise }` flag on `RegistryEntry`, defaulting to `Consumes`
+and opted into by a sibling factory `Elementwise<T>` so a lifted entry stays one line: 180 lifted, 126
+consuming. `LiftedFunctionOperand` builds the node ONCE through `entry.Create` over mutable `ScratchLiteral`
+slots and rebinds them per element — 0.009 B/element measured against 3.81 MB/evaluation for per-element node
+construction — with `UnaryOperand` mirroring it for `Negate` and `Percent` only. Unary `+` is deliberately not
+lifted: it is Excel's reference-preserving no-op and already worked.
+
+**Decisions that shaped it, each measured.** An omitted argument slot keeps the ORIGINAL `BlankValue` node, or
+a function silently loses its own default (`FIXED(A1:A3,,TRUE)`). An argument the mini-CSE cannot build makes
+the whole call an opaque scalar rather than failing the enclosing formula, so `SUM(IF(A1:A3>0,1,LEN(B:B)))`
+stays 3. `ProbeLift` probes before building, because building first double-evaluated a scalar nested inside a
+lifted node. Element KIND is preserved, not just the number: `ISBLANK`, `ISTEXT`, `ISNUMBER`, `N`, `T` and
+`ERROR.TYPE` over a range with a blank match the oracle's CSE column exactly.
+
+**The guard is the deliverable as much as the mechanism.** A range-aware function wrongly flagged `Elementwise`
+returns silently wrong numbers, so the classification is pinned by NAME against a committed roster (a count is
+not enough) and by a probe that sweeps EVERY argument position with number, text, boolean and range fillers
+across arities. The final review earned this: the first guard walked only the `Consumes` half, and a
+contributor-style mutation — wrong flag, deleted name row, bumped counts, every edit one makes on purpose when
+adding a function — shipped a wrongly-lifted `HLOOKUP` with the suite green at 1485/0. After the fix that
+mutation fails naming HLOOKUP twice, and even adding the name to the roster (the "fix the failing test" move)
+still fails naming it, because the widened sweep tries the function in its later slots. 21 entries remain blind
+to the sweep by nature and every one of them is named in a test; the closing assertion is that the
+blind-and-unnamed set is EMPTY.
+
+**Left open deliberately, all pinned as divergences with the oracle's answer in the comment.** The equal-shape
+rule stays: Aspose BROADCASTS a vector across a rectangle (`SUM(A1:C3*E1:E3)` = 108) — Phase 10. Bare
+`=LEN(A1:A3)` in a cell stays `#VALUE!`: the mini-CSE is entered only by consumers that ask for it, and the
+cell boundary's array half is Phase 7's, which must implement Aspose's per-operand intersection rather than
+S4's top-left. The defined-name gap now covers every lifted shape (`SUM(LEN(MyName))` = `#VALUE!` here, 6 on
+the oracle, and the comparison shapes answer a SILENT 1 against 2) — Phase 11. Also Phase 11: unary `+` inside
+a lift, per-slot lifting of the consuming family, `INDEX(<computed array>,0)`, and `FIXED`/`DOLLAR` default
+decimals. Sixteen `Elementwise` flags are inferred from the node bodies rather than measured, because Aspose
+answers `#NAME?` for them; they are labelled as such.
+
+**Three-part final review.** Fable "Yes with fixes" (2 Important, 3 Minor — it found the guard hole), GLM-5.3
+"Yes" (2 Minor, same items by its own derivation), Copilot "Yes" (no findings, but plan mode blocked its
+mutations so its section C is not independent). Consolidated at
+`.superpowers/sdd/phase-8-elementwise-lifting/final-review/CONSOLIDATED.md`; the wave fixed all five findings
+and the scoped re-review came back clean, having re-run the exploit and its "fix the test" variant.
