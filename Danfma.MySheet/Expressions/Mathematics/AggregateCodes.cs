@@ -214,13 +214,19 @@ internal static class AggregateCodes
         return null;
     }
 
-    // Task 4 adds `or Aggregate` to the SubtotalAndAggregate arm — the node type does not exist yet.
+    // SubtotalAndAggregate cannot be answered until the Aggregate node exists, so the arm THROWS rather than
+    // degrading silently to the Subtotal-only predicate: a caller that opts into the wider rule and gets the
+    // narrower one under-skips, and no test can see it. Phase 2 Task 4 replaces the arm with the real pattern.
     private static bool IsNested(Expression? expression, NestedSkip skip) =>
         skip switch
         {
             NestedSkip.None => false,
             NestedSkip.Subtotal => expression is Subtotal,
-            _ => expression is Subtotal,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(skip),
+                skip,
+                "NestedSkip.SubtotalAndAggregate needs the Aggregate node — Phase 2 Task 4 replaces this arm with `expression is Subtotal or Aggregate`."
+            ),
         };
 
     // Accumulates the exact shape the aggregate needs, directly from the per-cell scan — no intermediate
@@ -302,7 +308,12 @@ internal static class AggregateCodes
     }
 
     /// <summary>The 1-13 half of the function_num map: a fold over the whole numeric population. Codes 2 and
-    /// 3 never reach it — the accumulator answers them from its tallies.</summary>
+    /// 3 never reach it — the accumulator answers them from its tallies.
+    ///
+    /// <para>MUTATES <paramref name="numbers"/>: code 12 (MEDIAN) SORTS it ascending in place, so a caller
+    /// that keeps the list — to feed <see cref="Positional"/>, which requires ascending order — must not
+    /// depend on the original scan order afterwards. Every other code reads the list without reordering it,
+    /// and code 13 (MODE.SNGL) positively REQUIRES the scan order for its tie-break.</para></summary>
     public static ComputedValue Fold(int code, List<double> numbers)
     {
         switch (code)
@@ -454,12 +465,18 @@ internal static class AggregateCodes
                     ? ComputedValue.Error(percentileExcError)
                     : ComputedValue.Number(percentileExclusive);
 
-            default: // 19: QUARTILE.EXC
+            case 19: // QUARTILE.EXC
                 return
                     StatisticsMath.QuartileExclusive(sorted, k, out var quartileExclusive)
                         is { } quartileExcError
                     ? ComputedValue.Error(quartileExcError)
                     : ComputedValue.Number(quartileExclusive);
+
+            default:
+                // Unreachable: AGGREGATE routes only 14-19 here (1-13 go to Fold). A real guard rather than
+                // a catch-all arm, mirroring Fold, so a future code can never fall silently into the last
+                // selection.
+                return ComputedValue.Error(Error.Value);
         }
     }
 }

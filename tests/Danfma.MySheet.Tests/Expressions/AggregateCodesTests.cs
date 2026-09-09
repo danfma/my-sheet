@@ -137,6 +137,16 @@ public class AggregateCodesTests
     }
 
     [Test]
+    public async Task Positional_CodeOutsideTheMap_IsValueError()
+    {
+        // Guarda inalcançável, espelhando a do Fold: AGGREGATE só encaminha 14-19 para cá. Um `default:`
+        // que fosse o próprio 19 (QUARTILE.EXC) devolveria 1.25 silenciosamente para o código 20.
+        await Assert
+            .That(Failure(Positional(20, [1.0, 2.0, 3.0, 4.0], new NumberValue(1))))
+            .IsEqualTo(Error.Value);
+    }
+
+    [Test]
     public async Task Positional_KOutOfRange_IsNumError()
     {
         await Assert
@@ -240,6 +250,54 @@ public class AggregateCodesTests
         }
 
         await Assert.That(accumulator.Numbers).IsEquivalentTo(new List<double> { 1.0, 4.0 });
+    }
+
+    // --- Gather: the nested-skip predicate ---
+
+    // Runs the per-cell scan over A1:A3, where A3 is a nested SUBTOTAL worth 3. A `ref Accumulator` cannot be
+    // captured by a lambda, so the whole call lives in this method and the Throws assertion drives it.
+    private static double GatherOver(AggregateCodes.NestedSkip skip)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(2);
+        sheet["A3"] = ExpressionParser.Parse("=SUBTOTAL(9,A1:A2)", sheet);
+
+        var accumulator = new AggregateCodes.Accumulator(9, ignoreErrors: false);
+
+        AggregateCodes.Gather(
+            ExpressionParser.Parse("=A1:A3", sheet),
+            new EvaluationContext(workbook),
+            ref accumulator,
+            skip
+        );
+
+        return Number(accumulator.Finish());
+    }
+
+    [Test]
+    public async Task Gather_None_KeepsEveryCell()
+    {
+        // Sem exclusão: 1 + 2 + SUBTOTAL(9,A1:A2) = 6.
+        await Assert.That(GatherOver(AggregateCodes.NestedSkip.None)).IsEqualTo(6.0);
+    }
+
+    [Test]
+    public async Task Gather_Subtotal_DropsTheNestedSubtotalCell()
+    {
+        await Assert.That(GatherOver(AggregateCodes.NestedSkip.Subtotal)).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task Gather_SubtotalAndAggregate_ThrowsUntilTheAggregateNodeExists()
+    {
+        // O nó Aggregate ainda não existe, então o arm GRITA em vez de degradar em silêncio para o
+        // predicado só-SUBTOTAL: um chamador que pede a regra mais larga e recebe a mais estreita exclui
+        // de menos sem nenhum teste falhando. A Task 4 troca este teste pelo comportamento real.
+        await Assert
+            .That(() => GatherOver(AggregateCodes.NestedSkip.SubtotalAndAggregate))
+            .Throws<ArgumentOutOfRangeException>();
     }
 
     // --- CollectStream: the mini-CSE feed into the same accumulator ---
