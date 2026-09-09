@@ -664,10 +664,10 @@ public class MathAggregateTests
             .IsEqualTo(ErrorValue.DivByZero);
         await Assert.That(Num(Calc("=AGGREGATE(9,6,A1:A3)", AggregateErrorData))).IsEqualTo(14.0);
 
-        // COUNTA é a ÚNICA diferença comportamental real do bit: sem ele a célula de erro conta (medido
-        // em SUBTOTAL(3,…) = 3), com ele sai da contagem.
-        // INFERIDO (a página não diz): a tabela de options diz "ignore error values" mas NÃO diz o que o
-        // COUNTA passa a contar. O 2 abaixo é deduzido do SUBTOTAL(3,…) = 3 medido + a redação da tabela.
+        // COUNTA é a ÚNICA diferença comportamental real do bit: sem ele a célula de erro conta, com ele
+        // sai da contagem. A tabela de options diz "ignore error values" mas NÃO diz o que o COUNTA passa a
+        // contar — os dois valores abaixo, porém, estão MEDIDOS no oráculo do plano (Aspose.Cells 26.6.0,
+        // em 2026-09-09): =AGGREGATE(3,4,E1:E3) = 3 e =AGGREGATE(3,6,E1:E3) = 2. Não é mais uma dedução.
         await Assert.That(Num(Calc("=AGGREGATE(3,4,A1:A3)", AggregateErrorData))).IsEqualTo(3.0);
         await Assert.That(Num(Calc("=AGGREGATE(3,6,A1:A3)", AggregateErrorData))).IsEqualTo(2.0);
 
@@ -793,9 +793,13 @@ public class MathAggregateTests
         // SUBTOTAL só documenta "nested subtotals are ignored"; a redação "SUBTOTAL and AGGREGATE" só
         // aparece na tabela de options do AGGREGATE), então B2 — um AGGREGATE — CONTA aqui: 3 + 5 = 8.
         // Se as duas regras fossem a mesma, o teste acima passaria com o predicado errado.
-        // INFERIDO (a página não diz): nenhuma página documenta o SUBTOTAL pulando um AGGREGATE aninhado.
-        // O 8 fixa a escolha ESTREITA e deliberada do MySheet (ver Subtotal.cs / IsNested), não um golden
-        // medido no Excel — se o Excel pular, esta linha e NestedSkip.Subtotal mudam JUNTAS, de propósito.
+        // MEDIDO (não mais inferido) no oráculo do plano, Aspose.Cells 26.6.0 em 2026-09-09: com A1=1, A2=2
+        // e A3="=AGGREGATE(9,0,A1:A2)"=3, o =SUBTOTAL(9,A1:A3) responde 6 — o AGGREGATE aninhado conta.
+        //
+        // DIVERGÊNCIA REGISTRADA no bloco acima: o MESMO oráculo também CONTA um AGGREGATE aninhado sob as
+        // options 0-3 (daria 8, não 5), contrariando a própria tabela de options da Microsoft ("Ignore
+        // nested SUBTOTAL and AGGREGATE functions"). Aqui a página documentada vence o oráculo — o código
+        // e os 5.0 acima ficam como estão —, e a divergência está anotada no plano da fase.
         await Assert.That(Num(Calc("=SUBTOTAL(9,B1:B3)", AggregateNestedData))).IsEqualTo(8.0);
     }
 
@@ -839,7 +843,8 @@ public class MathAggregateTests
     public async Task Aggregate_KOutsideThePostSkipPopulation_IsNumError()
     {
         // Option 6 tira o #DIV/0! da população, que fica com DOIS números — então k = 3 já passou do fim,
-        // mesmo havendo três células. É a fronteira que prova que k é medido DEPOIS do skip.
+        // mesmo havendo três células. É a fronteira que prova que k é medido DEPOIS do skip. MEDIDO no
+        // oráculo (Aspose.Cells 26.6.0, 2026-09-09): =AGGREGATE(15,6,E1:E3,2) = 9 e ...,3) = #NUM!.
         await Assert.That(Num(Calc("=AGGREGATE(15,6,A1:A3,2)", AggregateErrorData))).IsEqualTo(9.0);
         await Assert
             .That(Calc("=AGGREGATE(15,6,A1:A3,3)", AggregateErrorData))
@@ -851,11 +856,45 @@ public class MathAggregateTests
             .That(Calc("=AGGREGATE(15,6,A1:A3,4)", AggregateErrorData))
             .IsEqualTo(ErrorValue.Number);
 
-        // População inteiramente de erros sob a option 6 → população vazia → #NUM! (o mesmo que o SMALL
-        // já responde para um range vazio).
+        // População inteiramente de erros sob a option 6 → população vazia → #NUM! (o mesmo que o SMALL já
+        // responde para um range vazio). Também MEDIDO no oráculo, e não adotado por analogia: sobre três
+        // células de erro, =AGGREGATE(15,6,A1:A3,1), =AGGREGATE(14,6,A1:A3,1) e =AGGREGATE(16,6,A1:A3,0.5)
+        // dão todos #NUM! (enquanto =AGGREGATE(9,6,A1:A3) dá 0 e =AGGREGATE(3,6,A1:A3) dá 0).
         (string, object)[] allErrors = [("A1", "=1/0"), ("A2", "=1/0"), ("A3", "=1/0")];
 
         await Assert.That(Calc("=AGGREGATE(15,6,A1:A3,1)", allErrors)).IsEqualTo(ErrorValue.Number);
+    }
+
+    [Test]
+    public async Task Aggregate_ArrayForm_OverAPlainRange_HonoursTheNestedSkip()
+    {
+        // A tabela de options é declarada uma vez para a função INTEIRA, então o skip aninhado das options
+        // 0-3 também vale na forma-array — e sobre um range simples ela passa pelo mesmo Gather, que é quem
+        // carrega o skip. Fixture DISCRIMINANTE (o valor aninhado é o MAIOR do range, senão LARGE daria o
+        // mesmo dos dois lados): A1=1, A2=2, A3=SUBTOTAL(9,A1:A2)=3, logo LARGE(…,1) é 2 com o skip e 3 sem.
+        // MEDIDO no oráculo (Aspose.Cells 26.6.0, 2026-09-09): 2 e 3.
+        (string, object)[] cells = [("A1", 1), ("A2", 2), ("A3", "=SUBTOTAL(9,A1:A2)")];
+
+        await Assert.That(Num(Calc("=AGGREGATE(14,0,A1:A3,1)", cells))).IsEqualTo(2.0);
+        await Assert.That(Num(Calc("=AGGREGATE(14,4,A1:A3,1)", cells))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task Aggregate_ArrayForm_StreamsAComputedArrayAndDropsItsErrorElements()
+    {
+        // A forma-array sobre um array COMPUTADO cujos ELEMENTOS incluem um erro, sob a option 6 — o
+        // caminho 16-19, que coleta o stream inteiro pelo acumulador em vez do heap do 14/15.
+        // 1/A1:A3 = {1/5; #DIV/0!; 1/9}: o erro sai da população e o PERCENTILE.INC em 0.5 dos dois
+        // sobreviventes é a média deles. MEDIDO no oráculo: 0.15555555555555556.
+        await Assert
+            .That(Num(Calc("=AGGREGATE(16,6,1/A1:A3,0.5)", SubtotalArrayData)))
+            .IsEqualTo(((1.0 / 9.0) + 0.2) / 2);
+
+        // O mesmo código sobre o RANGE simples: SMALL(…,1) de {5,0,9} é 0 — o literal do relatório, igual
+        // no oráculo. Um 0 é fácil de sair por acidente (população vazia responderia #NUM!, mas um SUM
+        // vazio responderia 0), então o par com k = 2 é o que prova que a população foi mesmo varrida.
+        await Assert.That(Num(Calc("=AGGREGATE(15,6,A1:A3,1)", SubtotalArrayData))).IsEqualTo(0.0);
+        await Assert.That(Num(Calc("=AGGREGATE(15,6,A1:A3,2)", SubtotalArrayData))).IsEqualTo(5.0);
     }
 
     [Test]

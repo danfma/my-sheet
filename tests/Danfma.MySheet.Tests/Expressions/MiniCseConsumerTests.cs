@@ -145,9 +145,11 @@ public class MiniCseConsumerTests
     [Test]
     public async Task KthValueStreaming_IgnoringErrors_SelectsOverThePostSkipPopulation()
     {
-        // Phase 2 groundwork for AGGREGATE(15,6,…) — "SMALL, ignoring error values". No engine node passes
-        // ignoreErrors:true yet, so the flag is pinned on OrderSelection directly (the test project sees the
-        // assembly's internals). Fixture shape of Small_OfIfArray_ErrorAfterKthElement_StillPropagates:
+        // Phase 2 groundwork for AGGREGATE(15,6,…) — "SMALL, ignoring error values". AGGREGATE now DOES
+        // pass ignoreErrors:true (Aggregate.ArrayForm, since 7d968a3), and this test stays as the DIRECT
+        // contract of the flag on OrderSelection (the test project sees the assembly's internals): it pins
+        // the two modes side by side on one stream, which no end-to-end AGGREGATE formula can do.
+        // Fixture shape of Small_OfIfArray_ErrorAfterKthElement_StillPropagates:
         // A2:A5 = [1, 2, 3, #DIV/0!] behind an all-"Show" filter, so the stream is those four elements.
         //
         // ignoreErrors:true does ONE thing — the error element is not RECORDED (the scan still visits every
