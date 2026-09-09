@@ -1,8 +1,8 @@
 # Function reference
 
-MySheet implements **305 built-in functions**. The authoritative registered list is the `Functions` map
-in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
-it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
+MySheet implements **306 built-in functions**. The authoritative registered list is the `ByName` map
+in [`Danfma.MySheet/Parsing/FunctionRegistry.cs`](../Danfma.MySheet/Parsing/FunctionRegistry.cs) — this
+page is derived from it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
 
 Beyond these, you can add your own functions with
@@ -228,7 +228,7 @@ defensive 1-second match timeout.
 | `VALUE` | `VALUE(text)` | Converts text to a number. |
 | `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Value as text — format 0 concise (default), 1 strict (text quoted); errors become their display text. |
 
-## Lookup and reference (16)
+## Lookup and reference (17)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
@@ -240,6 +240,7 @@ defensive 1-second match timeout.
 | `FORMULATEXT` | `FORMULATEXT(reference)` | The referenced cell's formula as TEXT, `=` included (un-parsed in the referenced cell's sheet context); a literal or empty cell → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Horizontal lookup in the first row of a table; exact or approximate; `row_index_num` < 1 → `#VALUE!`, beyond the table → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | The value at a 1-based position inside a range. Accepts an [implicit array first argument](workbook-and-expressions.md#implicit-array-arguments) (`INDEX(ROW(B2:B5),1)` = 2), including the `INDEX(ROW($A:$A), n)` identity that returns `n` without materializing the column; out of range → `#REF!`. |
+| `INDIRECT` | `INDIRECT(ref_text, [a1])` | The reference named by `ref_text`, resolved at evaluation time: the text is parsed as a formula body in the **current sheet's** context, so an unqualified `"A1"` means the calling sheet's `A1` while `"Data!B2"` crosses sheets. A single cell is dereferenced to its **value** (`INDIRECT("A1")`); a multi-cell result stays a **reference** for range-aware consumers (`SUM(INDIRECT("A1:A3"))`, `ROWS(INDIRECT("A1:A3"))` = 3, and as a `:` endpoint — `SUM(INDIRECT("A1"):A3)`), so bare in a cell it gets [implicit intersection at the cell boundary](workbook-and-expressions.md#implicit-intersection-at-the-cell-boundary) (`=INDIRECT("A1:A3")` written in `B2` shows `A2`, in `B5` `#VALUE!`). [Defined names](workbook-and-expressions.md#named-ranges) resolve too, including one assembled at run time (`SUM(INDIRECT("R"&"ng"))`, `INDIRECT("Data!A"&2)`). **Volatile**: the reference is known only at evaluation time, so the cell is always recomputed — see [Volatile functions](workbook-and-expressions.md#volatile-functions). Everything that fails is `#REF!`, never `#NAME?`: `a1` = `FALSE`/`0` (R1C1 style is not supported — A1 only) or an `a1` that is not a number; a `ref_text` that is not text (a number, a logical, a numeric cell); text that does not parse; and an unknown name or sheet. |
 | `LOOKUP` | `LOOKUP(lookup_value, lookup_vector, [result_vector])` | Vector form (always approximate: largest value ≤ lookup); the 2-argument array form searches the first row and returns from the last row when the range is wider than tall, otherwise first/last column. |
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | 1-based position of a value in a range (`match_type`: 1 approximate ascending — default, 0 exact, -1 approximate descending). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | A reference displaced (and optionally resized) from a starting reference; may return a multi-cell reference for range-aware consumers. |
@@ -407,14 +408,19 @@ category, are documented in their Text/Math sections.)
 
 ## Excel function coverage
 
-MySheet implements 305 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 306 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
 features the engine deliberately does not model (see [Out of scope](#out-of-scope-by-design) below) —
 leaving a viable catalog of ~485 that the roadmap tracks against. A few names are cross-listed by
-Microsoft in more than one category (e.g. `CONCATENATE` in both Text and Compatibility, `LET` in both
-Logical and Math), so per-category counts don't sum to a single unique total — see `Parser.cs` for the
+Microsoft in more than one category — `CONCATENATE` (Text and Compatibility), `FLOOR` (Math and
+Compatibility) and `FORECAST` (Statistical and Compatibility) — so per-category counts don't sum to a
+single unique total, and a category below can be **larger** than the same-named table above, which
+documents each function exactly once. Those three names are the whole of the difference: Statistical is
+60 below against a table of 59 because `FORECAST` is documented with the compatibility aliases, and
+Compatibility is 13 below against a table of 11 because `CONCATENATE` and `FLOOR` are documented under
+Text and Math. See [`FunctionRegistry.cs`](../Danfma.MySheet/Parsing/FunctionRegistry.cs) for the
 authoritative registered list.
 
 <details open>
@@ -434,11 +440,11 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Lookup and Reference</strong> — 16/40</summary>
+<summary><strong>Lookup and Reference</strong> — 17/40</summary>
 
-✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
+✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `INDIRECT` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
 
-⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `INDIRECT` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
+⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
 
 ✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 

@@ -515,10 +515,12 @@ thread-local guard and yields `#REF!` instead of overflowing the stack.
 
 ## Volatile functions
 
-Four functions are **volatile** — their result depends on the clock or a random draw, not only on the cells
-they read: `NOW()`, `TODAY()`, `RAND()` and `RANDBETWEEN(bottom, top)`. MySheet gives them Excel's two
-defining behaviours — *recalculate on demand* and *contagious volatility* — without a dependency graph,
-through an **epoch cache model**.
+Five functions are **volatile** — their result is not fixed by the cells they read. Four depend on the
+clock or a random draw: `NOW()`, `TODAY()`, `RAND()` and `RANDBETWEEN(bottom, top)`. The fifth,
+`INDIRECT(ref_text, [a1])`, depends on *which cells it reads at all* — the reference is assembled from
+text at evaluation time, so no static dependency is knowable. MySheet gives them Excel's two defining
+behaviours — *recalculate on demand* and *contagious volatility* — without a dependency graph, through
+an **epoch cache model**.
 
 ### The epoch model
 
@@ -578,7 +580,6 @@ unseeded RNG.
   engine deliberately does not keep — so the coarse but correct refresh is the one offered.
 - **`OFFSET` is not volatile.** Excel marks `OFFSET` volatile as a safety net for automatic recalculation;
   here invalidation is explicit, so marking it would needlessly taint half a sheet — a conscious divergence.
-- **`INDIRECT` is not implemented** (resolving a reference from text is a separate feature).
 
 ## From expression back to formula text
 

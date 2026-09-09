@@ -535,8 +535,10 @@ detectado por um rastreamento thread-local e produz `#REF!` em vez de estourar a
 
 ## Funções voláteis
 
-Quatro funções são **voláteis** — seu resultado depende do relógio ou de um sorteio aleatório, não apenas
-das células que leem: `NOW()`, `TODAY()`, `RAND()` e `RANDBETWEEN(bottom, top)`. O MySheet oferece a elas
+Cinco funções são **voláteis** — seu resultado não é determinado apenas pelas células que leem. Quatro
+dependem do relógio ou de um sorteio aleatório: `NOW()`, `TODAY()`, `RAND()` e `RANDBETWEEN(bottom, top)`.
+A quinta, `INDIRECT(ref_text, [a1])`, depende de *quais células ela lê*: a referência é montada a partir
+de texto em tempo de avaliação, então nenhuma dependência estática é conhecível. O MySheet oferece a elas
 os dois comportamentos que o Excel define para esse caso — *recalcular sob demanda* e *volatilidade
 contagiosa* — sem um grafo de dependências, por meio de um **modelo de cache por época** (*epoch*).
 
@@ -604,7 +606,6 @@ carregado começa a partir de `TimeProvider.System` e um RNG não semeado.
 - **`OFFSET` não é volátil.** O Excel marca `OFFSET` como volátil como uma rede de segurança para o
   recálculo automático; aqui a invalidação é explícita, então marcá-la contaminaria metade de uma planilha
   sem necessidade — uma divergência consciente.
-- **`INDIRECT` não está implementado** (resolver uma referência a partir de texto é um recurso à parte).
 
 ## Da expressão de volta ao texto de fórmula
 

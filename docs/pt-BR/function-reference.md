@@ -2,9 +2,9 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **305 funções nativas (built-in)**. A lista registrada oficial é o mapa `Functions`
-em [`Danfma.MySheet/Parsing/Parser.cs`](../../Danfma.MySheet/Parsing/Parser.cs) — esta página é derivada
-dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
+O MySheet implementa **306 funções nativas (built-in)**. A lista registrada oficial é o mapa `ByName`
+em [`Danfma.MySheet/Parsing/FunctionRegistry.cs`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs) —
+esta página é derivada dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
 digitação.
 
@@ -234,7 +234,7 @@ defensivo de correspondência de 1 segundo.
 | `VALUE` | `VALUE(text)` | Converte texto em número. |
 | `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Valor como texto — formato 0 conciso (padrão), 1 estrito (texto entre aspas); erros viram seu texto de exibição. |
 
-## Pesquisa e referência (16)
+## Pesquisa e referência (17)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -246,6 +246,7 @@ defensivo de correspondência de 1 segundo.
 | `FORMULATEXT` | `FORMULATEXT(reference)` | A fórmula da célula referenciada como TEXTO, com o `=` incluído (reescrita — *unparse* — no contexto de planilha da célula referenciada); uma célula literal ou vazia → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Pesquisa horizontal na primeira linha de uma tabela; exata ou aproximada; `row_index_num` < 1 → `#VALUE!`, além da tabela → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | O valor em uma posição (base 1) dentro de um intervalo. Aceita um [primeiro argumento implícito de array](workbook-and-expressions.md#argumentos-implícitos-de-array) (`INDEX(ROW(B2:B5),1)` = 2), incluindo a identidade `INDEX(ROW($A:$A), n)` que retorna `n` sem materializar a coluna; fora do intervalo → `#REF!`. |
+| `INDIRECT` | `INDIRECT(ref_text, [a1])` | A referência nomeada por `ref_text`, resolvida em tempo de avaliação: o texto é interpretado como um corpo de fórmula no contexto da **planilha atual**, de modo que um `"A1"` sem qualificação significa o `A1` da planilha chamadora, enquanto `"Data!B2"` atravessa planilhas. Uma única célula é desreferenciada para o seu **valor** (`INDIRECT("A1")`); um resultado multicélula permanece uma **referência** para consumidores que entendem intervalos (`SUM(INDIRECT("A1:A3"))`, `ROWS(INDIRECT("A1:A3"))` = 3, e como extremidade de `:` — `SUM(INDIRECT("A1"):A3)`), de modo que, sozinha em uma célula, ela recebe [interseção implícita na fronteira da célula](workbook-and-expressions.md#interseção-implícita-na-fronteira-da-célula) (`=INDIRECT("A1:A3")` escrita em `B2` mostra `A2`; em `B5`, `#VALUE!`). [Nomes definidos](workbook-and-expressions.md#intervalos-nomeados) também são resolvidos, inclusive um montado em tempo de execução (`SUM(INDIRECT("R"&"ng"))`, `INDIRECT("Data!A"&2)`). **Volátil**: a referência só é conhecida em tempo de avaliação, então a célula é sempre recalculada — veja [Funções voláteis](workbook-and-expressions.md#funções-voláteis). Tudo o que falha vira `#REF!`, nunca `#NAME?`: `a1` = `FALSE`/`0` (o estilo R1C1 não é suportado — apenas A1) ou um `a1` que não seja um número; um `ref_text` que não seja texto (um número, um lógico, uma célula numérica); um texto que não seja interpretável; e um nome ou uma planilha desconhecidos. |
 | `LOOKUP` | `LOOKUP(lookup_value, lookup_vector, [result_vector])` | Forma vetorial (sempre aproximada: o maior valor ≤ pesquisado); a forma matricial de 2 argumentos busca na primeira linha e retorna da última linha quando o intervalo é mais largo que alto; caso contrário, primeira/última coluna. |
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | Posição (base 1) de um valor em um intervalo (`match_type`: 1 aproximado crescente — padrão, 0 exato, -1 aproximado decrescente). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | Uma referência deslocada (e opcionalmente redimensionada) a partir de uma referência inicial; pode retornar uma referência multicélula para consumidores que aceitam intervalos. |
@@ -416,15 +417,22 @@ Texto/Matemática.)
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 305 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 306 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
 ambiente de interface do aplicativo ou de recursos que a engine deliberadamente não modela (veja
 [Fora de escopo](#fora-de-escopo-por-design) abaixo) — restando um catálogo viável de ~485 funções, sobre
-o qual o roadmap é acompanhado. Alguns nomes são listados pela Microsoft em mais de uma categoria (ex.:
-`CONCATENATE` em Texto e em Compatibilidade, `LET` em Lógicas e em Matemática), então as contagens por
-categoria não somam um total único — veja o `Parser.cs` para a lista registrada oficial.
+o qual o roadmap é acompanhado. Alguns nomes são listados pela Microsoft em mais de uma categoria —
+`CONCATENATE` (Texto e Compatibilidade), `FLOOR` (Matemática e Compatibilidade) e `FORECAST`
+(Estatísticas e Compatibilidade) —, então as contagens por categoria não somam um total único, e uma
+categoria abaixo pode ser **maior** que a tabela de mesmo nome acima, que documenta cada função uma
+única vez. Esses três nomes são toda a diferença: Estatísticas aparece como 60 abaixo, contra uma tabela
+de 59, porque `FORECAST` está documentada junto aos aliases de compatibilidade; e Compatibilidade
+aparece como 13, contra uma tabela de 11, porque `CONCATENATE` e `FLOOR` estão documentadas em Texto e
+em Matemática. Veja o
+[`FunctionRegistry.cs`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs) para a lista registrada
+oficial.
 
 <details open>
 <summary><strong>Financeiras</strong> — 55/55</summary>
@@ -443,11 +451,11 @@ categoria não somam um total único — veja o `Parser.cs` para a lista registr
 </details>
 
 <details open>
-<summary><strong>Pesquisa e referência</strong> — 16/40</summary>
+<summary><strong>Pesquisa e referência</strong> — 17/40</summary>
 
-✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
+✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `INDIRECT` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
 
-⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `INDIRECT` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
+⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
 
 ✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 
