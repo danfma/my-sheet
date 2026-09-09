@@ -111,11 +111,19 @@ internal static class NumericAggregation
                     // IsArrayEligible's remark records) and avoids any double evaluation
                     // (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
                     //
-                    // Deliberately NOT ArrayEvaluation.TryStream: this gate omits that one's leading
-                    // `is not Reference`, because the switch above has already peeled off the reference
-                    // shapes that need the referenced-cell rule, while the ones that fall through here
-                    // (NameReference, DynamicRange) are MEANT to fold element-wise. Adding the condition
-                    // would silently divert them to the scalar path.
+                    // Deliberately NOT ArrayEvaluation.TryStream: this gate keeps only that one's last two
+                    // conditions, because the switch above OWNS the reference dispatch — every reference
+                    // shape needing the referenced-cell rule (RangeReference, OpenRangeReference,
+                    // CellReference, the two anchored twins, UnionReference) is peeled off before this arm,
+                    // so a leading `is not Reference` has nothing left to guard.
+                    //
+                    // It is MOOT today, not load-bearing: the only Reference shape still reaching here is
+                    // DynamicRange, which has no arm in ArrayEvaluation.Probe and so falls to its
+                    // `default: (true, false)` — IsArrayEligible is already false for it and it already
+                    // takes the scalar path below. NameReference is not a Reference at all (it derives
+                    // straight from Expression), so the condition would never see it either. Adding
+                    // `is not Reference` would therefore be a no-op; it would only start to matter — as a
+                    // pre-emption of DynamicRange — IF Probe ever gained an arm for that node.
                     if (
                         ArrayEvaluation.IsArrayEligible(argument, context)
                         && ArrayEvaluation.TryEvaluateStream(argument, context, out var array)

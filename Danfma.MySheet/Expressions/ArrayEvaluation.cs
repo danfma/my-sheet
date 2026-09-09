@@ -160,12 +160,17 @@ internal static class ArrayEvaluation
     /// the argument's SINGLE evaluation. A volatile operand therefore draws exactly once.</description></item>
     /// </list>
     ///
-    /// <para>Two nearby sites deliberately do NOT use this gate, and must not be "unified" into it:
-    /// <c>NumericAggregation.Fold</c>'s <c>default:</c> arm omits the <c>is not Reference</c> condition
-    /// because its switch has already peeled off the reference shapes it handles specially, while the
-    /// remaining ones (<see cref="NameReference"/>, <see cref="DynamicRange"/>) are MEANT to reach the
-    /// element-wise fold; and <c>Index.TryResolveReference</c> probes only to REJECT the array forms and
-    /// never builds a stream at all.</para>
+    /// <para>Two nearby sites deliberately do NOT use this gate: <c>NumericAggregation.Fold</c>'s
+    /// <c>default:</c> arm keeps only the last two conditions because its own switch OWNS the reference
+    /// dispatch — every reference shape it handles specially is peeled off above that arm, so the leading
+    /// <c>is not Reference</c> has nothing left to guard. The condition is MOOT there rather than harmful:
+    /// the one <see cref="Reference"/> shape still reaching that arm, <see cref="DynamicRange"/>, has no
+    /// <see cref="Probe"/> arm and falls to its <c>default</c>, so it is not array-eligible and already
+    /// takes the scalar path; <see cref="NameReference"/> derives from <see cref="Expression"/>, not from
+    /// <see cref="Reference"/>, so the condition would never see it. Routing that arm through this gate
+    /// would be a no-op today, and would only start to pre-empt <see cref="DynamicRange"/> IF
+    /// <see cref="Probe"/> ever gained an arm for it. The other site, <c>Index.TryResolveReference</c>,
+    /// probes only to REJECT the array forms and never builds a stream at all.</para>
     /// </summary>
     public static bool TryStream(
         Expression expression,

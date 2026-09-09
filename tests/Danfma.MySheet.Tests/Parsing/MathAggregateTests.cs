@@ -514,6 +514,34 @@ public class MathAggregateTests
     }
 
     [Test]
+    public async Task Aggregate_ReferenceForm_FoldsAComputedArray()
+    {
+        // O GÊMEO AGGREGATE dos quatro testes acima, na MESMA fixture: a forma-referência (function_num
+        // 1-13) passa por AggregateCodes.Feed exatamente como o SUBTOTAL, então um argumento-array
+        // calculado dobra elemento a elemento aqui também. PIN DE REGRESSÃO: o comportamento já existe —
+        // o AGGREGATE nasceu chamando o Feed, que já trazia o gate mini-CSE do SUBTOTAL — e este teste só
+        // o prende, porque a documentação cita =AGGREGATE(9,4,ROW(A1:A3)) = 6 e nada na suíte fixava a
+        // forma 1-13 sobre um array calculado (só a forma 14-19 estava presa).
+        //
+        // ROW(A1:A3) = {1;2;3} → 6, o mesmo que =SUBTOTAL(9,ROW(A1:A3)) e =SUM(ROW(A1:A3)). Pelo caminho
+        // escalar (Gather) daria 1: nenhum valor da fixture (5, 0, 9) coincide com 6.
+        await Assert
+            .That(Num(Calc("=AGGREGATE(9,4,ROW(A1:A3))", SubtotalArrayData)))
+            .IsEqualTo(6.0);
+
+        // Discriminação: sobre o MESMO array {1;0;1}, COUNT conta os três elementos e SUM soma 2 — dois
+        // números diferentes que só saem se o array for realmente percorrido. Pelo caminho escalar a
+        // BinaryOperation sobre um range não tem valor escalar (#VALUE!), logo COUNT seria 0 e SUM 0 (a
+        // option 6 engole o erro).
+        await Assert
+            .That(Num(Calc("=AGGREGATE(2,4,(A1:A3<>0)*1)", SubtotalArrayData)))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(Calc("=AGGREGATE(9,6,(A1:A3<>0)*1)", SubtotalArrayData)))
+            .IsEqualTo(2.0);
+    }
+
+    [Test]
     public async Task Subtotal_InvalidCode_IsValueError()
     {
         // function_num fora de 1-11/101-111 -> #VALUE!.
