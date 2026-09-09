@@ -279,8 +279,10 @@ ExpressionParser.Parse("=SUM((A1:A3, C1:C3))", sheet); // reference union (insid
   (`Sheet2!A1:B2` is entirely on `Sheet2`).
 - `$` markers identify the same cell — MySheet does not do copy/fill, so absolute vs. relative has no
   behavioral effect and the marker is not preserved.
-- A bare range used where a scalar is expected (e.g. `=A1:B2` alone) evaluates to `#VALUE!`, as in
-  Excel; ranges are consumed by functions (`SUM`, `COUNT`, lookups, …).
+- A bare range is consumed by the functions that accept it (`SUM`, `COUNT`, lookups, …); it has no scalar
+  value of its own. Evaluated directly (`Parse("=A1:B2", sheet).Evaluate(workbook)`) it is `#VALUE!`, but
+  the same formula stored in a **cell** is
+  [implicitly intersected](#implicit-intersection-at-the-cell-boundary) with that cell's row and column.
 - A bare name that is not a cell id (e.g. `=total`) is a `NameReference` — it resolves against `LET`
   bindings and workbook [named ranges](#named-ranges) at evaluation time, and yields `#NAME?` if unbound.
 
@@ -334,6 +336,53 @@ counts it as one area and `ISREF` reports `true`. So `VLOOKUP(2, A:B, 2)` and `I
 
 **Out of scope.** Spatial intersection of two open ranges is not modeled.
 
+## Implicit intersection at the cell boundary
+
+A formula whose **final** value is a multi-cell reference is not an error in a cell. MySheet applies
+Excel's implicit intersection — the `@` operator — against the formula cell's own row and column:
+
+| The cell's formula denotes | The cell shows |
+| --- | --- |
+| a **single-column** range spanning the formula's **row** | that row's cell in the column — `=A1:A3` in `C3` is `A3` |
+| a **single-row** range spanning the formula's **column** | that column's cell in the row — `=A1:C1` in `B5` is `B1` |
+| a **1x1** range | that cell, wherever the formula sits — `=A1:A1` in `Z99` is `A1` |
+| a range the formula's row/column falls **outside** of | `#VALUE!` — `=A1:A3` in `C9` |
+| a range wider than one cell on **both** axes | `#VALUE!` — `=A1:C3` in `B2` |
+| a **union** of areas | `#VALUE!` — `=(A1:A3,B1:B3)` has no single row/column axis to intersect |
+
+Details:
+
+- **Declared bounds, not populated ones.** An [open range](#whole-column-and-whole-row-references) uses the
+  bounds it declares, so `=A:A` in row 7 is `A7` even when `A7` is empty (the blank then becomes `0` by the
+  [never-blank rule](#formula-results-are-never-blank-excel-parity)), `=1:1` in `B7` is `B1`, and `=A2:A` is
+  `#VALUE!` in row 1 but `A3` in row 3. This is deliberately *not* the populated extent that `ROWS`/
+  `COLUMNS` use.
+- **Positional and sheet-independent.** Only the formula cell's row and column number enter the rule:
+  `=Sheet1!A1:A3` typed in `Sheet2!C3` is `Sheet1!A3`. *(Inference, not a measurement: Excel defines `@`
+  purely in terms of row and column with no sheet term; this cross-sheet case was not checked against
+  Excel.)*
+- **Everything that denotes a reference follows the same table**, not only a literal range — `=MyName`,
+  `=INDIRECT("MyName")`, `=OFFSET(A1,0,0,3,1)`, `=CHOOSE(1,A1:A3)`, `=+A1:A3` and `=LET(x,A1:A3,x)` all
+  intersect. Before this rule they stored a reference-kind value that every typed accessor read back as
+  blank.
+- **Inside a formula nothing changes.** `=SUM(A1:A3)` is still a sum over three cells: the *consumer*, not
+  the cell, decides what a multi-cell reference means. Only a reference that survives as the cell's final
+  value is intersected.
+- **The direct `Expression.Evaluate` path still yields `#VALUE!`.**
+  `ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook)` has no formula cell to intersect against.
+  The rule lives in `Workbook.EvaluateCell`, which is the single choke point of every cell read
+  (`GetCellValue`, the [value reader](#bulk-reads-getvaluereader), the warm-start snapshot, the `.xlsx`
+  export) — so a `ComputedValueKind.Reference` can never be a cell's value.
+- **A cell that intersects itself is `#REF!`.** `=A1:A3` in `A2` dereferences `A2`, the cell already on the
+  evaluation stack, so the cycle guard answers `#REF!` (Excel raises a circular-reference dialog instead).
+- **No spill.** The intersected cell is the whole result — MySheet never writes into neighbouring cells.
+
+**Deviations worth knowing.** A 2-D range answers `#VALUE!` even when the formula cell sits inside the
+rectangle. That follows the `@` rule as documented, but it is the likeliest point of divergence from a real
+Excel build and was **not** measured; the alternative reading — the formula cell's own (column, row) when
+the rectangle contains it — is one extra branch in `ImplicitIntersection`. A union is likewise deliberately
+left at `#VALUE!`.
+
 ## Implicit array arguments
 
 A few functions evaluate an **array-valued argument element-by-element**, reproducing Excel's implicit
@@ -349,17 +398,31 @@ ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // →
 ```
 
 **Supported.** The consumers are the numeric aggregators (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, and —
-through the same fold — `SMALL`, `LARGE`, the percentiles) and `INDEX`. An argument is evaluated as an
-array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is such an array
-(with or without an else branch), or `ROW(range)`; scalars broadcast across the vector. A branch-less `IF`
-yields a logical `FALSE` where the condition is false, and the aggregators ignore logicals/text (exactly
-why `SMALL(IF(…))` skips the non-matching rows). The first per-element error wins, as in Excel.
+through the same fold — `SMALL`, `LARGE`, the percentiles), `INDEX` and `SUMPRODUCT`. An argument is
+evaluated as an array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is
+such an array (with or without an else branch), or `ROW`/`COLUMN` over a rectangle. That rectangle may be
+written literally (`SUM(ROW(A1:C3))` = 18, `SUM(COLUMN(A1:C3))` = 18) or merely *denoted* by the argument —
+a [defined name](#named-ranges) (`SUM(ROW(MyName))` = 6 and `COUNT(ROW(MyName))` = 3 for a name over three
+rows, while `COUNT(MyName)` counts the cells' own values) or a `:` range with reference-returning endpoints
+(`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Scalars broadcast across the vector. A branch-less `IF` yields a
+logical `FALSE` where the condition is false, and the aggregators ignore logicals/text (exactly why
+`SMALL(IF(…))` skips the non-matching rows). The first per-element error wins, as in Excel.
 
 **Not supported (by design).**
 
 - A **dry cell** whose whole formula is the array keeps `#VALUE!` — `=IF(B2:B5="Show",1,0)` on its own is
   still an error. Arrays exist only as *arguments* inside the consumers above, never as a cell's value
-  (the per-cell cache stays strictly scalar).
+  (the per-cell cache stays strictly scalar). This does **not** contradict
+  [implicit intersection at the cell boundary](#implicit-intersection-at-the-cell-boundary): that rule
+  intersects a *reference*, and a computed array is not one — so `=IF(TRUE,A1:A3,B1)` in a cell is still
+  `#VALUE!`, while the bare `=A1:A3` beside it is `A3`.
+- A **reference-returning function** as `ROW`/`COLUMN`'s argument stays a scalar:
+  `SUM(ROW(INDEX(A1:A3,1,1)))` is `1`, the top row of the resolved reference, not the vector `[1,2,3]`.
+  Discovering its shape would resolve the argument a second time and draw a volatile twice, so the array
+  shape is deliberately deferred there.
+- The `*IFS` **criteria** family does not read a computed array: Excel makes `SUMIFS((A1:A3)*1, …)` a
+  `#VALUE!` there and that rule is unchanged. `SUMPRODUCT` is the only function that takes a computed array
+  as a whole argument.
 - An **open/whole-column** range in an array position is refused and the consumer stays on its ordinary
   scalar/range path — the one exception is the `INDEX(ROW($A:$A), n)` identity above, which returns `n`
   without materializing the column. `SMALL(IF(A:A=…, ROW(A:A)), k)` over an *open* column is therefore
@@ -415,8 +478,12 @@ collides with a cell-reference shape (`A1`) or a boolean literal, is also reject
 2. **`Workbook.DefinedNames`** — the name's expression is evaluated. A range/union stays a *reference*
    value, so range-aware functions expand it (`SUM(Sales)`); a single cell or constant evaluates to its
    scalar. The functions that require a syntactic reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,
-   `OFFSET`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — accept a name that stands for a range (e.g.
-   `VLOOKUP(2, Sales, 2)`).
+   `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — accept a name that stands for a range
+   (e.g. `VLOOKUP(2, Sales, 2)`).
+
+A name used **bare in a cell** (`=Sales`) is not an error either: the reference it stands for is
+[implicitly intersected](#implicit-intersection-at-the-cell-boundary) with the formula cell's row and
+column, so `=Sales` over `Data!A1:A3` shows `Data!A3` when it is typed in row 3.
 3. Otherwise `#NAME?`.
 
 **Cycles.** A name that refers to itself, directly or through a chain (`A → B → A`), is detected by a

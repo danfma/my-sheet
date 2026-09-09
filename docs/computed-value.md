@@ -146,9 +146,10 @@ Notes:
 
 ## References and `EnumerateValues`
 
-A few functions (currently `OFFSET`) evaluate to a *reference* rather than a scalar —
-`Kind == ComputedValueKind.Reference`. `EnumerateValues` walks the referenced cells and yields their
-**computed values** (through the memoization cache):
+Some expressions evaluate to a *reference* rather than a scalar — `Kind == ComputedValueKind.Reference`.
+`OFFSET` and a multi-cell `INDIRECT` return one, and so does a defined name or a `LET` binding that stands
+for a range or a union. `EnumerateValues` walks the referenced cells and yields their **computed values**
+(through the memoization cache):
 
 ```csharp
 var offset = ExpressionParser.Parse("=OFFSET(A1, 0, 0, 3, 1)", sheet);
@@ -163,10 +164,22 @@ foreach (ComputedValue cell in reference.EnumerateValues(workbook))
 }
 ```
 
-On any non-`Reference` value, `EnumerateValues` yields nothing. Note that a *bare range* in a formula
-(`=A1:B2` used as a scalar) does not produce a `Reference` value — it evaluates to `#VALUE!`, as in
-Excel; ranges are consumed by the functions that accept them. To enumerate a range from a custom
-function, see [Custom functions — range arguments](custom-functions.md#accepting-ranges-and-references).
+On any non-`Reference` value, `EnumerateValues` yields nothing.
+
+A reference is never a **cell's** value. Two rules bound it:
+
+- Evaluating a *bare range* directly — `ExpressionParser.Parse("=A1:B2", sheet).Evaluate(workbook)` —
+  yields `#VALUE!`: a range node has no scalar value of its own, and ranges are consumed by the functions
+  that accept them.
+- A formula whose final value *is* a reference, stored in a cell and read back through
+  `Workbook.GetCellValue`, is
+  [implicitly intersected](workbook-and-expressions.md#implicit-intersection-at-the-cell-boundary) with the
+  formula cell's own row and column — `=A1:A3` in `C3` shows `A3`. `ComputedValueKind.Reference` therefore
+  never reaches a cell's cached value, the warm-start snapshot, or an `.xlsx` export; it exists only on the
+  `Expression.Evaluate` path, which is what `EnumerateValues` is for.
+
+To enumerate a range from a custom function, see
+[Custom functions — range arguments](custom-functions.md#accepting-ranges-and-references).
 
 ## See also
 

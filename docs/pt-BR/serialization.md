@@ -50,7 +50,7 @@ mais os valores memoizados).
 | Células e árvores de expressão completas | Sim | Sim | Fórmulas continuam sendo fórmulas — um workbook carregado continua recalculando. |
 | **Chamadas** de funções personalizadas (nós `FunctionCall`) | Sim | Sim | O nome e as expressões dos argumentos são preservados. |
 | **Implementações** de funções personalizadas (delegates) | **Não** | **Não** | Comportamento é código, não dados — registre de novo após carregar. |
-| Cache de memoização | **Não** | **Parcial** | O frio recalcula de forma preguiçosa na primeira leitura. O aquecido restaura o cache — exceto células voláteis e do tipo referência (abaixo), que ainda são recalculadas. |
+| Cache de memoização | **Não** | **Parcial** | O frio recalcula de forma preguiçosa na primeira leitura. O aquecido restaura o cache — exceto células voláteis (abaixo), que ainda são recalculadas. |
 
 A consequência prática: se o seu workbook usa [funções personalizadas](custom-functions.md), registre-as
 novamente após cada `Load`, ou essas chamadas serão avaliadas como `#NAME?`:
@@ -118,13 +118,19 @@ Como o modelo e seus valores viajam em um único arquivo, eles nunca podem dessi
 
 ### O que o warm-start *não* congela
 
-Dois tipos de valor em cache são deliberadamente **excluídos** do snapshot e são recalculados na primeira
+Um tipo de valor em cache é deliberadamente **excluído** do snapshot e é recalculado na primeira
 leitura, mesmo a partir de um arquivo aquecido:
 
 - **Células voláteis** — qualquer coisa que tenha envolvido `NOW`/`TODAY`/`RAND`/`RANDBETWEEN` (direta ou
   transitivamente). Persisti-las "congelaria o relógio de ontem"; em vez disso, elas são reamostradas na
   próxima leitura.
-- **Resultados do tipo referência** — raros como valor final de célula e baratos de reconstruir.
+
+O surrogate também recusa um valor **do tipo referência**, mas nenhuma célula consegue mais produzir um: a
+fronteira da célula aplica a
+[interseção implícita](workbook-and-expressions.md#interseção-implícita-na-fronteira-da-célula) antes de o
+valor ser armazenado, então `=MyName` sobre um intervalo é persistido como seu valor intersectado, como
+qualquer outro escalar. A recusa permanece como defesa em profundidade sobre a API pública
+`ComputedValue.Reference`.
 
 ### Contrato de desatualização
 

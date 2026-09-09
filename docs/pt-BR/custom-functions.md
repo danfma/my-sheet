@@ -134,8 +134,15 @@ Diretrizes:
 ## Aceitando intervalos e referências
 
 Um argumento de intervalo (`=MYFN(A1:A10)`) chega como um nó `RangeReference` — avaliá-lo diretamente
-produz `#VALUE!` (um intervalo puro não tem valor escalar). Para consumir as células, envolva a
-referência em um `ComputedValue` e enumere seus valores através do cache memoizado:
+produz `#VALUE!` (um intervalo puro não tem valor escalar). Esse é o caminho de `Expression.Evaluate`, em
+que você está dentro de uma função; uma referência que chega ao valor de uma **célula** sofre, em vez
+disso, [interseção implícita](workbook-and-expressions.md#interseção-implícita-na-fronteira-da-célula) com
+a linha e a coluna da célula da fórmula, então retornar `ComputedValue.Reference(...)` como resultado
+inteiro de uma célula mostra a célula intersectada em vez de um erro (uma união ou um intervalo 2-D
+continuam sendo `#VALUE!`).
+
+Para consumir as células, envolva a referência em um `ComputedValue` e enumere seus valores através do
+cache memoizado:
 
 ```csharp
 workbook.RegisterFunction("PRODUCT", (arguments, wb) =>

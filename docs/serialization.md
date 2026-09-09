@@ -46,7 +46,7 @@ plus the memoized values).
 | Cells and full expression trees | Yes | Yes | Formulas stay formulas — a loaded workbook keeps recalculating. |
 | Custom-function **calls** (`FunctionCall` nodes) | Yes | Yes | Name and argument expressions round-trip. |
 | Custom-function **implementations** (delegates) | **No** | **No** | Behavior is code, not data — re-register after loading. |
-| Memoization cache | **No** | **Partly** | Cold recomputes lazily on first read. Warm restores the cache — except volatile and reference-typed cells (below), which still recompute. |
+| Memoization cache | **No** | **Partly** | Cold recomputes lazily on first read. Warm restores the cache — except volatile cells (below), which still recompute. |
 
 The practical consequence: if your workbook uses [custom functions](custom-functions.md), re-register
 them after every `Load`, or those calls evaluate to `#NAME?`:
@@ -111,12 +111,17 @@ Because the model and its values travel in one file, they can never desynchroniz
 
 ### What warm start does *not* freeze
 
-Two kinds of cached value are deliberately **excluded** from the snapshot and recompute on first read, even
+One kind of cached value is deliberately **excluded** from the snapshot and recomputes on first read, even
 from a warm file:
 
 - **Volatile cells** — anything that touched `NOW`/`TODAY`/`RAND`/`RANDBETWEEN` (directly or transitively).
   Persisting them would "freeze yesterday's clock"; instead they re-sample on the next read.
-- **Reference-typed results** — rare as a final cell value and cheap to rebuild.
+
+The surrogate also refuses a **reference-typed** value, but no cell can produce one any more: the cell
+boundary applies
+[implicit intersection](workbook-and-expressions.md#implicit-intersection-at-the-cell-boundary) before the
+value is stored, so `=MyName` over a range is persisted as its intersected value like any other scalar. The
+refusal remains as defence-in-depth over the public `ComputedValue.Reference` API.
 
 ### Staleness contract
 

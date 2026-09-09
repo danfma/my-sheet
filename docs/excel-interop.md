@@ -163,8 +163,13 @@ Details worth knowing:
 - Blank results are omitted entirely (like Excel's own files).
 - Text literals are deduplicated through a shared-string table; text produced *by a formula* is written
   as the formula's cached string, per the `.xlsx` convention.
-- A cell whose result is a bare reference (e.g. a multi-cell `OFFSET` used as a scalar) is written as
-  `#VALUE!`, matching how the engine treats it.
+- A cell whose result is a bare reference (`=MyName` over a range, a multi-cell `OFFSET`, `=A1:A3`) is
+  written as its **intersected value** — the exporter reads through `Workbook.GetCellValue`, where
+  [implicit intersection](workbook-and-expressions.md#implicit-intersection-at-the-cell-boundary) has
+  already turned the reference into the cell on the formula's own row/column, so a cell value can no longer
+  *be* a reference. Such a cell previously exported as `t="e"` `#VALUE!`; a workbook that round-trips
+  `=SomeName` will therefore differ from files written by earlier versions. A reference the rule cannot
+  intersect (a union, or a 2-D range) is still `#VALUE!`.
 - In `Formulas` mode, calls to [custom functions](custom-functions.md) are written with their registered
   name — Excel will show the cached value and flag the unknown function, which is expected.
 - [Named ranges](workbook-and-expressions.md#named-ranges) in `Workbook.DefinedNames` are written as

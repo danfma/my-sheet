@@ -287,8 +287,10 @@ ExpressionParser.Parse("=SUM((A1:A3, C1:C3))", sheet); // união de referências
   inicial (`Sheet2!A1:B2` está inteiramente em `Sheet2`).
 - Os marcadores `$` identificam a mesma célula — o MySheet não faz copiar/preencher, então absoluto vs.
   relativo não tem efeito comportamental e o marcador não é preservado.
-- Um intervalo puro usado onde se espera um escalar (por exemplo, `=A1:B2` sozinho) é avaliado como
-  `#VALUE!`, como no Excel; intervalos são consumidos por funções (`SUM`, `COUNT`, lookups, …).
+- Um intervalo puro é consumido pelas funções que o aceitam (`SUM`, `COUNT`, lookups, …); ele não tem valor
+  escalar próprio. Avaliado diretamente (`Parse("=A1:B2", sheet).Evaluate(workbook)`) é `#VALUE!`, mas a
+  mesma fórmula armazenada em uma **célula** sofre
+  [interseção implícita](#interseção-implícita-na-fronteira-da-célula) com a linha e a coluna dessa célula.
 - Um nome puro que não é um id de célula (por exemplo, `=total`) é um `NameReference` — ele resolve
   contra as vinculações de `LET` e os [intervalos nomeados](#intervalos-nomeados) (*named ranges*) do
   workbook em tempo de avaliação, e produz `#NAME?` se não estiver vinculado.
@@ -345,6 +347,57 @@ seus limites; `AREAS` conta como uma área e `ISREF` reporta `true`. Assim, `VLO
 
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 
+## Interseção implícita na fronteira da célula
+
+Uma fórmula cujo valor **final** é uma referência multicélula não é um erro dentro de uma célula. O MySheet
+aplica a interseção implícita do Excel — o operador `@` — contra a linha e a coluna da própria célula da
+fórmula:
+
+| A fórmula da célula denota | A célula mostra |
+| --- | --- |
+| um intervalo de **uma única coluna** que abrange a **linha** da fórmula | a célula dessa linha na coluna — `=A1:A3` em `C3` é `A3` |
+| um intervalo de **uma única linha** que abrange a **coluna** da fórmula | a célula dessa coluna na linha — `=A1:C1` em `B5` é `B1` |
+| um intervalo **1x1** | essa célula, onde quer que a fórmula esteja — `=A1:A1` em `Z99` é `A1` |
+| um intervalo do qual a linha/coluna da fórmula está **fora** | `#VALUE!` — `=A1:A3` em `C9` |
+| um intervalo maior que uma célula em **ambos** os eixos | `#VALUE!` — `=A1:C3` em `B2` |
+| uma **união** de áreas | `#VALUE!` — `=(A1:A3,B1:B3)` não tem um único eixo de linha/coluna para intersectar |
+
+Detalhes:
+
+- **Limites declarados, não os populados.** Um [intervalo aberto](#referências-de-coluna-e-linha-inteira)
+  usa os limites que declara, então `=A:A` na linha 7 é `A7` mesmo que `A7` esteja vazia (o branco então
+  vira `0` pela [regra do nunca-em-branco](#resultados-de-fórmula-nunca-são-em-branco-paridade-com-o-excel)),
+  `=1:1` em `B7` é `B1`, e `=A2:A` é `#VALUE!` na linha 1, mas `A3` na linha 3. Isso deliberadamente **não**
+  é a extensão populada que `ROWS`/`COLUMNS` usam.
+- **Posicional e independente de planilha.** Apenas o número da linha e da coluna da célula da fórmula entram
+  na regra: `=Sheet1!A1:A3` digitado em `Sheet2!C3` é `Sheet1!A3`. *(Inferência, não medição: o Excel define
+  o `@` puramente em termos de linha e coluna, sem nenhum termo de planilha; esse caso entre planilhas não
+  foi verificado no Excel.)*
+- **Tudo o que denota uma referência segue a mesma tabela**, não apenas um intervalo literal — `=MyName`,
+  `=INDIRECT("MyName")`, `=OFFSET(A1,0,0,3,1)`, `=CHOOSE(1,A1:A3)`, `=+A1:A3` e `=LET(x,A1:A3,x)` todos
+  sofrem a interseção. Antes desta regra eles armazenavam um valor do tipo referência que todo acessador
+  tipado lia de volta como branco.
+- **Dentro de uma fórmula nada muda.** `=SUM(A1:A3)` continua sendo uma soma sobre três células: quem decide
+  o que uma referência multicélula significa é o *consumidor*, não a célula. Só uma referência que sobrevive
+  como valor final da célula sofre a interseção.
+- **O caminho direto de `Expression.Evaluate` continua produzindo `#VALUE!`.**
+  `ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook)` não tem célula de fórmula com a qual
+  intersectar. A regra vive em `Workbook.EvaluateCell`, que é o ponto de estrangulamento único de toda
+  leitura de célula (`GetCellValue`, o [leitor de valores](#leituras-em-massa-getvaluereader), o snapshot de
+  warm start, a exportação `.xlsx`) — por isso um `ComputedValueKind.Reference` nunca pode ser o valor de
+  uma célula.
+- **Uma célula que intersecta a si mesma é `#REF!`.** `=A1:A3` em `A2` desreferencia `A2`, a célula que já
+  está na pilha de avaliação, então o guarda de ciclo responde `#REF!` (o Excel, em vez disso, levanta a
+  caixa de diálogo de referência circular).
+- **Sem *spill*.** A célula intersectada é o resultado inteiro — o MySheet nunca escreve nas células
+  vizinhas.
+
+**Divergências que vale conhecer.** Um intervalo 2-D responde `#VALUE!` mesmo quando a célula da fórmula
+está dentro do retângulo. Isso segue a regra do `@` como documentada, mas é o ponto mais provável de
+divergência em relação a um Excel real e **não** foi medido; a leitura alternativa — a (coluna, linha) da
+própria célula da fórmula quando o retângulo a contém — é um ramo a mais em `ImplicitIntersection`. Uma
+união também fica deliberadamente em `#VALUE!`.
+
 ## Argumentos implícitos de array
 
 Algumas funções avaliam um **argumento com valor de array** elemento a elemento, reproduzindo a semântica
@@ -360,18 +413,32 @@ ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // →
 ```
 
 **Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX` e —
-através da mesma dobra — `SMALL`, `LARGE`, os percentis) e `INDEX`. Um argumento é avaliado como um array
-quando é uma comparação de **intervalo fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim
-(com ou sem ramo `else`), ou `ROW(range)`; escalares são propagados (*broadcast*) por todo o vetor. Um `IF`
-sem ramo produz um lógico `FALSE` onde a condição é falsa, e os agregadores ignoram lógicos/texto
-(exatamente por isso `SMALL(IF(…))` pula as linhas sem correspondência). O primeiro erro por elemento
-prevalece, como no Excel.
+através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX` e `SUMPRODUCT`. Um argumento é avaliado
+como um array quando é uma comparação de **intervalo fechado** (`B2:B5="Show"`), um `IF` cuja condição é um
+array assim (com ou sem ramo `else`), ou `ROW`/`COLUMN` sobre um retângulo. Esse retângulo pode estar
+escrito literalmente (`SUM(ROW(A1:C3))` = 18, `SUM(COLUMN(A1:C3))` = 18) ou apenas ser *denotado* pelo
+argumento — um [nome definido](#intervalos-nomeados) (`SUM(ROW(MyName))` = 6 e `COUNT(ROW(MyName))` = 3 para
+um nome sobre três linhas, enquanto `COUNT(MyName)` conta os valores das próprias células) ou um intervalo
+`:` com extremidades que retornam referências (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Escalares são
+propagados (*broadcast*) por todo o vetor. Um `IF` sem ramo produz um lógico `FALSE` onde a condição é
+falsa, e os agregadores ignoram lógicos/texto (exatamente por isso `SMALL(IF(…))` pula as linhas sem
+correspondência). O primeiro erro por elemento prevalece, como no Excel.
 
 **Não suportado (por design).**
 
 - Uma **célula seca** cuja fórmula inteira é o array mantém `#VALUE!` — `=IF(B2:B5="Show",1,0)` sozinha
   ainda é um erro. Arrays existem apenas como *argumentos* dentro dos consumidores acima, nunca como o
-  valor de uma célula (o cache por célula permanece estritamente escalar).
+  valor de uma célula (o cache por célula permanece estritamente escalar). Isso **não** contradiz a
+  [interseção implícita na fronteira da célula](#interseção-implícita-na-fronteira-da-célula): aquela regra
+  intersecta uma *referência*, e um array computado não é uma — então `=IF(TRUE,A1:A3,B1)` em uma célula
+  continua sendo `#VALUE!`, enquanto o `=A1:A3` puro ao lado dela é `A3`.
+- Uma **função que retorna referência** como argumento de `ROW`/`COLUMN` permanece escalar:
+  `SUM(ROW(INDEX(A1:A3,1,1)))` é `1`, a linha superior da referência resolvida, e não o vetor `[1,2,3]`.
+  Descobrir o formato dela resolveria o argumento uma segunda vez e sortearia uma volátil duas vezes, então
+  ali o formato de array é deliberadamente adiado.
+- A família de **critérios** `*IFS` não lê um array computado: o Excel torna `SUMIFS((A1:A3)*1, …)` um
+  `#VALUE!` ali, e essa regra não mudou. `SUMPRODUCT` é a única função que aceita um array computado como
+  argumento inteiro.
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
@@ -429,9 +496,13 @@ com um literal booleano, também é rejeitado.
 2. **`Workbook.DefinedNames`** — a expressão do nome é avaliada. Um intervalo/união permanece um valor de
    *referência*, então funções que aceitam intervalos o expandem (`SUM(Sales)`); uma única célula ou
    constante é avaliada para seu escalar. As funções que exigem uma referência sintática —
-   `VLOOKUP`/`HLOOKUP` (tabela), `INDEX`, `OFFSET`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — aceitam um nome
-   que representa um intervalo (por exemplo, `VLOOKUP(2, Sales, 2)`).
+   `VLOOKUP`/`HLOOKUP` (tabela), `INDEX`, `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` —
+   aceitam um nome que representa um intervalo (por exemplo, `VLOOKUP(2, Sales, 2)`).
 3. Caso contrário, `#NAME?`.
+
+Um nome usado **puro em uma célula** (`=Sales`) também não é um erro: a referência que ele representa sofre
+[interseção implícita](#interseção-implícita-na-fronteira-da-célula) com a linha e a coluna da célula da
+fórmula, então `=Sales` sobre `Data!A1:A3` mostra `Data!A3` quando digitado na linha 3.
 
 **Ciclos.** Um nome que se refere a si mesmo, diretamente ou por meio de uma cadeia (`A → B → A`), é
 detectado por um rastreamento thread-local e produz `#REF!` em vez de estourar a pilha.

@@ -149,9 +149,10 @@ Observações:
 
 ## Referências e `EnumerateValues`
 
-Algumas funções (atualmente `OFFSET`) são avaliadas como uma *referência*, em vez de um escalar —
-`Kind == ComputedValueKind.Reference`. `EnumerateValues` percorre as células referenciadas e produz seus
-**valores calculados** (através do cache de memoização):
+Algumas expressões são avaliadas como uma *referência*, em vez de um escalar —
+`Kind == ComputedValueKind.Reference`. `OFFSET` e um `INDIRECT` multicélula retornam uma, assim como um
+nome definido ou uma vinculação de `LET` que representa um intervalo ou uma união. `EnumerateValues`
+percorre as células referenciadas e produz seus **valores calculados** (através do cache de memoização):
 
 ```csharp
 var offset = ExpressionParser.Parse("=OFFSET(A1, 0, 0, 3, 1)", sheet);
@@ -166,10 +167,22 @@ foreach (ComputedValue cell in reference.EnumerateValues(workbook))
 }
 ```
 
-Em qualquer valor que não seja `Reference`, `EnumerateValues` não produz nada. Note que um *intervalo
-puro* em uma fórmula (`=A1:B2` usado como escalar) não produz um valor `Reference` — ele é avaliado como
-`#VALUE!`, como no Excel; intervalos são consumidos pelas funções que os aceitam. Para enumerar um
-intervalo a partir de uma função personalizada, veja
+Em qualquer valor que não seja `Reference`, `EnumerateValues` não produz nada.
+
+Uma referência nunca é o valor de uma **célula**. Duas regras a delimitam:
+
+- Avaliar um *intervalo puro* diretamente — `ExpressionParser.Parse("=A1:B2", sheet).Evaluate(workbook)` —
+  produz `#VALUE!`: um nó de intervalo não tem valor escalar próprio, e intervalos são consumidos pelas
+  funções que os aceitam.
+- Uma fórmula cujo valor final *é* uma referência, armazenada em uma célula e lida de volta por
+  `Workbook.GetCellValue`, sofre
+  [interseção implícita](workbook-and-expressions.md#interseção-implícita-na-fronteira-da-célula) com a
+  linha e a coluna da própria célula da fórmula — `=A1:A3` em `C3` mostra `A3`. Portanto
+  `ComputedValueKind.Reference` nunca chega ao valor em cache de uma célula, ao snapshot de warm start, nem
+  a uma exportação `.xlsx`; ele existe apenas no caminho de `Expression.Evaluate`, que é exatamente para o
+  que serve `EnumerateValues`.
+
+Para enumerar um intervalo a partir de uma função personalizada, veja
 [Funções personalizadas — argumentos de intervalo](custom-functions.md#aceitando-intervalos-e-referências).
 
 ## Veja também

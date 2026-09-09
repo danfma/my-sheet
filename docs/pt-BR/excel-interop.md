@@ -172,8 +172,14 @@ Detalhes que vale a pena conhecer:
 - Literais de texto são deduplicados por meio de uma tabela de strings compartilhadas (shared strings);
   texto produzido *por uma fórmula* é escrito como a string em cache da fórmula, conforme a convenção do
   `.xlsx`.
-- Uma célula cujo resultado é uma referência pura (por exemplo, um `OFFSET` multicélula usado como
-  escalar) é escrita como `#VALUE!`, espelhando como a engine a trata.
+- Uma célula cujo resultado é uma referência pura (`=MyName` sobre um intervalo, um `OFFSET` multicélula,
+  `=A1:A3`) é escrita como seu **valor intersectado** — o exportador lê através de `Workbook.GetCellValue`,
+  onde a [interseção implícita](workbook-and-expressions.md#interseção-implícita-na-fronteira-da-célula) já
+  transformou a referência na célula da linha/coluna da própria fórmula, então o valor de uma célula não
+  pode mais *ser* uma referência. Antes, uma célula assim era exportada como `t="e"` `#VALUE!`; um workbook
+  que faz round-trip de `=SomeName` vai portanto diferir dos arquivos escritos por versões anteriores. Uma
+  referência que a regra não consegue intersectar (uma união, ou um intervalo 2-D) continua sendo
+  `#VALUE!`.
 - No modo `Formulas`, chamadas a [funções personalizadas](custom-functions.md) são escritas com o nome
   registrado — o Excel mostrará o valor em cache e sinalizará a função desconhecida, o que é esperado.
 - Os [intervalos nomeados](workbook-and-expressions.md#intervalos-nomeados) em `Workbook.DefinedNames`

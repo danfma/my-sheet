@@ -126,8 +126,14 @@ Guidelines:
 ## Accepting ranges and references
 
 A range argument (`=MYFN(A1:A10)`) arrives as a `RangeReference` node — evaluating it directly yields
-`#VALUE!` (a bare range has no scalar value). To consume the cells, wrap the reference in a
-`ComputedValue` and enumerate its values through the memoized cache:
+`#VALUE!` (a bare range has no scalar value). That is the `Expression.Evaluate` path you are on inside a
+function; a reference that reaches a **cell's** value instead gets
+[implicitly intersected](workbook-and-expressions.md#implicit-intersection-at-the-cell-boundary) with the
+formula cell's row and column, so returning `ComputedValue.Reference(...)` as a cell's whole result shows
+the intersected cell instead of an error (a union or a 2-D range still being `#VALUE!`).
+
+To consume the cells, wrap the reference in a `ComputedValue` and enumerate its values through the
+memoized cache:
 
 ```csharp
 workbook.RegisterFunction("PRODUCT", (arguments, wb) =>
