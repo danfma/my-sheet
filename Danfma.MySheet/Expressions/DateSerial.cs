@@ -52,6 +52,11 @@ internal static class DateSerial
     /// <see cref="ArgumentException"/> outside the representable range, exactly as
     /// <see cref="DateTime.FromOADate"/> does.
     /// </summary>
+    /// <remarks>
+    /// THIS is the method the epoch change edits (Phase 9 item 2). Editing <see cref="ToDateTime"/> instead
+    /// compiles, passes its own tests, and silently leaves <c>TEXT</c> on the OLE-Automation epoch, because
+    /// <c>TEXT</c> calls this method directly to keep its <c>#VALUE!</c> policy.
+    /// </remarks>
     public static DateTime ToDateTimeUnchecked(double serial) => DateTime.FromOADate(serial);
 
     /// <summary><see cref="DateTime"/> → serial (OADate). A date-only value yields an integer serial.</summary>

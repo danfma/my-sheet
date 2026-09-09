@@ -139,8 +139,12 @@ internal static class WorkdayMath
         // Walk the serial alongside the DateTime instead of calling DateSerial.FromDateTime every step:
         // whole-day DateTime values advance the serial by exactly 1 per AddDays(1), so an int++ is bit-exact
         // and skips the per-day double conversion. DayOfWeek still needs the DateTime (WeekendSchedule).
-        // The shortcut assumes FromDateTime is affine over the walked span — it holds while the map is the
-        // OADate one, and must be revisited if the map ever gains a discontinuity.
+        // The shortcut assumes FromDateTime is affine over the walked span. That holds for the OADate map and
+        // BREAKS under Excel's 1900 epoch (Phase 9): serials 59 and 60 both denote 1900-02-28 there — 60 is
+        // Excel's phantom 1900-02-29 and no DateTime yields it — so the walked int and the real serial drift
+        // apart by one across that boundary and the HashSet<int> holiday lookups start reading the wrong day,
+        // with no error to show for it. Phase 9's working-day item must walk SERIALS as the source of truth
+        // and derive each calendar day from the serial, never the reverse.
         var serial = (int)DateSerial.FromDateTime(start);
 
         for (var day = start; day <= end; day = day.AddDays(1), serial++)

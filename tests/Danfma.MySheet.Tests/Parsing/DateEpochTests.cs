@@ -9,7 +9,7 @@ namespace Danfma.MySheet.Tests.Parsing;
 // OLE Automation date (epoch 1899-12-30), so exactly the serials [0, 61) differ; from serial 61 (1900-03-01)
 // on the two systems agree numerically.
 //
-// Provenance: every expected value in this file was MEASURED on Aspose.Cells 26.6.0 — PLAIN cell entry (a
+// Provenance: every expected value in this file was MEASURED on Aspose.Cells 26.6.0 on 2026-09-09 — PLAIN cell entry (a
 // formula assigned to a cell), not CSE — and not quoted from a documentation page, because no page produces
 // these numbers. Aspose is the oracle for "Excel" under the master plan's P0 rule.
 //
