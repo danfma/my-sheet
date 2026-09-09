@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **304 built-in functions**. The authoritative registered list is the `Functions` map
+MySheet implements **305 built-in functions**. The authoritative registered list is the `Functions` map
 in [`Danfma.MySheet/Parsing/Parser.cs`](../Danfma.MySheet/Parsing/Parser.cs) — this page is derived from
 it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -28,7 +28,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `TRUE` | `TRUE()` | The logical value `TRUE` (function form of the literal). |
 | `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` when the number of `TRUE` inputs is odd; text and blank operands are ignored (whether a literal or reached through a reference); no evaluable value → `#VALUE!`. |
 
-## Math and trigonometry (74)
+## Math and trigonometry (75)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
@@ -37,6 +37,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `ACOSH` | `ACOSH(number)` | Inverse hyperbolic cosine; below 1 → `#NUM!`. |
 | `ACOT` | `ACOT(number)` | Arccotangent, in `(0, π)`. |
 | `ACOTH` | `ACOTH(number)` | Inverse hyperbolic cotangent; `\|number\| <= 1` → `#NUM!`. |
+| `AGGREGATE` | `AGGREGATE(function_num, options, ref1, [ref2], …)` / `AGGREGATE(function_num, options, array, k)` | Excel's two documented syntaxes over one name, told apart by `function_num` alone — nothing syntactic separates them. **1-13** is the reference form (every argument from the third on is another ref): 1 `AVERAGE`, 2 `COUNT`, 3 `COUNTA`, 4 `MAX`, 5 `MIN`, 6 `PRODUCT`, 7 `STDEV.S`, 8 `STDEV.P`, 9 `SUM`, 10 `VAR.S`, 11 `VAR.P`, 12 `MEDIAN`, 13 `MODE.SNGL`. **14-19** is the array form, whose fourth argument is the `k` / `quart`: 14 `LARGE`, 15 `SMALL`, 16 `PERCENTILE.INC`, 17 `QUARTILE.INC`, 18 `PERCENTILE.EXC`, 19 `QUARTILE.EXC`. The same four-argument shape therefore means two different things — over `A1:A3` = 5/0/9 and `B1:B3` = 1/2/3, `AGGREGATE(9,6,A1:A3,B1:B3)` = 20 (a second ref) while `AGGREGATE(15,6,A1:A3,2)` = 5 (the 2nd smallest). `options` (0 or omitted, through 7) is three independent bits: **+1** ignore hidden rows, **+2** ignore error values, **+4** *keep* nested `SUBTOTAL`/`AGGREGATE` cells. So 0-3 skip a referenced cell whose own formula is a `SUBTOTAL` or an `AGGREGATE` and 4-7 count it — over `C1:C3` = a nested `SUBTOTAL` worth 3, a nested `AGGREGATE` worth 3 and a plain 5, `AGGREGATE(9,0,C1:C3)` = 5 against `AGGREGATE(9,4,C1:C3)` = 11 — and 2/3/6/7 drop error cells from the population instead of propagating them: over `E1:E3` = 5 / `#DIV/0!` / 9, `AGGREGATE(9,6,E1:E3)` = 14 where `AGGREGATE(9,4,E1:E3)` is `#DIV/0!`, and for `COUNTA` the count itself changes (`AGGREGATE(3,4,E1:E3)` = 3, `AGGREGATE(3,6,E1:E3)` = 2). The hidden-row bit is a **no-op** — MySheet has no hidden-row model, so 1/3/5/7 behave exactly like 0/2/4/6 (documented limit, the same one behind `SUBTOTAL`'s 101-111). The array form's `k` counts over the population that *survives* the skips: on that same `E1:E3`, `AGGREGATE(15,6,E1:E3,2)` = 9, but `AGGREGATE(15,6,E1:E3,3)` → `#NUM!` even though the range holds three cells. Both forms also take a [computed array](workbook-and-expressions.md#implicit-array-arguments) in the array position, folded like `SUM`'s (`AGGREGATE(9,4,ROW(A1:A3))` = 6); with option 6 that is what turns the worksheet idiom `SMALL(positions/filter, k)` from `#DIV/0!` into the answer it means. Errors: `function_num` outside 1-19 or `options` outside 0-7 → `#VALUE!`; the array form with only three arguments (no `k`) → `#VALUE!`, the page's own answer when "a second ref argument is necessary but not provided" (fewer than three arguments is an arity error, rejected at parse time); a `k` outside the surviving population → `#NUM!` — `LARGE`/`SMALL`'s answer, taken by analogy, since AGGREGATE's page does not state it; a ref to a missing sheet → `#REF!` in both forms, before any cell is scanned. |
 | `ARABIC` | `ARABIC(text)` | Roman numeral → number (case-insensitive; `""` → 0; leading `-` negates). |
 | `ASIN` | `ASIN(number)` | Arcsine; outside `[-1, 1]` → `#NUM!`. |
 | `ASINH` | `ASINH(number)` | Inverse hyperbolic sine. |
@@ -94,7 +95,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `SINH` | `SINH(number)` | Hyperbolic sine. |
 | `SQRT` | `SQRT(number)` | Square root; negative → `#NUM!`. |
 | `SQRTPI` | `SQRTPI(number)` | Square root of `number × π`. |
-| `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], …)` | Aggregate selected by `function_num` (1-11: AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV.S/STDEV.P/SUM/VAR.S/VAR.P); referenced cells whose own formula is a `SUBTOTAL` are skipped (no double counting). 101-111 behave like 1-11 — MySheet has no hidden-row model (documented limit). Invalid code → `#VALUE!`. |
+| `SUBTOTAL` | `SUBTOTAL(function_num, ref1, [ref2], …)` | Aggregate selected by `function_num` (1-11: AVERAGE/COUNT/COUNTA/MAX/MIN/PRODUCT/STDEV.S/STDEV.P/SUM/VAR.S/VAR.P); referenced cells whose own formula is a `SUBTOTAL` are skipped (no double counting). 101-111 behave like 1-11 — MySheet has no hidden-row model (documented limit). Invalid code → `#VALUE!`. An argument that is a **computed array** rather than a reference is folded element by element, exactly as `SUM` folds an [implicit array argument](workbook-and-expressions.md#implicit-array-arguments): over `A1:A3` = 5/0/9, `SUBTOTAL(9,ROW(A1:A3))` = 6 (the same as `SUM(ROW(A1:A3))`) and `SUBTOTAL(9,(A1:A3<>0)*1)` = 2. Earlier releases evaluated such an argument as a *scalar* and silently answered 1 for the first shape (and `#VALUE!` for the second); the reading behind the fix — that Excel folds an array argument in `SUBTOTAL` the way it does in `SUM` — was **reasoned by analogy with `SUM`, not measured against Excel**, because the official page defines `ref1` only as a range or reference. A nested `AGGREGATE` cell is **not** skipped, only a nested `SUBTOTAL` is: over a range holding a nested `SUBTOTAL` (3), a nested `AGGREGATE` (3) and a plain 5, `SUBTOTAL(9,…)` = 8 while `AGGREGATE(9,0,…)` = 5. The "nested SUBTOTAL and AGGREGATE" wording exists only in AGGREGATE's own options table, so the converse is left as a documented limit and an open question rather than guessed. |
 | `SUM` | `SUM([number1], …)` | Sum of all numeric values; range-aware. Also folds an [implicit array argument](workbook-and-expressions.md#implicit-array-arguments) — `SUM(IF(B2:B5="Show",1,0))` = 2. |
 | `SUMIF` | `SUMIF(range, criteria, [sum_range])` | Sums the cells matching a criteria (e.g. `">10"`). |
 | `SUMIFS` | `SUMIFS(sum_range, criteria_range1, criteria1, …)` | Sum under multiple criteria-range pairs. |
@@ -406,7 +407,7 @@ category, are documented in their Text/Math sections.)
 
 ## Excel function coverage
 
-MySheet implements 304 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 305 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -444,11 +445,11 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Math and Trigonometry</strong> — 74/82</summary>
+<summary><strong>Math and Trigonometry</strong> — 75/82</summary>
 
-✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
 
-⬜ `AGGREGATE` `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY` `SEQUENCE`
+⬜ `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY` `SEQUENCE`
 
 </details>
 

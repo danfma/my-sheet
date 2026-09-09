@@ -235,6 +235,29 @@ ganho de alocação e de GC. No fio, o MemoryPack serializa os dados de cada nó
 escrava. Um workbook com um grande grupo de fórmula compartilhada, portanto, não diminui em disco só por
 causa desta mudança — apenas sua pegada em memória após o carregamento diminui.
 
+### Compatibilidade futura: o nó `AGGREGATE` (tag 322)
+
+O `AGGREGATE` é um novo tipo de nó de expressão e toma a próxima tag append-only da union, a **322** (veja
+a [Referência de funções](function-reference.md) para o que a função faz). Uma célula cuja fórmula o
+chama é serializada sob essa tag.
+
+Este é um limite de compatibilidade em **uma única direção**, como qualquer adição de tag append-only:
+
+- Um arquivo salvo por esta versão da biblioteca **ou por uma posterior** — seja produzido por
+  `Workbook.Save` ou por `ExcelFile.Load` seguido de um save — pode conter células usando a tag 322 sempre
+  que a fórmula de uma célula for uma chamada de `AGGREGATE`. Esse arquivo **não pode ser aberto por uma
+  versão da biblioteca anterior à que introduziu essa tag**: a union do MemoryPack mais antiga não a
+  reconhece e a desserialização falha.
+- Um arquivo salvo por uma versão **mais antiga** da biblioteca nunca contém essa tag e continua
+  carregando sem alteração nesta e em toda versão posterior, exatamente como garante a política
+  append-only acima.
+
+**O que uma tag nova *não* quebra.** A tag é escrita por nó, não por arquivo, então um workbook que não usa
+o `AGGREGATE` é serializado exatamente nos mesmos bytes de antes: as goldens binárias congeladas da suíte
+de testes — o snapshot em base64 do formato de fio do armazenamento de células e a fixture pré-2.0
+`.msgpack.bin` — continuam válidas e não precisam ser regeradas. Só um novo **membro no próprio
+`Workbook`** mudaria o formato de todo arquivo salvo e obrigaria a isso.
+
 ### Compatibilidade futura: container v3 (Brotli em chunks)
 
 `WorkbookCompression.Brotli` agora escreve o container versão 3 por padrão (veja [Formato do

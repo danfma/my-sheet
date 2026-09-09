@@ -218,6 +218,27 @@ reference-tracking or structural deduplication: a `SharedFormulaSlave` still wri
 master tree's serialized bytes, once per slave. A workbook with a large shared-formula group therefore does
 not shrink on disk from this change alone — only its in-memory footprint after loading does.
 
+### Forward-compatibility: the `AGGREGATE` node (tag 322)
+
+`AGGREGATE` is a new expression node type and claims the next append-only union tag, **322** (see
+[Function reference](function-reference.md) for what the function does). A cell whose formula calls it is
+serialized under that tag.
+
+This is a **one-way** compatibility boundary, same as any append-only tag addition:
+
+- A file saved by **this or a later** version of the library — whether produced by `Workbook.Save` or by
+  `ExcelFile.Load` followed by a save — can contain cells using tag 322 whenever a cell's formula is an
+  `AGGREGATE` call. Such a file **cannot be opened by a version of the library older than the one that
+  introduced this tag**: the older MemoryPack union does not recognize it and deserialization fails.
+- A file saved by an **older** version of the library never contains this tag, and continues to load
+  unchanged in this and every later version, exactly as the append-only policy above guarantees.
+
+**What a new tag does *not* break.** The tag is written per node, not per file, so a workbook that does not
+use `AGGREGATE` serializes to exactly the same bytes as before: the frozen binary goldens in the test suite
+— the base64 cell-store wire snapshot and the pre-2.0 `.msgpack.bin` fixture — stay valid and need no
+regeneration. Only a new **member on `Workbook` itself** would change the shape of every saved file and
+force that.
+
 ### Forward-compatibility: container v3 (chunked Brotli)
 
 `WorkbookCompression.Brotli` now writes container version 3 by default (see [File

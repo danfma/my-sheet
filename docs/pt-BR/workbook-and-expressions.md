@@ -413,7 +413,12 @@ ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // →
 ```
 
 **Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX` e —
-através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX` e `SUMPRODUCT`. Um argumento é avaliado
+através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUCT` e a dupla de funções por
+código de agregação `SUBTOTAL` e [`AGGREGATE`](function-reference.md), que encaminham seus argumentos por
+uma única alimentação compartilhada: `SUBTOTAL(9,ROW(A1:A3))` = 6, exatamente como no `SUM`, e o
+`AGGREGATE` aceita um array computado nas **duas** formas — como `ref` da forma-referência 1-13
+(`AGGREGATE(9,4,ROW(A1:A3))` = 6) e como `array` da forma-array 14-19, onde a option 6 descarta os
+elementos `#DIV/0!` que fazem um `SMALL` simples sobre o mesmo vetor falhar. Um argumento é avaliado
 como um array quando é uma comparação de **intervalo fechado** (`B2:B5="Show"`), um `IF` cuja condição é um
 array assim (com ou sem ramo `else`), ou `ROW`/`COLUMN` sobre um retângulo. Esse retângulo pode estar
 escrito literalmente (`SUM(ROW(A1:C3))` = 18, `SUM(COLUMN(A1:C3))` = 18) ou apenas ser *denotado* pelo
@@ -448,7 +453,8 @@ correspondência). O primeiro erro por elemento prevalece, como no Excel.
   `COUNTIF`/`COUNTIFS` igualmente contam essa varredura vazia como `0`; e `AVERAGEIF` a divide por uma
   contagem zero — `#DIV/0!`. As três últimas são respostas **silenciosas**, não erros. O `SUMPRODUCT` é o
   único membro dessa família que optou por aceitar arrays computados; os consumidores de dobra listados em
-  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram.
+  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram, e o `SUBTOTAL`/`AGGREGATE` chegam
+  neles pela mesma dobra.
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
