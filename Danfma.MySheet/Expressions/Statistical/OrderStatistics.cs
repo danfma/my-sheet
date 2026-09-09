@@ -505,7 +505,7 @@ file static class OrderSelection
         // reference keeps the shared sorted-view/collect path below (snapshot reuse, PERCENTILE, …).
         if (
             arguments[0] is not Reference
-            && ArrayEvaluation.IsArrayEligible(arguments[0])
+            && ArrayEvaluation.IsArrayEligible(arguments[0], context)
             && ArrayEvaluation.TryEvaluateStream(arguments[0], context, out var stream)
         )
         {

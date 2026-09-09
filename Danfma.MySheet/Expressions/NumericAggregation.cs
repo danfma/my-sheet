@@ -101,13 +101,15 @@ internal static class NumericAggregation
                     break;
 
                 default:
-                    // Mini-CSE: an array-eligible argument — IF(range=…,…), a range comparison, ROW(range)
-                    // — folds element-by-element with RANGE semantics (logicals/text ignored, so the FALSE
-                    // of a branch-less IF drops out; the first cell error propagates). The cheap syntactic
-                    // gate keeps the scalar hot path below at zero extra cost and avoids any double
-                    // evaluation (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
+                    // Mini-CSE: an array-eligible argument — IF(range=…,…), a range comparison,
+                    // ROW/COLUMN of a range or of a name that stands for one — folds element-by-element with
+                    // RANGE semantics (logicals/text ignored, so the FALSE of a branch-less IF drops out; the
+                    // first cell error propagates). The cheap gate keeps the scalar hot path below at a
+                    // shallow type-walk (one reference resolution for that ROW/COLUMN case, never an
+                    // evaluation) and avoids any double evaluation (IsArrayEligible ⇒ TryEvaluate succeeds as
+                    // the single evaluation).
                     if (
-                        ArrayEvaluation.IsArrayEligible(argument)
+                        ArrayEvaluation.IsArrayEligible(argument, context)
                         && ArrayEvaluation.TryEvaluateStream(argument, context, out var array)
                     )
                     {

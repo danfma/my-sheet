@@ -32,9 +32,12 @@ internal readonly struct ArrayEvaluationResult
 /// array value, spilling or new AST node: a closed range becomes a vector of its per-cell values, scalars
 /// broadcast, <c>BinaryOperation</c> zips element-wise, <c>IF</c> zips a condition array against its
 /// branches (a branch-less <c>IF</c> yields a logical <c>FALSE</c> where the condition is false — the idiom
-/// <c>SMALL(IF(...))</c> depends on this), and <c>ROW(range)</c> becomes a vector of row numbers. Any node
-/// outside this set is treated as a scalar (broadcast); a whole-column/open range is REFUSED (the cost
-/// guard) so the whole evaluation reports "not an array" and the caller keeps its current scalar path.
+/// <c>SMALL(IF(...))</c> depends on this), and <c>ROW</c>/<c>COLUMN</c> of a rectangle becomes a vector of
+/// row/column numbers — over a range written literally, and over a defined name or any other node that
+/// DENOTES one (a structured reference, a <c>':'</c> range with reference-returning endpoints), whose shape
+/// is discovered by resolving it. Any node outside this set is treated as a scalar (broadcast); a
+/// whole-column/open range is REFUSED (the cost guard) so the whole evaluation reports "not an array" and
+/// the caller keeps its current scalar path.
 ///
 /// <para>Two consumption shapes share ONE recursive builder (<see cref="TryBuildOperand"/>): the LAZY
 /// <see cref="ArrayStream"/> (element-on-demand, no vector — used by the aggregating consumers SUM/COUNT/
@@ -50,9 +53,10 @@ internal static class ArrayEvaluation
     /// <summary>
     /// Tries to evaluate <paramref name="expression"/> as an array, MATERIALIZING it into a row-major vector.
     /// Returns <c>true</c> (with the vector in <paramref name="result"/>) only when the sub-tree genuinely
-    /// produces an array — a closed range, a <c>ROW(range)</c>, or an operation/IF with at least one array
-    /// operand. A bare scalar, a non-eligible node, or anything touching an open range returns <c>false</c>
-    /// (the current scalar path is untouched). Production consumers use <see cref="TryEvaluateStream"/>; this
+    /// produces an array — a closed range, a <c>ROW</c>/<c>COLUMN</c> of one, or an operation/IF with at least
+    /// one array operand. A bare scalar, a non-eligible node, or anything touching an open range returns
+    /// <c>false</c> (the current scalar path is untouched). Production consumers use
+    /// <see cref="TryEvaluateStream"/>; this
     /// eager form exists for the direct unit tests of the vector semantics.
     /// </summary>
     public static bool TryEvaluate(
@@ -106,8 +110,8 @@ internal static class ArrayEvaluation
     }
 
     /// <summary>
-    /// A CHEAP syntactic pre-check — no evaluation — for whether <paramref name="expression"/> would
-    /// produce an array through the eligible structural set. Consumers gate on this BEFORE calling
+    /// A CHEAP pre-check — it never evaluates <paramref name="expression"/> — for whether it would produce an
+    /// array through the eligible structural set. Consumers gate on this BEFORE calling
     /// <see cref="TryEvaluate"/>/<see cref="TryEvaluateStream"/>, so the scalar hot path pays only a shallow
     /// type-walk and never a double evaluation: when this returns <c>false</c> the consumer keeps its existing
     /// scalar path untouched; when it returns <c>true</c> the subsequent build is guaranteed to succeed and is
@@ -115,12 +119,30 @@ internal static class ArrayEvaluation
     /// exactly (same array-producing cases, same open-range refusal), so it is true iff the build succeeds as
     /// an array.
     /// </summary>
-    public static bool IsArrayEligible(Expression expression) => Probe(expression).IsArray;
+    /// <remarks>
+    /// It takes a <paramref name="context"/> because the check is no longer purely SYNTACTIC: whether
+    /// <c>ROW</c>/<c>COLUMN</c> of a defined name (or of any other node that merely DENOTES a reference) is an
+    /// array or a scalar depends on the SHAPE the argument resolves to — a rectangle vs a single cell — which
+    /// no type-walk can know. That case costs one reference RESOLUTION — a dictionary lookup plus a virtual
+    /// call for a name, never an evaluation of the <c>ROW</c>/<c>COLUMN</c> node itself — and it is the only
+    /// case that costs more than the type-walk. See <see cref="ResolveRowRange"/>.
+    /// </remarks>
+    public static bool IsArrayEligible(Expression expression, EvaluationContext context) =>
+        Probe(expression, context).IsArray;
 
-    // The pure-shape twin of TryBuildOperand: decides, WITHOUT evaluating any sub-expression, whether the
-    // build would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an
-    // array (IsArray). Must track the builder's structure exactly so IsArrayEligible == (build result).
-    private static (bool Succeeds, bool IsArray) Probe(Expression expression)
+    // The pure-shape twin of TryBuildOperand: decides, WITHOUT evaluating the expression, whether the build
+    // would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an array
+    // (IsArray). Must track the builder's structure exactly so IsArrayEligible == (build result).
+    //
+    // One case cannot be answered from the syntax alone — ROW/COLUMN over a node that only DENOTES a
+    // reference — so both this probe and the builder ask the SAME oracle, ResolveRowRange, on the same
+    // argument in the same context, and therefore agree. The oracle resolves the argument rather than
+    // evaluating the ROW/COLUMN node, and the build resolves it a second time, which is what keeps a
+    // reference-returning FUNCTION argument out of that arm: see ResolveRowRange.
+    private static (bool Succeeds, bool IsArray) Probe(
+        Expression expression,
+        EvaluationContext context
+    )
     {
         switch (expression)
         {
@@ -149,15 +171,38 @@ internal static class ArrayEvaluation
             case Row { Arguments: [OpenRangeReference] }:
                 return (false, false);
 
+            // ROW over a node that merely DENOTES a reference — a defined name, a ':' range with
+            // reference-returning endpoints, and (from Phase 3) a structured table column: only the RESOLVED
+            // shape says whether this is a vector of row numbers or a single one, so ResolveRowRange answers
+            // for the build too. It MUST stay after the three syntactic arms above — RangeReference,
+            // AnchoredRangeReference and OpenRangeReference are all Reference nodes, so `or Reference` placed
+            // first would swallow all three and make them pay a resolution they do not need.
+            case Row { Arguments: [NameReference or Reference] } resolvableRow:
+                return ProbeAnswer(ResolveRowRange(resolvableRow.Arguments[0], context, out _));
+
+            // COLUMN mirrors ROW arm for arm, on the other axis: ROW arrayed while COLUMN stayed an opaque
+            // scalar would be a fresh asymmetry inside one fix (SUM(COLUMN(A1:C1)) read 1 instead of 6).
+            case Column { Arguments: [RangeReference] }:
+                return (true, true);
+
+            case Column { Arguments: [AnchoredRangeReference] }:
+                return (true, true);
+
+            case Column { Arguments: [OpenRangeReference] }:
+                return (false, false);
+
+            case Column { Arguments: [NameReference or Reference] } resolvableColumn:
+                return ProbeAnswer(ResolveRowRange(resolvableColumn.Arguments[0], context, out _));
+
             case BinaryOperation binary:
             {
-                var left = Probe(binary.Left);
+                var left = Probe(binary.Left, context);
                 if (!left.Succeeds)
                 {
                     return (false, false);
                 }
 
-                var right = Probe(binary.Right);
+                var right = Probe(binary.Right, context);
                 if (!right.Succeeds)
                 {
                     return (false, false);
@@ -168,7 +213,7 @@ internal static class ArrayEvaluation
 
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
             {
-                var condition = Probe(ifNode.Arguments[0]);
+                var condition = Probe(ifNode.Arguments[0], context);
                 if (!condition.Succeeds)
                 {
                     return (false, false);
@@ -181,12 +226,12 @@ internal static class ArrayEvaluation
                     return (true, false);
                 }
 
-                if (!Probe(ifNode.Arguments[1]).Succeeds)
+                if (!Probe(ifNode.Arguments[1], context).Succeeds)
                 {
                     return (false, false);
                 }
 
-                if (ifNode.Arguments.Length == 3 && !Probe(ifNode.Arguments[2]).Succeeds)
+                if (ifNode.Arguments.Length == 3 && !Probe(ifNode.Arguments[2], context).Succeeds)
                 {
                     return (false, false);
                 }
@@ -199,6 +244,17 @@ internal static class ArrayEvaluation
                 return (true, false);
         }
     }
+
+    // Probe's answer for an already-resolved ROW/COLUMN argument: an Array builds the row/column-number
+    // operand, a Refused open range fails the build, and a Scalar is the opaque-scalar `default` answer (it
+    // succeeds and is broadcast) — the three arms TryBuildOperand takes for the very same shape.
+    private static (bool Succeeds, bool IsArray) ProbeAnswer(RowArgumentShape shape) =>
+        shape switch
+        {
+            RowArgumentShape.Array => (true, true),
+            RowArgumentShape.Refused => (false, false),
+            _ => (true, false),
+        };
 
     // ==============================================================================================
     // The lazy operand tree: built once (array leaves resolved once, scalar sub-expressions evaluated once),
@@ -324,6 +380,37 @@ internal static class ArrayEvaluation
             }
 
             return ComputedValue.Number(_topRow + index / _columns);
+        }
+    }
+
+    // COLUMN(range): every cell in column c shares the same worksheet column number (LeftColumn + c). The
+    // mirror of RowNumbersOperand on the other axis — same row-major indexing, so the column index within the
+    // rectangle is `index % _columns` where the row one is `index / _columns`.
+    private sealed class ColumnNumbersOperand : ArrayOperand
+    {
+        private readonly int _leftColumn;
+        private readonly int _rows;
+        private readonly int _columns;
+
+        public ColumnNumbersOperand(int leftColumn, int rows, int columns)
+        {
+            _leftColumn = leftColumn;
+            _rows = rows;
+            _columns = columns;
+        }
+
+        public override bool IsArray => true;
+        public override int Rows => _rows;
+        public override int Columns => _columns;
+
+        public override ComputedValue At(int index, int rows, int columns)
+        {
+            if (_rows != rows || _columns != columns)
+            {
+                return ComputedValue.Error(Error.Value);
+            }
+
+            return ComputedValue.Number(_leftColumn + index % _columns);
         }
     }
 
@@ -466,6 +553,85 @@ internal static class ArrayEvaluation
                 operand = null!;
                 return false;
 
+            // The build twin of Probe's resolvable-ROW arm — same oracle, same three outcomes, so the
+            // documented "eligible iff the build succeeds" invariant holds for a shape only resolution knows.
+            case Row { Arguments: [NameReference or Reference] } resolvableRow:
+            {
+                var shape = ResolveRowRange(
+                    resolvableRow.Arguments[0],
+                    context,
+                    out var resolvedRowBounds
+                );
+
+                if (shape is RowArgumentShape.Refused)
+                {
+                    operand = null!;
+                    return false;
+                }
+
+                operand =
+                    shape is RowArgumentShape.Array
+                        ? new RowNumbersOperand(
+                            resolvedRowBounds.TopRow,
+                            resolvedRowBounds.RowCount,
+                            resolvedRowBounds.ColumnCount
+                        )
+                        // A single cell, a union, an unresolvable name: let the node evaluate itself ONCE and
+                        // broadcast, which is exactly its (correct) scalar answer, error included.
+                        : new ScalarOperand(expression.Evaluate(context));
+                return true;
+            }
+
+            // COLUMN mirrors the four ROW arms above, reading bounds.LeftColumn instead of bounds.TopRow.
+            case Column { Arguments: [RangeReference columnRange] }:
+                var columnBounds = columnRange.GetBounds();
+                operand = new ColumnNumbersOperand(
+                    columnBounds.LeftColumn,
+                    columnBounds.RowCount,
+                    columnBounds.ColumnCount
+                );
+                return true;
+
+            case Column { Arguments: [AnchoredRangeReference anchoredColumnRange] }:
+                var anchoredColumnBounds = anchoredColumnRange
+                    .ToRangeReference(context)
+                    .GetBounds();
+                operand = new ColumnNumbersOperand(
+                    anchoredColumnBounds.LeftColumn,
+                    anchoredColumnBounds.RowCount,
+                    anchoredColumnBounds.ColumnCount
+                );
+                return true;
+
+            case Column { Arguments: [OpenRangeReference] }:
+                operand = null!;
+                return false;
+
+            case Column { Arguments: [NameReference or Reference] } resolvableColumn:
+            {
+                var shape = ResolveRowRange(
+                    resolvableColumn.Arguments[0],
+                    context,
+                    out var resolvedColumnBounds
+                );
+
+                if (shape is RowArgumentShape.Refused)
+                {
+                    operand = null!;
+                    return false;
+                }
+
+                operand =
+                    shape is RowArgumentShape.Array
+                        ? new ColumnNumbersOperand(
+                            resolvedColumnBounds.LeftColumn,
+                            resolvedColumnBounds.RowCount,
+                            resolvedColumnBounds.ColumnCount
+                        )
+                        : new ScalarOperand(expression.Evaluate(context));
+                return true;
+            }
+
             case BinaryOperation binary:
                 return TryBuildBinary(binary, context, out operand);
 
@@ -477,6 +643,96 @@ internal static class ArrayEvaluation
             default:
                 operand = new ScalarOperand(expression.Evaluate(context));
                 return true;
+        }
+    }
+
+    // What a ROW/COLUMN argument that DENOTES a reference contributes to the mini-CSE, once resolved.
+    private enum RowArgumentShape
+    {
+        // A rectangle: ROW/COLUMN over it is a vector of positions, one per cell.
+        Array,
+
+        // No rectangle to spread over — a single cell, a union, a name that does not resolve: the ROW/COLUMN
+        // node evaluates itself once and broadcasts its own scalar answer (or its own error).
+        Scalar,
+
+        // An open/whole-column reference: the cost guard refuses the whole array evaluation.
+        Refused,
+    }
+
+    // Resolves a ROW/COLUMN argument to the rectangle whose positions the operand reports. This is the ONE
+    // oracle Probe and TryBuildOperand share: the shape of such an argument is context-dependent, so a
+    // syntactic probe could not answer it, and a probe that GUESSED (leaving the build to fail) would break
+    // the documented "eligible iff the build succeeds — and the build is the SINGLE evaluation" contract.
+    //
+    // Because BOTH callers resolve, every argument admitted here is resolved TWICE per evaluation. For the
+    // shapes the arms admit that is a scope/dictionary lookup and a virtual call — idempotent and cheap. It is
+    // exactly why a reference-returning FUNCTION argument (ROW(INDEX(…))/OFFSET/INDIRECT) is NOT admitted:
+    // resolving one evaluates the function's own arguments, so the pair of resolutions would draw a volatile
+    // twice where the scalar path draws it once (measured: a counting function inside ROW(INDEX(…,TICK(),1))
+    // is called exactly once, before and after this fix). Such an argument stays an opaque scalar here — still
+    // its correct scalar answer (the resolved reference's top row / leftmost column), just not yet its array
+    // shape.
+    //
+    // The one admitted shape whose resolution is not free is a DynamicRange with reference-returning ENDPOINTS
+    // (ROW(INDEX(A1:A3,1,1):A3)), in scope deliberately as the same `or Reference` hook a structured table
+    // column will land on. It costs no EXTRA draw: the scalar path this replaces already resolved it twice
+    // (ReferenceGuard.MissingSheet, then ReferencePosition), so the count is 2 either way — measured. What a
+    // SIDE-EFFECTING endpoint does expose is that the two resolutions can then disagree on the rectangle, and
+    // the build's answer wins (ROW(INDEX(A1:A3,TICK(),1):A3) folds to 5, where Excel's single evaluation gives
+    // 6 — and where the pre-fix scalar answer was a likewise-wrong 2). A pure endpoint, which is every real
+    // one, resolves to the same rectangle twice and is exact.
+    //
+    // boundOpenRanges:false keeps an open range OPEN so it reaches the Refused arm instead of being silently
+    // collapsed to its populated bounding box — both the cost guard this class states and the same choice
+    // ROW/COLUMN's own scalar fallback (ReferencePosition) makes, where ROW(A:A) is the DECLARED row 1.
+    private static RowArgumentShape ResolveRowRange(
+        Expression argument,
+        EvaluationContext context,
+        out RangeBounds bounds
+    )
+    {
+        bounds = default;
+
+        if (
+            !NamedReferences.TryResolveReference(
+                argument,
+                context,
+                out var reference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            // Scalar, not Refused: the enclosing ROW/COLUMN then evaluates once and reports the ARGUMENT's own
+            // error (#NAME? for an unknown name) through ReferencePosition. Refusing instead would hand the
+            // consumer's scalar path an operand tree it never built, losing that error in an enclosing
+            // operation (SUM(A1:A3+ROW(Nope)) must be #NAME?, not the #VALUE! of a range in a scalar add).
+            return RowArgumentShape.Scalar;
+        }
+
+        // A reference that resolves onto a DELETED sheet is a structural #REF!, which ROW/COLUMN's own
+        // ReferenceGuard pass reports — degrade to Scalar so that error is what gets broadcast, rather than
+        // handing back bounds and a plausible row number for a sheet that no longer exists. (The syntactic
+        // arms above cannot reach this: a literal Ghost!A1:A3 carries its dead sheet name into the operand,
+        // a pre-existing gap this fix neither widens nor closes.)
+        if (ReferenceGuard.MissingSheet(reference, context) is not null)
+        {
+            return RowArgumentShape.Scalar;
+        }
+
+        switch (reference)
+        {
+            case RangeReference range:
+                // GetBounds() parses BOTH corners, so it is called once here and the rectangle handed back.
+                bounds = range.GetBounds();
+                return RowArgumentShape.Array;
+
+            case OpenRangeReference:
+                return RowArgumentShape.Refused;
+
+            // A single cell (1x1 — nothing to spread over) or a union (no single position: #VALUE!).
+            default:
+                return RowArgumentShape.Scalar;
         }
     }
 

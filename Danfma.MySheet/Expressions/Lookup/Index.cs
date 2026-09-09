@@ -16,12 +16,12 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return IndexIntoOpenRowNumbers(openColumn, context);
         }
 
-        //   • Any other array-eligible, non-reference first argument — ROW(B2:B5), IF(range=…,…) — is
-        //     materialized row-major and indexed. References fall through to the concrete-range path below,
-        //     so plain INDEX(A1:C10, r, c) is untouched.
+        //   • Any other array-eligible, non-reference first argument — ROW(B2:B5), ROW(name), IF(range=…,…)
+        //     — is materialized row-major and indexed. References fall through to the concrete-range path
+        //     below, so plain INDEX(A1:C10, r, c) is untouched.
         if (
             Arguments[0] is not Reference
-            && ArrayEvaluation.IsArrayEligible(Arguments[0])
+            && ArrayEvaluation.IsArrayEligible(Arguments[0], context)
             && ArrayEvaluation.TryEvaluateStream(Arguments[0], context, out var array)
         )
         {
@@ -168,7 +168,10 @@ public sealed partial record Index(Expression[] Arguments) : Function
         // Array forms (mini-CSE vector, open-column ROW identity) have no cell address.
         if (
             Arguments[0] is Row { Arguments: [OpenRangeReference] }
-            || (Arguments[0] is not Reference && ArrayEvaluation.IsArrayEligible(Arguments[0]))
+            || (
+                Arguments[0] is not Reference
+                && ArrayEvaluation.IsArrayEligible(Arguments[0], context)
+            )
         )
         {
             return false;
