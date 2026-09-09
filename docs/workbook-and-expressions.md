@@ -358,7 +358,7 @@ Details:
   `#VALUE!` in row 1 but `A3` in row 3. This is deliberately *not* the populated extent that `ROWS`/
   `COLUMNS` use.
 - **Positional and sheet-independent.** Only the formula cell's row and column number enter the rule:
-  `=Sheet1!A1:A3` typed in `Sheet2!C3` is `Sheet1!A3`. *(Inference, not a measurement: Excel defines `@`
+  `=Sheet1!A1:A3` typed in `Sheet2!C2` is `Sheet1!A2`. *(Inference, not a measurement: Excel defines `@`
   purely in terms of row and column with no sheet term; this cross-sheet case was not checked against
   Excel.)*
 - **Everything that denotes a reference follows the same table**, not only a literal range — `=MyName`,
@@ -420,9 +420,14 @@ logical `FALSE` where the condition is false, and the aggregators ignore logical
   `SUM(ROW(INDEX(A1:A3,1,1)))` is `1`, the top row of the resolved reference, not the vector `[1,2,3]`.
   Discovering its shape would resolve the argument a second time and draw a volatile twice, so the array
   shape is deliberately deferred there.
-- The `*IFS` **criteria** family does not read a computed array: Excel makes `SUMIFS((A1:A3)*1, …)` a
-  `#VALUE!` there and that rule is unchanged. `SUMPRODUCT` is the only function that takes a computed array
-  as a whole argument.
+- The **criteria / positional-scan** family does not read a computed array. `SUMIF`/`SUMIFS`,
+  `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` and `MAXIFS`/`MINIFS` walk their arguments position by
+  position, and an array in one of those positions is simply not a range: Excel makes
+  `SUMIFS((A1:A3)*1, …)` a `#VALUE!` and that rule is unchanged — the length mismatch against the real
+  criteria range is what raises it, while a single-criteria `SUMIF((A1:A3)*1, ">0")` scans nothing and
+  answers `0`. `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the
+  fold-based consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken
+  them.
 - An **open/whole-column** range in an array position is refused and the consumer stays on its ordinary
   scalar/range path — the one exception is the `INDEX(ROW($A:$A), n)` identity above, which returns `n`
   without materializing the column. `SMALL(IF(A:A=…, ROW(A:A)), k)` over an *open* column is therefore
@@ -480,11 +485,11 @@ collides with a cell-reference shape (`A1`) or a boolean literal, is also reject
    scalar. The functions that require a syntactic reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,
    `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — accept a name that stands for a range
    (e.g. `VLOOKUP(2, Sales, 2)`).
+3. Otherwise `#NAME?`.
 
 A name used **bare in a cell** (`=Sales`) is not an error either: the reference it stands for is
 [implicitly intersected](#implicit-intersection-at-the-cell-boundary) with the formula cell's row and
 column, so `=Sales` over `Data!A1:A3` shows `Data!A3` when it is typed in row 3.
-3. Otherwise `#NAME?`.
 
 **Cycles.** A name that refers to itself, directly or through a chain (`A → B → A`), is detected by a
 thread-local guard and yields `#REF!` instead of overflowing the stack.

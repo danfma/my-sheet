@@ -370,7 +370,7 @@ Detalhes:
   `=1:1` em `B7` é `B1`, e `=A2:A` é `#VALUE!` na linha 1, mas `A3` na linha 3. Isso deliberadamente **não**
   é a extensão populada que `ROWS`/`COLUMNS` usam.
 - **Posicional e independente de planilha.** Apenas o número da linha e da coluna da célula da fórmula entram
-  na regra: `=Sheet1!A1:A3` digitado em `Sheet2!C3` é `Sheet1!A3`. *(Inferência, não medição: o Excel define
+  na regra: `=Sheet1!A1:A3` digitado em `Sheet2!C2` é `Sheet1!A2`. *(Inferência, não medição: o Excel define
   o `@` puramente em termos de linha e coluna, sem nenhum termo de planilha; esse caso entre planilhas não
   foi verificado no Excel.)*
 - **Tudo o que denota uma referência segue a mesma tabela**, não apenas um intervalo literal — `=MyName`,
@@ -387,7 +387,7 @@ Detalhes:
   warm start, a exportação `.xlsx`) — por isso um `ComputedValueKind.Reference` nunca pode ser o valor de
   uma célula.
 - **Uma célula que intersecta a si mesma é `#REF!`.** `=A1:A3` em `A2` desreferencia `A2`, a célula que já
-  está na pilha de avaliação, então o guarda de ciclo responde `#REF!` (o Excel, em vez disso, levanta a
+  está na pilha de avaliação, então a guarda de ciclos responde `#REF!` (o Excel, em vez disso, levanta a
   caixa de diálogo de referência circular).
 - **Sem *spill*.** A célula intersectada é o resultado inteiro — o MySheet nunca escreve nas células
   vizinhas.
@@ -436,9 +436,14 @@ correspondência). O primeiro erro por elemento prevalece, como no Excel.
   `SUM(ROW(INDEX(A1:A3,1,1)))` é `1`, a linha superior da referência resolvida, e não o vetor `[1,2,3]`.
   Descobrir o formato dela resolveria o argumento uma segunda vez e sortearia uma volátil duas vezes, então
   ali o formato de array é deliberadamente adiado.
-- A família de **critérios** `*IFS` não lê um array computado: o Excel torna `SUMIFS((A1:A3)*1, …)` um
-  `#VALUE!` ali, e essa regra não mudou. `SUMPRODUCT` é a única função que aceita um array computado como
-  argumento inteiro.
+- A família de **critérios / varredura posicional** não lê um array computado. `SUMIF`/`SUMIFS`,
+  `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` e `MAXIFS`/`MINIFS` percorrem seus argumentos posição a
+  posição, e um array em uma dessas posições simplesmente não é um intervalo: o Excel torna
+  `SUMIFS((A1:A3)*1, …)` um `#VALUE!`, e essa regra não mudou — o que o levanta é a diferença de
+  comprimento em relação ao intervalo de critérios real, enquanto um `SUMIF((A1:A3)*1, ">0")` de critério
+  único varre o vazio e responde `0`. O `SUMPRODUCT` é o único membro dessa família que optou por aceitar
+  arrays computados; os consumidores de dobra listados em **Suportado** acima (`SUM(IF(…))` e companhia)
+  sempre os aceitaram.
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto

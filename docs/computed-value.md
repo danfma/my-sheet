@@ -147,9 +147,10 @@ Notes:
 ## References and `EnumerateValues`
 
 Some expressions evaluate to a *reference* rather than a scalar — `Kind == ComputedValueKind.Reference`.
-`OFFSET` and a multi-cell `INDIRECT` return one, and so does a defined name or a `LET` binding that stands
-for a range or a union. `EnumerateValues` walks the referenced cells and yields their **computed values**
-(through the memoization cache):
+`OFFSET` and a multi-cell `INDIRECT` return one; so do a defined name or a `LET` binding that stands for a
+range or a union, a `CHOOSE` whose chosen alternative is one, and a `:` range with reference-returning
+endpoints (`INDEX(A1:A3,2,1):A3`). `EnumerateValues` walks the referenced cells and yields their
+**computed values** (through the memoization cache):
 
 ```csharp
 var offset = ExpressionParser.Parse("=OFFSET(A1, 0, 0, 3, 1)", sheet);

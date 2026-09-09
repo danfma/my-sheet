@@ -150,9 +150,11 @@ Observações:
 ## Referências e `EnumerateValues`
 
 Algumas expressões são avaliadas como uma *referência*, em vez de um escalar —
-`Kind == ComputedValueKind.Reference`. `OFFSET` e um `INDIRECT` multicélula retornam uma, assim como um
-nome definido ou uma vinculação de `LET` que representa um intervalo ou uma união. `EnumerateValues`
-percorre as células referenciadas e produz seus **valores calculados** (através do cache de memoização):
+`Kind == ComputedValueKind.Reference`. `OFFSET` e um `INDIRECT` multicélula retornam uma; um nome definido
+ou uma vinculação de `LET` que representa um intervalo ou uma união também, assim como um `CHOOSE` cuja
+alternativa escolhida é uma, e um intervalo `:` com extremidades que retornam referências
+(`INDEX(A1:A3,2,1):A3`). `EnumerateValues` percorre as células referenciadas e produz seus **valores
+calculados** (através do cache de memoização):
 
 ```csharp
 var offset = ExpressionParser.Parse("=OFFSET(A1, 0, 0, 3, 1)", sheet);
