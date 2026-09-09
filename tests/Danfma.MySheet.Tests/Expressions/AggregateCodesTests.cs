@@ -254,15 +254,19 @@ public class AggregateCodesTests
 
     // --- Gather: the nested-skip predicate ---
 
-    // Runs the per-cell scan over A1:A3, where A3 is a nested SUBTOTAL worth 3. A `ref Accumulator` cannot be
-    // captured by a lambda, so the whole call lives in this method and the Throws assertion drives it.
-    private static double GatherOver(AggregateCodes.NestedSkip skip)
+    // Runs the per-cell scan over A1:A3, where A3 holds <paramref name="nested"/> — a nested aggregate cell
+    // worth 3, so the population is 1 + 2 (+ 3 when the cell is NOT skipped). A `ref Accumulator` cannot be
+    // captured by a lambda, so the whole call lives in this method.
+    private static double GatherOver(
+        AggregateCodes.NestedSkip skip,
+        string nested = "=SUBTOTAL(9,A1:A2)"
+    )
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
         sheet["A1"] = new NumberValue(1);
         sheet["A2"] = new NumberValue(2);
-        sheet["A3"] = ExpressionParser.Parse("=SUBTOTAL(9,A1:A2)", sheet);
+        sheet["A3"] = ExpressionParser.Parse(nested, sheet);
 
         var accumulator = new AggregateCodes.Accumulator(9, ignoreErrors: false);
 
@@ -290,14 +294,26 @@ public class AggregateCodesTests
     }
 
     [Test]
-    public async Task Gather_SubtotalAndAggregate_ThrowsUntilTheAggregateNodeExists()
+    public async Task Gather_SubtotalAndAggregate_DropsBothNestedNodeKinds()
     {
-        // O nó Aggregate ainda não existe, então o arm GRITA em vez de degradar em silêncio para o
-        // predicado só-SUBTOTAL: um chamador que pede a regra mais larga e recebe a mais estreita exclui
-        // de menos sem nenhum teste falhando. A Task 4 troca este teste pelo comportamento real.
+        // O arm largo (options 0-3 do AGGREGATE) pula as DUAS espécies de célula aninhada.
         await Assert
-            .That(() => GatherOver(AggregateCodes.NestedSkip.SubtotalAndAggregate))
-            .Throws<ArgumentOutOfRangeException>();
+            .That(GatherOver(AggregateCodes.NestedSkip.SubtotalAndAggregate))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(
+                GatherOver(AggregateCodes.NestedSkip.SubtotalAndAggregate, "=AGGREGATE(9,0,A1:A2)")
+            )
+            .IsEqualTo(3.0);
+
+        // …e os outros dois arms continuam ESTREITOS sobre a mesma célula AGGREGATE — é isso que prova que
+        // o predicado largo não é só o estreito com outro nome (senão o par acima passaria de graça).
+        await Assert
+            .That(GatherOver(AggregateCodes.NestedSkip.Subtotal, "=AGGREGATE(9,0,A1:A2)"))
+            .IsEqualTo(6.0);
+        await Assert
+            .That(GatherOver(AggregateCodes.NestedSkip.None, "=AGGREGATE(9,0,A1:A2)"))
+            .IsEqualTo(6.0);
     }
 
     // --- CollectStream: the mini-CSE feed into the same accumulator ---

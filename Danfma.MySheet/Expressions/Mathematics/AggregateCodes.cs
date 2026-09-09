@@ -73,8 +73,11 @@ internal static class AggregateCodes
                 {
                     for (var row = bounds.TopRow; row <= bounds.BottomRow; row++)
                     {
+                        // `skip != None` first: options 4-7 answer the nested question with a constant, so
+                        // they must not pay a per-cell expression lookup to reach it.
                         if (
-                            sheet.TryGetCellExpressionDense(column, row, out var expression)
+                            skip != NestedSkip.None
+                            && sheet.TryGetCellExpressionDense(column, row, out var expression)
                             && IsNested(expression, skip)
                         )
                         {
@@ -108,7 +111,8 @@ internal static class AggregateCodes
                 foreach (var (column, row) in open.PopulatedCells(context))
                 {
                     if (
-                        sheet.TryGetCellExpressionDense(column, row, out var expression)
+                        skip != NestedSkip.None
+                        && sheet.TryGetCellExpressionDense(column, row, out var expression)
                         && IsNested(expression, skip)
                     )
                     {
@@ -137,7 +141,8 @@ internal static class AggregateCodes
                 if (CellAddress.TryGetColumnRow(cell.Id, out var column, out var row))
                 {
                     if (
-                        sheet.TryGetCellExpressionDense(column, row, out var expression)
+                        skip != NestedSkip.None
+                        && sheet.TryGetCellExpressionDense(column, row, out var expression)
                         && IsNested(expression, skip)
                     )
                     {
@@ -214,19 +219,16 @@ internal static class AggregateCodes
         return null;
     }
 
-    // SubtotalAndAggregate cannot be answered until the Aggregate node exists, so the arm THROWS rather than
-    // degrading silently to the Subtotal-only predicate: a caller that opts into the wider rule and gets the
-    // narrower one under-skips, and no test can see it. Phase 2 Task 4 replaces the arm with the real pattern.
+    // The two rules are deliberately DIFFERENT widths: SUBTOTAL's page documents only "nested subtotals are
+    // ignored", while "nested SUBTOTAL and AGGREGATE functions" is AGGREGATE's own options-table wording
+    // (options 0-3). The converse — SUBTOTAL skipping a nested AGGREGATE — is unverified and is not guessed
+    // into the engine, which is why NestedSkip.Subtotal stays narrow.
     private static bool IsNested(Expression? expression, NestedSkip skip) =>
         skip switch
         {
             NestedSkip.None => false,
             NestedSkip.Subtotal => expression is Subtotal,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(skip),
-                skip,
-                "NestedSkip.SubtotalAndAggregate needs the Aggregate node — Phase 2 Task 4 replaces this arm with `expression is Subtotal or Aggregate`."
-            ),
+            _ => expression is Subtotal or Aggregate,
         };
 
     // Accumulates the exact shape the aggregate needs, directly from the per-cell scan — no intermediate

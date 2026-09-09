@@ -12,7 +12,7 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions;
 
 // MemoryPackUnion tags are APPEND-ONLY: never renumber, reorder or reuse an existing tag,
-// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 319+
+// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 323+
 // (count the attributes below before trusting this number — it drifts every time a tag is added).
 [MemoryPackable]
 [MemoryPackUnion(0, typeof(StringValue))]
@@ -350,6 +350,7 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(319, typeof(AnchoredCellReference))]
 [MemoryPackUnion(320, typeof(AnchoredRangeReference))]
 [MemoryPackUnion(321, typeof(SharedFormulaSlave))]
+[MemoryPackUnion(322, typeof(Aggregate))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

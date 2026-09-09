@@ -1554,6 +1554,17 @@ internal static class FunctionRegistry
             static arguments => new Subtotal(arguments),
             static f => ((Subtotal)f).Arguments
         ),
+        // MinArgs = 3 makes AGGREGATE(15,6) a PARSE-time error, as Excel rejects it at entry; MaxArgs is
+        // unbounded because the reference form takes ref1, [ref2], … — the array form's "exactly 4" rule
+        // depends on function_num and therefore belongs to Evaluate, which is also where Excel's own
+        // #VALUE! for a missing k lives.
+        Entry<Aggregate>(
+            "AGGREGATE",
+            3,
+            int.MaxValue,
+            static arguments => new Aggregate(arguments),
+            static f => ((Aggregate)f).Arguments
+        ),
         Entry<Median>(
             "MEDIAN",
             1,
