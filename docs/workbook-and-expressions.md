@@ -403,12 +403,12 @@ pair `SUBTOTAL` and [`AGGREGATE`](function-reference.md), which route their argu
 feed: `SUBTOTAL(9,ROW(A1:A3))` = 6, exactly like `SUM`'s, and `AGGREGATE` takes a computed array in **both**
 of its forms — as a `ref` of the 1-13 reference form (`AGGREGATE(9,4,ROW(A1:A3))` = 6) and as the `array` of
 the 14-19 array form, where option 6 drops the `#DIV/0!` elements that make a plain `SMALL` over the same
-vector fail. An argument is
-evaluated as an array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is
-such an array (with or without an else branch), or `ROW`/`COLUMN` over a rectangle. That rectangle may be
-written literally (`SUM(ROW(A1:C3))` = 18, `SUM(COLUMN(A1:C3))` = 18) or merely *denoted* by the argument —
-a [defined name](#named-ranges) (`SUM(ROW(MyName))` = 6 and `COUNT(ROW(MyName))` = 3 for a name over three
-rows, while `COUNT(MyName)` counts the cells' own values) or a `:` range with reference-returning endpoints
+vector fail. An argument is evaluated as an array when it is a **closed-range** comparison
+(`B2:B5="Show"`), an `IF` whose condition is such an array (with or without an else branch), or
+`ROW`/`COLUMN` over a rectangle. That rectangle may be written literally (`SUM(ROW(A1:C3))` = 18,
+`SUM(COLUMN(A1:C3))` = 18) or merely *denoted* by the argument — a [defined name](#named-ranges)
+(`SUM(ROW(MyName))` = 6 and `COUNT(ROW(MyName))` = 3 for a name over three rows, while `COUNT(MyName)`
+counts the cells' own values) or a `:` range with reference-returning endpoints
 (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Scalars broadcast across the vector. A branch-less `IF` yields a
 logical `FALSE` where the condition is false, and the aggregators ignore logicals/text (exactly why
 `SMALL(IF(…))` skips the non-matching rows). The first per-element error wins, as in Excel.

@@ -417,7 +417,7 @@ através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUC
 código de agregação `SUBTOTAL` e [`AGGREGATE`](function-reference.md), que encaminham seus argumentos por
 uma única alimentação compartilhada: `SUBTOTAL(9,ROW(A1:A3))` = 6, exatamente como no `SUM`, e o
 `AGGREGATE` aceita um array computado nas **duas** formas — como `ref` da forma-referência 1-13
-(`AGGREGATE(9,4,ROW(A1:A3))` = 6) e como `array` da forma-array 14-19, onde a option 6 descarta os
+(`AGGREGATE(9,4,ROW(A1:A3))` = 6) e como `array` da forma-array 14-19, onde a opção 6 descarta os
 elementos `#DIV/0!` que fazem um `SMALL` simples sobre o mesmo vetor falhar. Um argumento é avaliado
 como um array quando é uma comparação de **intervalo fechado** (`B2:B5="Show"`), um `IF` cuja condição é um
 array assim (com ou sem ramo `else`), ou `ROW`/`COLUMN` sobre um retângulo. Esse retângulo pode estar
