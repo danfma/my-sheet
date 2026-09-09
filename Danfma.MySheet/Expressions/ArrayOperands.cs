@@ -230,3 +230,139 @@ internal sealed class IfOperand : ArrayOperand
         return taken ? _whenTrue.At(index, _rows, _columns) : _whenFalse.At(index, _rows, _columns);
     }
 }
+
+// ==============================================================================================
+// Phase 8 — elementwise lifting: a Negate/Percent over an array, and a pure-scalar built-in over an array.
+// ==============================================================================================
+
+/// <summary>
+/// The ONE mutable node in the engine — an argument slot for <see cref="LiftedFunctionOperand"/>. The lifted
+/// built-in's node is created once per evaluation over these slots, and before each element is computed the
+/// slots are rebound to that element's argument values, so the node re-evaluates per element without a fresh
+/// node, a fresh argument array or a fresh literal per element (measured: 0 B/element, against 80-112 B for
+/// a node rebuilt per element). It carries a <see cref="ComputedValue"/> rather than being one of the typed
+/// literals (<see cref="NumberValue"/>, <see cref="StringValue"/>, …) because those are not TOTAL over the
+/// value kinds: there is no literal node for <see cref="ComputedValueKind.Reference"/>, which an element can
+/// be (a <c>+A1:A3</c> operand, a host custom function), while a value-carrying literal represents every kind.
+/// </summary>
+/// <remarks>
+/// Mutability is acceptable here, and only here, because the instance never escapes the operand that created
+/// it: it is reachable only from that operand's private array, is discarded with it, is never serialized (no
+/// <c>[MemoryPackable]</c> attribute and NO <c>MemoryPackUnion</c> tag on <see cref="Expression"/>), and is
+/// never hashed, compared or stored — the engine holds no <c>Dictionary&lt;Expression,…&gt;</c>,
+/// <c>HashSet&lt;Expression&gt;</c> or <c>ConditionalWeakTable</c>, and the
+/// <c>ArrayLifting.Elementwise</c> classification is the guarantee that a lifted node only ever calls
+/// <see cref="Evaluate"/> on its argument nodes.
+/// </remarks>
+internal sealed record ScratchLiteral : ValueExpression
+{
+    public ComputedValue Value;
+
+    public override ComputedValue Evaluate(EvaluationContext context) => Value;
+}
+
+// Negate/Percent over an array: BinaryOperand's shape guard, then the same coerce-then-apply ladder
+// UnaryOperation.Evaluate runs for its non-Plus operators (UnaryOperation.Apply). Plus is NEVER built into
+// this operand: it is Excel's reference-preserving no-op, routed through NamedReferences.CaptureValue so a
+// range comes back as a REFERENCE value (SUM(+A1:A3) reads the cells today, and must keep doing so), and the
+// builder's pattern excludes it so `+range` stays the opaque scalar that carries that reference.
+internal sealed class UnaryOperand : ArrayOperand
+{
+    private readonly UnaryOperator _operator;
+    private readonly ArrayOperand _inner;
+    private readonly int _rows;
+    private readonly int _columns;
+
+    public UnaryOperand(UnaryOperator @operator, ArrayOperand inner, int rows, int columns)
+    {
+        _operator = @operator;
+        _inner = inner;
+        _rows = rows;
+        _columns = columns;
+    }
+
+    public override bool IsArray => true;
+    public override int Rows => _rows;
+    public override int Columns => _columns;
+
+    public override ComputedValue At(int index, int rows, int columns)
+    {
+        if (_rows != rows || _columns != columns)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        return UnaryOperation.Apply(_operator, _inner.At(index, _rows, _columns));
+    }
+}
+
+// A pure-scalar built-in (an ArrayLifting.Elementwise registry entry) over at least one array argument. The
+// node is created ONCE, through the registry's own factory, over a slot per argument; At() rebinds the slots
+// to the element's values and evaluates that one node — the scalar body of the function is reused verbatim,
+// so the lifted answer is the scalar answer element by element. The shape rule is BinaryOperand's, applied
+// N-ary by the builder (scalars broadcast; arrays must share the shape or every element is #VALUE! through
+// the guard below).
+//
+// An OMITTED optional argument is the one slot that is not scratch. The parser leaves a literal BlankValue in
+// it, and ten of the lifted built-ins (FIXED, DOLLAR, NUMBERVALUE, TEXTBEFORE/TEXTAFTER, VALUETOTEXT, the
+// REGEX family, ADDRESS) detect the omission by pattern-matching that node — `Arguments[1] is not
+// BlankValue` — so a scratch slot there would silently turn "omitted" into "blank, coerced to 0" (measured:
+// FIXED(A1:A3,,TRUE) lost its decimals). The original node is handed through instead; being a literal it is
+// never per-element, so nothing is lost.
+internal sealed class LiftedFunctionOperand : ArrayOperand
+{
+    private readonly Expression _node;
+    private readonly ScratchLiteral?[] _scratch;
+    private readonly ArrayOperand[] _arguments;
+    private readonly EvaluationContext _context;
+    private readonly int _rows;
+    private readonly int _columns;
+
+    public LiftedFunctionOperand(
+        Func<Expression[], Expression> create,
+        Expression[] arguments,
+        ArrayOperand[] operands,
+        EvaluationContext context,
+        int rows,
+        int columns
+    )
+    {
+        _arguments = operands;
+        _context = context;
+        _rows = rows;
+        _columns = columns;
+        _scratch = new ScratchLiteral?[operands.Length];
+
+        var slots = new Expression[operands.Length];
+
+        for (var j = 0; j < slots.Length; j++)
+        {
+            slots[j] =
+                arguments[j] is BlankValue ? arguments[j] : _scratch[j] = new ScratchLiteral();
+        }
+
+        _node = create(slots);
+    }
+
+    public override bool IsArray => true;
+    public override int Rows => _rows;
+    public override int Columns => _columns;
+
+    public override ComputedValue At(int index, int rows, int columns)
+    {
+        if (_rows != rows || _columns != columns)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        for (var j = 0; j < _scratch.Length; j++)
+        {
+            if (_scratch[j] is { } slot)
+            {
+                slot.Value = _arguments[j].At(index, _rows, _columns);
+            }
+        }
+
+        return _node.Evaluate(_context);
+    }
+}

@@ -1,5 +1,6 @@
 using Danfma.MySheet.Expressions.Logical;
 using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Parsing;
 
 namespace Danfma.MySheet.Expressions;
 
@@ -35,9 +36,16 @@ internal readonly struct ArrayEvaluationResult
 /// <c>SMALL(IF(...))</c> depends on this), and <c>ROW</c>/<c>COLUMN</c> of a rectangle becomes a vector of
 /// row/column numbers — over a range written literally, and over a defined name or any other node that
 /// DENOTES one (a structured reference, a <c>':'</c> range with reference-returning endpoints), whose shape
-/// is discovered by resolving it. Any node outside this set is treated as a scalar (broadcast); a
-/// whole-column/open range is REFUSED (the cost guard) so the whole evaluation reports "not an array" and
-/// the caller keeps its current scalar path.
+/// is discovered by resolving it. Two shapes are LIFTED element-wise (Phase 8): a unary <c>-</c>/<c>%</c>
+/// over an array (unary <c>+</c> is Excel's reference-preserving no-op and stays opaque, so
+/// <c>SUM(+A1:A3)</c> keeps reading the cells), and any built-in the registry classifies
+/// <see cref="ArrayLifting.Elementwise"/> — a pure-scalar function such as <c>LEN</c>, <c>ROUND</c> or
+/// <c>IFERROR</c> — with at least one array argument, whose scalar body is evaluated once per element over
+/// rebound argument slots (<see cref="LiftedFunctionOperand"/>) while its scalar arguments broadcast. Any
+/// node outside this set is treated as a scalar (broadcast); a whole-column/open range is REFUSED (the cost
+/// guard) so the whole evaluation reports "not an array" and the caller keeps its current scalar path — except
+/// INSIDE a lifted shape, where the refusal makes that unary/function an opaque scalar (evaluated once, its
+/// own <c>#VALUE!</c> broadcast) rather than unwinding an enclosing array expression that tolerated it before.
 ///
 /// <para>Two consumption shapes share ONE recursive builder (<see cref="TryBuildOperand"/>): the LAZY
 /// <see cref="ArrayStream"/> (element-on-demand, no vector — used by the aggregating consumers SUM/COUNT/
@@ -117,7 +125,11 @@ internal static class ArrayEvaluation
     /// scalar path untouched; when it returns <c>true</c> the subsequent build is guaranteed to succeed and is
     /// the SINGLE evaluation of the argument. It mirrors <see cref="Probe"/>/<see cref="TryBuildOperand"/>
     /// exactly (same array-producing cases, same open-range refusal), so it is true iff the build succeeds as
-    /// an array.
+    /// an array. The array-producing cases are a closed range, <c>ROW</c>/<c>COLUMN</c> of one, a
+    /// <c>BinaryOperation</c>/<c>IF</c>/unary <c>-</c>/<c>%</c> with an array operand, and an
+    /// <see cref="ArrayLifting.Elementwise"/> built-in with an array argument (the lift inspects only the
+    /// registry classification and recurses into the ARGUMENTS' eligibility — it evaluates nothing, measured
+    /// with a counting custom function in the argument slots).
     /// </summary>
     /// <remarks>
     /// It takes a <paramref name="context"/> because the check is no longer purely SYNTACTIC: whether
@@ -228,6 +240,19 @@ internal static class ArrayEvaluation
 
             case Column { Arguments: [NameReference or Reference] } column:
                 return ProbePosition(column.Arguments[0], context);
+
+            // Unary '-'/'%' is an array exactly when its operand is. Plus is excluded by PATTERN, not by an
+            // `if` inside: `+range` must reach `default` and stay the opaque scalar that carries the
+            // reference (UnaryOperation.Evaluate routes it through CaptureValue). A refused operand makes
+            // the unary an opaque scalar, not a refusal — see ProbeLift.
+            case UnaryOperation { Operator: not UnaryOperator.Plus } unary:
+                return (true, ProbeLift([unary.Operand], context));
+
+            // A pure-scalar built-in over its arguments — placed AFTER the Row/Column/If arms so those keep
+            // their dedicated handling (all three are classified Consumes, so the order is belt-and-braces
+            // rather than load-bearing, but a `when` guard silently shadowing If would be a hard bug to find).
+            case Function function when TryGetLift(function, out var arguments):
+                return (true, ProbeLift(arguments, context));
 
             case BinaryOperation binary:
             {
@@ -347,6 +372,13 @@ internal static class ArrayEvaluation
                     context,
                     out operand
                 );
+
+            // The two lifted shapes, mirroring the Probe arms in the same order and on the same patterns.
+            case UnaryOperation { Operator: not UnaryOperator.Plus } unary:
+                return TryBuildUnary(unary, context, out operand);
+
+            case Function function when TryGetLift(function, out var liftArguments):
+                return TryBuildLift(function, liftArguments, context, out operand);
 
             case BinaryOperation binary:
                 return TryBuildBinary(binary, context, out operand);
@@ -620,21 +652,154 @@ internal static class ArrayEvaluation
 
     // The shape of a binary result: a scalar takes the other side's shape; two equal-shaped arrays keep it;
     // mismatched arrays produce the per-axis maximum, filled entirely with #VALUE! by the At() mismatch rule.
+    // Expressed as two steps of the N-ary Fold so the lift and the binary operation share ONE rule.
     private static (int Rows, int Columns) ResultShape(ArrayOperand left, ArrayOperand right)
     {
-        if (!left.IsArray)
+        var rows = 0;
+        var columns = 0;
+        Fold(ref rows, ref columns, left);
+        Fold(ref rows, ref columns, right);
+
+        return (rows, columns);
+    }
+
+    // Folds one more operand into a running result shape, where (0, 0) means "no array seen yet" (an array
+    // operand always has at least one row and one column): a scalar contributes nothing; the first array
+    // sets the shape; every further array keeps it when equal and otherwise widens it to the per-axis
+    // maximum — the shape that the operands' own At() guard then fills entirely with #VALUE!.
+    private static void Fold(ref int rows, ref int columns, ArrayOperand operand)
+    {
+        if (!operand.IsArray)
         {
-            return (right.Rows, right.Columns);
+            return;
         }
 
-        if (!right.IsArray)
+        if (rows == 0)
         {
-            return (left.Rows, left.Columns);
+            rows = operand.Rows;
+            columns = operand.Columns;
+            return;
         }
 
-        return left.Rows == right.Rows && left.Columns == right.Columns
-            ? (left.Rows, left.Columns)
-            : (Math.Max(left.Rows, right.Rows), Math.Max(left.Columns, right.Columns));
+        rows = Math.Max(rows, operand.Rows);
+        columns = Math.Max(columns, operand.Columns);
+    }
+
+    // Whether `function` is a registered built-in the mini-CSE may lift, handing back its arguments. The
+    // registry lookup is the only way to reach a Function's arguments (Function declares no Arguments
+    // member) and to rebuild the node (entry.Create), so the classification rides along for free; it is paid
+    // once per function NODE per evaluation, never per element. `Length > 0` keeps a zero-argument entry
+    // (PI, RAND, …) out of the arm without a special case; a custom FunctionCall is not in the table.
+    private static bool TryGetLift(Function function, out Expression[] arguments)
+    {
+        if (
+            FunctionRegistry.ByType.TryGetValue(function.GetType(), out var entry)
+            && entry.Lifting is ArrayLifting.Elementwise
+        )
+        {
+            arguments = entry.GetArguments(function);
+            return arguments.Length > 0;
+        }
+
+        arguments = [];
+        return false;
+    }
+
+    // THE decision both lifted arms share, in Probe and in the build alike: a lifted shape is an array when
+    // every argument's build would succeed and at least one is an array. A refused argument (an open range
+    // somewhere below) does NOT refuse the shape — it makes it an OPAQUE SCALAR, evaluated once, exactly as
+    // the pre-lift `default` arm treated the whole node. Refusing instead would unwind an enclosing array
+    // expression that tolerates the open range today (measured: SUM(IF(A1:A3>0,1,LEN(B:B))) = 3 must stay 3,
+    // where a refusal turns it into the scalar path's #VALUE!). It never evaluates: only the classification
+    // and the arguments' own probes are consulted.
+    //
+    // The builders call it BEFORE building any operand, which is what keeps every scalar argument evaluated
+    // exactly once: building operands first and only then discovering that the shape is a scalar (or that a
+    // later argument refuses) would evaluate the built scalars once in their ScalarOperand and once more in
+    // the node's own Evaluate — a volatile drawn twice where the pre-lift path drew it once. (A span, so the
+    // unary arms' single-operand collection expression is stack-allocated.)
+    private static bool ProbeLift(ReadOnlySpan<Expression> arguments, EvaluationContext context)
+    {
+        var isArray = false;
+
+        foreach (var argument in arguments)
+        {
+            var (succeeds, argumentIsArray) = Probe(argument, context);
+
+            if (!succeeds)
+            {
+                return false;
+            }
+
+            isArray |= argumentIsArray;
+        }
+
+        return isArray;
+    }
+
+    private static bool TryBuildUnary(
+        UnaryOperation unary,
+        EvaluationContext context,
+        out ArrayOperand operand
+    )
+    {
+        // Not an array (a scalar operand, or a refused one): the whole unary is an opaque scalar, evaluated
+        // ONCE through the node's own path — Probe answered (true, false) for it, so the build must succeed
+        // as a non-array.
+        if (!ProbeLift([unary.Operand], context))
+        {
+            operand = new ScalarOperand(unary.Evaluate(context));
+            return true;
+        }
+
+        if (!TryBuildOperand(unary.Operand, context, out var inner))
+        {
+            operand = null!;
+            return false;
+        }
+
+        operand = new UnaryOperand(unary.Operator, inner, inner.Rows, inner.Columns);
+        return true;
+    }
+
+    private static bool TryBuildLift(
+        Function function,
+        Expression[] arguments,
+        EvaluationContext context,
+        out ArrayOperand operand
+    )
+    {
+        // Same opaque-scalar fallback as TryBuildUnary: today's behaviour, unchanged, evaluated once.
+        if (!ProbeLift(arguments, context))
+        {
+            operand = new ScalarOperand(function.Evaluate(context));
+            return true;
+        }
+
+        var operands = new ArrayOperand[arguments.Length];
+        var rows = 0;
+        var columns = 0;
+
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            if (!TryBuildOperand(arguments[i], context, out operands[i]))
+            {
+                operand = null!;
+                return false;
+            }
+
+            Fold(ref rows, ref columns, operands[i]);
+        }
+
+        operand = new LiftedFunctionOperand(
+            FunctionRegistry.ByType[function.GetType()].Create,
+            arguments,
+            operands,
+            context,
+            rows,
+            columns
+        );
+        return true;
     }
 
     /// <summary>

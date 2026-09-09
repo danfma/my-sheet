@@ -29,16 +29,30 @@ public sealed partial record UnaryOperation(UnaryOperator Operator, Expression O
             return value.Kind == ComputedValueKind.Blank ? ComputedValue.Number(0) : value;
         }
 
-        if (Operand.Evaluate(context).CoerceToNumber(out var number) is { } error)
+        return Apply(Operator, Operand.Evaluate(context));
+    }
+
+    /// <summary>
+    /// Applies <c>-</c> or <c>%</c> to an already-computed value, reusing the exact scalar semantics for both
+    /// the normal <see cref="Evaluate"/> path and the element-wise array path (<c>UnaryOperand</c> in
+    /// <see cref="ArrayEvaluation"/>): coerce to a number (an error, a non-numeric text, propagates as the
+    /// coercion's error), then negate or divide by 100. Never <see cref="UnaryOperator.Plus"/> — both callers
+    /// route that operator elsewhere (the reference-preserving path above; the opaque-scalar arm of the
+    /// mini-CSE), so the last arm is unreachable and answers <c>#VALUE!</c> rather than throwing inside an
+    /// element loop.
+    /// </summary>
+    internal static ComputedValue Apply(UnaryOperator @operator, in ComputedValue operand)
+    {
+        if (operand.CoerceToNumber(out var number) is { } error)
         {
             return ComputedValue.Error(error);
         }
 
-        return Operator switch
+        return @operator switch
         {
             UnaryOperator.Negate => ComputedValue.Number(-number),
             UnaryOperator.Percent => ComputedValue.Number(number / 100),
-            _ => throw new ArgumentOutOfRangeException(nameof(Operator), Operator, null),
+            _ => ComputedValue.Error(Error.Value),
         };
     }
 

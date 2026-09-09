@@ -186,13 +186,16 @@ public class UnaryOperationTests
     // --- Unary '-' and postfix '%' keep coercing to a number (text -> #VALUE!), unlike '+'.
 
     [Test]
-    public async Task Negate_OnRangeNode_IsValueError()
+    public async Task Negate_OnRangeNode_LiftsElementwiseInAConsumedPosition()
     {
+        // Before Phase 8 (elementwise lifting) this pinned #VALUE!: the Negate was evaluated once over the
+        // range node, which has no scalar value. Inside an array-consuming argument the mini-CSE now lifts
+        // '-' over each cell (Excel: -1,-2,-3, summed), while unary '+' keeps its reference-preserving path.
         var (workbook, sheet) = Grid();
 
         var value = ExpressionParser.Parse("=SUM(-A1:A3)", sheet).Evaluate(workbook);
 
-        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(value.AsDouble()).IsEqualTo(-6.0);
     }
 
     [Test]
