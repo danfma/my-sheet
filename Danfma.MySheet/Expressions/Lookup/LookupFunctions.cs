@@ -311,23 +311,26 @@ public sealed partial record Columns(Expression[] Arguments) : Function
     // open one; anything else is 1 — except a reference that FAILED to resolve, which reports its own error.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        // A reference to a missing sheet is a structural #REF!, not an empty (0-column) extent.
+        // A reference to a missing sheet is a structural #REF!, not an empty (0-column) extent — the same
+        // two passes ROWS runs (syntactic here, resolved target inside TryResolve); see Rows.cs.
         if (ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing)
         {
             return ComputedValue.Error(missing);
         }
 
+        // Same shared resolution as ROWS, fallback included: the argument's own error instead of a
+        // plausible 1.
         if (
-            !NamedReferences.TryResolveReference(
+            !ReferencePosition.TryResolve(
                 Arguments[0],
                 context,
+                ComputedValue.Number(1),
                 out var reference,
-                boundOpenRanges: false
+                out var failure
             )
         )
         {
-            // Same error recovery as ROWS: the argument's own error instead of a plausible 1.
-            return ReferencePosition.Unresolved(Arguments[0], context, ComputedValue.Number(1));
+            return failure;
         }
 
         return ComputedValue.Number(
@@ -505,20 +508,31 @@ public sealed partial record Address(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record Areas(Expression[] Arguments) : Function
 {
-    // AREAS(reference) — the number of areas (contiguous ranges or single cells) in the reference.
-    // A syntactic check on the argument node (a defined name resolves to the reference it stands for),
-    // like ISREF: a union counts its areas (recursively, for nested unions), any other reference is one
-    // area, a non-reference -> #VALUE! (or, for a reference that failed to resolve, its own error).
+    // AREAS(reference) — the number of areas (contiguous ranges or single cells) in the reference the
+    // argument resolves to (a defined name stands for one, like ISREF): a union counts its areas
+    // (recursively, for nested unions), any other reference is one area.
+    //
+    // The shared resolution carries both failure arms: a broken reference reports its own error (#NAME? for
+    // an unknown name, #REF! for a failed INDIRECT/OFFSET), a plain non-reference value stays #VALUE!, and a
+    // reference whose SHEET is gone — written literally (AREAS(Ghost!A1:A3)) or reached through a function
+    // (AREAS(INDEX(Ghost!A1:A3,2,1))) — is the structural #REF! Excel answers, where counting it as one area
+    // used to hand back a confident 1 for a sheet that no longer exists. AREAS needs no syntactic
+    // ReferenceGuard pass of its own for that: unlike ROWS/COLUMNS it has no fast path that skips the
+    // resolution, so the resolved-target re-check sees every argument that reaches it.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
+        ReferencePosition.TryResolve(
+            Arguments[0],
+            context,
+            ComputedValue.Error(Error.Value),
+            out var reference,
+            out var failure
+        )
             ? reference switch
             {
                 UnionReference union => ComputedValue.Number(CountAreas(union)),
                 _ => ComputedValue.Number(1),
             }
-            // Same error recovery as ROW/ROWS: a broken reference reports its own error (#NAME? for an
-            // unknown name, #REF! for a failed INDIRECT/OFFSET); a plain non-reference value stays #VALUE!.
-            : ReferencePosition.Unresolved(Arguments[0], context, ComputedValue.Error(Error.Value));
+            : failure;
 
     private static int CountAreas(UnionReference union)
     {

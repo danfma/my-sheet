@@ -28,7 +28,7 @@ internal static class ReferencePosition
     /// should report (Excel's own answer there was not measured, so no divergence is guessed at either way).
     /// </summary>
     public static ComputedValue Row(Expression argument, EvaluationContext context) =>
-        TryResolve(argument, context, out var reference, out var failure)
+        TryResolve(argument, context, ValueFallback, out var reference, out var failure)
             ? reference switch
             {
                 CellReference cell => ComputedValue.Number(CellAddress.Parse(cell.Id).Row),
@@ -40,7 +40,7 @@ internal static class ReferencePosition
 
     /// <summary>The mirror of <see cref="Row"/> on the column axis (<c>COLUMN(1:1)</c> = 1).</summary>
     public static ComputedValue Column(Expression argument, EvaluationContext context) =>
-        TryResolve(argument, context, out var reference, out var failure)
+        TryResolve(argument, context, ValueFallback, out var reference, out var failure)
             ? reference switch
             {
                 CellReference cell => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
@@ -49,6 +49,73 @@ internal static class ReferencePosition
                 _ => ComputedValue.Error(Error.Value),
             }
             : failure;
+
+    /// <summary>The fallback <c>ROW</c>/<c>COLUMN</c>/<c>AREAS</c> share: an argument that is not a
+    /// reference at all is <c>#VALUE!</c>. <c>ROWS</c>/<c>COLUMNS</c> pass <c>1</c> instead, treating a
+    /// scalar as a 1x1 array.</summary>
+    private static ComputedValue ValueFallback => ComputedValue.Error(Error.Value);
+
+    /// <summary>
+    /// Resolves <paramref name="argument"/> to the reference it DENOTES, or hands back — in
+    /// <paramref name="failure"/> — the value the caller must return in its place. This is the single rule
+    /// the whole family shares (<c>ROW</c>/<c>COLUMN</c> for a position, <c>ROWS</c>/<c>COLUMNS</c>/
+    /// <c>AREAS</c> for a count), and it has two failure arms:
+    ///
+    /// <list type="bullet">
+    /// <item>the argument does not resolve to a reference at all — see <see cref="Unresolved"/>, which
+    /// reports the argument's OWN error when it has one and <paramref name="fallback"/> otherwise;</item>
+    /// <item>it DOES resolve, but onto a sheet that no longer exists — a structural <c>#REF!</c>.</item>
+    /// </list>
+    ///
+    /// <para>The second arm is why every one of these functions routes through here instead of resolving on
+    /// its own: a caller's syntactic <see cref="ReferenceGuard.MissingSheet"/> pass cannot see INTO a
+    /// function argument (its <c>default</c> arm ignores one), so only the RESOLVED target exposes a ghost
+    /// sheet reached through <c>INDEX</c>/<c>OFFSET</c>/<c>INDIRECT</c>. Without it
+    /// <c>ROWS(INDEX(Ghost!A1:A3,2,1))</c> would count a row of a deleted sheet as a plausible <c>1</c>.</para>
+    ///
+    /// <para><c>boundOpenRanges:false</c> is uniform across the family: <c>ROW</c>/<c>COLUMN</c> need the
+    /// DECLARED bound (<c>ROW(A:A)</c> = 1, not the first populated row) and <c>ROWS</c>/<c>COLUMNS</c> need
+    /// the open reference itself to apply their populated-extent rule. It is neutral for <c>AREAS</c>, which
+    /// counts an open range and its bounding box alike as one area, and saves that function the sheet scan
+    /// bounding would cost.</para>
+    /// </summary>
+    public static bool TryResolve(
+        Expression argument,
+        EvaluationContext context,
+        ComputedValue fallback,
+        [NotNullWhen(true)] out Reference? reference,
+        out ComputedValue failure
+    )
+    {
+        if (
+            !NamedReferences.TryResolveReference(
+                argument,
+                context,
+                out reference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            failure = Unresolved(argument, context, fallback);
+            return false;
+        }
+
+        // The re-check the summary calls the second failure arm: the RESOLVED target's sheet, which no
+        // syntactic pass over the argument NODE can reach — the same re-check ReferenceGuard does for a
+        // NameReference and Subtotal does after its own re-dispatch.
+        if (ReferenceGuard.MissingSheet(reference, context) is { } missing)
+        {
+            reference = null;
+            failure = ComputedValue.Error(missing);
+            return false;
+        }
+
+        // `default` rather than ComputedValue.Blank: the two are bit-identical (ComputedValueKind.Blank is 0),
+        // so this is about intent, not behaviour — Blank would read as a deliberate blank RESULT, while there
+        // is no failure to report on this path. `failure` is only meaningful when this returns false.
+        failure = default;
+        return true;
+    }
 
     /// <summary>
     /// What a reference-requiring function returns for an argument it could NOT resolve to a reference: the
@@ -63,7 +130,7 @@ internal static class ReferencePosition
     /// (INDIRECT's <c>ref_text</c>, OFFSET's displacements). That cost is paid only on the FAILURE path,
     /// where the alternative is losing the error the user needs to see.
     /// </remarks>
-    public static ComputedValue Unresolved(
+    private static ComputedValue Unresolved(
         Expression argument,
         EvaluationContext context,
         ComputedValue fallback
@@ -72,44 +139,5 @@ internal static class ReferencePosition
         var value = argument.Evaluate(context);
 
         return value.TryGetError(out _) ? value : fallback;
-    }
-
-    // Resolves the argument to a concrete reference, or produces the ComputedValue the caller must return.
-    private static bool TryResolve(
-        Expression argument,
-        EvaluationContext context,
-        [NotNullWhen(true)] out Reference? reference,
-        out ComputedValue failure
-    )
-    {
-        if (
-            !NamedReferences.TryResolveReference(
-                argument,
-                context,
-                out reference,
-                boundOpenRanges: false
-            )
-        )
-        {
-            failure = Unresolved(argument, context, ComputedValue.Error(Error.Value));
-            return false;
-        }
-
-        // The caller's syntactic ReferenceGuard.MissingSheet pass cannot see INTO a function argument (its
-        // `default` arm ignores one), so the RESOLVED target is re-checked here — the same re-check
-        // ReferenceGuard does for a NameReference and Subtotal does after its own re-dispatch. Without it
-        // ROW(INDEX(Ghost!A1:A3,2,1)) would report a row number for a sheet that no longer exists.
-        if (ReferenceGuard.MissingSheet(reference, context) is { } missing)
-        {
-            reference = null;
-            failure = ComputedValue.Error(missing);
-            return false;
-        }
-
-        // `default` rather than ComputedValue.Blank: the two are bit-identical (ComputedValueKind.Blank is 0),
-        // so this is about intent, not behaviour — Blank would read as a deliberate blank RESULT, while there
-        // is no failure to report on this path. `failure` is only meaningful when this returns false.
-        failure = default;
-        return true;
     }
 }

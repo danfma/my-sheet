@@ -212,6 +212,32 @@ public class ReferenceFunctionTests
         await Assert.That(Calc(workbook, sheet, "=AREAS(5)")).IsEqualTo(ErrorValue.NotValue);
     }
 
+    // The counting family shares ROW/COLUMN's OTHER rule too: the sheet of the RESOLVED reference, not only
+    // of the argument NODE. A syntactic pass cannot see into a function (ReferenceGuard's `default` arm
+    // ignores one), so before this each of these answered a plausible count for a sheet that no longer
+    // exists — 1 for a single cell picked out of a ghost range. Excel answers #REF! for every line here.
+    [Test]
+    public async Task RowsColumnsAreas_ReferenceResolvedOnAMissingSheet_IsRefError()
+    {
+        var (workbook, sheet) = PositionGrid();
+
+        await Assert
+            .That(Calc(workbook, sheet, "=ROWS(INDEX(Ghost!A1:A3,2,1))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(workbook, sheet, "=COLUMNS(INDEX(Ghost!A1:A3,2,1))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc(workbook, sheet, "=AREAS(INDEX(Ghost!A1:A3,2,1))"))
+            .IsEqualTo(ErrorValue.Reference);
+
+        // AREAS had no syntactic guard AT ALL, so even a ghost range written literally counted as one area.
+        // The resolved-target re-check covers that case as well, which is why AREAS needs no guard of its own.
+        await Assert
+            .That(Calc(workbook, sheet, "=AREAS(Ghost!A1:A3)"))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
     [Test]
     public async Task VLookup_Exact()
     {
