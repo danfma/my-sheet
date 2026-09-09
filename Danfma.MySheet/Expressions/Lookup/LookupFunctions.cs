@@ -294,7 +294,10 @@ public sealed partial record Column(Expression[] Arguments) : Function
                     CellAddress.Parse(id).Column
                 ),
                 // Terminal fallback over any reference-producing argument — the mirror of Row.cs's arm; see
-                // that file (and ReferencePosition) for the rationale. Must stay AFTER the [] arm.
+                // that file (and ReferencePosition) for the rationale. Placed after the single-argument
+                // syntactic arms above, which it would otherwise subsume (the compiler rejects that
+                // ordering); a zero-argument COLUMN() cannot reach it — [var only] requires exactly one
+                // argument.
                 [var only] => ReferencePosition.Column(only, context),
                 _ => ComputedValue.Error(Error.Value),
             };
@@ -305,7 +308,7 @@ public sealed partial record Columns(Expression[] Arguments) : Function
 {
     // A defined name that stands for a range counts its columns; a whole-column/row reference uses the
     // exact structural count on a bounded column axis (COLUMNS(A:C) = 3) and the populated extent on an
-    // open one; anything else is 1.
+    // open one; anything else is 1 — except a reference that FAILED to resolve, which reports its own error.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         // A reference to a missing sheet is a structural #REF!, not an empty (0-column) extent.

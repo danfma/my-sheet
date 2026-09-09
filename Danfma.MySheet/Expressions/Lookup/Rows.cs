@@ -7,7 +7,8 @@ public sealed partial record Rows(Expression[] Arguments) : Function
 {
     // A defined name that stands for a range counts its rows; a whole-column/row reference uses the
     // populated extent on its open row axis (structural on a bounded one); anything else (a single cell
-    // or a scalar) is 1. boundOpenRanges:false keeps the open reference so the extent rule applies.
+    // or a scalar) is 1 — except a reference that FAILED to resolve, which reports its own error.
+    // boundOpenRanges:false keeps the open reference so the extent rule applies.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         // A reference to a missing sheet is a structural #REF!, not an empty (0-row) extent.

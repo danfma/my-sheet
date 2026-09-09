@@ -61,8 +61,7 @@ internal static class ReferencePosition
     /// <remarks>
     /// This re-evaluates the argument, which the failed resolution attempt may already have partly evaluated
     /// (INDIRECT's <c>ref_text</c>, OFFSET's displacements). That cost is paid only on the FAILURE path,
-    /// where the alternative is losing the error the user needs to see, and it mirrors what
-    /// <see cref="Indirect.Evaluate"/> does when its own resolution fails.
+    /// where the alternative is losing the error the user needs to see.
     /// </remarks>
     public static ComputedValue Unresolved(
         Expression argument,
@@ -107,7 +106,10 @@ internal static class ReferencePosition
             return false;
         }
 
-        failure = ComputedValue.Blank;
+        // `default` rather than ComputedValue.Blank: the two are bit-identical (ComputedValueKind.Blank is 0),
+        // so this is about intent, not behaviour — Blank would read as a deliberate blank RESULT, while there
+        // is no failure to report on this path. `failure` is only meaningful when this returns false.
+        failure = default;
         return true;
     }
 }
