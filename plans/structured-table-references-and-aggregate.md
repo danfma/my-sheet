@@ -76,6 +76,7 @@ which is why it goes first.
 | 5 | Structured-reference resolution and cross-cutting graph integration | [`phase-5-resolution-and-graph.md`](structured-table-references-and-aggregate/phase-5-resolution-and-graph.md) | 24 | 1 | 5 | Not started |
 | 6 | The .xlsx loader reads <table> parts into Workbook.Tables | [`phase-6-excel-loader.md`](structured-table-references-and-aggregate/phase-6-excel-loader.md) | 25 | 1 | 4 | Not started |
 | 7 | FILTER / SORT / UNIQUE / SEQUENCE as mini-CSE producers | [`phase-7-dynamic-arrays.md`](structured-table-references-and-aggregate/phase-7-dynamic-arrays.md) | 21 | 2 | 4 | Not started |
+| 8 | Elementwise lifting of unary operators and scalar functions in the mini-CSE — **executes after Phase 2, before Phase 7** (added 2026-09-09 for the user's "Part 3" report: 5 of its 7 formulas already pass after Phase 1; the rest are engine-wide mini-CSE eligibility gaps) | [`phase-8-elementwise-lifting.md`](structured-table-references-and-aggregate/phase-8-elementwise-lifting.md) | 14 | 1 | 3 | Not started |
 
 Keep this table's Status column in step with each phase file's own `Status:` line — it is the first thing a
 resuming agent reads.
@@ -90,6 +91,8 @@ are collected here so they are answered deliberately rather than by omission.
 - **Should a follow-up teach `SaveAsExcel` to emit the `<table>` part?** S3 says no. The measured cost of no: load a table workbook, export in `FormulaMode.Formulas`, and Excel opens the result showing `#NAME?` because the formula now parses but the part is absent. Today that is impossible because the formula never parsed. `ExcelExportOptions` has no warning channel, so documentation is the only mitigation inside S3.
 - **Should `MergeIntoExcel` stop writing a degraded cell's stale cached number?** Already shipped and documented as a limitation, but under P0 the Excel-faithful answer is arguably to leave the target's formula alone so Excel recomputes, rather than freezing a number no engine derived from current inputs.
 - ~~**Should `ROWS`/`COLUMNS`/`AREAS` be brought in line with `ROW`'s new error propagation?**~~ **DECIDED 2026-09-08: yes, in Phase 1, under P0.** `ROWS(NoSuchName)` returns 1 today where Excel gives `#NAME?`. It is a behaviour change to four functions and ships as `feat(eval):`, not `fix`. See Phase 1's "Scope addition" section.
+- **Date serial epoch: MySheet's serial 1 is 1899-12-31, Excel's is 1900-01-01** (found by Phase 8's verifier: `MONTH(1)` = 12 here, 1 in Excel). Pre-existing P0 divergence outside every phase's scope; needs its own decision (and a migration note if changed).
+- **`MODE.SNGL` tie-break** (found by Phase 2 Task 2): MySheet returns the first value to REACH the winning count, not the first encountered (`MODE.SNGL({2;1;1;2})` = 1); likely diverges from Excel; now a one-line change in `StatisticsMath.Mode`. Needs an Excel oracle.
 - **Should bare `=SEQUENCE(5)` really return 1?** That is Excel's verified `@`-on-array behaviour and what Excel writes when upgrading a legacy formula, but it is not what modern Excel does with the un-prefixed formula. A user who types `=FILTER(A:A,B:B>0)` and sees one value will read it as a bug. `#VALUE!` is the defensible alternative.
 
 ### Questions settleable without a human, by experiment
