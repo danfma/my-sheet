@@ -129,112 +129,112 @@ internal static class FunctionRegistry
             static arguments => new Or(arguments),
             static f => ((Or)f).Arguments
         ),
-        Entry<Not>(
+        Elementwise<Not>(
             "NOT",
             1,
             1,
             static arguments => new Not(arguments),
             static f => ((Not)f).Arguments
         ),
-        Entry<IfError>(
+        Elementwise<IfError>(
             "IFERROR",
             2,
             2,
             static arguments => new IfError(arguments),
             static f => ((IfError)f).Arguments
         ),
-        Entry<Int>(
+        Elementwise<Int>(
             "INT",
             1,
             1,
             static arguments => new Int(arguments),
             static f => ((Int)f).Arguments
         ),
-        Entry<Round>(
+        Elementwise<Round>(
             "ROUND",
             2,
             2,
             static arguments => new Round(arguments),
             static f => ((Round)f).Arguments
         ),
-        Entry<RoundUp>(
+        Elementwise<RoundUp>(
             "ROUNDUP",
             2,
             2,
             static arguments => new RoundUp(arguments),
             static f => ((RoundUp)f).Arguments
         ),
-        Entry<Abs>(
+        Elementwise<Abs>(
             "ABS",
             1,
             1,
             static arguments => new Abs(arguments),
             static f => ((Abs)f).Arguments
         ),
-        Entry<IsNumber>(
+        Elementwise<IsNumber>(
             "ISNUMBER",
             1,
             1,
             static arguments => new IsNumber(arguments),
             static f => ((IsNumber)f).Arguments
         ),
-        Entry<IsBlank>(
+        Elementwise<IsBlank>(
             "ISBLANK",
             1,
             1,
             static arguments => new IsBlank(arguments),
             static f => ((IsBlank)f).Arguments
         ),
-        Entry<IfNa>(
+        Elementwise<IfNa>(
             "IFNA",
             2,
             2,
             static arguments => new IfNa(arguments),
             static f => ((IfNa)f).Arguments
         ),
-        Entry<Upper>(
+        Elementwise<Upper>(
             "UPPER",
             1,
             1,
             static arguments => new Upper(arguments),
             static f => ((Upper)f).Arguments
         ),
-        Entry<Lower>(
+        Elementwise<Lower>(
             "LOWER",
             1,
             1,
             static arguments => new Lower(arguments),
             static f => ((Lower)f).Arguments
         ),
-        Entry<Trim>(
+        Elementwise<Trim>(
             "TRIM",
             1,
             1,
             static arguments => new Trim(arguments),
             static f => ((Trim)f).Arguments
         ),
-        Entry<Len>(
+        Elementwise<Len>(
             "LEN",
             1,
             1,
             static arguments => new Len(arguments),
             static f => ((Len)f).Arguments
         ),
-        Entry<Left>(
+        Elementwise<Left>(
             "LEFT",
             1,
             2,
             static arguments => new Left(arguments),
             static f => ((Left)f).Arguments
         ),
-        Entry<Mid>(
+        Elementwise<Mid>(
             "MID",
             3,
             3,
             static arguments => new Mid(arguments),
             static f => ((Mid)f).Arguments
         ),
-        Entry<Value>(
+        Elementwise<Value>(
             "VALUE",
             1,
             1,
@@ -367,7 +367,7 @@ internal static class FunctionRegistry
             static arguments => new Let(arguments),
             static f => ((Let)f).Arguments
         ),
-        Entry<Text>(
+        Elementwise<Text>(
             "TEXT",
             2,
             2,
@@ -381,30 +381,42 @@ internal static class FunctionRegistry
             static arguments => new SheetNumber(arguments),
             static f => ((SheetNumber)f).Arguments
         ),
-        Entry<Pmt>(
+        Elementwise<Pmt>(
             "PMT",
             3,
             5,
             static arguments => new Pmt(arguments),
             static f => ((Pmt)f).Arguments
         ),
-        Entry<Pv>("PV", 3, 5, static arguments => new Pv(arguments), static f => ((Pv)f).Arguments),
-        Entry<Fv>("FV", 3, 5, static arguments => new Fv(arguments), static f => ((Fv)f).Arguments),
-        Entry<Nper>(
+        Elementwise<Pv>(
+            "PV",
+            3,
+            5,
+            static arguments => new Pv(arguments),
+            static f => ((Pv)f).Arguments
+        ),
+        Elementwise<Fv>(
+            "FV",
+            3,
+            5,
+            static arguments => new Fv(arguments),
+            static f => ((Fv)f).Arguments
+        ),
+        Elementwise<Nper>(
             "NPER",
             3,
             5,
             static arguments => new Nper(arguments),
             static f => ((Nper)f).Arguments
         ),
-        Entry<Ipmt>(
+        Elementwise<Ipmt>(
             "IPMT",
             4,
             6,
             static arguments => new Ipmt(arguments),
             static f => ((Ipmt)f).Arguments
         ),
-        Entry<Ppmt>(
+        Elementwise<Ppmt>(
             "PPMT",
             4,
             6,
@@ -418,7 +430,7 @@ internal static class FunctionRegistry
             static arguments => new Npv(arguments),
             static f => ((Npv)f).Arguments
         ),
-        Entry<Rate>(
+        Elementwise<Rate>(
             "RATE",
             3,
             6,
@@ -432,57 +444,63 @@ internal static class FunctionRegistry
             static arguments => new Irr(arguments),
             static f => ((Irr)f).Arguments
         ),
-        Entry<Sln>(
+        Elementwise<Sln>(
             "SLN",
             3,
             3,
             static arguments => new Sln(arguments),
             static f => ((Sln)f).Arguments
         ),
-        Entry<Syd>(
+        Elementwise<Syd>(
             "SYD",
             4,
             4,
             static arguments => new Syd(arguments),
             static f => ((Syd)f).Arguments
         ),
-        Entry<Db>("DB", 4, 5, static arguments => new Db(arguments), static f => ((Db)f).Arguments),
-        Entry<Ddb>(
+        Elementwise<Db>(
+            "DB",
+            4,
+            5,
+            static arguments => new Db(arguments),
+            static f => ((Db)f).Arguments
+        ),
+        Elementwise<Ddb>(
             "DDB",
             4,
             5,
             static arguments => new Ddb(arguments),
             static f => ((Ddb)f).Arguments
         ),
-        Entry<Vdb>(
+        Elementwise<Vdb>(
             "VDB",
             5,
             7,
             static arguments => new Vdb(arguments),
             static f => ((Vdb)f).Arguments
         ),
-        Entry<AmorLinc>(
+        Elementwise<AmorLinc>(
             "AMORLINC",
             6,
             7,
             static arguments => new AmorLinc(arguments),
             static f => ((AmorLinc)f).Arguments
         ),
-        Entry<AmorDegrc>(
+        Elementwise<AmorDegrc>(
             "AMORDEGRC",
             6,
             7,
             static arguments => new AmorDegrc(arguments),
             static f => ((AmorDegrc)f).Arguments
         ),
-        Entry<Effect>(
+        Elementwise<Effect>(
             "EFFECT",
             2,
             2,
             static arguments => new Effect(arguments),
             static f => ((Effect)f).Arguments
         ),
-        Entry<Nominal>(
+        Elementwise<Nominal>(
             "NOMINAL",
             2,
             2,
@@ -496,35 +514,35 @@ internal static class FunctionRegistry
             static arguments => new Mirr(arguments),
             static f => ((Mirr)f).Arguments
         ),
-        Entry<Rri>(
+        Elementwise<Rri>(
             "RRI",
             3,
             3,
             static arguments => new Rri(arguments),
             static f => ((Rri)f).Arguments
         ),
-        Entry<PDuration>(
+        Elementwise<PDuration>(
             "PDURATION",
             3,
             3,
             static arguments => new PDuration(arguments),
             static f => ((PDuration)f).Arguments
         ),
-        Entry<ISPmt>(
+        Elementwise<ISPmt>(
             "ISPMT",
             4,
             4,
             static arguments => new ISPmt(arguments),
             static f => ((ISPmt)f).Arguments
         ),
-        Entry<CumIPmt>(
+        Elementwise<CumIPmt>(
             "CUMIPMT",
             6,
             6,
             static arguments => new CumIPmt(arguments),
             static f => ((CumIPmt)f).Arguments
         ),
-        Entry<CumPrinc>(
+        Elementwise<CumPrinc>(
             "CUMPRINC",
             6,
             6,
@@ -538,14 +556,14 @@ internal static class FunctionRegistry
             static arguments => new FvSchedule(arguments),
             static f => ((FvSchedule)f).Arguments
         ),
-        Entry<DollarDe>(
+        Elementwise<DollarDe>(
             "DOLLARDE",
             2,
             2,
             static arguments => new DollarDe(arguments),
             static f => ((DollarDe)f).Arguments
         ),
-        Entry<DollarFr>(
+        Elementwise<DollarFr>(
             "DOLLARFR",
             2,
             2,
@@ -566,330 +584,336 @@ internal static class FunctionRegistry
             static arguments => new XIrr(arguments),
             static f => ((XIrr)f).Arguments
         ),
-        Entry<AccrInt>(
+        Elementwise<AccrInt>(
             "ACCRINT",
             6,
             8,
             static arguments => new AccrInt(arguments),
             static f => ((AccrInt)f).Arguments
         ),
-        Entry<AccrIntM>(
+        Elementwise<AccrIntM>(
             "ACCRINTM",
             4,
             5,
             static arguments => new AccrIntM(arguments),
             static f => ((AccrIntM)f).Arguments
         ),
-        Entry<Disc>(
+        Elementwise<Disc>(
             "DISC",
             4,
             5,
             static arguments => new Disc(arguments),
             static f => ((Disc)f).Arguments
         ),
-        Entry<IntRate>(
+        Elementwise<IntRate>(
             "INTRATE",
             4,
             5,
             static arguments => new IntRate(arguments),
             static f => ((IntRate)f).Arguments
         ),
-        Entry<Received>(
+        Elementwise<Received>(
             "RECEIVED",
             4,
             5,
             static arguments => new Received(arguments),
             static f => ((Received)f).Arguments
         ),
-        Entry<PriceDisc>(
+        Elementwise<PriceDisc>(
             "PRICEDISC",
             4,
             5,
             static arguments => new PriceDisc(arguments),
             static f => ((PriceDisc)f).Arguments
         ),
-        Entry<PriceMat>(
+        Elementwise<PriceMat>(
             "PRICEMAT",
             5,
             6,
             static arguments => new PriceMat(arguments),
             static f => ((PriceMat)f).Arguments
         ),
-        Entry<YieldDisc>(
+        Elementwise<YieldDisc>(
             "YIELDDISC",
             4,
             5,
             static arguments => new YieldDisc(arguments),
             static f => ((YieldDisc)f).Arguments
         ),
-        Entry<YieldMat>(
+        Elementwise<YieldMat>(
             "YIELDMAT",
             5,
             6,
             static arguments => new YieldMat(arguments),
             static f => ((YieldMat)f).Arguments
         ),
-        Entry<TBillEq>(
+        Elementwise<TBillEq>(
             "TBILLEQ",
             3,
             3,
             static arguments => new TBillEq(arguments),
             static f => ((TBillEq)f).Arguments
         ),
-        Entry<TBillPrice>(
+        Elementwise<TBillPrice>(
             "TBILLPRICE",
             3,
             3,
             static arguments => new TBillPrice(arguments),
             static f => ((TBillPrice)f).Arguments
         ),
-        Entry<TBillYield>(
+        Elementwise<TBillYield>(
             "TBILLYIELD",
             3,
             3,
             static arguments => new TBillYield(arguments),
             static f => ((TBillYield)f).Arguments
         ),
-        Entry<CoupPcd>(
+        Elementwise<CoupPcd>(
             "COUPPCD",
             3,
             4,
             static arguments => new CoupPcd(arguments),
             static f => ((CoupPcd)f).Arguments
         ),
-        Entry<CoupNcd>(
+        Elementwise<CoupNcd>(
             "COUPNCD",
             3,
             4,
             static arguments => new CoupNcd(arguments),
             static f => ((CoupNcd)f).Arguments
         ),
-        Entry<CoupNum>(
+        Elementwise<CoupNum>(
             "COUPNUM",
             3,
             4,
             static arguments => new CoupNum(arguments),
             static f => ((CoupNum)f).Arguments
         ),
-        Entry<CoupDays>(
+        Elementwise<CoupDays>(
             "COUPDAYS",
             3,
             4,
             static arguments => new CoupDays(arguments),
             static f => ((CoupDays)f).Arguments
         ),
-        Entry<CoupDayBs>(
+        Elementwise<CoupDayBs>(
             "COUPDAYBS",
             3,
             4,
             static arguments => new CoupDayBs(arguments),
             static f => ((CoupDayBs)f).Arguments
         ),
-        Entry<CoupDaysNc>(
+        Elementwise<CoupDaysNc>(
             "COUPDAYSNC",
             3,
             4,
             static arguments => new CoupDaysNc(arguments),
             static f => ((CoupDaysNc)f).Arguments
         ),
-        Entry<Price>(
+        Elementwise<Price>(
             "PRICE",
             6,
             7,
             static arguments => new Price(arguments),
             static f => ((Price)f).Arguments
         ),
-        Entry<Yield>(
+        Elementwise<Yield>(
             "YIELD",
             6,
             7,
             static arguments => new Yield(arguments),
             static f => ((Yield)f).Arguments
         ),
-        Entry<Duration>(
+        Elementwise<Duration>(
             "DURATION",
             5,
             6,
             static arguments => new Duration(arguments),
             static f => ((Duration)f).Arguments
         ),
-        Entry<MDuration>(
+        Elementwise<MDuration>(
             "MDURATION",
             5,
             6,
             static arguments => new MDuration(arguments),
             static f => ((MDuration)f).Arguments
         ),
-        Entry<OddFPrice>(
+        Elementwise<OddFPrice>(
             "ODDFPRICE",
             8,
             9,
             static arguments => new OddFPrice(arguments),
             static f => ((OddFPrice)f).Arguments
         ),
-        Entry<OddFYield>(
+        Elementwise<OddFYield>(
             "ODDFYIELD",
             8,
             9,
             static arguments => new OddFYield(arguments),
             static f => ((OddFYield)f).Arguments
         ),
-        Entry<OddLPrice>(
+        Elementwise<OddLPrice>(
             "ODDLPRICE",
             7,
             8,
             static arguments => new OddLPrice(arguments),
             static f => ((OddLPrice)f).Arguments
         ),
-        Entry<OddLYield>(
+        Elementwise<OddLYield>(
             "ODDLYIELD",
             7,
             8,
             static arguments => new OddLYield(arguments),
             static f => ((OddLYield)f).Arguments
         ),
-        Entry<Sqrt>(
+        Elementwise<Sqrt>(
             "SQRT",
             1,
             1,
             static arguments => new Sqrt(arguments),
             static f => ((Sqrt)f).Arguments
         ),
-        Entry<Power>(
+        Elementwise<Power>(
             "POWER",
             2,
             2,
             static arguments => new Power(arguments),
             static f => ((Power)f).Arguments
         ),
-        Entry<Exp>(
+        Elementwise<Exp>(
             "EXP",
             1,
             1,
             static arguments => new Exp(arguments),
             static f => ((Exp)f).Arguments
         ),
-        Entry<Ln>("LN", 1, 1, static arguments => new Ln(arguments), static f => ((Ln)f).Arguments),
-        Entry<Log>(
+        Elementwise<Ln>(
+            "LN",
+            1,
+            1,
+            static arguments => new Ln(arguments),
+            static f => ((Ln)f).Arguments
+        ),
+        Elementwise<Log>(
             "LOG",
             1,
             2,
             static arguments => new Log(arguments),
             static f => ((Log)f).Arguments
         ),
-        Entry<Log10>(
+        Elementwise<Log10>(
             "LOG10",
             1,
             1,
             static arguments => new Log10(arguments),
             static f => ((Log10)f).Arguments
         ),
-        Entry<SqrtPi>(
+        Elementwise<SqrtPi>(
             "SQRTPI",
             1,
             1,
             static arguments => new SqrtPi(arguments),
             static f => ((SqrtPi)f).Arguments
         ),
-        Entry<RoundDown>(
+        Elementwise<RoundDown>(
             "ROUNDDOWN",
             2,
             2,
             static arguments => new RoundDown(arguments),
             static f => ((RoundDown)f).Arguments
         ),
-        Entry<Trunc>(
+        Elementwise<Trunc>(
             "TRUNC",
             1,
             2,
             static arguments => new Trunc(arguments),
             static f => ((Trunc)f).Arguments
         ),
-        Entry<MRound>(
+        Elementwise<MRound>(
             "MROUND",
             2,
             2,
             static arguments => new MRound(arguments),
             static f => ((MRound)f).Arguments
         ),
-        Entry<Ceiling>(
+        Elementwise<Ceiling>(
             "CEILING",
             2,
             2,
             static arguments => new Ceiling(arguments),
             static f => ((Ceiling)f).Arguments
         ),
-        Entry<CeilingMath>(
+        Elementwise<CeilingMath>(
             "CEILING.MATH",
             1,
             3,
             static arguments => new CeilingMath(arguments),
             static f => ((CeilingMath)f).Arguments
         ),
-        Entry<CeilingPrecise>(
+        Elementwise<CeilingPrecise>(
             "CEILING.PRECISE",
             1,
             2,
             static arguments => new CeilingPrecise(arguments),
             static f => ((CeilingPrecise)f).Arguments
         ),
-        Entry<IsoCeiling>(
+        Elementwise<IsoCeiling>(
             "ISO.CEILING",
             1,
             2,
             static arguments => new IsoCeiling(arguments),
             static f => ((IsoCeiling)f).Arguments
         ),
-        Entry<Floor>(
+        Elementwise<Floor>(
             "FLOOR",
             2,
             2,
             static arguments => new Floor(arguments),
             static f => ((Floor)f).Arguments
         ),
-        Entry<FloorMath>(
+        Elementwise<FloorMath>(
             "FLOOR.MATH",
             1,
             3,
             static arguments => new FloorMath(arguments),
             static f => ((FloorMath)f).Arguments
         ),
-        Entry<FloorPrecise>(
+        Elementwise<FloorPrecise>(
             "FLOOR.PRECISE",
             1,
             2,
             static arguments => new FloorPrecise(arguments),
             static f => ((FloorPrecise)f).Arguments
         ),
-        Entry<Even>(
+        Elementwise<Even>(
             "EVEN",
             1,
             1,
             static arguments => new Even(arguments),
             static f => ((Even)f).Arguments
         ),
-        Entry<Odd>(
+        Elementwise<Odd>(
             "ODD",
             1,
             1,
             static arguments => new Odd(arguments),
             static f => ((Odd)f).Arguments
         ),
-        Entry<Mod>(
+        Elementwise<Mod>(
             "MOD",
             2,
             2,
             static arguments => new Mod(arguments),
             static f => ((Mod)f).Arguments
         ),
-        Entry<Quotient>(
+        Elementwise<Quotient>(
             "QUOTIENT",
             2,
             2,
             static arguments => new Quotient(arguments),
             static f => ((Quotient)f).Arguments
         ),
-        Entry<Sign>(
+        Elementwise<Sign>(
             "SIGN",
             1,
             1,
@@ -925,28 +949,28 @@ internal static class FunctionRegistry
             static arguments => new SeriesSum(arguments),
             static f => ((SeriesSum)f).Arguments
         ),
-        Entry<Fact>(
+        Elementwise<Fact>(
             "FACT",
             1,
             1,
             static arguments => new Fact(arguments),
             static f => ((Fact)f).Arguments
         ),
-        Entry<FactDouble>(
+        Elementwise<FactDouble>(
             "FACTDOUBLE",
             1,
             1,
             static arguments => new FactDouble(arguments),
             static f => ((FactDouble)f).Arguments
         ),
-        Entry<Combin>(
+        Elementwise<Combin>(
             "COMBIN",
             2,
             2,
             static arguments => new Combin(arguments),
             static f => ((Combin)f).Arguments
         ),
-        Entry<CombinA>(
+        Elementwise<CombinA>(
             "COMBINA",
             2,
             2,
@@ -967,189 +991,189 @@ internal static class FunctionRegistry
             static arguments => new Lcm(arguments),
             static f => ((Lcm)f).Arguments
         ),
-        Entry<Sin>(
+        Elementwise<Sin>(
             "SIN",
             1,
             1,
             static arguments => new Sin(arguments),
             static f => ((Sin)f).Arguments
         ),
-        Entry<Cos>(
+        Elementwise<Cos>(
             "COS",
             1,
             1,
             static arguments => new Cos(arguments),
             static f => ((Cos)f).Arguments
         ),
-        Entry<Tan>(
+        Elementwise<Tan>(
             "TAN",
             1,
             1,
             static arguments => new Tan(arguments),
             static f => ((Tan)f).Arguments
         ),
-        Entry<Cot>(
+        Elementwise<Cot>(
             "COT",
             1,
             1,
             static arguments => new Cot(arguments),
             static f => ((Cot)f).Arguments
         ),
-        Entry<Sec>(
+        Elementwise<Sec>(
             "SEC",
             1,
             1,
             static arguments => new Sec(arguments),
             static f => ((Sec)f).Arguments
         ),
-        Entry<Csc>(
+        Elementwise<Csc>(
             "CSC",
             1,
             1,
             static arguments => new Csc(arguments),
             static f => ((Csc)f).Arguments
         ),
-        Entry<Asin>(
+        Elementwise<Asin>(
             "ASIN",
             1,
             1,
             static arguments => new Asin(arguments),
             static f => ((Asin)f).Arguments
         ),
-        Entry<Acos>(
+        Elementwise<Acos>(
             "ACOS",
             1,
             1,
             static arguments => new Acos(arguments),
             static f => ((Acos)f).Arguments
         ),
-        Entry<Atan>(
+        Elementwise<Atan>(
             "ATAN",
             1,
             1,
             static arguments => new Atan(arguments),
             static f => ((Atan)f).Arguments
         ),
-        Entry<Atan2>(
+        Elementwise<Atan2>(
             "ATAN2",
             2,
             2,
             static arguments => new Atan2(arguments),
             static f => ((Atan2)f).Arguments
         ),
-        Entry<Acot>(
+        Elementwise<Acot>(
             "ACOT",
             1,
             1,
             static arguments => new Acot(arguments),
             static f => ((Acot)f).Arguments
         ),
-        Entry<Sinh>(
+        Elementwise<Sinh>(
             "SINH",
             1,
             1,
             static arguments => new Sinh(arguments),
             static f => ((Sinh)f).Arguments
         ),
-        Entry<Cosh>(
+        Elementwise<Cosh>(
             "COSH",
             1,
             1,
             static arguments => new Cosh(arguments),
             static f => ((Cosh)f).Arguments
         ),
-        Entry<Tanh>(
+        Elementwise<Tanh>(
             "TANH",
             1,
             1,
             static arguments => new Tanh(arguments),
             static f => ((Tanh)f).Arguments
         ),
-        Entry<Coth>(
+        Elementwise<Coth>(
             "COTH",
             1,
             1,
             static arguments => new Coth(arguments),
             static f => ((Coth)f).Arguments
         ),
-        Entry<Sech>(
+        Elementwise<Sech>(
             "SECH",
             1,
             1,
             static arguments => new Sech(arguments),
             static f => ((Sech)f).Arguments
         ),
-        Entry<Csch>(
+        Elementwise<Csch>(
             "CSCH",
             1,
             1,
             static arguments => new Csch(arguments),
             static f => ((Csch)f).Arguments
         ),
-        Entry<Asinh>(
+        Elementwise<Asinh>(
             "ASINH",
             1,
             1,
             static arguments => new Asinh(arguments),
             static f => ((Asinh)f).Arguments
         ),
-        Entry<Acosh>(
+        Elementwise<Acosh>(
             "ACOSH",
             1,
             1,
             static arguments => new Acosh(arguments),
             static f => ((Acosh)f).Arguments
         ),
-        Entry<Atanh>(
+        Elementwise<Atanh>(
             "ATANH",
             1,
             1,
             static arguments => new Atanh(arguments),
             static f => ((Atanh)f).Arguments
         ),
-        Entry<Acoth>(
+        Elementwise<Acoth>(
             "ACOTH",
             1,
             1,
             static arguments => new Acoth(arguments),
             static f => ((Acoth)f).Arguments
         ),
-        Entry<Degrees>(
+        Elementwise<Degrees>(
             "DEGREES",
             1,
             1,
             static arguments => new Degrees(arguments),
             static f => ((Degrees)f).Arguments
         ),
-        Entry<Radians>(
+        Elementwise<Radians>(
             "RADIANS",
             1,
             1,
             static arguments => new Radians(arguments),
             static f => ((Radians)f).Arguments
         ),
-        Entry<Base>(
+        Elementwise<Base>(
             "BASE",
             2,
             3,
             static arguments => new Base(arguments),
             static f => ((Base)f).Arguments
         ),
-        Entry<DecimalNumber>(
+        Elementwise<DecimalNumber>(
             "DECIMAL",
             2,
             2,
             static arguments => new DecimalNumber(arguments),
             static f => ((DecimalNumber)f).Arguments
         ),
-        Entry<Roman>(
+        Elementwise<Roman>(
             "ROMAN",
             1,
             2,
             static arguments => new Roman(arguments),
             static f => ((Roman)f).Arguments
         ),
-        Entry<Arabic>(
+        Elementwise<Arabic>(
             "ARABIC",
             1,
             1,
@@ -1177,14 +1201,14 @@ internal static class FunctionRegistry
             static arguments => new Xor(arguments),
             static f => ((Xor)f).Arguments
         ),
-        Entry<Ifs>(
+        Elementwise<Ifs>(
             "IFS",
             2,
             int.MaxValue,
             static arguments => new Ifs(arguments),
             static f => ((Ifs)f).Arguments
         ),
-        Entry<Switch>(
+        Elementwise<Switch>(
             "SWITCH",
             3,
             int.MaxValue,
@@ -1192,56 +1216,56 @@ internal static class FunctionRegistry
             static f => ((Switch)f).Arguments
         ),
         Entry<Na>("NA", 0, 0, static arguments => new Na(arguments), static f => ((Na)f).Arguments),
-        Entry<IsError>(
+        Elementwise<IsError>(
             "ISERROR",
             1,
             1,
             static arguments => new IsError(arguments),
             static f => ((IsError)f).Arguments
         ),
-        Entry<IsErr>(
+        Elementwise<IsErr>(
             "ISERR",
             1,
             1,
             static arguments => new IsErr(arguments),
             static f => ((IsErr)f).Arguments
         ),
-        Entry<IsNa>(
+        Elementwise<IsNa>(
             "ISNA",
             1,
             1,
             static arguments => new IsNa(arguments),
             static f => ((IsNa)f).Arguments
         ),
-        Entry<IsText>(
+        Elementwise<IsText>(
             "ISTEXT",
             1,
             1,
             static arguments => new IsText(arguments),
             static f => ((IsText)f).Arguments
         ),
-        Entry<IsNonText>(
+        Elementwise<IsNonText>(
             "ISNONTEXT",
             1,
             1,
             static arguments => new IsNonText(arguments),
             static f => ((IsNonText)f).Arguments
         ),
-        Entry<IsLogical>(
+        Elementwise<IsLogical>(
             "ISLOGICAL",
             1,
             1,
             static arguments => new IsLogical(arguments),
             static f => ((IsLogical)f).Arguments
         ),
-        Entry<IsEven>(
+        Elementwise<IsEven>(
             "ISEVEN",
             1,
             1,
             static arguments => new IsEven(arguments),
             static f => ((IsEven)f).Arguments
         ),
-        Entry<IsOdd>(
+        Elementwise<IsOdd>(
             "ISODD",
             1,
             1,
@@ -1262,8 +1286,20 @@ internal static class FunctionRegistry
             static arguments => new IsFormula(arguments),
             static f => ((IsFormula)f).Arguments
         ),
-        Entry<N>("N", 1, 1, static arguments => new N(arguments), static f => ((N)f).Arguments),
-        Entry<T>("T", 1, 1, static arguments => new T(arguments), static f => ((T)f).Arguments),
+        Elementwise<N>(
+            "N",
+            1,
+            1,
+            static arguments => new N(arguments),
+            static f => ((N)f).Arguments
+        ),
+        Elementwise<T>(
+            "T",
+            1,
+            1,
+            static arguments => new T(arguments),
+            static f => ((T)f).Arguments
+        ),
         Entry<TypeFunction>(
             "TYPE",
             1,
@@ -1271,7 +1307,7 @@ internal static class FunctionRegistry
             static arguments => new TypeFunction(arguments),
             static f => ((TypeFunction)f).Arguments
         ),
-        Entry<ErrorType>(
+        Elementwise<ErrorType>(
             "ERROR.TYPE",
             1,
             1,
@@ -1285,154 +1321,154 @@ internal static class FunctionRegistry
             static arguments => new SheetsCount(arguments),
             static f => ((SheetsCount)f).Arguments
         ),
-        Entry<Right>(
+        Elementwise<Right>(
             "RIGHT",
             1,
             2,
             static arguments => new Right(arguments),
             static f => ((Right)f).Arguments
         ),
-        Entry<Find>(
+        Elementwise<Find>(
             "FIND",
             2,
             3,
             static arguments => new Find(arguments),
             static f => ((Find)f).Arguments
         ),
-        Entry<Search>(
+        Elementwise<Search>(
             "SEARCH",
             2,
             3,
             static arguments => new Search(arguments),
             static f => ((Search)f).Arguments
         ),
-        Entry<Replace>(
+        Elementwise<Replace>(
             "REPLACE",
             4,
             4,
             static arguments => new Replace(arguments),
             static f => ((Replace)f).Arguments
         ),
-        Entry<Substitute>(
+        Elementwise<Substitute>(
             "SUBSTITUTE",
             3,
             4,
             static arguments => new Substitute(arguments),
             static f => ((Substitute)f).Arguments
         ),
-        Entry<Rept>(
+        Elementwise<Rept>(
             "REPT",
             2,
             2,
             static arguments => new Rept(arguments),
             static f => ((Rept)f).Arguments
         ),
-        Entry<Proper>(
+        Elementwise<Proper>(
             "PROPER",
             1,
             1,
             static arguments => new Proper(arguments),
             static f => ((Proper)f).Arguments
         ),
-        Entry<Exact>(
+        Elementwise<Exact>(
             "EXACT",
             2,
             2,
             static arguments => new Exact(arguments),
             static f => ((Exact)f).Arguments
         ),
-        Entry<CharFunction>(
+        Elementwise<CharFunction>(
             "CHAR",
             1,
             1,
             static arguments => new CharFunction(arguments),
             static f => ((CharFunction)f).Arguments
         ),
-        Entry<Code>(
+        Elementwise<Code>(
             "CODE",
             1,
             1,
             static arguments => new Code(arguments),
             static f => ((Code)f).Arguments
         ),
-        Entry<UniChar>(
+        Elementwise<UniChar>(
             "UNICHAR",
             1,
             1,
             static arguments => new UniChar(arguments),
             static f => ((UniChar)f).Arguments
         ),
-        Entry<Unicode>(
+        Elementwise<Unicode>(
             "UNICODE",
             1,
             1,
             static arguments => new Unicode(arguments),
             static f => ((Unicode)f).Arguments
         ),
-        Entry<Clean>(
+        Elementwise<Clean>(
             "CLEAN",
             1,
             1,
             static arguments => new Clean(arguments),
             static f => ((Clean)f).Arguments
         ),
-        Entry<Fixed>(
+        Elementwise<Fixed>(
             "FIXED",
             1,
             3,
             static arguments => new Fixed(arguments),
             static f => ((Fixed)f).Arguments
         ),
-        Entry<Dollar>(
+        Elementwise<Dollar>(
             "DOLLAR",
             1,
             2,
             static arguments => new Dollar(arguments),
             static f => ((Dollar)f).Arguments
         ),
-        Entry<NumberValueFunction>(
+        Elementwise<NumberValueFunction>(
             "NUMBERVALUE",
             1,
             3,
             static arguments => new NumberValueFunction(arguments),
             static f => ((NumberValueFunction)f).Arguments
         ),
-        Entry<TextBefore>(
+        Elementwise<TextBefore>(
             "TEXTBEFORE",
             2,
             6,
             static arguments => new TextBefore(arguments),
             static f => ((TextBefore)f).Arguments
         ),
-        Entry<TextAfter>(
+        Elementwise<TextAfter>(
             "TEXTAFTER",
             2,
             6,
             static arguments => new TextAfter(arguments),
             static f => ((TextAfter)f).Arguments
         ),
-        Entry<ValueToText>(
+        Elementwise<ValueToText>(
             "VALUETOTEXT",
             1,
             2,
             static arguments => new ValueToText(arguments),
             static f => ((ValueToText)f).Arguments
         ),
-        Entry<RegexTest>(
+        Elementwise<RegexTest>(
             "REGEXTEST",
             2,
             3,
             static arguments => new RegexTest(arguments),
             static f => ((RegexTest)f).Arguments
         ),
-        Entry<RegexExtract>(
+        Elementwise<RegexExtract>(
             "REGEXEXTRACT",
             2,
             4,
             static arguments => new RegexExtract(arguments),
             static f => ((RegexExtract)f).Arguments
         ),
-        Entry<RegexReplace>(
+        Elementwise<RegexReplace>(
             "REGEXREPLACE",
             3,
             5,
@@ -1481,7 +1517,7 @@ internal static class FunctionRegistry
             static arguments => new XMatch(arguments),
             static f => ((XMatch)f).Arguments
         ),
-        Entry<Address>(
+        Elementwise<Address>(
             "ADDRESS",
             2,
             5,
@@ -1793,7 +1829,7 @@ internal static class FunctionRegistry
             static arguments => new Kurt(arguments),
             static f => ((Kurt)f).Arguments
         ),
-        Entry<Standardize>(
+        Elementwise<Standardize>(
             "STANDARDIZE",
             3,
             3,
@@ -1863,35 +1899,35 @@ internal static class FunctionRegistry
             static arguments => new ForecastLinear(arguments),
             static f => ((ForecastLinear)f).Arguments
         ),
-        Entry<Fisher>(
+        Elementwise<Fisher>(
             "FISHER",
             1,
             1,
             static arguments => new Fisher(arguments),
             static f => ((Fisher)f).Arguments
         ),
-        Entry<FisherInv>(
+        Elementwise<FisherInv>(
             "FISHERINV",
             1,
             1,
             static arguments => new FisherInv(arguments),
             static f => ((FisherInv)f).Arguments
         ),
-        Entry<Phi>(
+        Elementwise<Phi>(
             "PHI",
             1,
             1,
             static arguments => new Phi(arguments),
             static f => ((Phi)f).Arguments
         ),
-        Entry<Permut>(
+        Elementwise<Permut>(
             "PERMUT",
             2,
             2,
             static arguments => new Permut(arguments),
             static f => ((Permut)f).Arguments
         ),
-        Entry<PermutationA>(
+        Elementwise<PermutationA>(
             "PERMUTATIONA",
             2,
             2,
@@ -1984,133 +2020,133 @@ internal static class FunctionRegistry
             static f => ((Compat.Forecast)f).Arguments
         ),
         // Wave 5 — Date and time (TODAY/NOW deferred to F1: volatile).
-        Entry<Date>(
+        Elementwise<Date>(
             "DATE",
             3,
             3,
             static arguments => new Date(arguments),
             static f => ((Date)f).Arguments
         ),
-        Entry<Time>(
+        Elementwise<Time>(
             "TIME",
             3,
             3,
             static arguments => new Time(arguments),
             static f => ((Time)f).Arguments
         ),
-        Entry<DateValue>(
+        Elementwise<DateValue>(
             "DATEVALUE",
             1,
             1,
             static arguments => new DateValue(arguments),
             static f => ((DateValue)f).Arguments
         ),
-        Entry<TimeValue>(
+        Elementwise<TimeValue>(
             "TIMEVALUE",
             1,
             1,
             static arguments => new TimeValue(arguments),
             static f => ((TimeValue)f).Arguments
         ),
-        Entry<Year>(
+        Elementwise<Year>(
             "YEAR",
             1,
             1,
             static arguments => new Year(arguments),
             static f => ((Year)f).Arguments
         ),
-        Entry<Month>(
+        Elementwise<Month>(
             "MONTH",
             1,
             1,
             static arguments => new Month(arguments),
             static f => ((Month)f).Arguments
         ),
-        Entry<Day>(
+        Elementwise<Day>(
             "DAY",
             1,
             1,
             static arguments => new Day(arguments),
             static f => ((Day)f).Arguments
         ),
-        Entry<Hour>(
+        Elementwise<Hour>(
             "HOUR",
             1,
             1,
             static arguments => new Hour(arguments),
             static f => ((Hour)f).Arguments
         ),
-        Entry<Minute>(
+        Elementwise<Minute>(
             "MINUTE",
             1,
             1,
             static arguments => new Minute(arguments),
             static f => ((Minute)f).Arguments
         ),
-        Entry<Second>(
+        Elementwise<Second>(
             "SECOND",
             1,
             1,
             static arguments => new Second(arguments),
             static f => ((Second)f).Arguments
         ),
-        Entry<Days>(
+        Elementwise<Days>(
             "DAYS",
             2,
             2,
             static arguments => new Days(arguments),
             static f => ((Days)f).Arguments
         ),
-        Entry<Days360>(
+        Elementwise<Days360>(
             "DAYS360",
             2,
             3,
             static arguments => new Days360(arguments),
             static f => ((Days360)f).Arguments
         ),
-        Entry<EDate>(
+        Elementwise<EDate>(
             "EDATE",
             2,
             2,
             static arguments => new EDate(arguments),
             static f => ((EDate)f).Arguments
         ),
-        Entry<EoMonth>(
+        Elementwise<EoMonth>(
             "EOMONTH",
             2,
             2,
             static arguments => new EoMonth(arguments),
             static f => ((EoMonth)f).Arguments
         ),
-        Entry<Weekday>(
+        Elementwise<Weekday>(
             "WEEKDAY",
             1,
             2,
             static arguments => new Weekday(arguments),
             static f => ((Weekday)f).Arguments
         ),
-        Entry<WeekNum>(
+        Elementwise<WeekNum>(
             "WEEKNUM",
             1,
             2,
             static arguments => new WeekNum(arguments),
             static f => ((WeekNum)f).Arguments
         ),
-        Entry<IsoWeekNum>(
+        Elementwise<IsoWeekNum>(
             "ISOWEEKNUM",
             1,
             1,
             static arguments => new IsoWeekNum(arguments),
             static f => ((IsoWeekNum)f).Arguments
         ),
-        Entry<DateDif>(
+        Elementwise<DateDif>(
             "DATEDIF",
             3,
             3,
             static arguments => new DateDif(arguments),
             static f => ((DateDif)f).Arguments
         ),
-        Entry<YearFrac>(
+        Elementwise<YearFrac>(
             "YEARFRAC",
             2,
             3,
@@ -2198,7 +2234,7 @@ internal static class FunctionRegistry
         new(name, minArgs, maxArgs, create, typeof(T), getArguments, ArrayLifting.Consumes);
 
     // The sibling of Entry<T> for a pure-scalar function: same five arguments, so a liftable entry above
-    // still reads as one line, and the classification is greppable (`grep -c '^        Elementwise<'`).
+    // still reads as one line, and the classification is greppable — one factory call per lifted entry.
     private static RegistryEntry Elementwise<T>(
         string name,
         int minArgs,
