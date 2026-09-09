@@ -8,6 +8,10 @@ Dimension key: `dynamic-arrays`. Design dependencies: `aggregate`, `reference-se
 
 Line numbers in this file were accurate when written and several cited files have changed since. Anchor edits on member and constant names, and re-read before editing.
 
+## Controller note (binding, 2026-09-09) — the cell-boundary array half is NOT top-left
+
+Measured by Phase 10's verifier on Aspose.Cells 26.6.0: a bare formula in a cell applies implicit intersection to EACH range operand BEFORE the operator (`=E1:E3*10` in L2 = 20, L3 = 30, L5 = `#VALUE!`; `=E1:E3*E5:G5` in F2 = 40 = E2×F5; `=A1:C3*E1:E1` = `#VALUE!` because a 2-D operand has no single intersection; the top-left element is reachable only through `INDEX(...,1,1)`). This phase's design text ("bare in a cell follows S4's array half", `ElementAt(0)` on the whole expression) must be replaced by per-operand intersection at the boundary under the P0 addendum ("Excel" = Aspose measured). Bare `=LEN(A1:A3)` and bare `=SEQUENCE(5)` need re-measuring on the oracle under the same rule before the design is briefed. See the master plan's S4 correction.
+
 ## Design decision
 
 The decision: each of the four becomes an `ArrayOperand` producer inside the existing mini-CSE operand tree,
