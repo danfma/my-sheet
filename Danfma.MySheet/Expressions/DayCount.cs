@@ -3,9 +3,12 @@ namespace Danfma.MySheet.Expressions;
 /// <summary>
 /// Day-count conventions behind <c>YEARFRAC</c> — the five bases Excel documents (MS-OI29500 §18.17.7.352):
 /// 0 = US (NASD) 30/360, 1 = actual/actual, 2 = actual/360, 3 = actual/365, 4 = European 30/360. Kept as a
-/// standalone testable helper because the wave-6 bond functions (ACCRINT, PRICE, YIELD, COUP*, …) share the
-/// exact same day counting. All methods assume <paramref name="start"/> ≤ <paramref name="end"/>; callers
-/// order the pair first.
+/// standalone testable helper. The bond functions (ACCRINT, PRICE, YIELD, COUP*, …) share bases 2, 3 and 4
+/// through <see cref="ActualDays"/> and <see cref="Euro360Days"/>, but NOT basis 0: they carry their own
+/// 30/360 in <c>BondMath.Diff360Us</c>, whose rules already differ from the ones here and diverge from the
+/// oracle in their own way (recorded as a sweep item, measured 2026-09-09). Changing basis 0 here therefore
+/// does NOT move any bond answer, and fixing the bond path will not move YEARFRAC. All methods assume
+/// <paramref name="start"/> ≤ <paramref name="end"/>; callers order the pair first.
 ///
 /// Known limitation, inherited from Excel and documented by Microsoft itself: basis 0 "may return an
 /// incorrect result when the start_date is the last day in February". This matches the fictitious 30-Feb
