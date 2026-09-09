@@ -18,16 +18,16 @@ namespace Danfma.MySheet.Expressions;
 /// NETWORKDAYS, the bond/coupon family, DATEDIF's calendar units, <c>DATE</c>'s inverse, the xlsx loader
 /// and the volatile clock.</item>
 /// <item><b>The Lotus weekday</b> — <see cref="LotusDayOfWeek"/>: <c>((⌊s⌋ − 1) mod 7) + 1</c>, with 60
-/// collapsed onto 59. Used TODAY by WEEKDAY only; <c>TEXT</c>'s <c>ddd</c>/<c>dddd</c> is meant to join it
-/// and still reads <see cref="DateTime.DayOfWeek"/> (Phase 9's TEXT item owns that move). WORKDAY and
+/// collapsed onto 59. Used by WEEKDAY and by <c>TEXT</c>'s <c>ddd</c>/<c>dddd</c>. WORKDAY and
 /// NETWORKDAYS deliberately do NOT use it: by controller ruling under the user's exception they walk the
 /// REAL calendar below serial 61, because Aspose has no consistent rule there. This is NOT the
 /// <see cref="DateTime.DayOfWeek"/> of the mapped value, which the one-day shift moves.</item>
 /// <item><b>The Lotus calendar</b> — serial 60 IS 1900-02-29 and February 1900 has 29 days, exposed by
 /// <c>phantomFeb29: true</c> and by <see cref="LotusDaysInMonth"/>. Read by the 30/360 arithmetic of
-/// DAYS360 and of YEARFRAC's bases 0 and 4; the number formatter (<c>TEXT</c> and cell display) is meant to
-/// join it and still reads the collapsed map, so its pins are red and Phase 9's TEXT item owns that move.
-/// Everything that COUNTS days counts serials instead — DAYS, DATEDIF, YEARFRAC's bases 1-3 and
+/// DAYS360 and of YEARFRAC's bases 0 and 4, and by the number formatter
+/// (<see cref="ExcelDateFormat.TryRender"/>, i.e. <c>TEXT</c>) — the only place a Feb 29 1900 is PRINTED,
+/// and only when the format asks for no weekday NAME (measured: a <c>ddd</c>/<c>dddd</c> token pulls the day
+/// number back onto the collapsed map). Everything that COUNTS days counts serials instead — DAYS, DATEDIF, YEARFRAC's bases 1-3 and
 /// XNPV/XIRR all subtract serials, because subtracting mapped <see cref="DateTime"/>s loses the phantom
 /// day whenever the span straddles it.</item>
 /// </list>
@@ -105,15 +105,16 @@ internal static class DateSerial
     /// <summary>
     /// The serial → <see cref="DateTime"/> map itself, with no range policy of its own: the single place the
     /// epoch lives. <see cref="ToDateTime"/> wraps it with the negative/out-of-range →
-    /// <see cref="Error.Num"/> guard; callers that answer a different error for an unrepresentable serial
-    /// (<c>TEXT</c> answers <c>#VALUE!</c>) call this directly and keep their own policy. Throws
+    /// <see cref="Error.Num"/> guard; the two callers that have already range-checked the serial themselves
+    /// (<c>YEARFRAC</c>'s year lookup and the working-day weekend test) call this directly. Throws
     /// <see cref="ArgumentException"/> outside the representable range, exactly as
     /// <see cref="DateTime.FromOADate"/> does.
     /// </summary>
     /// <remarks>
-    /// THIS is the method the epoch lives in. Shifting <see cref="ToDateTime"/> instead compiles, passes its
-    /// own tests, and silently leaves <c>TEXT</c> on the OLE-Automation epoch, because <c>TEXT</c> calls this
-    /// method directly to keep its <c>#VALUE!</c> policy.
+    /// THIS is the method the epoch lives in: <see cref="ToDateTime"/>, <see cref="TryGetCalendar"/> and every
+    /// direct caller above funnel through it, so shifting the epoch anywhere else would leave one of them
+    /// behind. <c>TEXT</c> reads its fields through <see cref="TryGetCalendar"/> and translates that method's
+    /// <see cref="Error.Num"/> into its own <c>#VALUE!</c>; it does NOT get a second epoch of its own.
     /// </remarks>
     public static DateTime ToDateTimeUnchecked(double serial) =>
         // Below the phantom day Excel's serial trails the OADate by one, so +1 recovers the OADate; at 60 and
