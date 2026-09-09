@@ -141,9 +141,18 @@ public sealed partial record EDate(Expression[] Arguments) : Function
             return ComputedValue.Error(startRange);
         }
 
-        return Shift(start.Date, monthsArg, out var shifted)
-            ? ComputedValue.Number(DateSerial.FromDateTime(shifted))
-            : ComputedValue.Error(Error.Num);
+        if (!Shift(start.Date, monthsArg, out var shifted))
+        {
+            return ComputedValue.Error(Error.Num);
+        }
+
+        var serial = DateSerial.FromDateTime(shifted);
+
+        // A shift that lands before the day zero has no serial at all: #NUM! (measured EDATE(0,-1),
+        // EDATE(1,-1), EDATE(2,-1), EDATE(60,-2)), where the OA epoch used to hand back a negative serial
+        // that every other date function then rejected anyway. EDATE(31,-1) = 0 stays valid — the day zero
+        // itself is a serial.
+        return serial < 0d ? ComputedValue.Error(Error.Num) : ComputedValue.Number(serial);
     }
 
     internal static bool Shift(DateTime date, double monthsArg, out DateTime shifted)
@@ -172,7 +181,10 @@ public sealed partial record EDate(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record EoMonth(Expression[] Arguments) : Function
 {
-    // EOMONTH(start, months) — the last day of the month `months` away from start.
+    // EOMONTH(start, months) — the last day of the month `months` away from start. Only the start's MONTH
+    // matters, so it is read through TryGetCalendar and the shift runs from the 1st: that is what puts the day
+    // zero in January 1900 (measured EOMONTH(0,0) = EOMONTH(0.5,0) = 31, not the 0 that 1899-12-31 would give)
+    // and it also spares the shift the day-of-month clamping EDATE needs.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var startSerial) is { } startError)
@@ -185,12 +197,31 @@ public sealed partial record EoMonth(Expression[] Arguments) : Function
             return ComputedValue.Error(monthsError);
         }
 
-        if (DateSerial.ToDateTime(startSerial, out var start) is { } startRange)
+        if (
+            DateSerial.TryGetCalendar(
+                startSerial,
+                phantomFeb29: false,
+                out var year,
+                out var month,
+                out _
+            ) is
+            { } startRange
+        )
         {
             return ComputedValue.Error(startRange);
         }
 
-        if (!EDate.Shift(start.Date, monthsArg, out var shifted))
+        // MEASURED and NOT derivable from the month arithmetic: a start inside the day-zero window [0, 1)
+        // with a negative (truncated) month count is #NUM! — EOMONTH(0,-1) and EOMONTH(0.5,-1) — even though
+        // the identical shift from serial 1 is perfectly valid, EOMONTH(1,-1) = 0, and even though a count
+        // that truncates to zero is fine, EOMONTH(0,-0.5) = 31. Aspose.Cells 26.6.0 has no single rule here,
+        // so this is a pinned special case rather than a consequence of anything.
+        if (startSerial < 1d && Math.Truncate(monthsArg) < 0d)
+        {
+            return ComputedValue.Error(Error.Num);
+        }
+
+        if (!EDate.Shift(new DateTime(year, month, 1), monthsArg, out var shifted))
         {
             return ComputedValue.Error(Error.Num);
         }
@@ -201,7 +232,10 @@ public sealed partial record EoMonth(Expression[] Arguments) : Function
             DateTime.DaysInMonth(shifted.Year, shifted.Month)
         );
 
-        return ComputedValue.Number(DateSerial.FromDateTime(lastDay));
+        var serial = DateSerial.FromDateTime(lastDay);
+
+        // Before the day zero there is no serial (measured EOMONTH(31,-2) = #NUM!, while EOMONTH(31,-1) = 0).
+        return serial < 0d ? ComputedValue.Error(Error.Num) : ComputedValue.Number(serial);
     }
 }
 
@@ -227,12 +261,15 @@ public sealed partial record Weekday(Expression[] Arguments) : Function
             return ComputedValue.Error(typeError);
         }
 
-        if (DateSerial.ToDateTime(serial, out var date) is { } rangeError)
+        // The range policy still comes from the map, but the weekday itself does NOT: the Lotus mod-7 walk
+        // skips the phantom day, so serial 60 repeats serial 59's Tuesday, and the shifted map's own
+        // DayOfWeek would be a day off for every serial in the 1900 window.
+        if (DateSerial.ToDateTime(serial, out _) is { } rangeError)
         {
             return ComputedValue.Error(rangeError);
         }
 
-        var dow = (int)date.DayOfWeek; // Sunday = 0 .. Saturday = 6
+        var dow = (int)DateSerial.LotusDayOfWeek(serial); // Sunday = 0 .. Saturday = 6
         var type = (int)Math.Truncate(returnType);
 
         return type switch
