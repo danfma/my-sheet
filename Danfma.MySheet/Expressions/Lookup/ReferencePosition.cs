@@ -14,8 +14,9 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// syntactic arms (which stay as the zero-resolution fast path and as the shared-formula delta path).</para>
 ///
 /// <para>This lives in its own file rather than as a <c>file static class</c> (the local idiom, e.g.
-/// <c>OrderSelection</c> in OrderStatistics.cs) because <c>ROW</c> lives in Row.cs while <c>COLUMN</c> and
-/// the counting functions live in LookupFunctions.cs, and a file-local type is invisible across files.</para>
+/// <c>CriteriaPairs</c> in ConditionalAggregates.cs) because <c>ROW</c> lives in Row.cs while
+/// <c>COLUMN</c> and the counting functions live in LookupFunctions.cs, and a file-local type is invisible
+/// across files.</para>
 /// </summary>
 internal static class ReferencePosition
 {
