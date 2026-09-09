@@ -2,10 +2,12 @@ using MemoryPack;
 
 namespace Danfma.MySheet.Expressions.Dates;
 
-// Component extraction from a date serial: YEAR/MONTH/DAY read the calendar part via OADate; HOUR/MINUTE/
-// SECOND read the time-of-day fraction (rounded to the nearest second, matching Excel). A negative serial
-// is out of range → #NUM!. Text-of-date arguments are NOT accepted (only numeric serials / numeric text
-// that CoerceToNumber already parses) — see the date namespace note.
+// Component extraction from a date serial: YEAR/MONTH/DAY read the calendar part through
+// DateSerial.TryGetCalendar, which is the DateTime map plus Excel's day-zero rule (serial 0 is 1900/1/0) and
+// WITHOUT the phantom 1900-02-29 (serial 60 reads back as February 28, measured); HOUR/MINUTE/SECOND read the
+// time-of-day fraction (rounded to the nearest second, matching Excel). A negative serial is out of range →
+// #NUM!. Text-of-date arguments are NOT accepted (only numeric serials / numeric text that CoerceToNumber
+// already parses) — see the date namespace note.
 
 [MemoryPackable]
 public sealed partial record Year(Expression[] Arguments) : Function
@@ -17,9 +19,15 @@ public sealed partial record Year(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        return DateSerial.ToDateTime(serial, out var date) is { } rangeError
-            ? ComputedValue.Error(rangeError)
-            : ComputedValue.Number(date.Year);
+        if (
+            DateSerial.TryGetCalendar(serial, phantomFeb29: false, out var year, out _, out _) is
+            { } rangeError
+        )
+        {
+            return ComputedValue.Error(rangeError);
+        }
+
+        return ComputedValue.Number(year);
     }
 }
 
@@ -33,9 +41,15 @@ public sealed partial record Month(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        return DateSerial.ToDateTime(serial, out var date) is { } rangeError
-            ? ComputedValue.Error(rangeError)
-            : ComputedValue.Number(date.Month);
+        if (
+            DateSerial.TryGetCalendar(serial, phantomFeb29: false, out _, out var month, out _) is
+            { } rangeError
+        )
+        {
+            return ComputedValue.Error(rangeError);
+        }
+
+        return ComputedValue.Number(month);
     }
 }
 
@@ -49,9 +63,15 @@ public sealed partial record Day(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        return DateSerial.ToDateTime(serial, out var date) is { } rangeError
-            ? ComputedValue.Error(rangeError)
-            : ComputedValue.Number(date.Day);
+        if (
+            DateSerial.TryGetCalendar(serial, phantomFeb29: false, out _, out _, out var day) is
+            { } rangeError
+        )
+        {
+            return ComputedValue.Error(rangeError);
+        }
+
+        return ComputedValue.Number(day);
     }
 }
 
