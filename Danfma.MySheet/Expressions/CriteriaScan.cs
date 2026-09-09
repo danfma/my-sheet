@@ -30,7 +30,7 @@ internal struct PositionalRange
     public readonly int Count;
 
     /// <summary>The argument's rectangular shape — <c>0</c>/<c>0</c> when it HAS none (an open range, a
-    /// union, a name or scalar served by the materialized fallback). Needed because <see cref="Count"/> alone
+    /// union, a name or a scalar), whichever backing serves it. Needed because <see cref="Count"/> alone
     /// cannot tell a 3x1 column from a 1x3 row, and Excel's SUMPRODUCT dimension rule is about the
     /// dimensions, not the count.</summary>
     public readonly int Rows;

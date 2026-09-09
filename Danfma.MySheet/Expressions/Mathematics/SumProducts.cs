@@ -31,13 +31,27 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
 
         // Every argument's cell count AND shape is known up front, so validate all dimensions before scanning
         // any value — a mismatch is #VALUE! ahead of any cell error, exactly like the pre-refactor code.
+        // The shape compared against is the FIRST KNOWN one, not argument 1's: a shapeless argument is
+        // skipped and never becomes the pivot, or SUMPRODUCT(MyName,A1:A3,A1:C1) would compare nothing at
+        // all and answer 125 where Excel answers #VALUE!.
+        var knownRows = ranges[0].Rows;
+        var knownColumns = ranges[0].Columns;
+
         for (var a = 1; a < ranges.Length; a++)
         {
             ranges[a] = PositionalRange.OpenArrayOrRange(Arguments[a], context);
 
-            if (ranges[a].Count != length || !SameShape(ranges[0], ranges[a]))
+            if (ranges[a].Count != length || !SameShape(knownRows, knownColumns, ranges[a]))
             {
                 return ComputedValue.Error(Error.Value);
+            }
+
+            // Adopt the first rectangle seen; once one is known this leaves it alone, so every later shaped
+            // argument is judged against that same rectangle.
+            if (knownRows == 0)
+            {
+                knownRows = ranges[a].Rows;
+                knownColumns = ranges[a].Columns;
             }
         }
 
@@ -68,16 +82,19 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
         return ComputedValue.Number(total);
     }
 
-    // The documented rule is about DIMENSIONS, not the cell count: "The array arguments must have the same
-    // dimensions. If they do not, SUMPRODUCT returns the #VALUE! error value." A 3x1 column and a 1x3 row
-    // hold the same three cells and are still #VALUE! in Excel, so the count check alone is not enough.
-    // A shape of 0 rows means the argument HAS no rectangle (an open range, a union, a defined name or a
-    // scalar served by the materialized fallback): the shape is unknown there, so the pair is judged by its
-    // count alone rather than rejected — SUMPRODUCT(MyName,(A1:A3<>0)*1) is legal in Excel.
-    private static bool SameShape(in PositionalRange first, in PositionalRange other) =>
-        first.Rows == 0
-        || other.Rows == 0
-        || (first.Rows == other.Rows && first.Columns == other.Columns);
+    // Does `other` agree with the rectangle already known to be required (rows x columns, 0/0 = none known
+    // yet)? The documented rule is about DIMENSIONS, not the cell count: "The array arguments must have the
+    // same dimensions. If they do not, SUMPRODUCT returns the #VALUE! error value." A 3x1 column and a 1x3
+    // row hold the same three cells and are still #VALUE! in Excel, so the count check alone is not enough.
+    // Either side being 0 rows means its rectangle is UNKNOWN — no known shape yet, or an argument that has
+    // none at all (an open range, a union, a defined name or a scalar, all served without bounds) — and an
+    // unknown shape is judged by count alone rather than rejected, so SUMPRODUCT(MyName,(A1:A3<>0)*1) stays
+    // legal as in Excel. DEVIATION from Excel, accepted deliberately (P0): the converse also holds, so a
+    // GENUINE orientation mismatch is accepted whenever every argument on one side of it is shapeless —
+    // SUMPRODUCT(MyName,A1:C1) with a 3x1 MyName computes instead of erroring, because nothing here knows
+    // MyName's rectangle. Only a shape the engine can see is enforced.
+    private static bool SameShape(int rows, int columns, in PositionalRange other) =>
+        rows == 0 || other.Rows == 0 || (rows == other.Rows && columns == other.Columns);
 }
 
 [MemoryPackable]

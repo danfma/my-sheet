@@ -166,6 +166,49 @@ public class MathAggregateTests
         await Assert
             .That(Calc("=SUMPRODUCT((A1:A3<>0)*1,A1:D1)", FlagData))
             .IsEqualTo(ErrorValue.NotValue);
+
+        // The same rule over a COMPUTED array whose count matches: (A1:A3<>0)*1 is 3x1 and A1:C1 is 1x3,
+        // three cells each, so only the SHAPE can reject it — the count check never fires here (the A1:D1
+        // case above is caught by the count, 3 vs 4, before the shape is even consulted).
+        await Assert
+            .That(Calc("=SUMPRODUCT((A1:A3<>0)*1,A1:C1)", FlagData))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task SumProduct_OrientationMismatch_IsValueError_BehindAShapelessArgument()
+    {
+        // A SHAPELESS argument must never become the pivot the other arguments are judged against. MyName
+        // is a defined name — it takes the materialized fallback, which knows no rectangle (0/0) — so a
+        // check that always compared against argument 1 would short-circuit on it and never compare
+        // A1:A3 (3x1) with A1:C1 (1x3) to EACH OTHER, answering 125 where Excel answers #VALUE!. All
+        // three arguments hold 3 cells, so the count check cannot see the mismatch either.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(0);
+        sheet["A3"] = new NumberValue(9);
+        workbook.DefineName("MyName", "Sheet1!$A$1:$A$3");
+
+        await Assert
+            .That(
+                ExpressionParser
+                    .Parse("=SUMPRODUCT(MyName,A1:A3,A1:C1)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject()
+            )
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // …and the tolerance itself is preserved: a shapeless argument is judged by its COUNT alone, so
+        // pairing the same name with a 3x1 computed array stays legal — 5*1 + 0*0 + 9*1 = 14.
+        await Assert
+            .That(
+                ExpressionParser
+                    .Parse("=SUMPRODUCT(MyName,(A1:A3<>0)*1)", sheet)
+                    .Evaluate(workbook)
+                    .AsObject()
+            )
+            .IsEqualTo(14.0);
     }
 
     [Test]
