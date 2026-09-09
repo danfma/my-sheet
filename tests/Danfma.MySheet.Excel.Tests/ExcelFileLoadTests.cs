@@ -137,6 +137,39 @@ public class ExcelFileLoadTests
     }
 
     [Test]
+    public async Task Load_DateCells_LandOnExcelsEpoch_EndToEnd()
+    {
+        // End to end through an INDEPENDENT producer: ClosedXML writes a DateTime cell as the raw serial that
+        // Excel itself would, so the numbers in the file are an oracle of their own. MEASURED from the file
+        // ClosedXML produced (2026-09-09): 1900-01-01 => <v>1</v>, 1900-02-28 => <v>59</v>,
+        // 1900-03-01 => <v>61</v>, 2024-03-15 => <v>45366</v> — the same four numbers Aspose.Cells 26.6.0
+        // gives for PutValue(DateTime). Before Phase 9 the engine's own DATE(1900,1,1) answered 2, so a
+        // workbook and the formulas over it disagreed by a day inside this window; now they agree.
+        await WithFixture(
+            fixture =>
+            {
+                var data = fixture.AddWorksheet("Data");
+                data.Cell("A1").Value = new DateTime(1900, 1, 1);
+                data.Cell("A2").Value = new DateTime(1900, 2, 28);
+                data.Cell("A3").Value = new DateTime(1900, 3, 1);
+                data.Cell("A4").Value = new DateTime(2024, 3, 15);
+                // The phantom 1900-02-29 has no DateTime, so it can only travel as a bare serial.
+                data.Cell("A5").Value = 60;
+            },
+            async workbook =>
+            {
+                await Assert.That(workbook.GetCellValue("Data", "A1").ToDouble()).IsEqualTo(1.0);
+                await Assert.That(workbook.GetCellValue("Data", "A2").ToDouble()).IsEqualTo(59.0);
+                await Assert.That(workbook.GetCellValue("Data", "A3").ToDouble()).IsEqualTo(61.0);
+                await Assert
+                    .That(workbook.GetCellValue("Data", "A4").ToDouble())
+                    .IsEqualTo(45366.0);
+                await Assert.That(workbook.GetCellValue("Data", "A5").ToDouble()).IsEqualTo(60.0);
+            }
+        );
+    }
+
+    [Test]
     public async Task Load_MissingCell_IsBlank()
     {
         await WithFixture(

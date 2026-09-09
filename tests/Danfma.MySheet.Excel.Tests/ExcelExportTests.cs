@@ -217,6 +217,45 @@ public class ExcelExportTests
     }
 
     [Test]
+    public async Task PhantomFeb29Serial_SurvivesAnExportRoundTrip()
+    {
+        // The exporter writes value.ToDouble() through XlsxNumbers.Format and converts no dates, which is the
+        // only reason Excel's phantom 1900-02-29 can travel at all: no DateTime denotes it, so a date-shaped
+        // export path would collapse it onto 59. Asserted on the raw XML as well as through the reader,
+        // because a lenient reader could hide a rewritten number.
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-export-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            var workbook = new Workbook();
+            var sheet = workbook.Sheets.Add("Data");
+            sheet["A1"] = new NumberValue(60);
+            sheet["A2"] = new NumberValue(1);
+            sheet["A3"] = ExpressionParser.Parse("=TEXT(A1,\"yyyy-mm-dd\")", sheet);
+
+            workbook.SaveAsExcel(
+                path,
+                new ExcelExportOptions { FormulaMode = FormulaMode.ValuesOnly }
+            );
+
+            var sheetXml = ReadEntry(path, "xl/worksheets/sheet1.xml");
+
+            await Assert.That(sheetXml).Contains("<x:v>60</x:v>");
+
+            var reloaded = ExcelFile.Load(path);
+
+            await Assert.That(reloaded.GetCellValue("Data", "A1").ToDouble()).IsEqualTo(60.0);
+            await Assert.That(reloaded.GetCellValue("Data", "A2").ToDouble()).IsEqualTo(1.0);
+            // The flattened formula result travelled as text and still names the phantom day.
+            await Assert.That(reloaded.GetCellValue("Data", "A3").ToText()).IsEqualTo("1900-02-29");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     public async Task DefaultOptions_AreValuesOnly()
     {
         await WithExport(

@@ -315,6 +315,33 @@ public class StreamingLoadEdgeTests
     }
 
     [Test]
+    public async Task Load_IsoDate_InTheEarly1900Window_UsesExcelsEpoch()
+    {
+        // The strict-mode t="d" literal is the ONE place a calendar DATE (rather than a serial) enters the
+        // engine from a file, so it has to land on the same epoch every formula uses: serial 1 is 1900-01-01,
+        // not the 2 that .NET's OADate would give. MEASURED on Aspose.Cells 26.6.0 (2026-09-09):
+        // PutValue(new DateTime(1900,1,1)) => 1, (1900,2,28) => 59, (1900,3,1) => 61.
+        await WithRawFixture(
+            $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <worksheet xmlns="{MainNs}">
+            <sheetData>
+            <row r="1"><c r="A1" t="d"><v>1900-01-01</v></c></row>
+            <row r="2"><c r="A2" t="d"><v>1900-02-28</v></c></row>
+            <row r="3"><c r="A3" t="d"><v>1900-03-01</v></c></row>
+            </sheetData>
+            </worksheet>
+            """,
+            async workbook =>
+            {
+                await Assert.That(workbook.GetCellValue("S", "A1").ToDouble()).IsEqualTo(1.0);
+                await Assert.That(workbook.GetCellValue("S", "A2").ToDouble()).IsEqualTo(59.0);
+                await Assert.That(workbook.GetCellValue("S", "A3").ToDouble()).IsEqualTo(61.0);
+            }
+        );
+    }
+
+    [Test]
     public async Task Load_HugeDimensionOnSparseSheet_IsHarmless()
     {
         // The dimension bbox is only a (capped) presize hint: a pathological bbox over a 1-cell
