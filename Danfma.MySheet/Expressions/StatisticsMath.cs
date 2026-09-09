@@ -92,6 +92,61 @@ internal static class StatisticsMath
     }
 
     /// <summary>
+    /// MEDIAN over an ascending sorted population: the middle value, or the mean of the two middle
+    /// values when the count is even. Empty population → <c>#NUM!</c>.
+    /// </summary>
+    public static Error? Median(IReadOnlyList<double> sorted, out double result)
+    {
+        result = 0;
+
+        if (sorted.Count == 0)
+        {
+            return Error.Num;
+        }
+
+        var middle = sorted.Count / 2;
+
+        result = sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+
+        return null;
+    }
+
+    /// <summary>
+    /// MODE.SNGL over a population in SCAN ORDER (never sorted — the tie-break depends on the order):
+    /// the most frequent value, ties going to the first value that REACHES the winning count. No value
+    /// repeats → <c>#N/A</c>.
+    /// </summary>
+    public static Error? Mode(IReadOnlyList<double> values, out double result)
+    {
+        var counts = new Dictionary<double, int>();
+        var bestValue = 0.0;
+        var bestCount = 0;
+
+        foreach (var value in values)
+        {
+            counts.TryGetValue(value, out var count);
+            counts[value] = ++count;
+
+            // Strict '>' keeps the FIRST value reaching the winning count (scan-order tie-break).
+            if (count > bestCount)
+            {
+                bestCount = count;
+                bestValue = value;
+            }
+        }
+
+        if (bestCount < 2)
+        {
+            result = 0;
+            return Error.NA;
+        }
+
+        result = bestValue;
+
+        return null;
+    }
+
+    /// <summary>
     /// PERCENTILE.INC over an ascending sorted list: linear interpolation at position <c>k·(n−1)</c>
     /// (0-based). Empty list or <c>k</c> outside <c>[0, 1]</c> → <c>#NUM!</c>.
     /// </summary>
@@ -155,4 +210,37 @@ internal static class StatisticsMath
 
         return null;
     }
+
+    /// <summary>
+    /// QUARTILE.INC over an ascending sorted population: <c>quart</c> is truncated and must lie in
+    /// 0-4 (otherwise <c>#NUM!</c>); the answer is PERCENTILE.INC at <c>quart/4</c>.
+    /// </summary>
+    public static Error? QuartileInclusive(
+        IReadOnlyList<double> sorted,
+        double quart,
+        out double result
+    )
+    {
+        result = 0;
+        quart = Math.Truncate(quart);
+
+        if (quart is < 0 or > 4)
+        {
+            return Error.Num;
+        }
+
+        return PercentileInclusive(sorted, quart / 4, out result);
+    }
+
+    /// <summary>
+    /// QUARTILE.EXC over an ascending sorted population: <c>quart</c> is truncated, then the answer is
+    /// PERCENTILE.EXC at <c>quart/4</c>. Deliberately NO range check of its own — quart 0 and 4 become
+    /// <c>k</c> 0 and 1, which <see cref="PercentileExclusive"/>'s own <c>k is &lt;= 0 or &gt;= 1</c>
+    /// guard already rejects as <c>#NUM!</c>: neither end is reachable in the exclusive definition.
+    /// </summary>
+    public static Error? QuartileExclusive(
+        IReadOnlyList<double> sorted,
+        double quart,
+        out double result
+    ) => PercentileExclusive(sorted, Math.Truncate(quart) / 4, out result);
 }

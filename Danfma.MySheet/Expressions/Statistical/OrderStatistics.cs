@@ -41,16 +41,9 @@ public sealed partial record Median(Expression[] Arguments) : Function
             values = collected;
         }
 
-        if (values.Count == 0)
-        {
-            return ComputedValue.Error(Error.Num);
-        }
-
-        var middle = values.Count / 2;
-
-        return ComputedValue.Number(
-            values.Count % 2 == 1 ? values[middle] : (values[middle - 1] + values[middle]) / 2
-        );
+        return StatisticsMath.Median(values, out var median) is { } numError
+            ? ComputedValue.Error(numError)
+            : ComputedValue.Number(median);
     }
 }
 
@@ -60,8 +53,8 @@ public sealed partial record ModeSngl(Expression[] Arguments) : Function
     public override ComputedValue Evaluate(EvaluationContext context) =>
         Compute(Arguments, context);
 
-    // MODE.SNGL(number1, …) — most frequent value; ties resolve to the FIRST value encountered in
-    // scan order; no value repeats → #N/A.
+    // MODE.SNGL(number1, …) — most frequent value; ties resolve to the first value that REACHES the
+    // winning count in scan order (so the population is never sorted); no value repeats → #N/A.
     internal static ComputedValue Compute(Expression[] arguments, EvaluationContext context)
     {
         if (StatisticsMath.Collect(arguments, context, out var values) is { } error)
@@ -69,24 +62,9 @@ public sealed partial record ModeSngl(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        var counts = new Dictionary<double, int>();
-        var bestValue = 0.0;
-        var bestCount = 0;
-
-        foreach (var value in values)
-        {
-            counts.TryGetValue(value, out var count);
-            counts[value] = ++count;
-
-            // Strict '>' keeps the FIRST value reaching the winning count (scan-order tie-break).
-            if (count > bestCount)
-            {
-                bestCount = count;
-                bestValue = value;
-            }
-        }
-
-        return bestCount < 2 ? ComputedValue.Error(Error.NA) : ComputedValue.Number(bestValue);
+        return StatisticsMath.Mode(values, out var mode) is { } naError
+            ? ComputedValue.Error(naError)
+            : ComputedValue.Number(mode);
     }
 }
 
@@ -364,14 +342,7 @@ public sealed partial record QuartileInc(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        quart = Math.Truncate(quart);
-
-        if (quart is < 0 or > 4)
-        {
-            return ComputedValue.Error(Error.Num);
-        }
-
-        return StatisticsMath.PercentileInclusive(sorted, quart / 4, out var result) is { } numError
+        return StatisticsMath.QuartileInclusive(sorted, quart, out var result) is { } numError
             ? ComputedValue.Error(numError)
             : ComputedValue.Number(result);
     }
@@ -397,9 +368,9 @@ public sealed partial record QuartileExc(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        quart = Math.Truncate(quart);
-
-        return StatisticsMath.PercentileExclusive(sorted, quart / 4, out var result) is { } numError
+        // No range check here: quart 0 and 4 become k 0 and 1, which PercentileExclusive's own
+        // "k is <= 0 or >= 1" guard already reports as #NUM! (see StatisticsMath.QuartileExclusive).
+        return StatisticsMath.QuartileExclusive(sorted, quart, out var result) is { } numError
             ? ComputedValue.Error(numError)
             : ComputedValue.Number(result);
     }
