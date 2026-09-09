@@ -142,6 +142,52 @@ public class MiniCseConsumerTests
             .IsEqualTo(ErrorValue.DivByZero);
     }
 
+    [Test]
+    public async Task Small_OfTheCorpusDivisionIdiom_PropagatesTheErrorElement()
+    {
+        // The corpus's "nth row that is neither blank nor zero" idiom, which divides BY the filter instead of
+        // branching on it. On A1=5, A2=0, A3=9:
+        //
+        //   (A1:A3<>"")*(A1:A3<>0)                  → [1, 0, 1]   (the filter, A2 = 0 excluded)
+        //   ROW(A1:A3) - ROW(INDEX(A1:A3,1,1)) + 1  → [1, 2, 3]   (positions RELATIVE to the block's top)
+        //   the quotient                            → [1, #DIV/0!, 3]
+        //
+        // The subtrahend is the reference-returning-function case that stays SCALAR by design (documented
+        // under "Not supported"), which is exactly what makes it usable here: ROW(INDEX(A1:A3,1,1)) is the
+        // single number 1 broadcast across the vector, not a second [1,2,3].
+        //
+        // SMALL then reports the #DIV/0! for EVERY k, because the gather scans the whole array and the first
+        // error wins (Small_OfIfArray_ErrorAfterKthElement_StillPropagates pins that rule) — which is
+        // Excel-correct for SMALL. It is Phase 2's AGGREGATE(15,6,…) — function 15 = SMALL, option 6 = ignore
+        // error values — that turns these two lines into 1 and 3; pinning the BEFORE here is what makes that
+        // a deliberate change rather than a silent one.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(0);
+        sheet["A3"] = new NumberValue(9);
+
+        object? Calc(string formula) =>
+            ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+        const string Quotient = "(ROW(A1:A3)-ROW(INDEX(A1:A3,1,1))+1)/((A1:A3<>\"\")*(A1:A3<>0))";
+
+        await Assert.That(Calc($"=SMALL({Quotient},1)")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc($"=SMALL({Quotient},2)")).IsEqualTo(ErrorValue.DivByZero);
+
+        // The two assertions above would read the same if the vector were a single #DIV/0!, so the vector is
+        // identified element-wise here. COUNT discards Fold's error channel (see Count.cs) and tallies the
+        // two numbers that survive; the IF-shaped twin of the SAME filter never divides, so it yields the
+        // worksheet rows 1 and 3 — the numerators that the quotient's 1 and 3 are the relative form of.
+        await Assert.That(Num(Calc($"=COUNT({Quotient})"))).IsEqualTo(2.0);
+        await Assert
+            .That(Num(Calc("=SMALL(IF((A1:A3<>\"\")*(A1:A3<>0),ROW(A1:A3)),1)")))
+            .IsEqualTo(1.0);
+        await Assert
+            .That(Num(Calc("=SMALL(IF((A1:A3<>\"\")*(A1:A3<>0),ROW(A1:A3)),2)")))
+            .IsEqualTo(3.0);
+    }
+
     // --- INDEX over a materialized array first argument ---
 
     [Test]

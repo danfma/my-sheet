@@ -71,6 +71,11 @@ public class ReferenceFunctionTests
     [Arguments("=ROW(A1:A3)", 1.0)] // syntactic fast path: top row of the range
     [Arguments("=ROW(A2)", 2.0)] // syntactic fast path: the cell itself
     [Arguments("=ROW(INDEX(A1:A3,2,1))", 2.0)] // INDEX resolves to the cell address A2
+    // The block's TOP row, the subtrahend of the corpus idiom
+    // ROW(range)-ROW(INDEX(range,1,1))+1 that Phase 2's AGGREGATE(15,6,…) consumes: a wrong answer here
+    // shifts every relative position that idiom produces. See
+    // MiniCseConsumerTests.Small_OfTheCorpusDivisionIdiom_PropagatesTheErrorElement.
+    [Arguments("=ROW(INDEX(A1:A3,1,1))", 1.0)]
     [Arguments("=ROW(OFFSET(A1,1,0))", 2.0)] // 1x1 OFFSET resolves to A2
     [Arguments("=ROW(OFFSET(A1,1,0,2,1))", 2.0)] // resized OFFSET resolves to the range A2:A3
     [Arguments("=ROW(INDIRECT(\"A2\"))", 2.0)] // INDIRECT parses ref_text into A2
