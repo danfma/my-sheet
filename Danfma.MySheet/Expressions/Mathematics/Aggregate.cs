@@ -124,16 +124,12 @@ public sealed partial record Aggregate(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        // The mini-CSE gate, identical to AggregateCodes.Feed's (and to OrderSelection.KthValue's): a
-        // non-Reference argument the mini-CSE can evaluate element-wise is STREAMED, while a plain range
-        // keeps the cell-by-cell scan — which is what carries the nested-aggregate skip. Feed itself cannot
-        // be reused here because 14/15 need the raw stream, not an accumulator: the bounded heap selects
-        // the k-th value without ever materializing (or sorting) the vector.
-        if (
-            array is not Reference
-            && ArrayEvaluation.IsArrayEligible(array, context)
-            && ArrayEvaluation.TryEvaluateStream(array, context, out var stream)
-        )
+        // The shared mini-CSE gate: a non-Reference argument the mini-CSE can evaluate element-wise is
+        // STREAMED, while a plain range keeps the cell-by-cell scan — which is what carries the
+        // nested-aggregate skip. AggregateCodes.Feed cannot be reused here even though it applies the SAME
+        // gate, because 14/15 need the raw stream rather than an accumulator: the bounded heap selects the
+        // k-th value without ever materializing (or sorting) the vector.
+        if (ArrayEvaluation.TryStream(array, context, out var stream))
         {
             if (code is 14 or 15)
             {
@@ -155,7 +151,7 @@ public sealed partial record Aggregate(Expression[] Arguments) : Function
                 return ComputedValue.Error(streamError);
             }
 
-            return Select(code, streamed, context);
+            return SelectPositional(code, streamed, context);
         }
 
         var accumulator = new AggregateCodes.Accumulator(code, ignoreErrors);
@@ -165,12 +161,12 @@ public sealed partial record Aggregate(Expression[] Arguments) : Function
             return ComputedValue.Error(error);
         }
 
-        return Select(code, accumulator, context);
+        return SelectPositional(code, accumulator, context);
     }
 
     // AggregateCodes.Positional requires an ASCENDING population, and the accumulator gathers in scan
     // order, so the sort happens HERE — Fold's in-place sort for code 12 is not on this path at all.
-    private ComputedValue Select(
+    private ComputedValue SelectPositional(
         int code,
         AggregateCodes.Accumulator accumulator,
         EvaluationContext context

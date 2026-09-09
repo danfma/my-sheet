@@ -135,6 +135,53 @@ internal static class ArrayEvaluation
     public static bool IsArrayEligible(Expression expression, EvaluationContext context) =>
         Probe(expression, context).IsArray;
 
+    /// <summary>
+    /// THE mini-CSE consumer gate: the three conditions every consumer that wants to STREAM a computed array
+    /// applies, in the one order that is correct. Succeeds (with the lazy view in <paramref name="stream"/>)
+    /// only for a non-reference argument that genuinely produces an array; otherwise the caller keeps its own
+    /// existing path untouched.
+    ///
+    /// <para>It lives here as one method because the three conditions had drifted apart once already: a
+    /// second hand-written copy is how a consumer silently loses a condition, and the copies cannot be
+    /// diffed when they sit in five files.</para>
+    ///
+    /// <para>The ORDER is load-bearing, not stylistic:</para>
+    /// <list type="number">
+    /// <item><description><c>is not Reference</c> FIRST. A plain <see cref="RangeReference"/> — and an
+    /// <see cref="AnchoredRangeReference"/>, which <see cref="Probe"/> classifies as
+    /// <c>(true, true)</c> exactly like one — IS array-eligible, so without this guard (or with it placed
+    /// after the probe) every reference argument would be diverted off its reference path into the stream,
+    /// losing whatever that path carries: the snapshot/dense walk, and for the aggregate family the
+    /// nested-SUBTOTAL/AGGREGATE skip, which only the cell-by-cell scan can apply.</description></item>
+    /// <item><description><see cref="IsArrayEligible"/> SECOND. It is the CHEAP structural pre-check that
+    /// never evaluates the expression, so a scalar argument pays only a shallow type-walk before falling
+    /// through to the caller's scalar path.</description></item>
+    /// <item><description><see cref="TryEvaluateStream"/> LAST, and only once the probe said yes — so it is
+    /// the argument's SINGLE evaluation. A volatile operand therefore draws exactly once.</description></item>
+    /// </list>
+    ///
+    /// <para>Two nearby sites deliberately do NOT use this gate, and must not be "unified" into it:
+    /// <c>NumericAggregation.Fold</c>'s <c>default:</c> arm omits the <c>is not Reference</c> condition
+    /// because its switch has already peeled off the reference shapes it handles specially, while the
+    /// remaining ones (<see cref="NameReference"/>, <see cref="DynamicRange"/>) are MEANT to reach the
+    /// element-wise fold; and <c>Index.TryResolveReference</c> probes only to REJECT the array forms and
+    /// never builds a stream at all.</para>
+    /// </summary>
+    public static bool TryStream(
+        Expression expression,
+        EvaluationContext context,
+        out ArrayStream stream
+    )
+    {
+        if (expression is not Reference && IsArrayEligible(expression, context))
+        {
+            return TryEvaluateStream(expression, context, out stream);
+        }
+
+        stream = default;
+        return false;
+    }
+
     // The pure-shape twin of TryBuildOperand: decides, WITHOUT evaluating the expression, whether the build
     // would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an array
     // (IsArray). Must track the builder's structure exactly so IsArrayEligible == (build result).

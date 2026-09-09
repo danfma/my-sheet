@@ -110,6 +110,12 @@ internal static class NumericAggregation
                     // reference-returning endpoints does evaluate those endpoints' own arguments, as
                     // IsArrayEligible's remark records) and avoids any double evaluation
                     // (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
+                    //
+                    // Deliberately NOT ArrayEvaluation.TryStream: this gate omits that one's leading
+                    // `is not Reference`, because the switch above has already peeled off the reference
+                    // shapes that need the referenced-cell rule, while the ones that fall through here
+                    // (NameReference, DynamicRange) are MEANT to fold element-wise. Adding the condition
+                    // would silently divert them to the scalar path.
                     if (
                         ArrayEvaluation.IsArrayEligible(argument, context)
                         && ArrayEvaluation.TryEvaluateStream(argument, context, out var array)

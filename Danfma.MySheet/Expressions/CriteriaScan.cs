@@ -171,15 +171,11 @@ internal struct PositionalRange
     /// </summary>
     public static PositionalRange OpenArrayOrRange(Expression argument, EvaluationContext context)
     {
-        // The same three-condition gate every other mini-CSE consumer uses: references keep the range path
+        // The shared mini-CSE gate (ArrayEvaluation.TryStream): references keep the range path
         // (snapshot/dense stream) untouched, the cheap structural pre-check keeps the scalar path a mere
         // type-walk, and the build that follows is the argument's SINGLE evaluation — no double-eval, so a
         // volatile operand still draws exactly once.
-        if (
-            argument is not Reference
-            && ArrayEvaluation.IsArrayEligible(argument, context)
-            && ArrayEvaluation.TryEvaluateStream(argument, context, out var stream)
-        )
+        if (ArrayEvaluation.TryStream(argument, context, out var stream))
         {
             return new PositionalRange(stream);
         }

@@ -68,11 +68,7 @@ internal static class OrderSelection
         // by STREAMING through a bounded heap of k slots (O(n log k), only k slots allocated), instead of
         // materializing the vector and sorting it (the ~14MB LOH allocation the fishing pass targeted). A plain
         // reference keeps the shared sorted-view/collect path below (snapshot reuse, PERCENTILE, …).
-        if (
-            arguments[0] is not Reference
-            && ArrayEvaluation.IsArrayEligible(arguments[0], context)
-            && ArrayEvaluation.TryEvaluateStream(arguments[0], context, out var stream)
-        )
+        if (ArrayEvaluation.TryStream(arguments[0], context, out var stream))
         {
             return KthValueStreaming(stream, arguments[1], context, largest);
         }

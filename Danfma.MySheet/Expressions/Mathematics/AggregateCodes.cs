@@ -41,9 +41,7 @@ internal static class AggregateCodes
         ref Accumulator accumulator,
         NestedSkip skip
     ) =>
-        argument is not Reference
-        && ArrayEvaluation.IsArrayEligible(argument, context)
-        && ArrayEvaluation.TryEvaluateStream(argument, context, out var stream)
+        ArrayEvaluation.TryStream(argument, context, out var stream)
             ? CollectStream(stream, ref accumulator)
             : Gather(argument, context, ref accumulator, skip);
 
@@ -155,7 +153,9 @@ internal static class AggregateCodes
                     return accumulator.Add(value);
                 }
 
-                if (!IsNested(sheet[cell.Id], skip))
+                // Same hoist as the dense probes above: options 4-7 must not pay the sheet lookup to reach
+                // a constant answer.
+                if (skip == NestedSkip.None || !IsNested(sheet[cell.Id], skip))
                 {
                     return accumulator.Add(cell.Evaluate(context));
                 }

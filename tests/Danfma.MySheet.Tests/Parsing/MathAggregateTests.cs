@@ -605,6 +605,8 @@ public class MathAggregateTests
 
         // COUNTA é a ÚNICA diferença comportamental real do bit: sem ele a célula de erro conta (medido
         // em SUBTOTAL(3,…) = 3), com ele sai da contagem.
+        // INFERIDO (a página não diz): a tabela de options diz "ignore error values" mas NÃO diz o que o
+        // COUNTA passa a contar. O 2 abaixo é deduzido do SUBTOTAL(3,…) = 3 medido + a redação da tabela.
         await Assert.That(Num(Calc("=AGGREGATE(3,4,A1:A3)", AggregateErrorData))).IsEqualTo(3.0);
         await Assert.That(Num(Calc("=AGGREGATE(3,6,A1:A3)", AggregateErrorData))).IsEqualTo(2.0);
 
@@ -684,6 +686,9 @@ public class MathAggregateTests
         // SUBTOTAL só documenta "nested subtotals are ignored"; a redação "SUBTOTAL and AGGREGATE" só
         // aparece na tabela de options do AGGREGATE), então B2 — um AGGREGATE — CONTA aqui: 3 + 5 = 8.
         // Se as duas regras fossem a mesma, o teste acima passaria com o predicado errado.
+        // INFERIDO (a página não diz): nenhuma página documenta o SUBTOTAL pulando um AGGREGATE aninhado.
+        // O 8 fixa a escolha ESTREITA e deliberada do MySheet (ver Subtotal.cs / IsNested), não um golden
+        // medido no Excel — se o Excel pular, esta linha e NestedSkip.Subtotal mudam JUNTAS, de propósito.
         await Assert.That(Num(Calc("=SUBTOTAL(9,B1:B3)", AggregateNestedData))).IsEqualTo(8.0);
     }
 
@@ -731,6 +736,12 @@ public class MathAggregateTests
         await Assert.That(Num(Calc("=AGGREGATE(15,6,A1:A3,2)", AggregateErrorData))).IsEqualTo(9.0);
         await Assert
             .That(Calc("=AGGREGATE(15,6,A1:A3,3)", AggregateErrorData))
+            .IsEqualTo(ErrorValue.Number);
+
+        // k = 4 (o valor do brief) passa tanto do fim da população pós-skip quanto do número de CÉLULAS,
+        // então fixa a mesma regra por um caminho que nem precisa do skip para falhar.
+        await Assert
+            .That(Calc("=AGGREGATE(15,6,A1:A3,4)", AggregateErrorData))
             .IsEqualTo(ErrorValue.Number);
 
         // População inteiramente de erros sob a option 6 → população vazia → #NUM! (o mesmo que o SMALL

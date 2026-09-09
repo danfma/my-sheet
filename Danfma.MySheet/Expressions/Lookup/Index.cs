@@ -19,11 +19,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
         //   • Any other array-eligible, non-reference first argument — ROW(B2:B5), ROW(name), IF(range=…,…)
         //     — is materialized row-major and indexed. References fall through to the concrete-range path
         //     below, so plain INDEX(A1:C10, r, c) is untouched.
-        if (
-            Arguments[0] is not Reference
-            && ArrayEvaluation.IsArrayEligible(Arguments[0], context)
-            && ArrayEvaluation.TryEvaluateStream(Arguments[0], context, out var array)
-        )
+        if (ArrayEvaluation.TryStream(Arguments[0], context, out var array))
         {
             return IndexIntoArray(array, context);
         }
@@ -165,7 +161,9 @@ public sealed partial record Index(Expression[] Arguments) : Function
     {
         reference = null;
 
-        // Array forms (mini-CSE vector, open-column ROW identity) have no cell address.
+        // Array forms (mini-CSE vector, open-column ROW identity) have no cell address. Deliberately NOT
+        // ArrayEvaluation.TryStream: this probes only to REJECT those forms and never builds a stream, so
+        // the third condition would be a wasted build (see IsArrayEligible's remark on this exact caller).
         if (
             Arguments[0] is Row { Arguments: [OpenRangeReference] }
             || (
