@@ -1,3 +1,4 @@
+using System.Reflection;
 using Danfma.MySheet.DirtyGraph;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
@@ -354,8 +355,9 @@ public class ElementwiseLiftingTests
     // --- Item 9: the classification guard (the regression defence for the next contributor) ---
 
     // A1:A3 = 1,2,3 and C4:C6 = 100,"x",blank — two rectangles that differ in POSITION and in CONTENTS, and
-    // in the KIND of their contents. This is the executable form of the range-awareness oracle that produced
-    // the 180/126 split, so the derivation re-runs on every build instead of trusting a frozen list.
+    // in the KIND of their contents. Handing a function one and then the other is the range-awareness probe
+    // that produced the 180/126 split, re-run on every build instead of trusting a frozen list — see
+    // PositionZeroProbe for what it can and cannot see.
     private static (Workbook Workbook, Sheet Sheet) TwoRectangles()
     {
         var workbook = new Workbook();
@@ -368,6 +370,42 @@ public class ElementwiseLiftingTests
         // C6 is deliberately BLANK — a third element kind the first rectangle does not have.
 
         return (workbook, sheet);
+    }
+
+    // THE probe, shared by the oracle test (over the Elementwise half of the registry) and by the
+    // completeness assertion (over the Consumes half), so the two can never disagree about what "blind"
+    // means: hand the entry `F(A1:A3, 1, …)` and then `F(C4:C6, 1, …)` — MinArgs arguments, the rectangle in
+    // SLOT 0 — and evaluate both on the ORDINARY scalar path, which never enters the mini-CSE.
+    //
+    // What it sees: a body that READS the rectangle in slot 0 answers differently for 1,2,3 than for
+    // 100,"x",blank. What it CANNOT see: a body that reads a range in a LATER slot (the whole lookup family
+    // takes its table there, and the holiday-aware date functions their holidays), one whose slot 0 is a
+    // scalar (CHOOSE's index), or one that answers a shape or a reference test rather than a value (ROWS,
+    // ISREF). Those are blind here and must be NAMED — which is what
+    // TheShapeAndPositionAndCriteriaFamilies_StayConsumes does, and what
+    // NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere proves is exhaustive.
+    private static (object? Here, object? There) PositionZeroProbe(
+        FunctionRegistry.RegistryEntry entry,
+        Workbook workbook,
+        Sheet sheet
+    )
+    {
+        var filler = string.Concat(Enumerable.Repeat(",1", Math.Max(0, entry.MinArgs - 1)));
+
+        return (Answer($"{entry.Name}(A1:A3{filler})"), Answer($"{entry.Name}(C4:C6{filler})"));
+
+        object? Answer(string body)
+        {
+            try
+            {
+                return ExpressionParser.ParseFormulaBody(body, sheet).Evaluate(workbook).AsObject();
+            }
+            catch (Exception exception)
+            {
+                // A throw is an answer too: the two rectangles must still reach the SAME one.
+                return $"{exception.GetType().Name}: {exception.Message}";
+            }
+        }
     }
 
     [Test]
@@ -404,19 +442,6 @@ public class ElementwiseLiftingTests
         var lifted = new List<string>();
         var offenders = new List<string>();
 
-        object? Answer(string body)
-        {
-            try
-            {
-                return ExpressionParser.ParseFormulaBody(body, sheet).Evaluate(workbook).AsObject();
-            }
-            catch (Exception exception)
-            {
-                // A throw is an answer too: the two rectangles must still reach the SAME one.
-                return $"{exception.GetType().Name}: {exception.Message}";
-            }
-        }
-
         foreach (var entry in FunctionRegistry.ByName.Values)
         {
             if (entry.Lifting is not ArrayLifting.Elementwise)
@@ -432,9 +457,7 @@ public class ElementwiseLiftingTests
                 continue;
             }
 
-            var filler = string.Concat(Enumerable.Repeat(",1", Math.Max(0, entry.MinArgs - 1)));
-            var here = Answer($"{entry.Name}(A1:A3{filler})");
-            var there = Answer($"{entry.Name}(C4:C6{filler})");
+            var (here, there) = PositionZeroProbe(entry, workbook, sheet);
 
             if (!Equals(here, there))
             {
@@ -583,6 +606,39 @@ public class ElementwiseLiftingTests
     [Arguments("AVERAGEIFS")]
     [Arguments("MAXIFS")]
     [Arguments("MINIFS")]
+    // The logical folds. AND/OR/XOR reduce every cell of every argument to one truth value, so a lift would
+    // answer from a single element and silently return the wrong verdict; TEXTJOIN concatenates them.
+    [Arguments("AND")]
+    [Arguments("OR")]
+    [Arguments("XOR")]
+    [Arguments("TEXTJOIN")]
+    // The cash-flow functions: the SERIES is the argument. NPV/XNPV/IRR/MIRR/XIRR/FVSCHEDULE/SERIESSUM each
+    // walk a whole vector of values (and XNPV/XIRR a parallel vector of dates), so one element is not a
+    // smaller answer — it is a different function.
+    [Arguments("NPV")]
+    [Arguments("XNPV")]
+    [Arguments("IRR")]
+    [Arguments("MIRR")]
+    [Arguments("XIRR")]
+    [Arguments("FVSCHEDULE")]
+    [Arguments("SERIESSUM")]
+    // The population statistics: RANK*/MODE*/KURT/PROB/INTERCEPT are defined over the whole population (a
+    // rank needs every other value to compare against, a mode needs the frequencies), which is precisely what
+    // an elementwise lift destroys.
+    [Arguments("RANK")]
+    [Arguments("RANK.EQ")]
+    [Arguments("RANK.AVG")]
+    [Arguments("MODE")]
+    [Arguments("MODE.SNGL")]
+    [Arguments("KURT")]
+    [Arguments("PROB")]
+    [Arguments("INTERCEPT")]
+    // The holiday-aware date functions: their optional `holidays` argument is a RANGE, in a later slot — the
+    // same reason the lookup family above is blind to the probe.
+    [Arguments("NETWORKDAYS")]
+    [Arguments("NETWORKDAYS.INTL")]
+    [Arguments("WORKDAY")]
+    [Arguments("WORKDAY.INTL")]
     public async Task TheShapeAndPositionAndCriteriaFamilies_StayConsumes(string name)
     {
         // The explicit half of the guard, and the COMPLEMENT to the executable oracle above: everything named
@@ -716,4 +772,85 @@ public class ElementwiseLiftingTests
         );
         await Assert.That(AnchoredFormulaSupport.IsFullyAnchored(openRange)).IsFalse();
     }
+
+    [Test]
+    public async Task NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere()
+    {
+        // THE CLOSING ASSERTION, and what makes the whole guard self-maintaining rather than three lists that
+        // drift apart. A range-aware function is protected if EITHER the position-0 probe sees it OR a test
+        // names it. This computes the complement — {Consumes entries blind at position 0} minus {every name
+        // asserted Consumes by either test} — and requires it to be EMPTY.
+        //
+        // So a contributor who adds a range-aware built-in and forgets the classification does not get a
+        // silent hole: if the probe cannot see it, THIS test fails, and the message carries its own name.
+        // Verified by mutation: deleting the [Arguments("AND")] row above fails this test with
+        // "Expected to be empty but collection contains items: [AND]".
+        //
+        // The named set is read by REFLECTION off the two tests' [Arguments] rows, so there is deliberately no
+        // third copy of the list to fall out of sync — adding a row to either test is what registers a name
+        // here. The two are TheShapeAndPositionAndCriteriaFamilies_StayConsumes above and
+        // FunctionRegistryClassificationTests.TheHandAddedExclusions_StayConsumes, which owns the
+        // two-population statistics, the paired-array sums and PERCENTILE.EXC/TRIMMEAN.
+        var named = new HashSet<string>(
+            [
+                .. NamedConsumers(
+                    typeof(ElementwiseLiftingTests),
+                    nameof(TheShapeAndPositionAndCriteriaFamilies_StayConsumes)
+                ),
+                .. NamedConsumers(
+                    typeof(Parsing.FunctionRegistryClassificationTests),
+                    nameof(
+                        Parsing
+                            .FunctionRegistryClassificationTests
+                            .TheHandAddedExclusions_StayConsumes
+                    )
+                ),
+            ],
+            StringComparer.Ordinal
+        );
+
+        var (workbook, sheet) = TwoRectangles();
+        var blind = new List<string>();
+        var unnamed = new List<string>();
+
+        foreach (var entry in FunctionRegistry.ByName.Values)
+        {
+            // A zero-argument entry (PI, RAND, …) has no argument to hand a rectangle to and can never lift,
+            // which FunctionRegistryClassificationTests pins from the registry side.
+            if (entry.Lifting is not ArrayLifting.Consumes || entry.MaxArgs is 0)
+            {
+                continue;
+            }
+
+            var (here, there) = PositionZeroProbe(entry, workbook, sheet);
+
+            if (!Equals(here, there))
+            {
+                continue; // the probe sees it — a mis-flag would fail the oracle test with a diagnostic
+            }
+
+            blind.Add(entry.Name);
+
+            if (!named.Contains(entry.Name))
+            {
+                unnamed.Add(entry.Name);
+            }
+        }
+
+        await Assert.That(unnamed).IsEmpty();
+
+        // Anti-vacuity, from both ends: the probe really is blind to a large minority of the Consumes half
+        // (so the named list is load-bearing, not decoration), and the loop really walked all 126 of them.
+        await Assert.That(blind.Count).IsEqualTo(64);
+        await Assert
+            .That(FunctionRegistry.ByName.Values.Count(e => e.Lifting is ArrayLifting.Consumes))
+            .IsEqualTo(126);
+    }
+
+    // The [Arguments] rows of a one-string-parameter test, read back as the set of function names it asserts.
+    private static IEnumerable<string> NamedConsumers(Type suite, string test) =>
+        suite
+            .GetMethod(test)!
+            .GetCustomAttributes<ArgumentsAttribute>()
+            .Select(arguments => (string)arguments.Values[0]!);
 }
