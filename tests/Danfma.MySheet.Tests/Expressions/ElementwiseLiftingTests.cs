@@ -383,6 +383,15 @@ public class ElementwiseLiftingTests
         // as a SILENT wrong number (the lift would hand the function one element of the rectangle it was
         // meant to consume whole; see the three measured silent cases in this file's class comment).
         //
+        // KNOWN LIMITATION, and the reason the named list below exists. The derivation oracle probed EVERY
+        // argument position; this test places the rectangle at POSITION 0 only. A function that reads a range
+        // in a LATER slot — or whose first slot is a scalar it ignores the rectangle-ness of — is invisible
+        // here: measured, 64 of the 126 Consumes entries answer identically for the two rectangles under this
+        // position-0 probe, the whole lookup family among them (HLOOKUP takes its table in slot 1). So this is
+        // the CHEAP, always-on half of the derivation, not the derivation itself, and
+        // TheShapeAndPositionAndCriteriaFamilies_StayConsumes is its complement: what the probe cannot see
+        // must be named by hand.
+        //
         // Verified by mutation, twice. Flagging SUM `Elementwise` fails with
         // "SUM: A1:A3 → 6, C4:C6 → 100"; flagging COUNT — a range-aware function the explicit list below
         // does NOT name — fails with "COUNT: A1:A3 → 3, C4:C6 → 1". The second is the point: the oracle
@@ -543,6 +552,22 @@ public class ElementwiseLiftingTests
     [Arguments("TYPE")]
     [Arguments("MATCH")]
     [Arguments("VLOOKUP")]
+    // The lookup family in full. Every one of these is BLIND to the position-0 probe above — HLOOKUP,
+    // VLOOKUP, XLOOKUP, LOOKUP, MATCH and XMATCH all take their table/lookup_array in a LATER slot, and
+    // CHOOSE's first slot is the index — so naming them is the only defence they have. Measured: mutating
+    // Entry<HLookup> to Elementwise<HLookup> leaves the oracle's offender list EMPTY, and the only failures
+    // are the two anti-vacuity counts, which carry no diagnostic and survive a compensating swap.
+    [Arguments("HLOOKUP")]
+    [Arguments("XLOOKUP")]
+    [Arguments("XMATCH")]
+    [Arguments("LOOKUP")]
+    [Arguments("CHOOSE")]
+    // The reference-TAKING siblings of ISREF/TYPE/ROW/COLUMN, blind for the same reason (their argument is a
+    // reference whose CELLS they never read, so two rectangles look alike): a lift would hand them one
+    // element and lose the reference entirely.
+    [Arguments("ISFORMULA")]
+    [Arguments("FORMULATEXT")]
+    [Arguments("SHEET")]
     [Arguments("SUBTOTAL")]
     [Arguments("AGGREGATE")]
     [Arguments("IF")]
@@ -560,10 +585,10 @@ public class ElementwiseLiftingTests
     [Arguments("MINIFS")]
     public async Task TheShapeAndPositionAndCriteriaFamilies_StayConsumes(string name)
     {
-        // The explicit half of the guard. ROWS/COLUMNS/AREAS/OFFSET/ISREF/TYPE are the family the executable
-        // oracle above CANNOT see — they answer the SAME thing for two different rectangles (1x1 shapes, a
-        // type code, a reference test), so scalar-blindness holds for them while they are still range-aware.
-        // Naming them here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns
+        // The explicit half of the guard, and the COMPLEMENT to the executable oracle above: everything named
+        // here answers the SAME thing for two different rectangles at position 0 (a 1x1 shape, a type code, a
+        // reference test, a table read from a later slot), so scalar-blindness holds for them while they are
+        // still range-aware. Naming them here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns
         // a dedicated operand arm; lifting a volatile would draw once per element) and LET binds names to
         // whole sub-expressions.
         //
