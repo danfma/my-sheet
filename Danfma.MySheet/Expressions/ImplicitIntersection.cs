@@ -3,9 +3,11 @@ namespace Danfma.MySheet.Expressions;
 /// <summary>
 /// Excel's implicit intersection (the "@" operator) applied at the CELL boundary: a formula whose FINAL
 /// value is a multi-cell reference is not an error — it is intersected with the formula cell's own row and
-/// column. A single-COLUMN reference spanning the formula's row yields that row's cell, a single-ROW
-/// reference spanning the formula's column yields that column's cell, a 1x1 reference yields itself, and
-/// anything wider on both axes is <c>#VALUE!</c> (Microsoft, "Implicit intersection operator: @").
+/// column. A 1x1 reference yields itself, a single-COLUMN reference spanning the formula's row yields that
+/// row's cell, and a single-ROW reference spanning the formula's column yields that column's cell. The two
+/// shapes left over are <c>#VALUE!</c>: NO INTERSECTION — a single-axis reference whose span misses the
+/// formula's line (<c>=A1:A3</c> in <c>C9</c>, <c>=A:A10</c> in <c>C77</c>) — and 2-D, wider than one cell
+/// on both axes, where there is no single answer (Microsoft, "Implicit intersection operator: @").
 ///
 /// <para>Only <see cref="Workbook.EvaluateCell"/> calls this, and only over the value
 /// <see cref="NamedReferences.CaptureValue"/> captured for the cell's whole expression — INSIDE a formula a
@@ -32,7 +34,10 @@ internal static class ImplicitIntersection
     {
         // The intersection axis IS the formula cell's address, so a cell that has none — the rare non-A1 key
         // a host may store under, which Workbook.GetCellValueOverflow serves — has nothing to intersect with
-        // and keeps the pre-existing #VALUE!.
+        // and answers #VALUE!. For a BARE RANGE that is the value such a cell already had (that is
+        // RangeReference.Evaluate's answer); for =MyName and the other reference-PRODUCING forms it is a
+        // deliberate change — those cells used to store a reference-kind ComputedValue that every typed
+        // accessor read back as blank, and an error the host can see beats a value it silently cannot.
         if (
             context.CellId is not { } cellId
             || !CellAddress.TryGetColumnRow(cellId, out var formulaColumn, out var formulaRow)
@@ -50,9 +55,18 @@ internal static class ImplicitIntersection
                 return cell.Evaluate(context);
 
             case RangeReference range:
-                // One parse of both corners for the whole intersection (GetBounds is the normalizing,
-                // no-alloc idiom; its per-corner properties would re-parse).
-                var bounds = range.GetBounds();
+                // One parse of both corners for the whole intersection (the bounds are the normalizing,
+                // no-alloc idiom; the per-corner properties would re-parse). The TRY form, not GetBounds():
+                // GetBounds falls back to the THROWING CellAddress.Parse for a corner id that is not a
+                // canonical A1 address, and the parser never emits one — but a host can build the node
+                // itself (new RangeReference("bogus", "A3", "Sheet1")) and store it in a cell. Such a cell
+                // answered #VALUE! from RangeReference.Evaluate before this class existed, without parsing
+                // either corner, so throwing here would leak a FormatException out of the value-returning
+                // Workbook.GetCellValue. Same answer as before, no exception.
+                if (!range.TryGetBounds(out var bounds))
+                {
+                    return ComputedValue.Error(Error.Value);
+                }
 
                 return Intersect(
                     context,
@@ -124,8 +138,11 @@ internal static class ImplicitIntersection
             return Dereference(context, sheetName, formulaColumn, row);
         }
 
-        // Wider than one cell on BOTH axes: no single answer, so #VALUE! (Excel's rule for a 2-D range at
-        // the boundary). Should a both-axes rule ever be adopted — the formula cell's own (column, row) when
+        // Everything the three branches above left, which is BOTH of Excel's #VALUE! shapes, not just one:
+        // a single-axis reference whose span MISSES the formula's line (=A1:A3 in C9, =A:A10 in C77 — the
+        // fixed-axis test passed, the containment test did not, so there is no intersection to take), and a
+        // reference wider than one cell on both axes (2-D: many candidate cells, no single answer). Should a
+        // both-axes rule ever be adopted for the latter — the formula cell's own (column, row) when
         // the rectangle contains it — it slots in here as one more branch:
         //   if (Contains(formulaColumn, left, right) && Contains(formulaRow, top, bottom)) …
         return ComputedValue.Error(Error.Value);

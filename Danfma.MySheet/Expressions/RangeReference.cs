@@ -105,8 +105,11 @@ public sealed partial record RangeReference(
     }
 
     /// <summary>No-alloc attempt at <see cref="GetBounds"/>: <c>false</c> when either corner id is not a
-    /// canonical A1 address (the caller then falls back to the allocating <see cref="CellAddress.Parse"/> path).</summary>
-    private bool TryGetBounds(out RangeBounds bounds)
+    /// canonical A1 address. <see cref="GetBounds"/> then falls back to the allocating (and throwing)
+    /// <see cref="CellAddress.Parse"/>; a caller that must not throw — one on a value-returning path, where a
+    /// host-built node with a malformed corner id has to become an error VALUE rather than an exception —
+    /// calls this directly and decides for itself (see <see cref="ImplicitIntersection"/>).</summary>
+    internal bool TryGetBounds(out RangeBounds bounds)
     {
         if (
             !CellAddress.TryGetColumnRow(StartId, out var startColumn, out var startRow)

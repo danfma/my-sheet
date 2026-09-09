@@ -158,6 +158,21 @@ public class CellBoundaryIntersectionTests
     }
 
     [Test]
+    public async Task HostBuiltRange_WithANonA1CornerId_IsValueError()
+    {
+        // A RangeReference the PARSER can never build: a host assembled the node itself and gave a corner an
+        // id that is not an A1 address. Before the boundary intersection such a cell answered #VALUE! from
+        // RangeReference.Evaluate WITHOUT parsing either corner, so the intersection must not turn it into a
+        // FormatException escaping Workbook.GetCellValue — a value-returning public API.
+        var workbook = Fixture();
+        workbook["Sheet1"]["C2"] = new RangeReference("bogus", "A3", "Sheet1");
+
+        await Assert
+            .That(workbook.GetCellValue("Sheet1", "C2").AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
     public async Task Intersection_YieldsTheTargetCellsOwnKindAndErrors()
     {
         await Assert.That(InCell("C1", "=D1:D3")).IsEqualTo("txt");
