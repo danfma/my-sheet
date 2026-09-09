@@ -286,9 +286,13 @@ And the one the phase got WRONG, reversed by the same run:
 One DISAGREEMENT with Microsoft's own page is left standing on purpose: the AGGREGATE options table says
 0-3 "Ignore nested SUBTOTAL and AGGREGATE functions", but Aspose COUNTS a nested AGGREGATE under those
 options (A3=`=AGGREGATE(9,0,A1:A2)`=3 → `AGGREGATE(9,0,A1:A3)` = 6, not 3), while it does skip a nested
-SUBTOTAL (3). The documented page wins over the oracle here — the code keeps
-`NestedSkip.SubtotalAndAggregate` for options 0-3 — but the divergence is recorded so it is a decision, not
-an oversight.
+SUBTOTAL (3). Re-measured on the docs' own C1:C3 fixture (a nested SUBTOTAL worth 3, a nested AGGREGATE
+worth 3, a plain 5): the oracle gives `SUBTOTAL(9,C1:C3)` = 8 — which MySheet matches — but
+`AGGREGATE(9,0,C1:C3)` = 8 and `AGGREGATE(3,0,C1:C3)` = 2, where MySheet gives 5 and 1; options 1, 2 and 3
+behave like 0 there, and only option 4 lifts it to 11 on both sides. The documented page wins over the
+oracle here — the code keeps `NestedSkip.SubtotalAndAggregate` for options 0-3 — but the divergence is
+recorded so it is a decision, not an oversight, and the function-reference rows now say plainly which half
+of that sentence is measured and which half is the page.
 
 ## Phase Summary
 

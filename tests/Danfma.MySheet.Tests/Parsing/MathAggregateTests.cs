@@ -898,6 +898,61 @@ public class MathAggregateTests
     }
 
     [Test]
+    public async Task SubtotalAndAggregate_KeepEveryReferenceProducingShapeOffTheArrayPath()
+    {
+        // PIN DE REGRESSÃO da rejeição de array-computado (AggregateCodes.Feed): as formas que PRODUZEM uma
+        // referência sem serem um RangeReference escrito à mão têm que continuar caindo no Gather, e não no
+        // gate de array — senão a rejeição comeria argumentos legítimos. As três que existem hoje: um NOME
+        // definido, um DynamicRange (o ':' com extremidade que retorna referência) e uma FUNÇÃO que devolve
+        // referência (OFFSET). Nenhuma delas muda de resposta entre a base e o head; as nove respostas estão
+        // MEDIDAS no oráculo (Aspose.Cells 26.6.0, 2026-09-09) e são as mesmas: 14 / 14 / 0.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(0);
+        sheet["A3"] = new NumberValue(9);
+        workbook.DefineName("Rng", "Sheet1!$A$1:$A$3");
+
+        object? Eval(string formula) =>
+            ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+        foreach (var shape in new[] { "Rng", "INDEX(A1:A3,1,1):A3", "OFFSET(A1,0,0,3,1)" })
+        {
+            // Forma-referência, com e sem o bit de skip aninhado: a soma inteira do range, 14.
+            await Assert.That(Num(Eval($"=SUBTOTAL(9,{shape})"))).IsEqualTo(14.0);
+            await Assert.That(Num(Eval($"=AGGREGATE(9,4,{shape})"))).IsEqualTo(14.0);
+
+            // Forma-array sobre a MESMA referência: SMALL de {5,0,9} em k=1 é 0. Se o argumento tivesse
+            // sido desviado para o caminho de array — ou para o escalar —, a população não seria essa e a
+            // resposta viria #VALUE! ou #NUM!, não 0.
+            await Assert.That(Num(Eval($"=AGGREGATE(15,6,{shape},1)"))).IsEqualTo(0.0);
+        }
+    }
+
+    [Test]
+    public async Task Subtotal_WholeArgumentError_PropagatesEvenThroughTheCountingCodes()
+    {
+        // PIN DE REGRESSÃO de um efeito COLATERAL da correção do argumento-erro inteiro: os códigos 2
+        // (COUNT) e 3 (COUNTA) nunca propagam erro de CÉLULA — o acumulador só tallia —, então antes da
+        // correção um argumento que É um erro sumia neles: =SUBTOTAL(2,1/0) dava 0 e =SUBTOTAL(3,1/0) dava
+        // 1 (o erro contava como "não vazio"). Agora o erro volta antes de chegar ao acumulador, nos três
+        // códigos. MEDIDO no oráculo: #DIV/0! nos três. Já passa — não há RED a pinar, o comportamento veio
+        // junto com a correção; o pino existe para que ele não volte a sumir.
+        await Assert.That(Calc("=SUBTOTAL(2,1/0)")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=SUBTOTAL(3,1/0)")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=SUBTOTAL(9,1/0)")).IsEqualTo(ErrorValue.DivByZero);
+
+        // O terceiro colateral, no AGGREGATE: uma FUNÇÃO de referência que falha (OFFSET para fora da
+        // planilha) devolve um #REF! que a option 6 engolia — dava 0. Agora propaga, como o oráculo.
+        await Assert
+            .That(Calc("=AGGREGATE(9,6,OFFSET(A1,-5,0))", AggregateErrorData))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=AGGREGATE(9,4,OFFSET(A1,-5,0))", AggregateErrorData))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
     public async Task Aggregate_MissingSheetReference_IsRefError()
     {
         // Guarda estrutural ANTES do scan: sem ela a option 6 (que engole erros) veria um range vazio e
