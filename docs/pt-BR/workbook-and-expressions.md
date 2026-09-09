@@ -438,18 +438,33 @@ correspondência). O primeiro erro por elemento prevalece, como no Excel.
   ali o formato de array é deliberadamente adiado.
 - A família de **critérios / varredura posicional** não lê um array computado. `SUMIF`/`SUMIFS`,
   `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` e `MAXIFS`/`MINIFS` percorrem seus argumentos posição a
-  posição, e um array em uma dessas posições simplesmente não é um intervalo: o Excel torna
-  `SUMIFS((A1:A3)*1, …)` um `#VALUE!`, e essa regra não mudou — o que o levanta é a diferença de
-  comprimento em relação ao intervalo de critérios real, enquanto um `SUMIF((A1:A3)*1, ">0")` de critério
-  único varre o vazio e responde `0`. O `SUMPRODUCT` é o único membro dessa família que optou por aceitar
-  arrays computados; os consumidores de dobra listados em **Suportado** acima (`SUM(IF(…))` e companhia)
-  sempre os aceitaram.
+  posição, e um array em uma dessas posições simplesmente não é um intervalo — ele colapsa para uma
+  sequência de um único elemento contendo o `#VALUE!` de um intervalo em uma operação aritmética. O que
+  cada função faz com esse elemento solitário assume **quatro** formas, todas fixadas por teste: as formas
+  **pareadas** (`SUMIFS`/`AVERAGEIFS`/`MAXIFS`/`MINIFS`), que têm um intervalo de critérios real ao lado do
+  argumento colapsado, veem 1 elemento contra 3 e levantam a diferença de comprimento da varredura —
+  `#VALUE!`, que é também a resposta do Excel; `SUMIF((A1:A3)*1, ">0")` não tem contra o que divergir, então
+  o `#VALUE!` solitário não corresponde a critério nenhum e a varredura volta vazia — `0`;
+  `COUNTIF`/`COUNTIFS` igualmente contam essa varredura vazia como `0`; e `AVERAGEIF` a divide por uma
+  contagem zero — `#DIV/0!`. As três últimas são respostas **silenciosas**, não erros. O `SUMPRODUCT` é o
+  único membro dessa família que optou por aceitar arrays computados; os consumidores de dobra listados em
+  **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram.
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
   não é avaliado como array.
 - Uma condição **escalar** mantém o curto-circuito nativo do `IF` — apenas uma condição de array conduz o
   zip.
+
+**Uma divergência conhecida.** `SUM(ROW(Ghost!A1:A3))` — um retângulo escrito *literalmente* sobre uma
+planilha que não existe, em posição de array — responde `6`, os números de linha `1+2+3`, enquanto o Excel
+responde `#REF!`. O `ROW(Ghost!A1:A3)` escalar na mesma pasta de trabalho já é `#REF!`, assim como o
+caminho de array sobre um nome que representa o mesmo intervalo (`SUM(ROW(GhostName))`): a divergência está
+apenas no retângulo escrito por extenso, cujo caminho rápido sintático vai direto a um vetor de linhas ou
+colunas e nunca resolve a referência, de modo que a guarda de planilha ausente — executada por todo caminho
+que resolve — não tem sobre o que atuar. Isso está fixado como uma lacuna, e não como uma regra, por
+`MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap`, para que fechá-la seja
+uma edição deliberada.
 
 Subexpressões voláteis dentro do array se comportam como qualquer outra volátil: um `RAND()` (propagado,
 ou em uma célula de intervalo que a comparação lê) contamina a célula consumidora, então

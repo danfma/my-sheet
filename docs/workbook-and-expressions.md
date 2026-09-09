@@ -422,17 +422,30 @@ logical `FALSE` where the condition is false, and the aggregators ignore logical
   shape is deliberately deferred there.
 - The **criteria / positional-scan** family does not read a computed array. `SUMIF`/`SUMIFS`,
   `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` and `MAXIFS`/`MINIFS` walk their arguments position by
-  position, and an array in one of those positions is simply not a range: Excel makes
-  `SUMIFS((A1:A3)*1, …)` a `#VALUE!` and that rule is unchanged — the length mismatch against the real
-  criteria range is what raises it, while a single-criteria `SUMIF((A1:A3)*1, ">0")` scans nothing and
-  answers `0`. `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the
-  fold-based consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken
-  them.
+  position, and an array in one of those positions is simply not a range — it collapses to a
+  single-element sequence holding the `#VALUE!` of a range in an arithmetic operation. What each function
+  then does with that lone element takes **four** shapes, all pinned: the **paired** forms
+  (`SUMIFS`/`AVERAGEIFS`/`MAXIFS`/`MINIFS`), which have a real criteria range beside the collapsed
+  argument, see 1 element against 3 and raise the scan's length mismatch — `#VALUE!`, Excel's answer too;
+  `SUMIF((A1:A3)*1, ">0")` has nothing to mismatch against, so the lone `#VALUE!` matches no criterion and
+  the scan comes back empty — `0`; `COUNTIF`/`COUNTIFS` likewise count that empty scan as `0`; and
+  `AVERAGEIF` divides it by a zero count — `#DIV/0!`. The last three are **silent** answers, not errors.
+  `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the fold-based
+  consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken them.
 - An **open/whole-column** range in an array position is refused and the consumer stays on its ordinary
   scalar/range path — the one exception is the `INDEX(ROW($A:$A), n)` identity above, which returns `n`
   without materializing the column. `SMALL(IF(A:A=…, ROW(A:A)), k)` over an *open* column is therefore
   not array-evaluated.
 - A **scalar** condition keeps `IF`'s native short-circuit — only an array condition drives the zip.
+
+**One known divergence.** `SUM(ROW(Ghost!A1:A3))` — a rectangle written *literally* on a sheet that does
+not exist, in an array position — answers `6`, the row numbers `1+2+3`, where Excel answers `#REF!`. The
+scalar `ROW(Ghost!A1:A3)` in the same workbook is already `#REF!`, and so is the array path over a name
+that stands for the same range (`SUM(ROW(GhostName))`): the divergence is only the written-out rectangle,
+whose syntactic fast path goes straight to a row/column vector and never resolves the reference, so the
+missing-sheet guard that every resolving path runs has nothing to run on. It is pinned as a gap, not a
+rule, by `MiniCseConsumerTests.Sum_OfRowOverLiteralRangeOnMissingSheet_KeepsTheSyntacticGap`, so closing
+it is a deliberate edit.
 
 Volatile sub-expressions inside the array behave like any other volatile: a `RAND()` (broadcast, or in a
 range cell the comparison reads) taints the consuming cell, so [`Recalculate()`](#the-epoch-model)
