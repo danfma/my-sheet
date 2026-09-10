@@ -41,6 +41,32 @@ public class ArrayEvaluationTests
         return (workbook, sheet);
     }
 
+    // A1:C3 = 1..9 row-major, E1:E3 = 1,2,3 (a 3x1 column) and E5:G5 = 10,20,30 (a 1x3 row) — the Phase 10
+    // broadcasting fixture, shared with VectorBroadcastingTests (which owns the streamed pins over it).
+    private static (Workbook Workbook, Sheet Sheet) BroadcastGrid()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        var value = 1;
+        foreach (var row in new[] { 1, 2, 3 })
+        {
+            foreach (var column in new[] { "A", "B", "C" })
+            {
+                sheet[$"{column}{row}"] = Number(value++);
+            }
+        }
+
+        sheet["E1"] = Number(1);
+        sheet["E2"] = Number(2);
+        sheet["E3"] = Number(3);
+        sheet["E5"] = Number(10);
+        sheet["F5"] = Number(20);
+        sheet["G5"] = Number(30);
+
+        return (workbook, sheet);
+    }
+
     private static BinaryOperation Equal(Expression left, Expression right) =>
         new(BinaryOperator.Equal, left, right);
 
@@ -180,7 +206,7 @@ public class ArrayEvaluationTests
     }
 
     [Test]
-    public async Task DimensionMismatch_YieldsValueErrorPerElement()
+    public async Task DimensionMismatch_BroadcastsAndMarksTheUncoveredTail()
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Sheet1");
@@ -191,7 +217,13 @@ public class ArrayEvaluationTests
         sheet["C2"] = Number(20);
         var context = new EvaluationContext(workbook);
 
-        // A1:A3 + C1:C2 → dims mismatch (3x1 vs 2x1) → every element #VALUE!
+        // A1:A3 + C1:C2 — two columns whose extents BOTH exceed 1 and differ (3x1 against 2x1). Phase 10:
+        // the result takes the LARGER extent and only the position the shorter operand does not cover is an
+        // error, and that error is #N/A — so [11, 22, #N/A], not three #VALUE!s.
+        //
+        // FLIPPED by Phase 10 (was DimensionMismatch_YieldsValueErrorPerElement, every element Error.Value).
+        // Measured on the P0 oracle, Aspose.Cells 26.6.0, 2026-09-10, CSE column: INDEX(A1:A3+C1:C2,r,1) is
+        // 11, 22, #N/A, ROWS is 3, COUNT is 2 and SUM is #N/A.
         var node = new BinaryOperation(
             BinaryOperator.Add,
             Range("A1", "A3", sheet),
@@ -199,10 +231,63 @@ public class ArrayEvaluationTests
         );
 
         await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
-        foreach (var value in result.Values)
+        await Assert.That(result.Rows).IsEqualTo(3);
+        await Assert.That(result.Columns).IsEqualTo(1);
+        await Assert.That(NumberAt(result, 0)).IsEqualTo(11.0);
+        await Assert.That(NumberAt(result, 1)).IsEqualTo(22.0);
+        await Assert.That(result.Values[2].TryGetError(out var tail)).IsTrue();
+        await Assert.That(tail).IsEqualTo(Error.NA);
+    }
+
+    [Test]
+    public async Task VectorAgainstRectangle_BroadcastsIntoTheEagerVector()
+    {
+        // The EAGER twin of VectorBroadcastingTests' streamed pins: both consumption shapes walk the same
+        // operand tree, so the materialized vector must be the streamed sequence, in the same row-major
+        // order. A 3x3 against a 3x1 column repeats each row's value across that row's three columns.
+        // Measured on Aspose.Cells 26.6.0 (2026-09-10, CSE): SUM is 108 and INDEX(…,2,3)/(3,1) are 12/21.
+        var (workbook, sheet) = BroadcastGrid();
+        var context = new EvaluationContext(workbook);
+
+        var node = new BinaryOperation(
+            BinaryOperator.Multiply,
+            Range("A1", "C3", sheet),
+            Range("E1", "E3", sheet)
+        );
+
+        await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
+        await Assert.That(result.Rows).IsEqualTo(3);
+        await Assert.That(result.Columns).IsEqualTo(3);
+        double[] expected = [1, 2, 3, 8, 10, 12, 21, 24, 27];
+        for (var index = 0; index < expected.Length; index++)
         {
-            await Assert.That(value.TryGetError(out var error)).IsTrue();
-            await Assert.That(error).IsEqualTo(Error.Value);
+            await Assert.That(NumberAt(result, index)).IsEqualTo(expected[index]);
+        }
+    }
+
+    [Test]
+    public async Task ColumnAgainstRow_BuildsTheOuterProductInRowMajorOrder()
+    {
+        // A 3x1 against a 1x3: nine elements, E[row] * G[column], which is the one shape where a projection
+        // that ignored an axis of extent 1 on the WRONG operand would still produce nine numbers — only the
+        // ORDER tells the two apart. Measured on Aspose.Cells 26.6.0 (2026-09-10, CSE): SUM is 360 and
+        // INDEX(…,3,2) is 60.
+        var (workbook, sheet) = BroadcastGrid();
+        var context = new EvaluationContext(workbook);
+
+        var node = new BinaryOperation(
+            BinaryOperator.Multiply,
+            Range("E1", "E3", sheet),
+            Range("E5", "G5", sheet)
+        );
+
+        await Assert.That(ArrayEvaluation.TryEvaluate(node, context, out var result)).IsTrue();
+        await Assert.That(result.Rows).IsEqualTo(3);
+        await Assert.That(result.Columns).IsEqualTo(3);
+        double[] expected = [10, 20, 30, 20, 40, 60, 30, 60, 90];
+        for (var index = 0; index < expected.Length; index++)
+        {
+            await Assert.That(NumberAt(result, index)).IsEqualTo(expected[index]);
         }
     }
 

@@ -68,6 +68,25 @@ public class ElementwiseLiftingTests
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
+    // Broadcast(): Textual() plus E6:E8 = 1,2,3 — the ONE fixture where the merge Numeric()/Textual() avoid
+    // is the point. E7 and E8 sit INSIDE the D7:F9 rectangle, so the rectangle's own elements are "abc", 2,
+    // blank / "def", 3, blank / blank, " ", blank while the second argument is a 3x1 column of 1,2,3; each
+    // row therefore cuts a DIFFERENT length, which is what makes a broadcast assertion distinguishable from
+    // a fill (Textual()'s own goldens do not hold here — see the note on Numeric() above).
+    private static object? OnBroadcast(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["D7"] = new StringValue("abc");
+        sheet["D8"] = new StringValue("def");
+        sheet["E9"] = new StringValue(" ");
+        sheet["E6"] = new NumberValue(1);
+        sheet["E7"] = new NumberValue(2);
+        sheet["E8"] = new NumberValue(3);
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
     // Blank(): an empty sheet — A1:A3 are three BLANK elements, and Ghost! is a sheet that does not exist.
     private static object? OnBlank(string formula)
     {
@@ -272,25 +291,32 @@ public class ElementwiseLiftingTests
     }
 
     [Test]
-    public async Task ShapeMismatch_FillsEveryElementWithValueError()
+    public async Task ShapeMismatch_BroadcastsTheColumnAcrossTheRectangle()
     {
-        // A 3x3 first argument against a 3x1 second: the mini-CSE's EXISTING dimension rule fills every
-        // element with #VALUE!, so the fold reports #VALUE!. The lifted operand must obey that same rule
-        // rather than inventing one of its own.
+        // A 3x3 first argument against a 3x1 second: the column repeats across every column of its row.
         //
-        // KNOWN DIVERGENCE, pinned rather than asserted as Excel: real Excel BROADCASTS a 3x1 column across
-        // a 3x3 (each row's value applied to every column). Measured against the P0 oracle, Aspose CSE:
-        // SUM(LEFT(D7:F9,E6:E8)) = 0 (E6:E8 are blank here, so LEFT(...,0) = "" nine times), and isolated on
-        // numbers SUM(A1:C3*E1:E3) = 108 and SUM(ROUND(A1:C3,E1:E3)) = 45. This engine answers #VALUE! for
-        // all three TODAY, from the pre-existing BinaryOperand rule — measured: SUM(A1:C3*E1:E3) = #VALUE!
-        // and COUNT(A1:C3*E1:E3) = 0, i.e. a per-ELEMENT fill, not a refusal of the whole expression. Excel
-        // broadcasting is therefore a separate, pre-existing gap in the operand tree; this line keeps the
-        // lift consistent with the engine it lands in, and closing the gap must update it deliberately.
+        // FLIPPED by Phase 10 (was ShapeMismatch_FillsEveryElementWithValueError, pinning #VALUE!). Phase 8
+        // pinned the engine's then-current dimension rule "with the divergence stated" precisely so that
+        // closing the gap would be a deliberate update; the divergence — real Excel broadcasts a 3x1 column
+        // across a 3x3 — is what Phase 10 closes, so the pin moves to the oracle's answers. The four
+        // values this engine gave BEFORE the flip are kept here so the change of answer stays legible
+        // (measured on 897affc, 2026-09-10): SUM(LEFT(D7:F9,E6:E8)) was #VALUE! on both fixtures,
+        // SUM(LEN(LEFT(D7:F9,E6:E8))) was #VALUE!, INDEX(LEFT(D7:F9,E6:E8),2,1) was #VALUE! (it was #REF!
+        // before Phase 8 lifted LEFT, which is the value the Phase 10 brief carried) and COUNT was already 0.
         //
-        // Note this assertion is already green today (#VALUE! from the opaque scalar rather than from the
-        // fill) — it is a shape REGRESSION pin, and the ROUND(E6:E8,F6:F8) case above is what makes it mean
-        // something.
-        await Assert.That(OnTextual("=SUM(LEFT(D7:F9,E6:E8))")).IsEqualTo(ErrorValue.NotValue);
+        // Every golden below is Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (plain entry answers
+        // #VALUE! for the two SUMs and agrees on the INDEX).
+        //
+        // On Textual() E6:E8 are BLANK, so every element is LEFT(x, 0) = "" and the numeric fold is 0.
+        await Assert.That(Num(OnTextual("=SUM(LEFT(D7:F9,E6:E8))"))).IsEqualTo(0.0);
+
+        // A sum of nine empty strings is a weak assertion — it would also hold if the broadcast produced the
+        // wrong element everywhere — so the same shape is pinned on Broadcast(), where the second argument
+        // carries 1,2,3 and each row cuts a different length: "a","2","" / "de","3","" / ""," ","". LEN sums
+        // to 6, nothing is numeric so COUNT is 0, and element (2,1) is the two-character "de".
+        await Assert.That(Num(OnBroadcast("=SUM(LEN(LEFT(D7:F9,E6:E8)))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnBroadcast("=COUNT(LEFT(D7:F9,E6:E8))"))).IsEqualTo(0.0);
+        await Assert.That(OnBroadcast("=INDEX(LEFT(D7:F9,E6:E8),2,1)")).IsEqualTo("de");
     }
 
     // --- Edges: element kinds (blank, error, text, missing sheet) ---
