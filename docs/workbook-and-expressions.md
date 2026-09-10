@@ -567,33 +567,46 @@ The guard tests are precise about which of those two mistakes each one catches:
   `SUM(ROW(INDEX(A1:A3,1,1)))` is `1`, the top row of the resolved reference, not the vector `[1,2,3]`.
   Discovering its shape would resolve the argument a second time and draw a volatile twice, so the array
   shape is deliberately deferred there.
-- The **criteria / positional-scan** family does not read a computed array. `SUMIF`/`SUMIFS`,
-  `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` and `MAXIFS`/`MINIFS` walk their arguments position by
-  position, and an array in one of those positions is simply not a range — it collapses to a
-  single-element sequence holding the `#VALUE!` of a range in an arithmetic operation. What each function
-  then does with that lone element takes **four** shapes, all pinned: the **paired** forms
-  (`SUMIFS`/`AVERAGEIFS`/`MAXIFS`/`MINIFS`), which have a real criteria range beside the collapsed
-  argument, see 1 element against 3 and raise the scan's length mismatch — `#VALUE!`;
-  `SUMIF((A1:A3)*1, ">0")` has nothing to mismatch against, so the lone `#VALUE!` matches no criterion and
-  the scan comes back empty — `0`; `COUNTIF`/`COUNTIFS` likewise count that empty scan as `0`; and
-  `AVERAGEIF` divides it by a zero count — `#DIV/0!`. The last three are **silent** answers, not errors.
-  Excel refuses the whole family outright instead: for a computed argument `SUMIF`, `SUMIFS`, `COUNTIF`,
-  `COUNTIFS`, `AVERAGEIF`, `AVERAGEIFS`, `MAXIFS` and `MINIFS` each answer `#VALUE!` on plain entry and
-  `#REF!` when array-entered (`SUMIFS((A1:A3)*1,A1:A3,">0")` and the seven others, measured on Aspose.Cells
-  26.6.0, 2026-09-09). So the paired forms' `#VALUE!` coincides with Excel only on the typed form, and the
-  three silent answers are a divergence — both recorded for the planned Excel-compatibility sweep, not
-  asserted as Excel's rule. A **broadcast** argument changes nothing here: the family never enters the
-  element-wise evaluation, so `SUMIF(A1:C3*H1:H2,">0")` and `COUNTIF(A1:C3*H1:H2,">0")` are `0` and
-  `SUMIFS(A1:C3,A1:C3*H1:H2,">0")` is `#VALUE!` here, against `#REF!` array-entered and `#VALUE!` typed on
-  the oracle for all three (measured 2026-09-10, both engines; pinned by
-  `MiniCseConsumerTests.CriteriaFamily_OverABroadcastArray_StillRefusesIt`).
-  `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the fold-based
-  consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken them. A **lifted**
-  argument is refused there for exactly the same reason — `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#VALUE!`, with
-  the same `#VALUE!`-plain / `#REF!`-array-entered split on the oracle as the computed case above.
-  `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a computed array outright, a
-  lifted one included (`SUBTOTAL(9,LEN(A1:A3))` and `AGGREGATE(9,4,LEN(A1:A3))` are `#VALUE!` on both
-  engines); AGGREGATE's array form is the one that consumes it, lifts included
+- The **criteria / positional-scan** family does not read a computed array — it **rejects** one with
+  `#REF!`. `SUMIF`/`SUMIFS`, `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` and `MAXIFS`/`MINIFS` walk their
+  arguments position by position, and every range slot they take — criteria range and
+  sum/average/max/min range alike — requires a *reference*: an argument that is not a reference node and that
+  the element-wise evaluation would stream is refused before the scan opens, in every slot and at every
+  arity. `COUNTIF(A1:A3*1,">0")`, `SUMIF(A1:A3*1,">0")`, `COUNTIFS(A1:A3*1,">0")`,
+  `AVERAGEIF(A1:A3*1,">0")`, `SUMIFS(B1:B3,A1:A3*1,">0")`, `SUMIFS(A1:A3*1,B1:B3,">0")`,
+  `SUMIF(A1:A3,">0",B1:B3*1)`, `COUNTIFS(A1:A3,">0",B1:B3*1,">1")`, `COUNTIF(ROW(A1:A3),">1")`,
+  `COUNTIF(-A1:A3,"<0")` and `COUNTIF(LEN(A1:A3),">0")` are all `#REF!`. Excel refuses the family the same
+  way: for a **computed** argument (`SUMIFS((A1:A3)*1,A1:A3,">0")` and its seven siblings) it answers
+  `#VALUE!` on plain entry and `#REF!` array-entered, and for a dynamic-array **producer** in the slot it
+  answers `#REF!` in *both* entry modes — `COUNTIF(FILTER(A1:A3,A1:A3>0),">5")`,
+  `COUNTIF(SEQUENCE(5),">3")`, `SUMIF(SORT(A1:A3),">0")` and `COUNTIF(UNIQUE(A1:A3),">0")`, all measured on
+  Aspose.Cells 26.6.0, 2026-09-10 (those four functions are not implemented here yet; they are quoted because
+  they are the shape that fixes the rule). `#REF!` is therefore both the array-entered answer this section
+  reproduces and the one answer the two producer columns agree on, which is why the rule is `#REF!` and not
+  `#VALUE!`. Pinned by `CriteriaComputedArgumentTests` and
+  `MathAggregateTests.CriteriaFamily_RejectsAComputedArrayWithRef`. A **broadcast** or composite argument is
+  the same rejection — the family never enters the element-wise evaluation — so `SUMIF(A1:C3*H1:H2,">0")`,
+  `COUNTIF(A1:C3*H1:H2,">0")` and `SUMIFS(A1:C3,A1:C3*H1:H2,">0")` are `#REF!` here, matching the oracle's
+  array-entered column (`#VALUE!` typed; measured 2026-09-10, pinned by
+  `MiniCseConsumerTests.CriteriaFamily_OverABroadcastArray_IsRef`), and so is a **lifted** argument:
+  `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#REF!`, with the same `#VALUE!`-plain / `#REF!`-array-entered split on
+  the oracle (pinned by `MiniCseConsumerTests.CriteriaFamily_OverALiftedFunction_IsRef`). What is **not**
+  rejected is whatever is already a reference or is not array-eligible: a reference-returning function
+  (`CHOOSE`, `OFFSET`, `INDEX`), a defined name, a single cell and a whole column all stay ranges, so
+  `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` and `COUNTIF(OFFSET(A1,0,0,3,1),">0")` are `2`, as on the oracle in
+  both modes. Three shapes are **deliberate deviations** left for the compatibility sweep, each pinned as one
+  in `CriteriaComputedArgumentTests`: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `0` here where the oracle
+  answers `2` in *both* entry modes — a scalar-conditioned `IF` is an opaque scalar here rather than its
+  branch's reference, and closing that is the sweep's own item, deliberately not part of this rule;
+  `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes (a bare
+  *scalar* in a range slot, a shape no array producer takes); and `SUMIF(A:A*1,">0")` is `0` where the oracle
+  answers `#REF!` in both modes (the cost guard refuses a whole-column operand, so the argument is never
+  array-eligible and the gate never sees it). `SUMPRODUCT` is the one member of that family that opted in to
+  computed arrays — `SUMPRODUCT((A1:A3<>0)*1)` = 2 and `SUMPRODUCT(A1:A3*1,B1:B3)` = 32, matching the oracle
+  in both modes — and the fold-based consumers listed under **Supported** above (`SUM(IF(…))` and friends)
+  have always taken them. `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a
+  computed array outright, a lifted one included (`SUBTOTAL(9,LEN(A1:A3))` and `AGGREGATE(9,4,LEN(A1:A3))`
+  are `#VALUE!` on both engines); AGGREGATE's array form is the one that consumes it, lifts included
   (`AGGREGATE(15,6,LEN(A1:A3),1)` = 1, measured on both).
 - An **open/whole-column** range in an array position is refused and the consumer stays on its ordinary
   scalar/range path — the one exception is the `INDEX(ROW($A:$A), n)` identity above, which returns `n`
@@ -682,17 +695,34 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   it instead of a unary operator — and `SUM(LEN(+A1:A3))`, the `+` on the inside, is the same `#VALUE!` here
   against the same **6** there. Write `SUM(LEN(A1:A3))`. Pinned by
   `ElementwiseLiftingTests.LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence`.
-- **A lifted call over a defined NAME is not lifted.** A name is captured as a reference *value*, so it
-  reaches the mini-CSE as an opaque scalar unless the consuming shape resolves it itself (`ROW`/`COLUMN` do —
-  `SUM(ROW(MyName))` is 6 on both engines). Every other array shape over a name is therefore a gap. For
-  `MyName` = `A1:A3` = 1, 22, 333, all measured 2026-09-09: `SUM(LEN(MyName))` is `#VALUE!` here and **6**
-  there, `SUM(-MyName)` `#VALUE!` against **-356**, `SUM(MyName%)` `#VALUE!` against **3.56**, and
-  `SUM(MyName*2)` `#VALUE!` against **712**. The *comparison* shapes are worse than an error because they are
-  silent: `SUM(IF(MyName>1,1,0))`, `SUMPRODUCT(--(MyName>1))` and `SUM((MyName>1)*1)` each answer **1** here
-  — the scalar comparison of the name's first cell — where Excel answers **2**. Reading the name itself is
-  unaffected (`SUM(MyName)` is 356 on both); the gap is the array shapes over it, unary, function and binary
-  alike. Pinned by
-  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreNotLifted_KnownDivergence`.
+- **A defined NAME in an array position is whatever it is bound to** — the rule itself is *agreement*, and
+  what this entry records are the three shapes still refused. A name bound to a rectangle is array-eligible in
+  a **nested** array position and answers exactly what the written-out rectangle answers. For a `MyName`
+  bound to 1, 22, 333 and a `Rng` bound to `A1:A3` = 5, 0, 9, all measured on Aspose.Cells 26.6.0 array-entered
+  (2026-09-10): `SUM(LEN(MyName))` = **6**, `SUM(-MyName)` = **-356**, `SUM(MyName%)` = **3.56**,
+  `SUM(MyName*2)` = **712**, `SUM((MyName>1)*1)` = `SUM(IF(MyName>1,1,0))` = `SUMPRODUCT(--(MyName>1))` =
+  **2**, `COUNT((Rng<>"")*1)` = `COUNT(Rng*1)` = **3**, `SUM((Rng<>0)*1)` = **2**,
+  `SMALL(IF(Rng>0,Rng),1)` = **5** and `INDEX(Rng*2,3)` = **18** — the same values as the literal twins,
+  which is the rule stated as a test. A name on a **missing sheet** streams the literal's per-element `#REF!`
+  the same way: `SUM((GhostName<>0)*1)` is `#REF!` and `COUNT((GhostName<>"")*1)` is `0`, both modes on the
+  oracle. Reading the name itself is unaffected (`SUM(MyName)` = 356, `SUM(ROW(MyName))` = 6 on both
+  engines), and at a consumer's **top level** a bare name is still a *reference* that keeps the reference
+  path, exactly as a bare literal range does — `SUBTOTAL(9,Rng)` = 14, `AGGREGATE(9,4,Rng)` = 14,
+  `SUM(A1:INDEX(Rng,3))` = 14 and `ISREF(INDEX(Rng,2))` = `TRUE` — because that path carries what an
+  element-wise stream cannot: the nested-`SUBTOTAL` skip, the engine's column-major first-error scan and a
+  reference-returning `INDEX`. Pinned by `DefinedNameArrayEligibilityTests` and
+  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreLifted`. Three shapes stay refused, each a
+  deliberate deviation pinned as one: an **open-range** name meets the cost guard, so `SUM((MyCol<>0)*1)`
+  with `MyCol` = `$A:$A` is `1` here — the truthy reference value — against the oracle's **2**
+  array-entered (`0` typed); a **union** name resolves to a scalar, which makes the whole expression
+  scalar-only, so `SUM((UnN<>0)*1)` is `1` against **2** array-entered (`#VALUE!` typed) and the *literal*
+  union twin is `#VALUE!` here, making this the one row where a name does not match its literal; and a `LET`
+  node in a consumer's own argument slot stays opaque because the shape probe does not look inside it, so
+  `SUM(LET(r,Rng,(r<>0)*1))` is `1` against **2** in both entry modes — Phase 7's `LET` routing owns that
+  one. A `LET`-bound name *inside* an array position does resolve, through the `LET` scope that
+  [name resolution](#named-ranges) checks first: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
+  `LET(r,A1:A3,COUNT(r*1))` = **3** and `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both
+  entry modes where they were `1`, `0` and `#REF!` before this rule.
 - **A range-aware function is never lifted over its SCALAR slots.** Excel lifts a range-aware function too:
   it consumes the range in the slot that takes one and repeats the *whole call* per element of a rectangle
   handed to any other slot. MySheet's classification is per *function*, not per slot, so a rectangle in a
@@ -704,8 +734,9 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   `SUM(RANK(A1:A3,A1:A3))` **6** [`#VALUE!`], `SUM(WORKDAY(A1:A3,1))` **9** [`#VALUE!`],
   `SUM(NETWORKDAYS.INTL(A1:A3,4))` **9** [`#VALUE!`], `SUM(NPV(A1:A3/10,10,20,30))` **120.92** [`#VALUE!`],
   `SUM(TYPE(A1:A3))` **3** [`16`], `SUM(RANDBETWEEN(A1:A3,A1:A3))` **6** [`#VALUE!`]. Two of MySheet's
-  answers are **silent** rather than errors: `COUNTIF`'s `0` (the collapsed argument matches no criterion,
-  the criteria-family rule above) and `TYPE`'s `16` (the type code of the `#VALUE!` it was handed). Plain
+  answers are **silent** rather than errors: `COUNTIF`'s `0` (the rectangle sits in its *criteria* slot, not
+  in a range slot, so the `#REF!` rejection above does not reach it and the collapsed argument matches no
+  criterion) and `TYPE`'s `16` (the type code of the `#VALUE!` it was handed). Plain
   `NETWORKDAYS` is the one member of the family Excel does *not* lift — `SUM(NETWORKDAYS(A1:A3,B1:B3))` is
   **8** there, which is `NETWORKDAYS(A1,B1)` alone, an implicit intersection to the first element rather than
   a per-element lift, and `#VALUE!` here. Pinned by
