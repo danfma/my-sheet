@@ -399,7 +399,7 @@ behind you and none of this applies.
 | `MINUTE` | `MINUTE(serial)` | Minute (0–59) of the time fraction. |
 | `MONTH` | `MONTH(serial)` | Month (1–12). |
 | `NETWORKDAYS` | `NETWORKDAYS(start, end, [holidays])` | Working days in `[start, end]` (inclusive); Sat/Sun and `holidays` excluded. |
-| `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` with a custom weekend (number 1–7/11–17 or a 7-char `"0000011"` mask). |
+| `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` with a custom weekend (number 1–7/11–17 or a 7-char `"0000011"` mask). A weekend number outside the table → `#NUM!`; an all-weekend `"1111111"` mask is a legitimate **0** here, not an error — unlike `WORKDAY.INTL`. |
 | `NOW` | `NOW()` | Volatile: the current local date **and** time as a serial. See [Volatile functions](workbook-and-expressions.md#volatile-functions). |
 | `SECOND` | `SECOND(serial)` | Second (0–59), rounded to the nearest second. |
 | `TIME` | `TIME(hour, minute, second)` | Time-of-day fraction; components 0–32767 roll over, taken mod 24h; negative → `#NUM!`. |
@@ -408,7 +408,7 @@ behind you and none of this applies.
 | `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Day of week; `return_type` 1/2/3 and 11–17 (see the WEEKDAY table). The weekday is Excel's Lotus-inherited one, read straight off the serial: `WEEKDAY(1)` = 1 (Sunday) although 1900-01-01 was really a Monday — matching Excel. |
 | `WEEKNUM` | `WEEKNUM(serial, [return_type])` | Week of year; System 1 for 1/2/11–17, ISO 8601 (System 2) for 21. |
 | `WORKDAY` | `WORKDAY(start, days, [holidays])` | Date `days` working days from `start` (start excluded); negative walks backward. |
-| `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` with a custom weekend; invalid/all-weekend → `#NUM!`. |
+| `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` with a custom weekend. Three separate answers, all measured on Aspose.Cells 26.6.0 (2026-09-09): a weekend **number** outside 1–7/11–17 → `#NUM!`; an **all-weekend** `"1111111"` mask → `#VALUE!`, not the `#NUM!` the Microsoft page implies; and `days` = 0 never moves, so it answers the `start` serial even under an all-weekend mask (`WORKDAY.INTL(45366,0,"1111111")` = 45366). |
 | `YEAR` | `YEAR(serial)` | Calendar year (1900–9999). |
 | `YEARFRAC` | `YEARFRAC(start, end, [basis])` | Year fraction on basis 0 (US 30/360), 1 (actual/actual), 2 (actual/360), 3 (actual/365), 4 (European 30/360). Basis 0 has **no end-of-February rule** and pulls a February-end `start` to day 30 only **after** testing a day-31 `end`, so it deliberately disagrees with `DAYS360` on some February-end pairs (see the notes below the table). |
 
@@ -433,12 +433,20 @@ agree, below it they can differ. Measured on Aspose.Cells 26.6.0 (2026-09-09), E
    `NETWORKDAYS(59,61)` + `NETWORKDAYS(62,62)` = 1 + 3 + 1 = 5 — a total no per-day working/non-working
    verdict can produce.
 
-The cause of the difference is a single day: 1900-01-05 is a **Friday** on the real calendar and a Thursday on
-Excel's Lotus weekday. Exactly four rows in the whole window come out differently as a result — MySheet first,
-Excel second: `WORKDAY(5,1)` **8** / 6, `WORKDAY(6,1)` **8** / 9, `WORKDAY(6,4)` **11** / 12, `WORKDAY(13,1)`
-**15** / 16. Everything else below serial 61 agrees, including the rows that depend on the phantom day being a
-working day of the walk: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59, `NETWORKDAYS(59,61)` = 3,
-`NETWORKDAYS(1,61)` = 45.
+**The divergence below serial 61 is not one rule, and not a fixed handful of rows.** One day is visibly
+involved — 1900-01-05 is a **Friday** on the real calendar and a Thursday on Excel's Lotus weekday — but that
+is an observation about one day, not an explanation of the window: while this was being decided, fourteen
+candidate rules were fitted to a 580-row `WORKDAY` sweep and the best of them was still wrong on **17** of
+those rows. So the rows below are **examples** of the divergence, not an exhaustive set — MySheet first, Excel
+second: `WORKDAY(5,1)` **8** / 6, `WORKDAY(6,1)` **8** / 9, `WORKDAY(6,4)` **11** / 12, `WORKDAY(13,1)` **15**
+/ 16. Other shapes below serial 61 differ too, the four self-contradictions above among them: `WORKDAY(58,4)`
+**62** / 64, `NETWORKDAYS(58,62)` **5** / 4, `WORKDAY.INTL(1,5,"1000000")` **6** / 7, and
+`NETWORKDAYS(58,62,H)` with `H` holding serial 59 **4** / 3.
+
+What *does* hold is the boundary at serial 61, and the rows that depend on the phantom day being a working day
+of the walk — these agree on both engines: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59, `NETWORKDAYS(59,61)` =
+3, `NETWORKDAYS(1,61)` = 45. Every number in the two paragraphs above is measured (Aspose.Cells 26.6.0,
+2026-09-09, plain cell entry) and pinned by a test, MySheet's side included.
 
 **Three changes in 3.17.0 that are not about 1900** — they move results on modern dates too:
 

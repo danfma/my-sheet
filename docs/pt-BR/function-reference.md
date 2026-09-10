@@ -407,7 +407,7 @@ ficou para trás e nada disso se aplica.
 | `MINUTE` | `MINUTE(serial)` | Minuto (0–59) da fração de tempo. |
 | `MONTH` | `MONTH(serial)` | Mês (1–12). |
 | `NETWORKDAYS` | `NETWORKDAYS(start, end, [holidays])` | Dias úteis em `[start, end]` (inclusivo); sábado/domingo e `holidays` são excluídos. |
-| `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` com um fim de semana personalizável (número 1–7/11–17 ou uma máscara de 7 caracteres `"0000011"`). |
+| `NETWORKDAYS.INTL` | `NETWORKDAYS.INTL(start, end, [weekend], [holidays])` | `NETWORKDAYS` com um fim de semana personalizável (número 1–7/11–17 ou uma máscara de 7 caracteres `"0000011"`). Um número de fim de semana fora da tabela → `#NUM!`; uma máscara `"1111111"` (todos os dias de descanso) é um **0** legítimo aqui, não um erro — ao contrário do `WORKDAY.INTL`. |
 | `NOW` | `NOW()` | Volátil: a data **e** hora local atuais como um serial. Veja [Funções voláteis](workbook-and-expressions.md#funções-voláteis). |
 | `SECOND` | `SECOND(serial)` | Segundo (0–59), arredondado ao segundo mais próximo. |
 | `TIME` | `TIME(hour, minute, second)` | Fração de hora do dia; componentes 0–32767 rolam, aplicados módulo 24h; negativo → `#NUM!`. |
@@ -416,7 +416,7 @@ ficou para trás e nada disso se aplica.
 | `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Dia da semana; `return_type` 1/2/3 e 11–17 (veja a tabela do WEEKDAY). O dia da semana é o do Excel, herdado do Lotus e lido direto do serial: `WEEKDAY(1)` = 1 (domingo) embora 1900-01-01 tenha sido de fato uma segunda-feira — igual ao Excel. |
 | `WEEKNUM` | `WEEKNUM(serial, [return_type])` | Semana do ano; Sistema 1 para 1/2/11–17, ISO 8601 (Sistema 2) para 21. |
 | `WORKDAY` | `WORKDAY(start, days, [holidays])` | Data `days` dias úteis a partir de `start` (start excluído); negativo anda para trás. |
-| `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` com um fim de semana personalizável; inválido/fim de semana total → `#NUM!`. |
+| `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` com um fim de semana personalizável. São três respostas distintas, todas medidas no Aspose.Cells 26.6.0 (2026-09-09): um **número** de fim de semana fora de 1–7/11–17 → `#NUM!`; uma máscara de **fim de semana total** `"1111111"` → `#VALUE!`, não o `#NUM!` que a página da Microsoft sugere; e `days` = 0 nunca sai do lugar, então responde o serial de `start` mesmo sob uma máscara de fim de semana total (`WORKDAY.INTL(45366,0,"1111111")` = 45366). |
 | `YEAR` | `YEAR(serial)` | Ano civil (1900–9999). |
 | `YEARFRAC` | `YEARFRAC(start, end, [basis])` | Fração do ano na base 0 (US 30/360), 1 (real/real), 2 (real/360), 3 (real/365), 4 (europeu 30/360). A base 0 **não tem regra de fim de fevereiro** e só puxa um `start` no fim de fevereiro para o dia 30 **depois** de testar um `end` no dia 31, então ela discorda deliberadamente do `DAYS360` em alguns pares de fim de fevereiro (veja as notas abaixo da tabela). |
 
@@ -444,12 +444,22 @@ podem divergir. Medido no Aspose.Cells 26.6.0 (2026-09-09), o Excel:
    `NETWORKDAYS(59,61)` + `NETWORKDAYS(62,62)` = 1 + 3 + 1 = 5 — um total que nenhum critério de dia útil
    avaliado dia a dia consegue produzir.
 
-A causa da diferença é um único dia: 1900-01-05 é uma **sexta-feira** no calendário real e uma quinta-feira no
-dia da semana do Lotus usado pelo Excel. Exatamente quatro linhas em toda a janela saem diferentes por causa
-disso — MySheet primeiro, Excel depois: `WORKDAY(5,1)` **8** / 6, `WORKDAY(6,1)` **8** / 9, `WORKDAY(6,4)`
-**11** / 12, `WORKDAY(13,1)` **15** / 16. Todo o resto abaixo do serial 61 concorda, inclusive as linhas que
-dependem de o dia fantasma ser um dia útil da caminhada: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59,
-`NETWORKDAYS(59,61)` = 3, `NETWORKDAYS(1,61)` = 45.
+**A divergência abaixo do serial 61 não é uma regra só, nem um punhado fixo de linhas.** Há um dia
+visivelmente envolvido — 1900-01-05 é uma **sexta-feira** no calendário real e uma quinta-feira no dia da
+semana do Lotus usado pelo Excel — mas isso é uma observação sobre um dia, não a explicação da janela:
+enquanto isso era decidido, catorze regras candidatas foram ajustadas a uma varredura de 580 linhas de
+`WORKDAY` e a melhor delas ainda errava **17** dessas linhas. Então as linhas abaixo são **exemplos** da
+divergência, não um conjunto exaustivo — MySheet primeiro, Excel depois: `WORKDAY(5,1)` **8** / 6,
+`WORKDAY(6,1)` **8** / 9, `WORKDAY(6,4)` **11** / 12, `WORKDAY(13,1)` **15** / 16. Outras formas abaixo do
+serial 61 também divergem, entre elas as quatro autocontradições acima: `WORKDAY(58,4)` **62** / 64,
+`NETWORKDAYS(58,62)` **5** / 4, `WORKDAY.INTL(1,5,"1000000")` **6** / 7 e `NETWORKDAYS(58,62,H)` com `H`
+guardando o serial 59 **4** / 3.
+
+O que *de fato* se sustenta é o limite no serial 61 e as linhas que dependem de o dia fantasma ser um dia útil
+da caminhada — essas concordam nos dois motores: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59,
+`NETWORKDAYS(59,61)` = 3, `NETWORKDAYS(1,61)` = 45. Todo número dos dois parágrafos acima é medido
+(Aspose.Cells 26.6.0, 2026-09-09, entrada simples na célula) e fixado por um teste, inclusive o lado do
+MySheet.
 
 **Três mudanças da 3.17.0 que não têm nada a ver com 1900** — elas movem resultados em datas modernas também:
 
