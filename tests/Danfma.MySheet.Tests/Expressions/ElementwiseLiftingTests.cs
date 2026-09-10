@@ -642,7 +642,7 @@ public class ElementwiseLiftingTests
         //
         // KNOWN LIMITATION, and the reason the named list below exists. The sweep sees a body that reads a
         // rectangle in ANY slot, but not one that answers the same thing for every rectangle: a reference
-        // test, a type code, or a fold that errors identically on all three. Measured, 21 of the 126 Consumes
+        // test, a type code, or a fold that errors identically on all three. Measured, 22 of the 130 Consumes
         // entries are still blind, so this is the CHEAP, always-on half of the derivation, not the derivation
         // itself, and TheShapeAndPositionAndCriteriaFamilies_StayConsumes is its complement: what the probe
         // cannot see must be named by hand.
@@ -792,6 +792,12 @@ public class ElementwiseLiftingTests
     [Arguments("COLUMN")]
     [Arguments("ROWS")]
     [Arguments("COLUMNS")]
+    // Phase 7's SEQUENCE: a mini-CSE PRODUCER (IArrayProducer) that takes no range at all — every argument is
+    // a scalar size or step — so the three-rectangle sweep has nothing to hand it and is blind to it for
+    // good. Its three siblings FILTER/SORT/UNIQUE read a source rectangle and answer differently per
+    // rectangle, so the sweep sees them and they need no row here. A lift would evaluate SEQUENCE once per
+    // element of a neighbouring array and shadow the producer arm in ArrayEvaluation.
+    [Arguments("SEQUENCE")]
     [Arguments("AREAS")]
     [Arguments("OFFSET")]
     [Arguments("INDIRECT")]
@@ -868,7 +874,7 @@ public class ElementwiseLiftingTests
     {
         // The explicit half of the guard, and the COMPLEMENT to the executable oracle above. The sweep sees
         // most of these now; the ones it cannot see (the shapes, the reference tests, the type code, the
-        // whole-population folds — the 21 pinned by name in
+        // whole-population folds — the 22 pinned by name in
         // NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere) answer the SAME thing for every rectangle in
         // every slot, so scalar-blindness holds for them while they are still range-aware, and being named
         // here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns a dedicated
@@ -1021,7 +1027,7 @@ public class ElementwiseLiftingTests
         //     number — is caught by FunctionRegistryClassificationTests
         //     .TheElementwiseSet_IsExactlyTheCommittedRoster, which pins the Elementwise set BY NAME and so
         //     fails naming the newcomer, and (for anything the sweep can see) by
-        //     EveryElementwiseEntry_IsBlindToTheRangeItIsHanded with a diagnostic. For the 21 entries the
+        //     EveryElementwiseEntry_IsBlindToTheRangeItIsHanded with a diagnostic. For the 22 entries the
         //     sweep is blind to, the roster is the ONLY defence, which is why it is pinned by name below
         //     rather than by a count.
         //
@@ -1082,21 +1088,21 @@ public class ElementwiseLiftingTests
         // Anti-vacuity, from both ends. The blind set is pinned BY NAME, not by a count: a count is
         // satisfiable by a compensating swap (one entry leaving the blind set as another joins it), which is
         // exactly the weakness TheElementwiseSet_IsExactlyTheCommittedRoster exists to close on the other
-        // half. Pinning the names says out loud which 21 entries the sweep cannot see and therefore depend
+        // half. Pinning the names says out loud which 22 entries the sweep cannot see and therefore depend
         // ENTIRELY on being named above — and it fails, naming the newcomer, if a change to the probe or to
         // the registry adds one.
         await Assert
             .That(string.Join(", ", blind.Order(StringComparer.Ordinal)))
             .IsEqualTo(
                 "AND, AREAS, FORECAST, FORECAST.LINEAR, FORMULATEXT, IF, INDIRECT, IRR, ISFORMULA, "
-                    + "ISREF, LET, MIRR, OFFSET, OR, PERCENTILE.EXC, PROB, RANDBETWEEN, SHEET, TRIMMEAN, "
-                    + "TYPE, XNPV"
+                    + "ISREF, LET, MIRR, OFFSET, OR, PERCENTILE.EXC, PROB, RANDBETWEEN, SEQUENCE, SHEET, "
+                    + "TRIMMEAN, TYPE, XNPV"
             );
 
-        // … and the loop really walked all 126 Consumes entries.
+        // … and the loop really walked all 130 Consumes entries.
         await Assert
             .That(FunctionRegistry.ByName.Values.Count(e => e.Lifting is ArrayLifting.Consumes))
-            .IsEqualTo(126);
+            .IsEqualTo(130);
     }
 
     // The [Arguments] rows of a one-string-parameter test, read back as the set of function names it asserts.

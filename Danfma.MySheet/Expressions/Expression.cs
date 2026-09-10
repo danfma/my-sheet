@@ -12,7 +12,7 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions;
 
 // MemoryPackUnion tags are APPEND-ONLY: never renumber, reorder or reuse an existing tag,
-// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 323+
+// or previously serialized data (and the WorkbookTests round-trip) will break. Add new tags at 327+
 // (count the attributes below before trusting this number — it drifts every time a tag is added).
 [MemoryPackable]
 [MemoryPackUnion(0, typeof(StringValue))]
@@ -351,6 +351,12 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackUnion(320, typeof(AnchoredRangeReference))]
 [MemoryPackUnion(321, typeof(SharedFormulaSlave))]
 [MemoryPackUnion(322, typeof(Aggregate))]
+// Phase 7 (dynamic arrays): the four mini-CSE producers. Allocated 323-326 in one edit after 322 (Aggregate)
+// was the last tag on main; append-only like every tag above.
+[MemoryPackUnion(323, typeof(Lookup.Filter))]
+[MemoryPackUnion(324, typeof(Lookup.Sort))]
+[MemoryPackUnion(325, typeof(Lookup.Unique))]
+[MemoryPackUnion(326, typeof(Mathematics.Sequence))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

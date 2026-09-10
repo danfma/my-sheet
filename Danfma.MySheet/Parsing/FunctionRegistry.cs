@@ -1517,6 +1517,32 @@ internal static class FunctionRegistry
             static arguments => new XMatch(arguments),
             static f => ((XMatch)f).Arguments
         ),
+        // Phase 7 (dynamic arrays): the three axis-selection producers. Entry<T>, never Elementwise<T> — each
+        // reads its whole source and answers a computed ARRAY through IArrayProducer, so a lift would hand it
+        // one element and shadow the producer arm in ArrayEvaluation (the Consumes half is what TryGetLift
+        // refuses). Arity per the Microsoft pages: FILTER(array, include, [if_empty]), SORT(array,
+        // [sort_index], [sort_order], [by_col]), UNIQUE(array, [by_col], [exactly_once]).
+        Entry<Filter>(
+            "FILTER",
+            2,
+            3,
+            static arguments => new Filter(arguments),
+            static f => ((Filter)f).Arguments
+        ),
+        Entry<Sort>(
+            "SORT",
+            1,
+            4,
+            static arguments => new Sort(arguments),
+            static f => ((Sort)f).Arguments
+        ),
+        Entry<Unique>(
+            "UNIQUE",
+            1,
+            3,
+            static arguments => new Unique(arguments),
+            static f => ((Unique)f).Arguments
+        ),
         Elementwise<Address>(
             "ADDRESS",
             2,
@@ -1632,6 +1658,16 @@ internal static class FunctionRegistry
             int.MaxValue,
             static arguments => new Aggregate(arguments),
             static f => ((Aggregate)f).Arguments
+        ),
+        // Phase 7 (dynamic arrays): SEQUENCE(rows, [columns], [start], [step]) — a producer with no range
+        // argument at all, so the three-rectangle sweep in ElementwiseLiftingTests is blind to it and it is
+        // named there by hand. Entry<T> for the same reason as FILTER/SORT/UNIQUE above.
+        Entry<Sequence>(
+            "SEQUENCE",
+            1,
+            4,
+            static arguments => new Sequence(arguments),
+            static f => ((Sequence)f).Arguments
         ),
         Entry<Median>(
             "MEDIAN",

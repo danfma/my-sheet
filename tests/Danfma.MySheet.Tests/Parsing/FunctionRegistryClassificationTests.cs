@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Tests.Parsing;
 
 /// <summary>
 /// Pins the registry's array-lifting classification: the flag's default-deny zero value, the two sibling
-/// factories that set it, the 180/126 split over the 306 registered built-ins, the ROSTER that pins the
+/// factories that set it, the 180/130 split over the 310 registered built-ins, the ROSTER that pins the
 /// Elementwise half by name (see <c>TheElementwiseRoster</c> — a count alone is not a pin), and the
 /// exclusions that no automatic signal catches. The classification is what the mini-CSE consults before
 /// lifting a function over an array element by element, so a wrong flag on a range-aware function is a SILENT
@@ -54,25 +54,25 @@ public class FunctionRegistryClassificationTests
             .IsEqualTo(ArrayLifting.Elementwise);
     }
 
-    // The split is a derived number, not a taste: 180 pure-scalar built-ins may be lifted, the remaining 126
+    // The split is a derived number, not a taste: 180 pure-scalar built-ins may be lifted, the remaining 130
     // consume ranges/arrays themselves. These totals are the cheap sanity check on the shape of the table;
     // the actual pin is TheElementwiseSet_IsExactlyTheCommittedRoster below, because a total is satisfiable
     // by a compensating swap while a name is not.
     [Test]
-    public async Task TheClassificationSplitsThe306BuiltInsInto180Elementwise_And126Consumes()
+    public async Task TheClassificationSplitsThe310BuiltInsInto180Elementwise_And130Consumes()
     {
         var entries = FunctionRegistry.ByName.Values;
 
-        await Assert.That(entries.Length).IsEqualTo(306);
+        await Assert.That(entries.Length).IsEqualTo(310);
         await Assert.That(entries.Count(e => e.Lifting is ArrayLifting.Elementwise)).IsEqualTo(180);
-        await Assert.That(entries.Count(e => e.Lifting is ArrayLifting.Consumes)).IsEqualTo(126);
+        await Assert.That(entries.Count(e => e.Lifting is ArrayLifting.Consumes)).IsEqualTo(130);
     }
 
     // THE ROSTER. The exact set of names the registry flags Elementwise, committed as a sorted list, because
-    // a COUNT is not a pin: the 180/126 totals above survive a compensating swap (one entry mis-flagged
+    // a COUNT is not a pin: the 180/130 totals above survive a compensating swap (one entry mis-flagged
     // Elementwise while another is corrected to Consumes), and they survive the honest-looking edit a
     // contributor adding a function makes — flip the factory, bump the number. Measured: mis-flagging
-    // Entry<HLookup> as Elementwise<HLookup> and bumping 180→181 / 126→125 (plus the two anti-vacuity
+    // Entry<HLookup> as Elementwise<HLookup> and bumping 180→181 / 130→129 (plus the two anti-vacuity
     // constants in ElementwiseLiftingTests) left the whole suite GREEN before this roster existed, shipping a
     // range-aware lookup as liftable — a SILENT wrong number, since the lift would hand HLOOKUP one element
     // of the table it was meant to search whole.
