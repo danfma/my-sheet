@@ -65,7 +65,7 @@ Como o conteúdo do arquivo é mapeado para dentro do workbook:
 | Célula vazia / só com estilo | Nada é armazenado — é lida como em branco. |
 | "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Um nó leve que compartilha a árvore já interpretada da mestre (veja [Fórmulas compartilhadas](#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava) abaixo) quando a forma da mestre é suportada; caso contrário, é expandida em uma fórmula independente exatamente como antes. |
 | Nome definido com escopo de workbook (`<definedName>`) | Uma entrada em [`Workbook.DefinedNames`](workbook-and-expressions.md#intervalos-nomeados): o texto `refersTo` passa pelo parse como uma fórmula. Nomes **com escopo de planilha** (aqueles com `localSheetId`) e os nomes **nativos `_xlnm.*`** do Excel (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) são ignorados. |
-| **Tabela** do Excel (uma parte `<table>`, também chamada de ListObject) | Nada — suas células carregam como um intervalo comum. O MySheet não tem modelo de tabela, então o nome da tabela, suas colunas e a linha de totais são descartados. Uma fórmula que usa uma **referência estruturada** para ela (`Tabela1[Valor]`) não pode ser interpretada e recai no valor em cache — veja abaixo. |
+| **Tabela** do Excel (uma parte `<table>`, também chamada de ListObject) | Nada — suas células carregam como um intervalo comum. Um MODELO de tabela existe (`Workbook.Tables`, desde a versão que acrescentou o registro), mas o CARREGADOR ainda não o preenche, então o nome da tabela, suas colunas e a linha de totais são descartados. Registrar a mesma tabela à mão com `Workbook.DefineTable` funciona. Uma fórmula que usa uma **referência estruturada** para ela (`Tabela1[Valor]`) não pode ser interpretada e recai no valor em cache — veja abaixo. |
 | Célula cujo texto de fórmula não passa pelo parse | O valor que o Excel guardou em cache ao lado da fórmula (em branco se o arquivo não carrega nenhum), reportado como `UnparsableFormula`. Só aquela célula é degradada. |
 
 ### Fórmulas compartilhadas: uma árvore mestre compartilhada com deltas por escrava
@@ -257,14 +257,11 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   `localSheetId`) e os nomes nativos `_xlnm.*` (áreas de impressão, bancos de filtro, …) são ignorados no
   carregamento, e o MySheet só escreve nomes com escopo de workbook. Um nome definido cujo `refersTo` não
   pode ser interpretado é ignorado em vez de falhar o carregamento.
-- **Sem Tabelas do Excel e sem referências estruturadas**: uma parte `<table>` (ListObject) não é modelada —
-  suas células carregam como um intervalo comum e o nome da tabela, suas colunas e a linha de totais são
-  descartados, e o `SaveAsExcel` nunca escreve uma. Como consequência, uma fórmula escrita como
-  `Tabela1[Valor]` / `[@Valor]` / `[#Headers]` não passa pelo parse: a célula afetada recai no valor que o
-  Excel guardou em cache para ela (reportado como `UnparsableFormula`) e perde sua fórmula. O
-  `MergeIntoExcel` é a exceção que preserva a tabela em si — a parte `<table>` e o elemento `<tableParts>` do
-  template são copiados intactos —, mas o intervalo `ref` da tabela **não** é redimensionado, então linhas
-  escritas depois da sua última linha ficam fora da tabela.
+- **O carregador ignora Tabelas do Excel, e referências estruturadas não são reconhecidas**: uma parte `<table>`
+  (ListObject) não é LIDA — suas células carregam como um intervalo comum, o nome, as colunas e a linha de totais são
+  descartados, e o `SaveAsExcel` nunca grava uma. O modelo de tabela em si existe (`Workbook.Tables`), então a mesma
+  tabela pode ser registrada à mão com `Workbook.DefineTable`; o que falta é o carregador preenchê-lo a partir do
+  arquivo.
 - **Uma fórmula que o parser rejeita degrada uma célula, não o carregamento**: um texto de fórmula que não
   passa pelo parse (uma referência estruturada é o caso comum) deixa aquela célula com o valor em cache,
   reportado via `OnWarning`. Essa é uma perda real de fidelidade — a célula para de reagir a mudanças nas

@@ -63,7 +63,7 @@ How file content maps into the workbook:
 | Style-only / empty cell | Nothing stored — reads as blank. |
 | Shared-formula "slave" (a dragged formula cell carrying no formula text) | A lightweight node sharing the master's parsed tree (see [Shared formulas](#shared-formulas-a-shared-master-tree-with-per-slave-deltas) below) when the master's shape is supported; otherwise expanded into an independent formula exactly as before. |
 | Workbook-scoped defined name (`<definedName>`) | An entry in [`Workbook.DefinedNames`](workbook-and-expressions.md#named-ranges): the `refersTo` text is parsed as a formula. **Sheet-scoped** names (those with a `localSheetId`) and Excel's **builtin `_xlnm.*`** names (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) are skipped. |
-| Excel **Table** (a `<table>` part, a.k.a. a ListObject) | Nothing — its cells load as an ordinary range. MySheet has no table model, so the table's name, columns and totals row are dropped. A formula using a **structured reference** into it (`Tabela1[Valor]`) cannot be parsed and degrades to the cached value — see below. |
+| Excel **Table** (a `<table>` part, a.k.a. a ListObject) | Nothing — its cells load as an ordinary range. A table MODEL exists (`Workbook.Tables`, since the release that added the registry), but the LOADER does not populate it yet, so the table's name, columns and totals row are dropped. Registering the same table by hand with `Workbook.DefineTable` works. A formula using a **structured reference** into it (`Tabela1[Valor]`) cannot be parsed and degrades to the cached value — see below. |
 | Cell whose formula text does not parse | The cached value Excel stored next to the formula (blank if the file carries none), reported as `UnparsableFormula`. Only that cell degrades. |
 
 ### Shared formulas: a shared master tree with per-slave deltas
@@ -240,9 +240,10 @@ Being honest about what the interop MVP does **not** do:
   builtin `_xlnm.*` names (print areas, filter databases, …) are skipped on load, and MySheet only ever
   writes workbook-scoped names. A defined name whose `refersTo` cannot be parsed is skipped rather than
   failing the load.
-- **No Excel Tables and no structured references**: a `<table>` part (ListObject) is not modeled — its
-  cells load as an ordinary range and its name, columns and totals row are dropped, and `SaveAsExcel` never
-  writes one. Consequently a formula written as `Tabela1[Valor]` / `[@Valor]` / `[#Headers]` does not parse:
+- **The loader ignores Excel Tables, and structured references do not parse**: a `<table>` part (ListObject) is
+  not READ — its cells load as an ordinary range and its name, columns and totals row are dropped, and
+  `SaveAsExcel` never writes one. A table model itself does exist (`Workbook.Tables`), so the same table can be
+  registered by hand with `Workbook.DefineTable`; what is missing is the loader populating it from the file. Consequently a formula written as `Tabela1[Valor]` / `[@Valor]` / `[#Headers]` does not parse:
   the affected cell falls back to the value Excel cached for it (reported as `UnparsableFormula`) and loses
   its formula. `MergeIntoExcel` is the exception that preserves the table itself — the template's `<table>`
   part and `<tableParts>` element are copied through untouched — but the table's `ref` range is **not**
