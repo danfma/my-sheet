@@ -36,7 +36,15 @@ internal readonly struct ArrayEvaluationResult
 /// <c>SMALL(IF(...))</c> depends on this), and <c>ROW</c>/<c>COLUMN</c> of a rectangle becomes a vector of
 /// row/column numbers — over a range written literally, and over a defined name or any other node that
 /// DENOTES one (a structured reference, a <c>':'</c> range with reference-returning endpoints), whose shape
-/// is discovered by resolving it. Two shapes are LIFTED element-wise (Phase 8): a unary <c>-</c>/<c>%</c>
+/// is discovered by resolving it. A bare defined NAME in an array position is whatever it is bound to
+/// (Phase 11a Rule A, <see cref="ResolveNameShape"/>): a rectangle streams its cells exactly like the
+/// literal — a rectangle on a MISSING sheet included, so the per-element <c>#REF!</c> streams — an open
+/// range is refused, a single cell or a union broadcasts the resolved node's value, and a constant, a
+/// formula name or an unknown name broadcasts the name's own value (<c>#NAME?</c> included). At a
+/// consumer's TOP level a bare name is a reference and takes the reference path exactly as a bare literal
+/// range does: <see cref="IsBareReferenceNode"/> is the one predicate the three top-level gates share, and
+/// DefinedNameArrayEligibilityTests' must-not-move pins are what make it load-bearing. Two shapes are LIFTED
+/// element-wise (Phase 8): a unary <c>-</c>/<c>%</c>
 /// over an array (unary <c>+</c> is Excel's reference-preserving no-op and stays opaque, so
 /// <c>SUM(+A1:A3)</c> keeps reading the cells), and any built-in the registry classifies
 /// <see cref="ArrayLifting.Elementwise"/> — a pure-scalar function such as <c>LEN</c>, <c>ROUND</c> or
@@ -126,24 +134,34 @@ internal static class ArrayEvaluation
     /// scalar path untouched; when it returns <c>true</c> the subsequent build is guaranteed to succeed and is
     /// the SINGLE evaluation of the argument. It mirrors <see cref="Probe"/>/<see cref="TryBuildOperand"/>
     /// exactly (same array-producing cases, same open-range refusal), so it is true iff the build succeeds as
-    /// an array. The array-producing cases are a closed range, <c>ROW</c>/<c>COLUMN</c> of one, a
-    /// <c>BinaryOperation</c>/<c>IF</c>/unary <c>-</c>/<c>%</c> with an array operand, and an
-    /// <see cref="ArrayLifting.Elementwise"/> built-in with an array argument (the lift inspects only the
-    /// registry classification and recurses into the ARGUMENTS' eligibility — it evaluates nothing, measured
-    /// with a counting custom function in the argument slots).
+    /// an array. The array-producing cases are a closed range, a defined name bound to one (a missing
+    /// sheet included), <c>ROW</c>/<c>COLUMN</c> of either, a <c>BinaryOperation</c>/<c>IF</c>/unary
+    /// <c>-</c>/<c>%</c> with an array operand, and an <see cref="ArrayLifting.Elementwise"/> built-in with an
+    /// array argument (the lift inspects only the registry classification and recurses into the ARGUMENTS'
+    /// eligibility — it evaluates nothing, measured with a counting custom function in the argument slots).
     /// </summary>
     /// <remarks>
-    /// It takes a <paramref name="context"/> because the check is no longer purely SYNTACTIC: whether
+    /// <para>It takes a <paramref name="context"/> because the check is no longer purely SYNTACTIC: whether
     /// <c>ROW</c>/<c>COLUMN</c> of a defined name (or of any other node that merely DENOTES a reference) is an
     /// array or a scalar depends on the SHAPE the argument resolves to — a rectangle vs a single cell — which
-    /// no type-walk can know. That case costs one reference RESOLUTION — a dictionary lookup plus a virtual
-    /// call for a name, never an evaluation of the <c>ROW</c>/<c>COLUMN</c> node itself, though resolving a
-    /// <c>':'</c> range with reference-returning endpoints does evaluate those endpoints' own arguments — and
-    /// it is the only case that costs more than the type-walk. That cost normally buys something, because a
-    /// <c>true</c> answer is followed by the build that reuses the shape; the exception is
-    /// <c>Index.TryResolveReference</c>, which probes only to REJECT the array forms and never builds, so
-    /// there the resolution (a <c>':'</c> range's endpoint arguments included) is spent and thrown away.
-    /// See <see cref="ResolvePositionRange"/>.
+    /// no type-walk can know, and the same is true of a bare name itself. Those cases cost one reference
+    /// RESOLUTION — a dictionary lookup plus a virtual call for a name, never an evaluation of the
+    /// <c>ROW</c>/<c>COLUMN</c> node itself, though resolving a <c>':'</c> range with reference-returning
+    /// endpoints does evaluate those endpoints' own arguments — and they are the only cases that cost more
+    /// than the type-walk. That cost normally buys something, because a <c>true</c> answer is followed by the
+    /// build that reuses the shape; the exception is <c>Index.TryResolveReference</c>, which probes only to
+    /// REJECT the array forms and never builds, so there the resolution (a <c>':'</c> range's endpoint
+    /// arguments included) is spent and thrown away. See <see cref="ResolvePositionRange"/> and
+    /// <see cref="ResolveNameShape"/>.</para>
+    ///
+    /// <para>Because a range-bound name IS array-eligible, a consumer gate must exclude a bare
+    /// <see cref="NameReference"/> at its top level exactly as it excludes a bare <see cref="Reference"/>
+    /// — through <see cref="IsBareReferenceNode"/>, never a hand-written <c>is not Reference</c>, which a
+    /// name (an <see cref="Expression"/>, not a <see cref="Reference"/>) slips past. Measured on the
+    /// prototype WITHOUT that exclusion, fifteen top-level shapes regressed (<c>SUBTOTAL(9,Rng)</c> 14 →
+    /// <c>#VALUE!</c>, <c>AGGREGATE(14,0,Nested,1)</c> 2 → a silent 3, <c>SUM(A1:INDEX(Rng,3))</c> 14 →
+    /// <c>#REF!</c>, <c>SUM(Wide)</c> on an error fixture <c>#DIV/0!</c> → <c>#N/A</c>, …); they are pinned
+    /// in DefinedNameArrayEligibilityTests.</para>
     /// </remarks>
     public static bool IsArrayEligible(Expression expression, EvaluationContext context) =>
         Probe(expression, context).IsArray;
@@ -160,12 +178,14 @@ internal static class ArrayEvaluation
     ///
     /// <para>The ORDER is load-bearing, not stylistic:</para>
     /// <list type="number">
-    /// <item><description><c>is not Reference</c> FIRST. A plain <see cref="RangeReference"/> — and an
-    /// <see cref="AnchoredRangeReference"/>, which <see cref="Probe"/> classifies as
-    /// <c>(true, true)</c> exactly like one — IS array-eligible, so without this guard (or with it placed
-    /// after the probe) every reference argument would be diverted off its reference path into the stream,
-    /// losing whatever that path carries: the snapshot/dense walk, and for the aggregate family the
-    /// nested-SUBTOTAL/AGGREGATE skip, which only the cell-by-cell scan can apply.</description></item>
+    /// <item><description><see cref="IsBareReferenceNode"/> FIRST. A plain <see cref="RangeReference"/> — an
+    /// <see cref="AnchoredRangeReference"/>, which <see cref="Probe"/> classifies as <c>(true, true)</c>
+    /// exactly like one, and a <see cref="NameReference"/> bound to a rectangle — IS array-eligible, so
+    /// without this guard (or with it placed after the probe) every reference argument would be diverted off
+    /// its reference path into the stream, losing whatever that path carries: the snapshot/dense walk, the
+    /// engine's column-major first-error scan, and for the aggregate family the nested-SUBTOTAL/AGGREGATE
+    /// skip, which only the cell-by-cell scan can apply. The name half of that is measured, not inferred:
+    /// see <see cref="IsArrayEligible"/>'s remarks.</description></item>
     /// <item><description><see cref="IsArrayEligible"/> SECOND. It is the CHEAP structural pre-check that
     /// never evaluates the expression, so a scalar argument pays only a shallow type-walk before falling
     /// through to the caller's scalar path.</description></item>
@@ -173,17 +193,12 @@ internal static class ArrayEvaluation
     /// the argument's SINGLE evaluation. A volatile operand therefore draws exactly once.</description></item>
     /// </list>
     ///
-    /// <para>Two nearby sites deliberately do NOT use this gate: <c>NumericAggregation.Fold</c>'s
-    /// <c>default:</c> arm keeps only the last two conditions because its own switch OWNS the reference
-    /// dispatch — every reference shape it handles specially is peeled off above that arm, so the leading
-    /// <c>is not Reference</c> has nothing left to guard. The condition is MOOT there rather than harmful:
-    /// the one <see cref="Reference"/> shape still reaching that arm, <see cref="DynamicRange"/>, has no
-    /// <see cref="Probe"/> arm and falls to its <c>default</c>, so it is not array-eligible and already
-    /// takes the scalar path; <see cref="NameReference"/> derives from <see cref="Expression"/>, not from
-    /// <see cref="Reference"/>, so the condition would never see it. Routing that arm through this gate
-    /// would be a no-op today, and would only start to pre-empt <see cref="DynamicRange"/> IF
-    /// <see cref="Probe"/> ever gained an arm for it. The other site, <c>Index.TryResolveReference</c>,
-    /// probes only to REJECT the array forms and never builds a stream at all.</para>
+    /// <para>One nearby site deliberately does NOT use this gate: <c>Index.TryResolveReference</c> probes only
+    /// to REJECT the array forms and never builds a stream at all, so it applies the first two conditions
+    /// itself — with the same <see cref="IsBareReferenceNode"/> predicate. <c>NumericAggregation.Fold</c>'s
+    /// <c>default:</c> arm, whose own switch owns the dispatch of every reference NODE, routes through this
+    /// gate too: its leading condition is what keeps a bare name (which that switch does not peel off — it is
+    /// not a <see cref="Reference"/>) on the referenced-cell path.</para>
     /// </summary>
     public static bool TryStream(
         Expression expression,
@@ -191,7 +206,7 @@ internal static class ArrayEvaluation
         out ArrayStream stream
     )
     {
-        if (expression is not Reference && IsArrayEligible(expression, context))
+        if (!IsBareReferenceNode(expression) && IsArrayEligible(expression, context))
         {
             return TryEvaluateStream(expression, context, out stream);
         }
@@ -199,6 +214,19 @@ internal static class ArrayEvaluation
         stream = default;
         return false;
     }
+
+    /// <summary>
+    /// Whether <paramref name="expression"/> is a bare reference NODE — a syntactic <see cref="Reference"/>
+    /// or a <see cref="NameReference"/> — which at a consumer's TOP level must take the consumer's reference
+    /// path even when <see cref="IsArrayEligible"/> would say yes for it. The one predicate every top-level
+    /// gate shares (<see cref="TryStream"/>, <c>Index.TryResolveReference</c>, <c>NumericAggregation.Fold</c>'s
+    /// <c>default:</c> arm, and the criteria family's range-slot rejection), so a reference-denoting node that
+    /// is not a <see cref="Reference"/> — a name today, a structured table reference tomorrow — is excluded
+    /// in ONE place. Measured on the prototype without the name half: fifteen top-level shapes regressed
+    /// (see <see cref="IsArrayEligible"/>'s remarks).
+    /// </summary>
+    internal static bool IsBareReferenceNode(Expression expression) =>
+        expression is Reference or NameReference;
 
     // The pure-shape twin of TryBuildOperand: decides, WITHOUT evaluating the expression, whether the build
     // would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an array
@@ -230,6 +258,18 @@ internal static class ArrayEvaluation
             // An open/whole-column range in an array position is refused (the cost guard).
             case OpenRangeReference:
                 return (false, false);
+
+            // A bare defined name is whatever it is bound to (Phase 11a Rule A): the four outcomes of
+            // ResolveNameShape map onto the three answers above plus the opaque scalar of `default`. Placed
+            // with the reference arms and BEFORE the Row/Column ones (different node types, no shadowing);
+            // a name in a ROW/COLUMN argument is that arm's business, not this one's.
+            case NameReference:
+                return ResolveNameShape(expression, context, out _) switch
+                {
+                    NameShape.Range => (true, true),
+                    NameShape.Refused => (false, false),
+                    _ => (true, false),
+                };
 
             // ROW(x)/COLUMN(x) over a reference: ONE arm each, because the two functions differ only in the
             // AXIS the shared shape walk reports — see ProbePosition. The `[NameReference or Reference]`
@@ -351,6 +391,33 @@ internal static class ArrayEvaluation
             case OpenRangeReference:
                 operand = null!;
                 return false;
+
+            // The twin of Probe's NameReference arm, on the same oracle: a rectangle streams its cells (a
+            // missing sheet included — BuildRange hands back the per-element #REF!); the cost guard refuses
+            // an open range; a single cell or a union broadcasts the RESOLVED node's own scalar answer
+            // (error included); a constant, a formula name or an unknown name broadcasts the name's own
+            // value, which is where #NAME? still flows through.
+            case NameReference:
+            {
+                switch (ResolveNameShape(expression, context, out var resolved))
+                {
+                    case NameShape.Range:
+                        operand = BuildRange((RangeReference)resolved!, context);
+                        return true;
+
+                    case NameShape.Refused:
+                        operand = null!;
+                        return false;
+
+                    case NameShape.Scalar:
+                        operand = new ScalarOperand(resolved!.Evaluate(context));
+                        return true;
+
+                    default:
+                        operand = new ScalarOperand(expression.Evaluate(context));
+                        return true;
+                }
+            }
 
             // ROW(x)/COLUMN(x) over a reference: ONE arm each, both walking the same shapes on their own
             // axis — see TryBuildPositionOperand, whose order Probe/ProbePosition mirrors exactly. The
@@ -567,6 +634,66 @@ internal static class ArrayEvaluation
             default:
                 return PositionArgumentShape.Scalar;
         }
+    }
+
+    // What a bare defined name contributes to the mini-CSE, once resolved (Phase 11a Rule A).
+    private enum NameShape
+    {
+        // Not a reference at all — a constant, a formula name, an unknown name, a LET-bound scalar: the
+        // name evaluates itself once and broadcasts its own value (or its own #NAME?).
+        Opaque,
+
+        // A rectangle, on an existing sheet or not: the name streams the cells exactly like the literal.
+        Range,
+
+        // An open/whole-column reference: the cost guard refuses the whole array evaluation.
+        Refused,
+
+        // A single cell (1x1 — nothing to spread over) or a union (no single value: its own #VALUE!): the
+        // RESOLVED node evaluates itself once and broadcasts.
+        Scalar,
+    }
+
+    // Resolves a bare defined name to what it is bound to — the oracle Probe's and TryBuildOperand's
+    // NameReference arms share, exactly as ResolvePositionRange is the one ROW/COLUMN share, and for the same
+    // reason: the shape is context-dependent, and a probe that GUESSED would break the "eligible iff the
+    // build succeeds" contract. Both callers resolve, so every name node is resolved twice per evaluation —
+    // a scope/dictionary lookup and a virtual call, idempotent and cheap, the same double resolution
+    // ResolvePositionRange documents. boundOpenRanges:false keeps an open range OPEN so it reaches Refused
+    // instead of being silently collapsed to its populated bounding box (the cost guard).
+    //
+    // A rectangle whose SHEET IS MISSING is Range here, where ResolvePositionRange degrades it to Scalar.
+    // The difference is what the operand carries (correction B2 of the sweep): a position vector had no
+    // cell to read and would have handed back plausible row numbers for a sheet that no longer exists, so
+    // ROW/COLUMN's own ReferenceGuard error is the right broadcast there; a VALUE vector must stream the
+    // per-element #REF! that BuildRange yields, so that SUM((GhostName<>0)*1) is #REF! and
+    // COUNT((GhostName<>"")*1) is 0 — what the literal Ghost!A1:A3 answers and what the oracle answers in
+    // both entry modes (Aspose.Cells 26.6.0, 2026-09-10). Degrading to Scalar would broadcast ONE #REF!
+    // value and make the COUNT a 1.
+    private static NameShape ResolveNameShape(
+        Expression expression,
+        EvaluationContext context,
+        out Reference? resolved
+    )
+    {
+        if (
+            !NamedReferences.TryResolveReference(
+                expression,
+                context,
+                out resolved,
+                boundOpenRanges: false
+            )
+        )
+        {
+            return NameShape.Opaque;
+        }
+
+        return resolved switch
+        {
+            RangeReference => NameShape.Range,
+            OpenRangeReference => NameShape.Refused,
+            _ => NameShape.Scalar,
+        };
     }
 
     private static ArrayOperand BuildRange(RangeReference range, EvaluationContext context)

@@ -441,6 +441,26 @@ public class DefinedNameArrayEligibilityTests
     }
 
     [Test]
+    [Arguments("=LET(r,A1:A3,SUM((r<>0)*1))", 2.0)]
+    [Arguments("=LET(r,Rng,SUM((r<>0)*1))", 2.0)]
+    [Arguments("=LET(r,A1:A3,COUNT(r*1))", 3.0)]
+    [Arguments("=LET(r,A1:A3,INDEX(r*2,3))", 18.0)]
+    public async Task LetBoundName_InANestedArrayPosition_ResolvesThroughTheScope(
+        string formula,
+        double expected
+    )
+    {
+        // The other side of the LET pin above: the arm resolves through NamedReferences.TryResolveReference,
+        // whose FIRST stop is the LET scope, so a LET-bound name INSIDE an array position is the range it
+        // was bound to — it is only the Let node itself, as a consumer's argument, that Probe does not look
+        // inside. A behaviour change of Rule A that the phase table does not list, pinned so it is not a
+        // silent one. Aspose 26.6.0: 2, 2, 3, 18 in BOTH modes. MySheet before the arm (this tree with the
+        // arm stashed, 2026-09-10): 1, 1, 0 and an error — the opaque reference value again, the
+        // INDEX one through the same #REF! path as INDEX(Rng*2,3) above.
+        await Assert.That(Num(OnGrid(formula))).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task UnionName_InAnArrayPosition_IsUnchanged_KnownDivergence()
     {
         // DELIBERATE DIVERGENCE, left as it is by this phase, and it CONTRADICTS the sweep's B2 prediction:

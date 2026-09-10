@@ -164,10 +164,15 @@ public sealed partial record Index(Expression[] Arguments) : Function
         // Array forms (mini-CSE vector, open-column ROW identity) have no cell address. Deliberately NOT
         // ArrayEvaluation.TryStream: this probes only to REJECT those forms and never builds a stream, so
         // the third condition would be a wasted build (see IsArrayEligible's remark on this exact caller).
+        // The first condition is TryStream's own predicate, shared so a bare NAME — array-eligible since
+        // Phase 11a, but a reference at this top level — keeps resolving to its cell: without it, measured
+        // on the prototype, SUM(A1:INDEX(Rng,3)) went 14 → #REF!, ROW(INDEX(Rng,2)) 2 → #VALUE!,
+        // ISREF(INDEX(Rng,2)) TRUE → FALSE and OFFSET(INDEX(Rng,1),1,0) 0 → #REF!
+        // (DefinedNameArrayEligibilityTests.Index_OverABareName_StillReturnsAReference).
         if (
             Arguments[0] is Row { Arguments: [OpenRangeReference] }
             || (
-                Arguments[0] is not Reference
+                !ArrayEvaluation.IsBareReferenceNode(Arguments[0])
                 && ArrayEvaluation.IsArrayEligible(Arguments[0], context)
             )
         )

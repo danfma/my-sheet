@@ -102,32 +102,28 @@ internal static class NumericAggregation
 
                 default:
                     // Mini-CSE: an array-eligible argument — IF(range=…,…), a range comparison,
-                    // ROW/COLUMN of a range or of a name that stands for one — folds element-by-element with
-                    // RANGE semantics (logicals/text ignored, so the FALSE of a branch-less IF drops out; the
-                    // first cell error propagates). The cheap gate keeps the scalar hot path below at a
-                    // shallow type-walk (one reference resolution for that ROW/COLUMN case — never an
-                    // evaluation of the ROW/COLUMN node itself, though resolving a ':' range with
-                    // reference-returning endpoints does evaluate those endpoints' own arguments, as
-                    // IsArrayEligible's remark records) and avoids any double evaluation
-                    // (IsArrayEligible ⇒ TryEvaluate succeeds as the single evaluation).
+                    // ROW/COLUMN of a range or of a name that stands for one, a name-built array — folds
+                    // element-by-element with RANGE semantics (logicals/text ignored, so the FALSE of a
+                    // branch-less IF drops out; the first cell error propagates). The shared gate keeps the
+                    // scalar hot path below at a shallow type-walk (one reference resolution for the
+                    // ROW/COLUMN and bare-name cases — never an evaluation of the node itself, though
+                    // resolving a ':' range with reference-returning endpoints does evaluate those endpoints'
+                    // own arguments, as IsArrayEligible's remark records) and avoids any double evaluation
+                    // (IsArrayEligible ⇒ the stream build succeeds as the single evaluation).
                     //
-                    // Deliberately NOT ArrayEvaluation.TryStream: this gate keeps only that one's last two
-                    // conditions, because the switch above OWNS the reference dispatch — every reference
-                    // shape needing the referenced-cell rule (RangeReference, OpenRangeReference,
-                    // CellReference, the two anchored twins, UnionReference) is peeled off before this arm,
-                    // so a leading `is not Reference` has nothing left to guard.
-                    //
-                    // It is MOOT today, not load-bearing: the only Reference shape still reaching here is
-                    // DynamicRange, which has no arm in ArrayEvaluation.Probe and so falls to its
-                    // `default: (true, false)` — IsArrayEligible is already false for it and it already
-                    // takes the scalar path below. NameReference is not a Reference at all (it derives
-                    // straight from Expression), so the condition would never see it either. Adding
-                    // `is not Reference` would therefore be a no-op; it would only start to matter — as a
-                    // pre-emption of DynamicRange — IF Probe ever gained an arm for that node.
-                    if (
-                        ArrayEvaluation.IsArrayEligible(argument, context)
-                        && ArrayEvaluation.TryEvaluateStream(argument, context, out var array)
-                    )
+                    // The gate's leading condition (ArrayEvaluation.IsBareReferenceNode) is LOAD-BEARING
+                    // here for a bare NameReference, which the switch above does not peel off (it is not a
+                    // Reference) and which IsArrayEligible answers TRUE for once it is bound to a rectangle.
+                    // Without it the name would stream through RangeOperand instead of taking the
+                    // referenced-value path below — measured on the prototype: SUM(Wide) over a 2-D name
+                    // holding #N/A at B1 and #DIV/0! at A3 went #DIV/0! → #N/A, because the stream is
+                    // row-major where this arm's referenced-value walk is column-major, so a different
+                    // first error wins; the same flip hit MAX/SMALL/SUBTOTAL/AGGREGATE over the name
+                    // (DefinedNameArrayEligibilityTests.TwoDimensionalBareName_OnTheErrorFixture_…).
+                    // For a syntactic Reference the condition is moot rather than harmful: every reference
+                    // node this arm could see is peeled off above except DynamicRange, which has no Probe
+                    // arm and already takes the path below.
+                    if (ArrayEvaluation.TryStream(argument, context, out var array))
                     {
                         // Stream the element-wise vector: aggregate straight from the lazy view, allocating no
                         // ComputedValue[] (a 50k-row idiom drops from ~14MB to the handful of tree nodes). The
