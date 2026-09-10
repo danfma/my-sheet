@@ -13,10 +13,18 @@ namespace Danfma.MySheet.Expressions;
 /// <item><b>The DateTime map</b> — <see cref="ToDateTimeUnchecked"/> and its inverse
 /// <see cref="FromDateTime"/>: 0 → 1899-12-31, 1 → 1900-01-01, 59 → 1900-02-28, 60 → 1900-02-28 (the
 /// phantom day COLLAPSES onto Feb 28) and 61 → 1900-03-01. The inverse never yields 60, so no
-/// <see cref="DateTime"/> denotes the phantom day. Used by YEAR/MONTH/DAY (through
-/// <see cref="TryGetCalendar"/>, which adds the day-zero rule), EDATE, EOMONTH, WEEKNUM, ISOWEEKNUM,
-/// NETWORKDAYS, the bond/coupon family, DATEDIF's calendar units, <c>DATE</c>'s inverse, the xlsx loader
-/// and the volatile clock.</item>
+/// <see cref="DateTime"/> denotes the phantom day. READ (not merely range-checked) by YEAR/MONTH/DAY
+/// (through <see cref="TryGetCalendar"/>, which adds the day-zero rule), EDATE, EOMONTH, WEEKNUM,
+/// ISOWEEKNUM, DATEDIF's calendar units, YEARFRAC's basis-1 year lookup, <c>TEXT</c> (also through
+/// <see cref="TryGetCalendar"/>: a <c>ddd</c>/<c>dddd</c> token pulls the printed day NUMBER onto this
+/// collapsed map), the bond/coupon family, <c>DATE</c>'s inverse, the xlsx loader, the volatile clock —
+/// and by ALL FOUR working-day functions, WORKDAY, WORKDAY.INTL, NETWORKDAYS and NETWORKDAYS.INTL, which
+/// take every weekday from it through <see cref="Dates.WorkdayMath.IsWorkingSerial"/>; that is precisely
+/// what makes their walk the REAL calendar below serial 61 (next item). Callers that name
+/// <see cref="ToDateTime"/> only as a RANGE GUARD and discard the mapped value are NOT users of the map:
+/// HOUR/MINUTE/SECOND, DAYS, WEEKDAY, YEARFRAC's serial-subtracting bases 2 and 3, XNPV/XIRR and the
+/// working-day argument checks (YEARFRAC's bases 0 and 4 read the Lotus calendar instead — third item).
+/// </item>
 /// <item><b>The Lotus weekday</b> — <see cref="LotusDayOfWeek"/>: <c>((⌊s⌋ − 1) mod 7) + 1</c>, with 60
 /// collapsed onto 59. Used by WEEKDAY and by <c>TEXT</c>'s <c>ddd</c>/<c>dddd</c>. WORKDAY and
 /// NETWORKDAYS deliberately do NOT use it: by controller ruling under the user's exception they walk the
