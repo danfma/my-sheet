@@ -429,3 +429,194 @@ shape: header `0x02` → `0x03`, +4 bytes for the empty map, old readers throw
 ## Phase Summary
 
 _(write when phase completes)_
+
+## Re-verification against main @ 10c7897 (2026-09-10)
+
+Scope: nothing above was redesigned. This section records only what was measured on the tree at `main` HEAD
+`0b93d66` — which differs from `10c7897` (the `feat/vector-broadcasting` head) by ONE commit that touches only
+`CHANGELOG.md` and the two `<Version>` lines (3.16.0 → 3.16.1); the engine, tests and docs are byte-identical
+between the two. Experiments ran in two `rsync` copies of the tree outside the repo
+(`.../scratchpad/p3reverify/base` and `.../patched`), built with `dotnet build Danfma.MySheet.slnx -c Release`
+(0 errors, 0 warnings in both), tests via `dotnet run --project … -c Release --no-build`. Baseline measured on
+the unpatched copy: core **1582/0**, `CellStoreTests` 9/0, `SheetNameInterningTests` 8/0, `*CompatibilityTests`
+2/0, `WarmStartSaveLoadTests` 12/0, Excel **93/0**.
+
+### 1. Stale anchors (19 moved or changed, 1 stated value wrong)
+
+Worst three first — each would send an implementer to the wrong place or the wrong value:
+
+1. **`Danfma.MySheet/NamedReferences.cs` does not exist.** The file is `Danfma.MySheet/Expressions/NamedReferences.cs`
+   (it has been there since before Phase 1; the path in items 5, 6, 7, the risks list and the "Design decision"
+   paragraph was never right). Inside it: `ValidateName` is `:166-185` (not `:155-175`), the message it throws
+   is `:177-182` (not `:167-173`), the "single source of truth" comment is `:201-202` (not `:190-192`) and the
+   `Parser.IsCellReference(name)` call is `:203` (not `:191`). `git diff 32a67f6^ HEAD` on that file shows no
+   change to `ValidateName`/`IsValidName`; the claim itself still holds (see §2).
+2. **"next free tag is 322" (risks, last bullet) is wrong: tag 322 is taken.** `Expression.cs:353` is
+   `[MemoryPackUnion(322, typeof(Aggregate))]` (Phase 2); `grep -c 'MemoryPackUnion('` = **323** (tags 0-322,
+   contiguous, no duplicates); the policy comment at `Expression.cs:15` already says "Add new tags at 323+".
+   Next free tag is **323**. Item 23's bullet (a) and the risk bullet must say 323, and the master plan's
+   "next free tag is 322 as of writing" is likewise stale.
+3. **Item 17's stated ENDING of the regenerated golden is wrong.** The phase says the new constant ends
+   `...AQEAAAAAAAAcQAAAAAAAAAAA==`. Mechanically (`[0x03] + old[1..] + 4×0x00`, and 726 is a multiple of 3 so the
+   old base64 has no padding) the new base64 is the old string with `Ag`→`Aw` plus `AAAAAA==` appended: it ends
+   **`...NQEBAAAAAAAAHEAAAAAAAAAAAA==`** (old constant ends `AEFCNQEBAAAAAAAAHEAAAAAA`). Serializing
+   `BuildWireFixture()` on the patched engine produced exactly that string (730 bytes). The stated BEGINNING
+   `AwIAAAD7////BAAAAERhdGE` is correct. Verification item 9's python check is what catches a wrong paste —
+   keep it. For B1's twin constant: `PreInterningWireGolden` is **429** bytes (not stated anywhere above),
+   regenerated 433 bytes, base64 begins `AwIAAAD7////BAAAAERhdGE`, ends `////BAAAAERhdGEAAAAAAAAAAA==`.
+
+The rest, by file (current location in **bold**; anchors not listed here were re-read and still hold —
+notably `Workbook.cs:64/:68-80/:117/:120-124/:133-139/:144-150`, `EvaluateCell:339-342`, every
+`RecalculationEngine.cs` anchor (`:71/:90/:94-97/:98-110/:118-160/:129/:142/:167-178/:176/:185-207`),
+`Workbook.Serialization.cs:42/:625-627/:630-641`, `Parser.cs:788-812/:321/:326`, `CellAddress.TryParseRow:79-116`
+with the guard at `:99-100`, `TryParseColumn:123-145`, `CellRef.cs:69/:74`, `Tokenizer.ReadIdentifier:108`,
+`FormulaWriter.WriteSheetQualifier:344`, `Sheet.cs:16-24/:25-36/:39-44/:82-83`, csproj `:10/:28-30`,
+`ExcelFile.cs:3-4`, `CellStoreTests.cs:20/:34/:60-66/:71/:79`, `SheetNameInterningTests.cs:18/:47/:51`,
+`MemoryPackCompatibilityTests.cs:23`, `RecalculationEngineTests.cs:243`, `docs/serialization.md:86`,
+`docs/pt-BR/serialization.md:91`, `docs/pt-BR/README.md:3`, both fixture headers — `workbook-pre-namespaces`
+begins `01 02 00 00 00 fb ff ff`, `container-v2-brotli-warm` is `MSWM 02` with modelLength 154):
+
+- `Workbook.cs`: `DefineName(string, Expression)` `:546-556` → **`:564-573`** (its `DefinedNames[name] = reference`
+  `:551` → **`:569`**; the "validate/assign/bump" split `:546-548` → **`:564-566`**); `DefineName(string, string)`
+  `:564-588` → **`:582-606`**; item 14's "(:546, :564)" → **`:564`, `:582`**. `InvalidateCache` `:372-388` →
+  **`:390-406`**, its structural-index note `:376-378` → **`:394-396`**. The "never `= new()`" comment `:36-38` →
+  **`:34-37`**. `Sheets` `:106-107` → **`:107-108`**.
+- `Sheet.cs`: `GetStructuralIndex` `:63-72` → **`:52-61`**.
+- `Expressions/CellAddress.cs`: `Parse` `:11-30` → **`:10-30`**; `TryGetColumnRow` `:37-69` → **`:38-70`**.
+- `Expressions/DynamicRange.cs`: `TryResolveReference` `:42-47` → **`:13`** (method start); the "#REF! when the
+  endpoints fail" comment `:53-56` → **`:52-54`**.
+- `WorkbookOptions.cs`: `Validate` `:106-130` → **`:106-140`**; its `ArgumentException` throws `:126-131` →
+  **`:127`, `:135`**.
+- `RecalculationEngine.cs`: item 11 omits **`:83`** (`private long _namesSnapshot;`) from the rename list — the
+  compiler will find it, but the list is not complete. Item 11 says "6 code/comment sites" and "All 9
+  references"; verification #8 says "Baseline is 9 matches". Measured: `grep -rn "NamesVersion"` over
+  `Danfma.MySheet Danfma.MySheet.Excel tests` (case-sensitive, excluding `obj/`) = **10** lines (the ten the
+  phase itself lists), plus `_namesVersion` ×3 (`Workbook.cs:134/:572/:605`) and `_namesSnapshot` ×4
+  (`RecalculationEngine.cs:83/:90/:176/:187`).
+- `Danfma.MySheet.Excel/ExcelFile.cs`: `Sheets.Add` `:126` → **`:138`**; `LoadDefinedNames` `:194-206` →
+  **`:154-208`**, the `catch (Exception exception) when (exception is ParseException or ArgumentException)` at
+  **`:195`** (item 14's safety argument still holds verbatim).
+- `.github/workflows/release.yml`: the versionize step `:39-42` → comment **`:39`**, `run: versionize` **`:44`**.
+  `Danfma.MySheet.csproj:10` reads **3.16.1**, not 3.16.0 (versionize still derives 3.17.0 for a `feat:`).
+- `docs/serialization.md`: the shared-formula template subsection `:199-207` → **`:209-234`**; the container-v3
+  subsection `:209-221` → **`:256-269`**; and there is now a THIRD subsection between them,
+  **"Forward-compatibility: the `AGGREGATE` node (tag 322)" at `:235-255`** (Phase 2), which is the most recent
+  template and the one item 23's new subsection should sit after — i.e. after `:256-269`, still "after
+  container-v3". pt-BR: AGGREGATE at **`:254`**, container-v3 at **`:277-293`**.
+- `docs/workbook-and-expressions.md`: §Named ranges `:373` → **`:722`** (Phases 1/8/10 added ~350 lines above it:
+  "Implicit intersection at the cell boundary" `:339`, "Implicit array arguments" `:389-721`).
+- `tests/…/ContainerVersionCompatibilityTests.cs`: the fixture-loading test is
+  `GoldenV2Fixture_IsVersion2_AndLoadsForever` at **`:34-46`** (":13+" is the doc comment).
+- Counts: "1203" (B1's baseline, verification #5, item 11's rationale) → **1582**; "the six existing
+  TableInteropTests" (verification #6) → **14** `[Test]` methods in `TableInteropTests.cs`; Excel suite →
+  **93**. `CellStoreTests` is still 9 (so "total: 12" after the three additions still holds);
+  `*CompatibilityTests` still 2.
+- Item 23's verbatim exception text: the real message is
+  `MemoryPackSerializationException: Danfma.MySheet.Workbook property count is 2 but binary's header maked as 3,
+  can't deserialize about versioning.` — the type name is fully qualified; the phase quotes it as
+  `Workbook property count …`. Quote the fully-qualified form so a user's search matches.
+
+Still true and re-verified: no `Table` type exists in `Danfma.MySheet` (and adding a public
+`Danfma.MySheet.Table` builds the Excel project and its tests with 0 errors — neither file uses an unqualified
+`Table` today, so the alias in the risks list is needed only when Phase 6 starts naming the OpenXml type);
+`IsCellReference("XFD1048577")` = true (still unbounded); an empty `Workbook` serializes to **9** bytes (`02` +
+two zero-length maps) today and **13** bytes (`03` + three) with the third member — item 16's number holds.
+
+### 2. Assumptions the last five phases invalidated (or confirmed)
+
+- **Frozen goldens — MEASURED, B1 confirmed on the current tree.** With items 1/2/9/10 applied verbatim to the
+  scratch copy (a `[MemoryPackable]` positional `Table` record with `[MemoryPackIgnore]` derived properties, the
+  `[MemoryPackInclude] private Dictionary<string, Table> _tables` after `DefinedNames`, the `RestoreComparers`
+  branch): full core suite **total 1582, failed 2, succeeded 1580** — exactly
+  `CellStoreTests.Wire_IsByteIdentical_AfterNumericKeys` and
+  `SheetNameInterningTests.Wire_IsByteIdentical_AfterInterning`, both "differs at index 1" (`AwIA…` vs `AgIA…`).
+  `*CompatibilityTests` 2/0, `WarmStartSaveLoadTests` 12/0, Excel 93/0, MemoryPack source generator 0
+  diagnostics. Delta on the CellStore fixture: 726 → 730 bytes, byte 0 `02`→`03`, `actual[1..726] ==
+  old[1..]`, last four bytes zero — item 18's guard as specified passes. The 0x02 golden and the 0x01
+  pre-namespaces fixture both load into the 3-member type with `Tables.Count == 0` (member arrives null,
+  `RestoreComparers` rebuilds it); a registered `Tabela1` round-trips with `ContainsKey("tabela1")` true and
+  `ColumnNames` back as `List<string>`, re-serializing byte-identically (item 1's array/List stability claim
+  holds). The unpatched engine reading the 3-member payload throws the exception quoted in §1. Phases 9 and 10
+  changed no wire byte (both goldens still begin `Ag`; Phase 9's summary: "no format change and no new union
+  tag").
+- **Union tag count**: Phase 2 appended tag 322 (`Aggregate`) and fixed the "319+" policy comment to "323+".
+  Phase 3 adds no tag, so only the two text sites above are affected; Phase 7's item 12 ("after 321 … tags
+  0..321 contiguous") is stale for the same reason.
+- **`NamedReferences.ValidateName` — claim still holds, MEASURED on the base copy**: `Tabela1` REJECT, `Table1`
+  REJECT, `Q1` REJECT, `A1` REJECT, `XFD1048576` REJECT, `Sales.Data` OK, `Vendas.2024` OK, `_x` OK; message:
+  `'Tabela1' is not a valid defined name: it must start with a letter or underscore, contain only letters,
+  digits, '.' or '_', and must not look like a cell reference (e.g. "A1") or a boolean literal. (Parameter
+  'name')`. Items 5/6 remain necessary.
+- **Stale-value trap — still present, MEASURED** (Data!A1..A4 = 1,2,4,8; Main!B1 `=SUM(Rng)`, Rng = Data!A1:A2):
+  plain redefine to A1:A4 → B1 still **3**; `InvalidateCache()` → **15**. Recalculate-first (item 22's shape):
+  `mode=Partial dirty=0 rebuilt=True`, B1 **3**. EstimateImpact-first (B2's shape): `EstimateImpact([])` =
+  `RecommendFull = False, ConeSize = 0, Reason = cone pequeno (0 células)` then `Recalculate([])` =
+  `mode=Partial dirty=0 rebuilt=False`, B1 **3** — the snapshot was consumed at `RecalculationEngine.cs:176`,
+  unchanged since Phase 1 (0 commits on that file in `32a67f6^..HEAD`).
+- **`ArrayEvaluation` / `Broadcasting` / operand tree**: `ArrayEvaluation.cs` is 893 lines, `Broadcasting.cs` 95
+  (new in Phase 10), `ArrayOperands.cs` 391 (extracted in Phase 2 — Phase 1's watch item "extract the
+  `ArrayOperand` tree before Phase 3" is done). None of the three references `NamesVersion`, `DefinedNames`,
+  `RestoreComparers` or any member Phase 3 renames or adds; `RangeOperand` holds a `Workbook` only to read
+  cells. Nothing here for the registry to break, and nothing Phase 3's items edit. One contract Phase 1's
+  summary addressed to "Phase 3" belongs to Phase 5, not this file: the table NODE must derive from `Reference`
+  and return a concrete `RangeReference` from `TryResolveReference` or the `[NameReference or Reference]` arms
+  (`ArrayEvaluation.cs:239/:242/:359/:368`) miss it. Item 4's `TryGetColumnRange` is the surface that node will
+  consume; nothing in items 1-26 conflicts with it.
+- **Ordering assumption**: the master plan's phase table now says Phase 11 "executes after Phase 10, **before
+  Phase 3**" (status: Not started). This file says "Design dependencies: none" and never mentions Phase 11.
+  See §4.
+- `Workbook.cs` had ONE commit since Phase 1 (`b8fa6b6`, implicit intersection — `EvaluateCell`'s
+  CaptureValue path); `RecalculationEngine.cs`, `Workbook.Serialization.cs`, `Parser.cs`, `CellAddress.cs`,
+  `Sheet.cs`, `SheetStructuralIndex.cs`, `ReverseDependencyGraph.cs`, both golden test files and
+  `RecalculationEngineTests.cs` had **zero**. The engine side of this design is unmoved; the drift is in docs,
+  test counts, the union tag and the misnamed path.
+
+### 3. Blockers and majors: still true?
+
+- **B1 — still true, unchanged in shape.** Measured above: 2 failures on 1582, the two named goldens. Update
+  its numbers: baseline "1203" → 1582; "restate verification #5's expectation as 1203 passing" → 1582 plus the
+  tests this phase adds. The mechanical delta is the same for both constants; the interning constant's sizes
+  are 429 → 433.
+- **B2 — still true, unchanged in shape.** `EnsureFresh` still assigns `_namesSnapshot` at `:176` as a side
+  effect; the EstimateImpact-then-Recalculate sequence measured above leaves B1 = 3 with `rebuilt=False`. The
+  sticky-flag correction stands as written.
+- **B3 — still true.** A language-level fact (a record's synthesized copy constructor copies every instance
+  field); no `Table.cs` exists yet and nothing in the tree changes it. The correction stands; option (a) remains
+  the only one that makes a public `with` safe.
+- **M1 — still true**, same reason as B3.
+- **M2 — still true, MEASURED**: `CellAddress.TryParseColumn:123-145` has no overflow guard (only
+  `char.IsLetter` and `$` skipping); `TryParseColumn("A"×24)` → `ok=True col=-965696553` on the base copy.
+  `TryParseRow`'s guard at `:99-100` is the only accumulator guard in the file.
+
+None of the five is moot; none changed shape. The only edits they need are the counts in B1.
+
+### 4. Ordering and parallelism
+
+- **"Design dependencies: none" is still true for the DESIGN** — every file this phase edits is unmoved by
+  Phases 1/2/8/9/10 except docs and counts (§1). It is **no longer true for the SCHEDULE**: the master plan
+  places Phase 11 before Phase 3. Phase 11's `*Files:*` lines name `ArrayEvaluation.cs`, `Broadcasting.cs`,
+  `AggregateCodes.cs`, `Aggregate.cs`, `Text/*`, `Dates/WorkdayFunctions.cs`, `StatisticsMath.cs`,
+  `Logical/If.cs`, `Lookup/Index.cs`, `Financial/BondMath.cs`, `DayCount.cs`, `CriteriaScan.cs`, their tests and
+  `docs/function-reference.md` (+ pt-BR) — **no file in common with Phase 3**, so the ordering is a product
+  choice, not a merge hazard.
+- **Phase 7 concurrently: the plan's own dependency graph forbids it as written.** Phase 7 declares
+  `resolution-and-graph` (Phase 5) as a design dependency; Phase 5 declares `lexer-parser` (Phase 4) and
+  `table-model-registry` (this phase); Phase 4 declares `table-model-registry`. Running Phase 7 in parallel with
+  Phase 3 means waiving Phase 7's declared dependency on Phase 5 explicitly — nothing in Phase 7's items reads
+  a table (its `Files` lines name no `Workbook.cs`, `RecalculationEngine.cs`, `Parser.cs`, `CellAddress.cs`,
+  `Workbook.Serialization.cs`, `Table.cs` or any Phase 3 test file), so the waiver looks cheap, but it must be
+  written down in Phase 7, not assumed here.
+- **Files both branches would touch** (Phase 3 items 23-25 vs Phase 7 item 21):
+  `docs/serialization.md`, `docs/pt-BR/serialization.md`, `docs/workbook-and-expressions.md`,
+  `docs/pt-BR/workbook-and-expressions.md`. In `workbook-and-expressions.md` the two edits are ADJACENT — Phase 7
+  rewrites "Implicit array arguments" (`:389-721`) and Phase 3 inserts "Tables" beside "Named ranges" (`:722`)
+  — so a textual conflict on rebase is likely; whoever rebases second re-anchors on the heading text.
+  Engine, test, fixture and golden files: **no overlap**. Union tags: Phase 3 assigns none; Phase 7 reserves
+  four, which are now 323-326, and its coordination note should be updated with Phase 2's 322 — the "ONE
+  coordinated edit" rule in the master plan is then between Phase 7 and Phase 5 (the structured-reference
+  node), not this phase. `CHANGELOG.md`/`<Version>`: neither hand-edits (item 26), no collision.
+- Cross-file hazards that are NOT shared files: Phase 7 will not change the `Workbook` member count, so a
+  Phase 7 branch rebased onto a merged Phase 3 keeps the regenerated goldens intact; a Phase 3 branch rebased
+  onto a merged Phase 7 keeps its goldens intact too (union tags do not appear in either fixture — both
+  fixtures serialize only the node types they contain). Verified only by reasoning about what each phase
+  edits, not by running both branches.
