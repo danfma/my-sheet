@@ -357,4 +357,60 @@ public class CellBoundaryIntersectionTests
         // LEN(5)+LEN(0)+LEN(9) = 3 (Aspose 26.6.0, CSE-entered, 2026-09-09).
         await Assert.That(InCell("C2", "=SUM(LEN(A1:A3))")).IsEqualTo(3.0);
     }
+
+    // === Phase 10: a BROADCAST product at the boundary is still absent, for the same reason ==============
+
+    [Test]
+    public async Task BareBroadcastProduct_IsStillValueError_TheArrayHalfBelongsToPhase7()
+    {
+        // Phase 10 taught the mini-CSE to broadcast mismatched vectors — but, like Phase 8's lifting, only
+        // INSIDE the mini-CSE, which Workbook.EvaluateCell does not enter. So a bare product typed in a
+        // cell is still the multiplication operator's own #VALUE!, unchanged by this phase.
+        //
+        // This is an UNCHANGED-BY-DESIGN pin over a DIVERGENCE, and the divergence is what makes it worth
+        // writing down. Aspose.Cells 26.6.0, measured 2026-09-10, PLAIN entry — the only column that
+        // exists here, since a formula typed into a cell has no CSE twin:
+        //
+        //   J1: =A1:A3*E1:E3  →  1        J3: =A1:A3*E1:E3  →  21       (per-OPERAND implicit intersection,
+        //   J2: =A1:C3*E1:E3  →  #VALUE!  L2: =E1:E3*10     →  20        each operand taken on the formula's
+        //                                                                own row: A3*E3 = 7*3, E3*10 = 3*10)
+        //
+        // The J1/J3 pair is what identifies the oracle's mechanism: 1 and 21 from the SAME formula on two
+        // rows is legacy per-operand intersection, not S4's "top-left element of a computed array" (which
+        // would give 1 on both rows). Phase 7 owns the array half of the boundary and must reconcile S4
+        // with this measurement; pinning today's #VALUE! here means that reconciliation edits these lines
+        // deliberately instead of moving the answer by accident.
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        var value = 1;
+        foreach (var row in new[] { 1, 2, 3 })
+        {
+            foreach (var column in new[] { "A", "B", "C" })
+            {
+                sheet[$"{column}{row}"] = Number(value++);
+            }
+        }
+
+        sheet["E1"] = Number(1);
+        sheet["E2"] = Number(2);
+        sheet["E3"] = Number(3);
+
+        object? InGridCell(string id, string formula)
+        {
+            sheet[id] = ExpressionParser.Parse(formula, sheet);
+
+            return workbook.GetCellValue("Sheet1", id).AsObject();
+        }
+
+        await Assert.That(InGridCell("J3", "=A1:A3*E1:E3")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(InGridCell("J1", "=A1:A3*E1:E3")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(InGridCell("J2", "=A1:C3*E1:E3")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(InGridCell("L2", "=E1:E3*10")).IsEqualTo(ErrorValue.NotValue);
+
+        // The counterweight, and the reason the gap is in the BOUNDARY and not in the phase: the very same
+        // product CONSUMED in the very same cell broadcasts and answers — 6*1 + 15*2 + 24*3 (Aspose.Cells
+        // 26.6.0, 2026-09-10, CSE column; VectorBroadcastingTests owns the family of that number).
+        await Assert.That(InGridCell("L4", "=SUM(A1:C3*E1:E3)")).IsEqualTo(108.0);
+    }
 }
