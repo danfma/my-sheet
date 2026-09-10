@@ -2,14 +2,31 @@ namespace Danfma.MySheet.Expressions;
 
 /// <summary>
 /// Flattens function arguments into a sequence of computed values, expanding range arguments
-/// cell-by-cell. Used by variadic functions (CONCAT, TEXTJOIN, COUNTA, …). The <see cref="ComputedValue"/>
-/// overloads read straight from the cache (no boxing); the <c>object?</c> ones are boxed views for interop.
+/// cell-by-cell and — since Phase 7 — a COMPUTED array element by element, row-major, through the mini-CSE
+/// consumer gate (<see cref="ArrayEvaluation.TryStream"/>). Used by variadic functions (CONCAT, TEXTJOIN,
+/// COUNTA, …). The <see cref="ComputedValue"/> overloads read straight from the cache (no boxing); the
+/// <c>object?</c> ones are boxed views for interop.
 /// </summary>
 internal static class ArgumentFlattening
 {
+    /// <summary>
+    /// The argument walk shared by <c>COUNTA</c>, <c>CONCAT</c>, <c>TEXTJOIN</c>, <c>CONCATENATE</c> and
+    /// <c>COUNTBLANK</c>. A reference node expands to its cells; any other node that the mini-CSE recognises
+    /// as an array — a producer (<c>FILTER</c>/<c>SORT</c>/<c>UNIQUE</c>/<c>SEQUENCE</c>), an operator over a
+    /// range, a lifted function, <c>IF</c> — streams its elements when <paramref name="streamArrays"/> is
+    /// true (<c>COUNTA(UNIQUE(A1:A3))</c> = 3, <c>CONCAT(A1:A3*2)</c> = "10018", <c>TEXTJOIN(",",TRUE,
+    /// FILTER(A1:A3,A1:A3&gt;0))</c> = "5,9"; Aspose.Cells 26.6.0, 2026-09-10, array-entered column,
+    /// pinned in <c>DynamicArrayTests</c>); everything else is evaluated once as a scalar, which for a
+    /// producer is its top-left (<see cref="ArrayEvaluation.FirstElement"/>). <paramref name="streamArrays"/>
+    /// is false for exactly one caller, <c>CONCATENATE</c>, which joins scalars and answers a producer's
+    /// top-left on the oracle in both entry modes; <c>COUNTBLANK</c> rejects a computed array up front
+    /// (<see cref="PositionalRange.RejectComputedArray"/>) and never reaches the arm. The gate is the one
+    /// every consumer shares, so a bare reference or name keeps the cell walk above.
+    /// </summary>
     public static IEnumerable<ComputedValue> FlattenComputedValues(
         Expression[] arguments,
-        EvaluationContext context
+        EvaluationContext context,
+        bool streamArrays = true
     )
     {
         foreach (var argument in arguments)
@@ -60,6 +77,18 @@ internal static class ArgumentFlattening
                     break;
 
                 default:
+                    // Phase 7: the mini-CSE arm. TryStream is the argument's SINGLE evaluation (a volatile
+                    // operand draws once), so it must come before the scalar Evaluate below, not after it.
+                    if (streamArrays && ArrayEvaluation.TryStream(argument, context, out var array))
+                    {
+                        foreach (var element in array)
+                        {
+                            yield return element;
+                        }
+
+                        break;
+                    }
+
                     var computed = argument.Evaluate(context);
 
                     if (computed.Kind == ComputedValueKind.Reference)

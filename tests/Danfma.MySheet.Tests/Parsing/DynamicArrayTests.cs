@@ -631,6 +631,107 @@ public class DynamicArrayTests
     }
 
     [Test]
+    public async Task TheFlatteningFamily_StreamsAComputedArray_ElementByElement()
+    {
+        // Item 15. ArgumentFlattening.FlattenComputedValues — COUNTA, CONCAT and TEXTJOIN's shared argument
+        // walk — gains the mini-CSE arm (ArrayEvaluation.TryStream) at the top of its default branch, so a
+        // computed array is walked element by element, row-major, instead of being evaluated once to a
+        // scalar (a producer's top-left, or a bare array expression's #VALUE!). It lights up COUNTA over a
+        // producer, Excel's distinct-count idiom, and fixes the pre-existing array forms with it.
+        // Oracle 26.6.0, 2026-09-10; the CSE column is pinned. Plain and CSE agree for every producer row;
+        // they split for the bare array forms (COUNTA(IF(…)) and COUNTA(A1:A3*2) are 1 plain, CONCAT and
+        // TEXTJOIN over A1:A3*2 are #VALUE! plain).
+        // Observed today: 1 (both COUNTA rows), #VALUE! (CONCAT/TEXTJOIN over A1:A3*2), 1 / "5" / "5" / …
+        // for the producer rows (the top-left collapse).
+        await Assert.That(Num(Calc("=COUNTA(IF(A1:A3>0,A1:A3))", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=COUNTA(A1:A3*2)", Grid))).IsEqualTo(3.0);
+        await Assert.That(Calc("=CONCAT(A1:A3*2)", Grid) as string).IsEqualTo("10018");
+        await Assert
+            .That(Calc("=TEXTJOIN(\",\",TRUE,A1:A3*2)", Grid) as string)
+            .IsEqualTo("10,0,18");
+
+        await Assert.That(Num(Calc("=COUNTA(SEQUENCE(2,3))"))).IsEqualTo(6.0);
+        await Assert.That(Num(Calc("=COUNTA(FILTER(A1:B3,A1:A3>0))", Grid))).IsEqualTo(4.0);
+        await Assert.That(Calc("=CONCAT(SEQUENCE(3))") as string).IsEqualTo("123");
+        await Assert.That(Calc("=CONCAT(SEQUENCE(2,3))") as string).IsEqualTo("123456");
+        await Assert.That(Calc("=CONCAT(FILTER(A1:B3,A1:A3>0))", Grid) as string).IsEqualTo("5193");
+        await Assert.That(Calc("=CONCAT(SORT(A1:A3,1,-1))", Grid) as string).IsEqualTo("950");
+        await Assert
+            .That(Calc("=TEXTJOIN(\",\",TRUE,FILTER(A1:A3,A1:A3>0))", Grid) as string)
+            .IsEqualTo("5,9");
+        await Assert
+            .That(Calc("=TEXTJOIN(\",\",TRUE,SORT(A1:A3))", Grid) as string)
+            .IsEqualTo("0,5,9");
+        await Assert
+            .That(Calc("=TEXTJOIN(\",\",TRUE,UNIQUE(A1:A3))", Grid) as string)
+            .IsEqualTo("5,0,9");
+
+        // The blank survives the walk as a blank: CONCAT skips it, TEXTJOIN with ignore_empty FALSE keeps
+        // its slot.
+        await Assert
+            .That(Calc("=CONCAT(FILTER(A5:A8,A5:A8<>\"zzz\"))", WithBlank) as string)
+            .IsEqualTo("7t7");
+        await Assert
+            .That(Calc("=TEXTJOIN(\",\",FALSE,FILTER(A5:A8,A5:A8<>\"zzz\"))", WithBlank) as string)
+            .IsEqualTo("7,,t,7");
+
+        // A producer's own failure is a 1x1 error element: COUNTA counts it (an error is not blank), the
+        // text joiners propagate it.
+        await Assert.That(Num(Calc("=COUNTA(SEQUENCE(-1))"))).IsEqualTo(1.0);
+        await Assert.That(Num(Calc("=COUNTA(FILTER(A1:A3,A1:A3>100))", Grid))).IsEqualTo(1.0);
+        await Assert.That(Calc("=CONCAT(SEQUENCE(-1))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=TEXTJOIN(\",\",TRUE,FILTER(A1:A3,A1:A3>100))", Grid))
+            .IsEqualTo(CalcError);
+    }
+
+    [Test]
+    public async Task CountBlank_OverAComputedArray_IsRefError_LikeTheCriteriaFamily()
+    {
+        // COUNTBLANK is the one caller of FlattenComputedValues that must NOT stream: Excel defines it over
+        // a range, and the oracle rejects every computed array in that slot the way the criteria family's
+        // Rule B (Phase 11a, PositionalRange.RejectComputedArray) does — #REF! for a producer in BOTH
+        // modes, #REF! array-entered / #VALUE! plain for a bare array expression. Oracle 26.6.0,
+        // 2026-09-10; the CSE column is pinned, COUNTBLANK(A5:A8) = 1 is the control.
+        // Not pinned: COUNTBLANK(IF(A5:A8<>"zzz",A5:A8)) is 1 CSE / #VALUE! plain, and COUNTIF/SUMIF over
+        // the same IF(…) are 2 / 14 CSE — the oracle reads IF(range,…) as reference-returning, an exception
+        // Rule B does not carve out either; MySheet answers #REF! for it here as it does in the criteria
+        // family. Observed today: 0 for every computed row (the top-left collapse is never blank).
+        await Assert.That(Num(Calc("=COUNTBLANK(A5:A8)", WithBlank))).IsEqualTo(1.0);
+        await Assert
+            .That(Calc("=COUNTBLANK(FILTER(A5:A8,TRUE))", WithBlank))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=COUNTBLANK(SORT(A5:A8))", WithBlank))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Calc("=COUNTBLANK(UNIQUE(A1:A3))", Grid)).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Calc("=COUNTBLANK(SEQUENCE(1))")).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Calc("=COUNTBLANK(A5:A8*1)", WithBlank)).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=COUNTBLANK(FILTER(A5:A8,A5:A8<>\"zzz\",))", WithBlank))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task Concatenate_TakesTheTopLeftOfAProducer_ItDoesNotExpandIt()
+    {
+        // CONCATENATE is the other caller that must not stream: it joins SCALARS, and over an array the
+        // oracle answers the array's top-left (CONCATENATE(FILTER(A1:A3,A1:A3>0)) = "5",
+        // CONCATENATE(SEQUENCE(3)) = "1", plain == CSE; CONCATENATE(LEN(A1:A3)) = "1" and
+        // CONCATENATE(A1:A3) = "5" array-entered, #VALUE! plain) where CONCAT expands ("59", "123"). So its
+        // walk keeps the pre-item-15 default branch, which evaluates a producer to its top-left through
+        // ArrayEvaluation.FirstElement. Oracle 26.6.0, 2026-09-10. Observed today: "5" and "1" already —
+        // this pin exists so the streaming arm cannot silently take CONCATENATE with it.
+        // NOT covered, pre-existing: CONCATENATE(A1:A3) expands the RANGE to "509" here against the
+        // oracle's #VALUE! / "5" — a classification question (CONCATENATE is scalar-only in Excel), not
+        // this item's.
+        await Assert
+            .That(Calc("=CONCATENATE(FILTER(A1:A3,A1:A3>0))", Grid) as string)
+            .IsEqualTo("5");
+        await Assert.That(Calc("=CONCATENATE(SEQUENCE(3))") as string).IsEqualTo("1");
+    }
+
+    [Test]
     public async Task TheCriteriaFamily_OverAProducer_IsRefError()
     {
         // Phase 11a Rule B (PositionalRange.RejectComputedArray) already answers #REF! for a range slot
