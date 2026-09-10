@@ -461,6 +461,21 @@ public class DefinedNameArrayEligibilityTests
     }
 
     [Test]
+    public async Task LetBoundComputedArray_InANestedArrayPosition_IsUnchanged_KnownDivergence()
+    {
+        // The LIMIT of the pin above, and the reason its name says "name": the scope resolution only reaches
+        // a name bound to a REFERENCE. A name bound to a computed ARRAY never becomes one, because
+        // NamedReferences.CaptureValue evaluates a non-range binding as a scalar when the LET binds it —
+        // before any array position can see it — so r is one #VALUE! here and the three shapes answer exactly
+        // what they answered before Rule A (measured on main 5f9d1ac, 2026-09-10: the same 0, #VALUE!, #REF!).
+        // Aspose 26.6.0, measured 2026-09-10: 3, 14 and 18 in BOTH entry modes. Phase 7's LET routing
+        // correction (its item M1) owns this half too — LET(x,FILTER(…),SUM(x)) is the same shape.
+        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,COUNT(r*1))"))).IsEqualTo(0.0);
+        await Assert.That(OnGrid("=LET(r,A1:A3*1,SUM(r*1))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnGrid("=LET(r,A1:A3*1,INDEX(r*2,3))")).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
     public async Task UnionName_InAnArrayPosition_IsUnchanged_KnownDivergence()
     {
         // DELIBERATE DIVERGENCE, left as it is by this phase, and it CONTRADICTS the sweep's B2 prediction:
