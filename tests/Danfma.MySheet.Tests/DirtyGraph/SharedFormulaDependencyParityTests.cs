@@ -156,6 +156,74 @@ public class SharedFormulaDependencyParityTests
         await AssertParity(anchored, legacy);
     }
 
+    // Fase 7 (arrays dinâmicos). Um master com produtor de array continua ELEGÍVEL ao modelo ancorado, e
+    // isso não é gratuito: `AnchoredFormulaSupport.IsFullyAnchored` tem um `_ => false` no fim (LET,
+    // construções só-de-array, tipos futuros), então um nó novo cairia lá e o GRUPO INTEIRO voltaria ao
+    // fallback legado por escrava — mais lento, e sem nada avisando. As quatro passam porque esta fase não
+    // acrescenta tipo de nó nenhum: elas são Function comuns, e o arm `Function function =>` aceita uma
+    // função quando todo argumento é aceito, chegando aos argumentos pelo mesmo acessor
+    // (FormulaWriter.Call) que o writer e o DependencyExtractor usam.
+    [Test]
+    [Arguments(0, 0)]
+    [Arguments(1, 0)]
+    [Arguments(2, 3)]
+    public async Task DynamicArrayProducerMaster_StaysAnchored_AndKeepsDependencyParity(
+        int deltaRow,
+        int deltaColumn
+    )
+    {
+        // O caso que o item 19 pede pelo nome, mais os outros três produtores. A paridade é a asserção
+        // forte: os DOIS pipelines de parse (ancorado + delta da escrava, e o parse legado por escrava)
+        // precisam chegar ao MESMO DependencyScan, incluindo o deslocamento dos componentes relativos.
+        foreach (
+            var body in new[]
+            {
+                "SUM(FILTER($A$1:$A$3, $B$1:$B$3>0))",
+                "SUM(FILTER(A1:A3,B1:B3>0))",
+                "SUM(SORT(A1:A3))",
+                "SUM(UNIQUE(A1:A3))",
+                "SUM(SEQUENCE(3))",
+                "SUM(SEQUENCE(2,2,A1,B1))",
+            }
+        )
+        {
+            var (anchored, legacy) = ScanBoth(body, deltaRow, deltaColumn);
+
+            await AssertParity(anchored, legacy);
+            await Assert.That(anchored.AlwaysDirty).IsFalse();
+        }
+
+        // E o veredito de elegibilidade em si, direto no AnchoredFormulaSupport: as quatro são aceitas com
+        // os argumentos ancorados …
+        foreach (
+            var body in new[]
+            {
+                "SUM(FILTER($A$1:$A$3, $B$1:$B$3>0))",
+                "SUM(SORT($A$1:$A$3))",
+                "SUM(UNIQUE($A$1:$A$3))",
+                "SUM(SEQUENCE(3))",
+            }
+        )
+        {
+            var master = ExpressionParser.ParseAnchoredMasterBody(
+                ExpressionParser.TokenizeFormulaBody(body),
+                NewSheet()
+            );
+
+            await Assert.That(AnchoredFormulaSupport.IsFullyAnchored(master)).IsTrue();
+        }
+
+        // … e o controle que mostra que o veredito acima não é um "true" universal: um range ABERTO dentro
+        // do produtor continua sendo gatilho de fallback, porque o arm de função só aceita a função quando
+        // TODO argumento é aceito.
+        var openRange = ExpressionParser.ParseAnchoredMasterBody(
+            ExpressionParser.TokenizeFormulaBody("SUM(FILTER($A:$A, $A:$A>0))"),
+            NewSheet()
+        );
+
+        await Assert.That(AnchoredFormulaSupport.IsFullyAnchored(openRange)).IsFalse();
+    }
+
     // --- (2) No grafo: workbook ancorado (SharedFormulaSlave real) vs workbook legado (mesma célula, árvore
     // expandida) — Diagnostics() + GetAllDependents idênticos para um conjunto de células de amostra ---
 

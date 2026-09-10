@@ -403,6 +403,20 @@ public class FormulaWriterTests
             "TODAY()",
             "RAND()",
             "RANDBETWEEN(1,6)",
+            // Fase 7 — os quatro produtores de array dinâmico. Cada um é um nó de Expression novo
+            // (MemoryPackUnion 323-326), então cada um precisa do seu arm no FormulaWriter para não
+            // estourar NotSupportedException — o que também derrubaria o AnchoredFormulaSupport e o
+            // DependencyExtractor, que chegam aos argumentos pelo mesmo acessor FormulaWriter.Call.
+            // As formas com os opcionais entram porque um arm que escreve só os obrigatórios volta a
+            // parsear sem erro nenhum, apenas com menos argumentos, e o round trip é o que pega isso.
+            "FILTER(A1:A3,B1:B3)",
+            "FILTER(A1:A3,B1:B3,\"none\")",
+            "SORT(A1:A3)",
+            "SORT(A1:B3,2,-1,TRUE)",
+            "UNIQUE(A1:A3)",
+            "UNIQUE(A1:A3,FALSE,TRUE)",
+            "SEQUENCE(3)",
+            "SEQUENCE(2,3,10,0.5)",
         ];
 
         var failures = new List<string>();
