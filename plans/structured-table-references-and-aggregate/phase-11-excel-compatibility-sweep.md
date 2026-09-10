@@ -373,8 +373,15 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       columns it reverts to the documented rule (`SUM(A1:B3*E5:H5)` `#N/A`, `COUNT` 6), yet
       `INDEX(A1:B2*E5:G5,1,3)` is still 0 in that same mode while its own `COUNT` says the position is uncovered.
       The column-vector mirror never behaves this way (`SUM(A1:C2*J1:J4)`, `SUM(A1:B3*J1:J4)`, `SUM(A1:C2*E1:E3)`
-      are all `#N/A` with `COUNT` 6, agreeing with us). That pattern reads as a bounds check against the wrong
-      axis. Decide deliberately: match the oracle, or keep our coherent `#N/A` under P0's "genuinely cannot match"
+      are all `#N/A` with `COUNT` 6, agreeing with us).
+      **Sharper characterisation, measured by Phase 10's fix wave:** the 0-fill turns on the RECTANGLE being the
+      uncovered operand, not on which axis is short — the reverse direction `A1:C3*E5:F5`, where the VECTOR is
+      short on the same axis and the extent is the same 3x3, agrees with us at `#N/A` with `COUNT` 6. Two further
+      measurements make the defect read plainly: in the fewer-rows case the oracle's own extent is 3x3 rather
+      than the 2x3 both operands imply (`COUNT` is **4**, not 6, and `INDEX(...,3,1)` is `#N/A` where ours is
+      `#REF!`), and with a 4x2 rectangle against a 1x3 vector it CLIPS the extent to 3x3 and silently drops the
+      rectangle's fourth row (`SUM` 420, `COUNT` 9, `INDEX(4,1)` `#REF!`). An engine that drops a row of user
+      data is not a rule to reproduce. Decide deliberately: match the oracle, or keep our coherent `#N/A` under P0's "genuinely cannot match"
       clause as the two-axis mismatch already does. Whichever you choose, a real-Excel fixture would settle it and
       is worth the trouble here, because this is not an exotic shape.
       *Files:* `Danfma.MySheet/Expressions/Broadcasting.cs` if matched, `tests/Danfma.MySheet.Tests/Expressions/VectorBroadcastingTests.cs`, both docs twins

@@ -1,6 +1,6 @@
 # Phase 10: Vector broadcasting in the mini-CSE (1xN / Nx1 against MxN, Excel's rule)
 
-Status: Not started   <!-- Not started | In progress | Complete -->
+Status: Complete   <!-- Not started | In progress | Complete -->
 
 Adversarial verifier verdict (2026-09-09, against branch `feat/elementwise-lifting` at `1966298`, i.e. Phase 8 landed): **needs-revision** (1 blocker, 3 majors, 7 minors — every one MEASURED: Aspose.Cells 26.6.0 CSE on one side, a Release build of `1966298` plus the design's own prototype re-applied to it on the other). The table's numbers all reproduce; what is wrong is what the design leaves UNCHANGED (`ROW`/`COLUMN`'s shape), what it duplicates (a second fold beside Phase 8's `ShapeFold`), and the pre-Phase-8 "today" column and test counts.
 
@@ -237,4 +237,56 @@ Every number below was **measured on 2026-09-09**: the MySheet column on a Relea
 
 ## Phase Summary
 
-_(write when phase completes)_
+**Status: Complete** — branch `feat/vector-broadcasting`, commits `897affc..HEAD` (19 commits: 5 tasks, their
+review fix rounds, the consolidated wave after the three-part final review, and the controller's plan and lesson
+commits), pending fast-forward merge to `main`. Gates at the head: csharpier clean (358 files), Release build 0
+warnings, core **1582/1582**, Excel **93/93**, no MemoryPack tag added, no public API changed, function counts
+unchanged at **306**.
+
+**What it fixes.** The mini-CSE required two array operands to have EQUAL shapes and filled `#VALUE!` per element
+otherwise. Excel broadcasts: a 1x1 operand everywhere, an axis of extent 1 along the target's, and where extents
+are incompatible it takes the larger and answers `#N/A` at the positions the shorter operand does not reach. The
+left operand's own error beats the right's `#N/A` at the same position — measured in both orders, not chosen.
+Phase 8's element-wise lifting had made these formulas *almost* right, which is worse than an error for anyone
+depending on the result.
+
+**Design.** ONE build-time shape rule (the pre-existing `ShapeFold`, extended with `Broadcasting.Axis`; its
+`_seen` flag is what stops a naive axis rule yielding a 0-row extent when a 1-extent axis is folded first) and ONE
+read-time projection (`Broadcasting.TryProject`, six call sites, one per array operand). **0 bytes per element
+held**: byte counts per evaluation are constant in N and identical before and after, re-measured independently by
+two reviewers and by three tasks.
+
+**B1 inverted a Phase 1 decision, deliberately.** `ROW`/`COLUMN` of a rectangle used to fabricate an MxN
+rectangle — the axis mirror Phase 1 introduced precisely to satisfy the equal-shape rule. They are vectors now,
+so `SUM(ROW(A1:C3))` moves from 18 to 6. **Twelve existing expectations flipped**: ten counted by task (2 + 4 +
+4) plus the two white-box `At()` pins in `ElementwiseLiftingMechanismTests` whose new values are the projection's
+rather than oracle numbers, which the per-task tally did not name.
+
+**The entry mode is this phase's real trap, and the docs now say so.** Aspose answers differently typed than
+array-entered: `SUM(A1:C3*E1:E3)` is `#VALUE!` typed and 108 array-entered. MySheet has no array-entry concept and
+implements the array-entered rule everywhere. The docs had never mentioned this, so a reader typing a formula into
+Excel and comparing would have concluded our docs were wrong. One paragraph states it and every affected example
+now carries its mode. A probe earlier in the phase manufactured a phantom oracle self-contradiction by comparing
+one mode against the other, and a reviewer had to withdraw it — the lesson is in `tasks/lessons.md`.
+
+**Deliberate deviations, each measured, pinned, and recorded as a sweep item unless there is nothing to match.**
+A two-axis mismatch answers `#N/A` here where the oracle answers `#REF!` from `INDEX` and never returns from the
+aggregate at all — not a sweep item, because a non-terminating computation is not a behaviour to reproduce. A
+rectangle shorter than a ROW vector: the oracle fills the uncovered column with 0 (`SUM(A1:B3*E5:G5)` = 420
+against our `#N/A`), a class **the phase never fixtured** and the final review found — and the oracle is
+self-inconsistent there, clipping its own extent and, with a 4x2 rectangle, silently dropping the fourth row, so
+the sweep item asks for a deliberate decision rather than a blind match. The criteria family answers `#REF!`
+array-entered and `#VALUE!` typed against our 0 / `#VALUE!` / 0, two of them silent. `ROWS`/`COLUMNS` of a
+computed array answer `#VALUE!` here against the oracle's real extent.
+
+**The cell boundary did not change.** A bare `=A1:C3*E1:E3` in a cell is still `#VALUE!`; the mini-CSE is entered
+only by consumers that ask for it. The oracle's own bare-cell rule is per-operand implicit intersection before the
+operator, which the master plan records as a Phase 7 correction to S4.
+
+**Process record.** Two silent wrong numbers survived until the third task found them, because the composite path
+had no witness: the pins that claimed to prove "every composite projects" used a fixture where a full 3x3
+dominated every fold, making the check vacuous. A reviewer identified the discriminating shape and it became a
+binding requirement. The phase also added the fourteenth instance of this project's defect class — a doc sentence
+asserting an agreement that an unfixtured class contradicted — plus a base contract claiming all six operands
+projected when four did not, and a comment that outlived its truth by one commit. Every one was caught by a
+reviewer grepping for the artifact a sentence cited, which is the discipline recorded in `tasks/lessons.md`.
