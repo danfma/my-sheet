@@ -442,6 +442,141 @@ public class VectorBroadcastingTests
         await Assert.That(Num(OnGridWithErrorInB2("=SUM(E1:E3*3)"))).IsEqualTo(12.0);
     }
 
+    [Test]
+    public async Task InsideAnIf_TheConditionAnswersFirst_WhicheverSideIsUncovered()
+    {
+        // The IF arm's own error precedence, MEASURED — the phase shipped it as an unmeasured choice.
+        // Aspose.Cells 26.6.0, measured 2026-09-10, CSE column, on Grid() with A3 = =1/0 (so the LEFT
+        // operand's own #DIV/0! sits at (3,1), exactly the position H1:H2 leaves uncovered). Green on
+        // arrival: the code at eb1d5db already reads the CONDITION first and returns its error without
+        // touching a branch, and the oracle agrees in BOTH orders.
+        //
+        // ORDER 1 — the CONDITION is uncovered and the branch value at that position is ITSELF an error.
+        // A 2x1 condition over a 3x3 branch: row 3 has no condition, and the true branch's element there is
+        // #DIV/0!. The condition's #N/A wins; the branch is never consulted. The branches are written
+        // `A1:C3*1` rather than the bare range because Aspose's INDEX over an IF with a REFERENCE branch
+        // answers #REF! even at a COVERED position (an INDEX-over-reference quirk of the oracle, recorded
+        // in the phase brief's correction m6) — the SUM/COUNT lines below use the bare range and agree.
+        await Assert
+            .That(OnGridWithErrorInA3("=INDEX(IF(H1:H2>1,A1:C3*1,0),3,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(OnGridWithErrorInA3("=INDEX(IF(H1:H2>1,A1:C3*1,0),3,2)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // The same with the error in the branch NOT taken elsewhere — the false branch — so the answer
+        // cannot be a side effect of which branch a covered row would pick.
+        await Assert
+            .That(OnGridWithErrorInA3("=INDEX(IF(H1:H2>1,0,A1:C3*1),3,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // Element-wise, the sharpest form: all THREE uncovered positions are #N/A and NONE is the
+        // #DIV/0! — ISNA counts 3 and ISERR (every error except #N/A) counts 0. Oracle: 3 and 0.
+        await Assert
+            .That(Num(OnGridWithErrorInA3("=SUM(ISNA(IF(H1:H2>1,A1:C3,0))*1)")))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnGridWithErrorInA3("=SUM(ISERR(IF(H1:H2>1,A1:C3,0))*1)")))
+            .IsEqualTo(0.0);
+        await Assert
+            .That(OnGridWithErrorInA3("=SUM(IF(H1:H2>1,A1:C3,0))"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGridWithErrorInA3("=COUNT(IF(H1:H2>1,A1:C3,0))"))).IsEqualTo(6.0);
+
+        // ORDER 2 — the mirror: the CONDITION carries its own error at (3,1) and the BRANCH is the side
+        // that does not cover row 3. A 3x3 condition over a 2x1 branch, the condition computed from A1:C3
+        // so A3's #DIV/0! reaches it. The condition answers first again, so (3,1) is #DIV/0! while (3,2)
+        // — where the condition is the fine 8 > 4 and only the branch is uncovered — is #N/A. Oracle:
+        // #DIV/0! and #N/A; ISNA 2, ISERR 1.
+        await Assert
+            .That(OnGridWithErrorInA3("=INDEX(IF((A1:C3*1)>4,H1:H2*1,0),3,1)"))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(OnGridWithErrorInA3("=INDEX(IF((A1:C3*1)>4,H1:H2*1,0),3,2)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Num(OnGridWithErrorInA3("=SUM(ISNA(IF((A1:C3*1)>4,H1:H2,0))*1)")))
+            .IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnGridWithErrorInA3("=SUM(ISERR(IF((A1:C3*1)>4,H1:H2,0))*1)")))
+            .IsEqualTo(1.0);
+        await Assert
+            .That(OnGridWithErrorInA3("=SUM(IF((A1:C3*1)>4,H1:H2,0))"))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Num(OnGridWithErrorInA3("=COUNT(IF((A1:C3*1)>4,H1:H2,0))")))
+            .IsEqualTo(6.0);
+
+        // The anti-vacuity control on a CLEAN grid: without A3's #DIV/0! the same two shapes answer #N/A
+        // at (3,1) either way, so the #DIV/0! above is the fixture's error and not a constant.
+        await Assert
+            .That(OnGrid("=INDEX(IF((A1:C3*1)>4,H1:H2*1,0),3,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=INDEX(IF(H1:H2>1,A1:C3*1,0),2,1)"))).IsEqualTo(4.0);
+    }
+
+    // --- Uncovered on BOTH axes: the controller's ruling, pinned so it cannot move silently ---
+
+    [Test]
+    public async Task UncoveredOnBothAxes_StaysNotAvailable_WhereTheOracleIsSelfInconsistent()
+    {
+        // CONTROLLER RULING at Task 2 close, re-measured here on Aspose.Cells 26.6.0 (2026-09-10, CSE
+        // column) for the COMPOSITE shape as well as the leaf one. A 2x2 against a 3x3 is short on BOTH
+        // axes, and the oracle is not self-consistent there:
+        //
+        //   * ROWS = 3 and COLUMNS = 3 — the extent AGREES with this engine's (witnessed below by INDEX's
+        //     bounds: (3,3) is in range and answers, (4,1) and (1,4) are #REF!);
+        //   * INDEX answers #REF!, not #N/A, at every uncovered position — (1,3), (2,3), (3,1), (3,3)
+        //     measured — while a ONE-axis mismatch of the same operands answers #N/A (the control below);
+        //   * SUM and COUNT of that array HANG Aspose's own calculator, over 200 seconds, in BOTH entry
+        //     modes, so the oracle has no aggregate answer at all. Those two formulas are deliberately NOT
+        //     in this task's probe.
+        //
+        // A hang is not a behaviour to reproduce and "#REF! on two axes, #N/A on one" is not a rule, so
+        // MySheet keeps #N/A on both axes (P0's "structurally cannot match" clause). These pins exist so
+        // that changing it is a deliberate edit. Green on arrival — the rule already composes this way.
+        //
+        // (A1:B2*1) is a 2x2 COMPOSITE read at 3x3: the four covered products are 1*1, 2*2, 4*4, 5*5.
+        await Assert.That(OnGrid("=SUM((A1:B2*1)*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT((A1:B2*1)*A1:C3)"))).IsEqualTo(4.0);
+        await Assert.That(Num(OnGrid("=INDEX((A1:B2*1)*A1:C3,1,1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnGrid("=INDEX((A1:B2*1)*A1:C3,2,2)"))).IsEqualTo(25.0);
+
+        // The five uncovered positions: an uncovered COLUMN (rows 1-2 of column 3), an uncovered ROW
+        // (row 3 of columns 1-2) and the corner that is uncovered on both axes at once.
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,2,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,3,1)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,3,2)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,3,3)")).IsEqualTo(ErrorValue.NotAvailable);
+
+        // The EXTENT itself, which is the half that agrees with the oracle's ROWS/COLUMNS of 3 and 3: one
+        // step past either axis is out of bounds, #REF!, and not another uncovered #N/A. (ROWS/COLUMNS of
+        // a computed array are #VALUE! in this engine — a pre-existing divergence from the oracle's 3 and
+        // 3, owned by Phase 11 — so INDEX's bounds are what can witness the extent here.)
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,4,1)")).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:C3,1,4)")).IsEqualTo(ErrorValue.Reference);
+
+        // The LEAF twin of the same shape — the pair the controller measured — answers identically, so
+        // the ruling is about the shape and not about composites.
+        await Assert.That(OnGrid("=SUM(A1:B2*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:B2*A1:C3)"))).IsEqualTo(4.0);
+        await Assert.That(OnGrid("=INDEX(A1:B2*A1:C3,3,1)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX(A1:B2*A1:C3,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+
+        // THE ONE-AXIS CONTROL, kept beside it: the same 2x2 composite against a 3x2 is short on ROWS
+        // only, and there the oracle IS consistent and this engine MATCHES it — #N/A, COUNT 4, #N/A at
+        // (3,1) and (3,2) (Aspose.Cells 26.6.0, 2026-09-10, CSE column: #N/A / 4 / 1 / 25 / #N/A / #N/A).
+        // The extent is 3x2, so column 3 is out of bounds rather than uncovered.
+        await Assert.That(OnGrid("=SUM((A1:B2*1)*A1:B3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT((A1:B2*1)*A1:B3)"))).IsEqualTo(4.0);
+        await Assert.That(Num(OnGrid("=INDEX((A1:B2*1)*A1:B3,1,1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnGrid("=INDEX((A1:B2*1)*A1:B3,2,2)"))).IsEqualTo(25.0);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:B3,3,1)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:B3,3,2)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:B3,1,3)")).IsEqualTo(ErrorValue.Reference);
+    }
+
     // --- The other consumers over a broadcast array ---
 
     [Test]
