@@ -333,6 +333,11 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       reference-branch item 9 already owns; and `ROWS`/`COLUMNS` of a computed array = 3/3 on the oracle against
       `#VALUE!` here, which is what forced Phase 10 to pin a computed array's extent through `INDEX` bounds
       instead of asking for it directly.
+      **Two test GAPS Phase 10's Task 5 found while documenting this, both cheap and both belonging here:**
+      nothing fails if `ROWS`/`COLUMNS` of a computed array stops answering `#VALUE!` — the divergence is
+      documented with no test pinning it, the only such bullet in that list; and `ROWS(ROW(A1:C3))` is 1 here
+      against the oracle's 3, a smaller sibling of the same defect. Also unpinned, pre-existing from Phase 8's
+      text: `SUM(ROUND(A1:A3,B1:B3))` = 6, verified on this tree but asserted nowhere.
       *Files:* to be decided per row when the item is briefed
       *Why:* Each is a real divergence that Phase 10 met and could not fix inside its scope; leaving them only in
       a task brief means they vanish when the brief does.
