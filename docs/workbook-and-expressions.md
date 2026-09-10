@@ -615,9 +615,12 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
 - **Uncovered on BOTH axes at once is `#N/A` here, and the oracle has no answer to match.** The
   broadcasting rule above is per axis, so a 2x2 against a 3x3 leaves five of the nine positions uncovered on
   the row axis, the column axis or both, and each is `#N/A` while the four covered positions compute:
-  `SUM(A1:B2*A1:C3)` is `#N/A` and `COUNT(A1:B2*A1:C3)` = 4. Excel answers `#N/A` too whenever a position is
-  short on **one** axis (`INDEX(A1:B3*A1:C2,3,1)` — a 3x2 against a 2x3 — is `#N/A` on both engines), but
-  for the doubly-uncovered shape it answers **`#REF!`** from `INDEX` — in typed *and*
+  `SUM(A1:B2*A1:C3)` is `#N/A` and `COUNT(A1:B2*A1:C3)` = 4. Excel answers `#N/A` too at the **one**-axis
+  shortfalls measured here — `INDEX(A1:B3*A1:C2,3,1)`, a 3x2 against a 2x3, is `#N/A` on both engines
+  (CSE-entered and typed alike), and so are the shapes pinned here in which the *vector* is the shorter
+  operand (`SUM(A1:C3*H1:H2)` and `SUM(A1:C3*E5:F5)` are `#N/A` with `COUNT` 6 on both, CSE-entered) — but that
+  agreement is **not** universal: a 2-D rectangle shorter than a ROW vector is a measured counterexample,
+  the next entry below. For the doubly-uncovered shape it answers **`#REF!`** from `INDEX` — in typed *and*
   array-entered form alike — and its calculator never returns at all for `SUM` or `COUNT` over that same
   array (no answer after ten minutes here, and over 200 s in each entry mode when the phase first met it,
   while `ROWS`/`COLUMNS` over it still report 3 and 3 immediately). All
@@ -626,6 +629,24 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   terminate is not a behaviour to reproduce. Pinned by
   `VectorBroadcastingTests.UncoveredOnBothAxes_StaysNotAvailable_WhereTheOracleIsSelfInconsistent`, whose
   comment carries the measurement.
+- **A 2-D RECTANGLE shorter than a ROW vector is `#N/A` here, where the oracle fills the uncovered column
+  with `0`.** This is the one *one*-axis shortfall found so far on which the two engines disagree, and it is
+  the direction Phase 10 never fixtured: the phase's other mismatched vector shapes all have the VECTOR as
+  the shorter operand, so this class went untested. Over the broadcasting fixture (`A1:C3` = 1..9
+  row-major, `E5:G5` = 10,20,30) a 3x2 rectangle against that 1x3 row takes a 3x3 extent whose third column
+  the rectangle does not cover, and there `SUM(A1:B3*E5:G5)` is `#N/A` here against **420** on the oracle,
+  `COUNT(A1:B3*E5:G5)` = 6 against **9**, and `INDEX(A1:B3*E5:G5,1,3)` is `#N/A` against **0**
+  (Aspose.Cells 26.6.0, CSE-entered, measured 2026-09-10). The *extent* agrees — `INDEX(…,4,1)` and
+  `INDEX(…,1,4)` are `#REF!` on both — and so does the covered arithmetic, since
+  `SUM(IFERROR(A1:B3*E5:G5,0))` is 420 on both engines in that mode; the whole difference is what fills the
+  uncovered column. MySheet keeps its `#N/A` because the oracle is not self-consistent there, all three
+  checks CSE-entered: drop the rectangle to two rows and the aggregates go back to `#N/A` with
+  `COUNT(A1:B2*E5:G5)` = 4, yet `INDEX(A1:B2*E5:G5,1,3)` is still **0** — a position `COUNT` therefore does
+  not count; and the COLUMN-vector mirror never fills at all, since a 2x3 rectangle against the 3x1 `E1:E3`
+  is `#N/A` with `COUNT` 6 and `INDEX(A1:C2*E1:E3,3,1)` `#N/A` on **both** engines, as is a 1x2 rectangle
+  against `E5:G5` (`#N/A`, `COUNT` 2, on both). Recorded for the planned Excel-compatibility sweep. Pinned
+  by `VectorBroadcastingTests.RectangleShorterThanARowVector_StaysNotAvailable_WhereTheOracleFillsWithZero`,
+  whose comment carries every number above.
 - **`ROWS`/`COLUMNS` over a computed array is `#VALUE!` here**, where Excel reports the array's real extent.
   For an operator's result or a lifted call — `ROWS(A1:C3*2)`, `COLUMNS(A1:C3*2)`, `ROWS(A1:C3*H1:H2)`,
   `COLUMNS(E1:E3*E5:G5)`, `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` — MySheet answers `#VALUE!` and Excel answers the

@@ -648,9 +648,14 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
 - **Não coberto nos DOIS eixos ao mesmo tempo é `#N/A` aqui, e o oráculo não tem resposta a igualar.** A
   regra de propagação acima é por eixo, então um 2x2 contra um 3x3 deixa cinco das nove posições não cobertas
   no eixo das linhas, no das colunas ou em ambos, e cada uma é `#N/A`, enquanto as quatro cobertas calculam:
-  `SUM(A1:B2*A1:C3)` é `#N/A` e `COUNT(A1:B2*A1:C3)` = 4. O Excel também responde `#N/A` sempre que uma
-  posição fica curta em **um** eixo (`INDEX(A1:B3*A1:C2,3,1)` — um 3x2 contra um 2x3 — é `#N/A` nos dois
-  motores), mas, para a forma duplamente não coberta, ele responde **`#REF!`** pelo `INDEX` — tanto digitada
+  `SUM(A1:B2*A1:C3)` é `#N/A` e `COUNT(A1:B2*A1:C3)` = 4. O Excel também responde `#N/A` nas faltas de
+  cobertura em **um** eixo medidas aqui — `INDEX(A1:B3*A1:C2,3,1)`, um 3x2 contra um 2x3, é `#N/A` nos dois
+  motores (inserida como array e digitada), e o mesmo vale para as formas fixadas aqui em que o *vetor* é o
+  operando mais curto (`SUM(A1:C3*H1:H2)` e `SUM(A1:C3*E5:F5)` são `#N/A` com `COUNT` 6 nos dois, inseridas
+  como array) —
+  mas essa concordância **não** é universal: um retângulo 2-D mais curto que um vetor LINHA é um
+  contraexemplo medido, a entrada logo abaixo. Já para a forma duplamente não coberta, ele responde
+  **`#REF!`** pelo `INDEX` — tanto digitada
   quanto inserida como array — e a calculadora dele nunca retorna para um `SUM` ou um `COUNT` sobre esse mesmo
   array (sem resposta depois de dez minutos aqui, e mais de 200 s em cada modo de entrada quando a fase topou
   com isso pela primeira vez, enquanto `ROWS`/`COLUMNS` sobre ele ainda informam 3 e 3 imediatamente).
@@ -659,6 +664,25 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   que não termina não é um comportamento a reproduzir. Fixada por
   `VectorBroadcastingTests.UncoveredOnBothAxes_StaysNotAvailable_WhereTheOracleIsSelfInconsistent`, cujo
   comentário carrega a medição.
+- **Um RETÂNGULO 2-D mais curto que um vetor LINHA é `#N/A` aqui, e o oráculo preenche a coluna não coberta
+  com `0`.** Esta é a única falta de cobertura em *um* eixo encontrada até agora em que os dois motores
+  discordam, e é a direção que a Fase 10 nunca fixturou: as outras formas de vetor desencontradas da fase
+  têm todas o VETOR como operando mais curto, então esta classe ficou sem teste. Sobre a fixture de
+  propagação (`A1:C3` = 1..9 em ordem de linha, `E5:G5` = 10,20,30), um retângulo 3x2 contra esse vetor
+  linha 1x3 assume uma extensão 3x3 cuja terceira coluna o retângulo não cobre, e ali `SUM(A1:B3*E5:G5)` é
+  `#N/A` aqui contra **420** no oráculo, `COUNT(A1:B3*E5:G5)` = 6 contra **9**, e `INDEX(A1:B3*E5:G5,1,3)` é
+  `#N/A` contra **0** (Aspose.Cells 26.6.0, inseridas como array, medidas em 2026-09-10). A *extensão*
+  concorda — `INDEX(…,4,1)` e `INDEX(…,1,4)` são `#REF!` nos dois — e a aritmética das posições cobertas
+  também, já que `SUM(IFERROR(A1:B3*E5:G5,0))` é 420 nos dois motores nesse modo; toda a diferença está no
+  que preenche a coluna não coberta. O MySheet mantém o `#N/A` dele porque o oráculo não é consistente
+  consigo mesmo ali, e as três verificações são todas inseridas como array: reduza o retângulo para duas
+  linhas e os agregados voltam a `#N/A`, com `COUNT(A1:B2*E5:G5)` = 4, mas `INDEX(A1:B2*E5:G5,1,3)` continua
+  **0** — uma posição que, portanto, o `COUNT` não conta; e o espelho com vetor COLUNA nunca preenche, pois
+  um retângulo 2x3 contra o 3x1 `E1:E3` é `#N/A` com `COUNT` 6 e `INDEX(A1:C2*E1:E3,3,1)` `#N/A` nos
+  **dois** motores, assim como um retângulo 1x2 contra `E5:G5` (`#N/A`, `COUNT` 2, nos dois). Registrado
+  para a varredura de compatibilidade com o Excel já planejada. Fixada por
+  `VectorBroadcastingTests.RectangleShorterThanARowVector_StaysNotAvailable_WhereTheOracleFillsWithZero`,
+  cujo comentário carrega todos os números acima.
 - **`ROWS`/`COLUMNS` sobre um array computado é `#VALUE!` aqui**, onde o Excel informa a extensão real do
   array. Para o resultado de um operador ou de uma chamada elevada — `ROWS(A1:C3*2)`, `COLUMNS(A1:C3*2)`,
   `ROWS(A1:C3*H1:H2)`, `COLUMNS(E1:E3*E5:G5)`, `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` — o MySheet responde
