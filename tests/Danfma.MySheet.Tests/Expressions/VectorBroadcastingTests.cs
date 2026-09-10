@@ -577,6 +577,97 @@ public class VectorBroadcastingTests
         await Assert.That(OnGrid("=INDEX((A1:B2*1)*A1:B3,1,3)")).IsEqualTo(ErrorValue.Reference);
     }
 
+    [Test]
+    public async Task RectangleShorterThanARowVector_StaysNotAvailable_WhereTheOracleFillsWithZero()
+    {
+        // THE SHAPE CLASS THIS PHASE NEVER FIXTURED, and the one ONE-axis shortfall found so far on which
+        // the two engines disagree. Every other mismatched vector shape in this file has the VECTOR as the
+        // shorter operand; here a 2-D RECTANGLE is, against a ROW vector.
+        //
+        // A1:B3 is the 3x2 rectangle 1,2 / 4,5 / 7,8 and E5:G5 the 1x3 row 10,20,30. The row axis defers
+        // (the vector's extent is 1), the column axis takes the larger — 3 — and the rectangle covers only
+        // columns 1-2, so the third column of the 3x3 extent is uncovered.
+        //
+        // Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (SetArrayFormula) throughout this test — no
+        // number below is taken from plain entry:
+        //
+        //   * SUM = 420, COUNT = 9, INDEX(…,1,3) = 0 — the oracle fills the whole uncovered column with 0
+        //     (INDEX at (2,3) and (3,3) is 0 as well), against #N/A / 6 / #N/A here.
+        //   * The EXTENT agrees: INDEX(…,4,1) and INDEX(…,1,4) are #REF! on both engines, so both read the
+        //     array as 3x3 and disagree only about what fills the uncovered column.
+        //   * The COVERED arithmetic agrees too: SUM(IFERROR(A1:B3*E5:G5,0)) is 420 on both.
+        //
+        // MySheet keeps #N/A because the oracle is NOT self-consistent here — three measurements, all CSE:
+        //
+        //   1. FEWER ROWS REVERTS THE AGGREGATES. A 2x2 rectangle against the same 1x3 row gives
+        //      SUM = #N/A and COUNT = 4 on the oracle, not 420 / 9. (The oracle's extent there is 3x3, not
+        //      2x3: INDEX(A1:B2*E5:G5,3,1) is #N/A and (4,1) is #REF!. MySheet's extent is 2x3, so (3,1) is
+        //      #REF! here — pinned below as the extent difference it is.)
+        //   2. YET INDEX STILL ANSWERS 0 AT THE SAME POSITION. In that very shape and mode
+        //      INDEX(A1:B2*E5:G5,1,3) = 0 and (2,3) = 0, while COUNT = 4 says only four of the positions
+        //      hold numbers. The oracle's aggregate and its INDEX contradict each other inside one entry
+        //      mode, which is why "fill with 0" is not a rule that can be copied.
+        //   3. THE COLUMN-VECTOR MIRROR NEVER FILLS. A 2x3 rectangle against the 3x1 E1:E3 — the mirror,
+        //      with the rectangle's 3 columns against the vector's 3 rows — is #N/A with COUNT 6 and
+        //      INDEX(A1:C2*E1:E3,3,1) = #N/A on the oracle, exactly as here. So the 0-fill is not a
+        //      symmetry of the broadcasting rule; it appears on one axis only.
+        //
+        // Recorded for the planned Excel-compatibility sweep, NOT asserted as Excel's rule. These pins are
+        // GREEN ON ARRIVAL — the rule already composes this way and no production code changed for them;
+        // they exist so that adopting the oracle's 0-fill has to be a deliberate edit.
+        await Assert.That(OnGrid("=SUM(A1:B3*E5:G5)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:B3*E5:G5)"))).IsEqualTo(6.0);
+        await Assert.That(OnGrid("=INDEX(A1:B3*E5:G5,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX(A1:B3*E5:G5,2,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX(A1:B3*E5:G5,3,3)")).IsEqualTo(ErrorValue.NotAvailable);
+
+        // The COVERED positions, which agree with the oracle element for element (10, 40, 160 measured
+        // there): the #N/A above is the uncovered column and not a refusal of the whole expression.
+        await Assert.That(Num(OnGrid("=INDEX(A1:B3*E5:G5,1,1)"))).IsEqualTo(10.0);
+        await Assert.That(Num(OnGrid("=INDEX(A1:B3*E5:G5,1,2)"))).IsEqualTo(40.0);
+        await Assert.That(Num(OnGrid("=INDEX(A1:B3*E5:G5,3,2)"))).IsEqualTo(160.0);
+        await Assert.That(Num(OnGrid("=SUM(IFERROR(A1:B3*E5:G5,0))"))).IsEqualTo(420.0);
+
+        // The extent, the half that AGREES: one step past either axis is out of bounds on both engines.
+        await Assert.That(OnGrid("=INDEX(A1:B3*E5:G5,4,1)")).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(OnGrid("=INDEX(A1:B3*E5:G5,1,4)")).IsEqualTo(ErrorValue.Reference);
+
+        // Inconsistency 1 and 2: the same rectangle one row shorter. Oracle CSE: #N/A / 4 / 0 / 0.
+        await Assert.That(OnGrid("=SUM(A1:B2*E5:G5)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:B2*E5:G5)"))).IsEqualTo(4.0);
+        await Assert.That(OnGrid("=INDEX(A1:B2*E5:G5,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX(A1:B2*E5:G5,2,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=INDEX(A1:B2*E5:G5,1,1)"))).IsEqualTo(10.0);
+        // The extent difference named in the comment: 2x3 here, 3x3 on the oracle.
+        await Assert.That(OnGrid("=INDEX(A1:B2*E5:G5,3,1)")).IsEqualTo(ErrorValue.Reference);
+
+        // Inconsistency 3, THE CONTROL: the column-vector mirror, where the two engines AGREE. Oracle CSE:
+        // #N/A / 6 / #N/A / 1, and INDEX(A1:C2*E1:E3,2,1) = 8, (2,3) = 12 on both.
+        await Assert.That(OnGrid("=SUM(A1:C2*E1:E3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:C2*E1:E3)"))).IsEqualTo(6.0);
+        await Assert.That(OnGrid("=INDEX(A1:C2*E1:E3,3,1)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=INDEX(A1:C2*E1:E3,1,1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnGrid("=INDEX(A1:C2*E1:E3,2,1)"))).IsEqualTo(8.0);
+        await Assert.That(Num(OnGrid("=INDEX(A1:C2*E1:E3,2,3)"))).IsEqualTo(12.0);
+
+        // The SECOND control, a rectangle of ONE row against the same 1x3: a plain row-against-row
+        // shortfall, where the oracle agrees as well — #N/A with COUNT 2 and INDEX(…,1,3) = #N/A, CSE.
+        // So the divergence needs a rectangle of TWO OR MORE rows; it is not the row axis alone.
+        await Assert.That(OnGrid("=SUM(A1:B1*E5:G5)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:B1*E5:G5)"))).IsEqualTo(2.0);
+        await Assert.That(OnGrid("=INDEX(A1:B1*E5:G5,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+
+        // THE THIRD CONTROL, and the sharpest one: reverse which operand is short on the column axis and
+        // the disagreement disappears. Here the ROW vector E5:F5 (1x2) is the SHORTER operand against the
+        // 3x3 A1:C3, so the vector is what fails to cover column 3 — and the oracle answers #N/A / COUNT 6 /
+        // #N/A at (1,3), exactly as this engine does (Aspose.Cells 26.6.0, 2026-09-10, CSE column). Same
+        // axis, same 3x3 extent, same uncovered column: the 0-fill above depends on the RECTANGLE being the
+        // uncovered operand, which is what makes the oracle's rule impossible to state.
+        await Assert.That(OnGrid("=SUM(A1:C3*E5:F5)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:C3*E5:F5)"))).IsEqualTo(6.0);
+        await Assert.That(OnGrid("=INDEX(A1:C3*E5:F5,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+    }
+
     // --- The other consumers over a broadcast array ---
 
     [Test]
