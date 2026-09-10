@@ -1,6 +1,6 @@
 # Phase 3: Table model, Workbook.DefineTable/Tables, and the third serialized Workbook member
 
-Status: Not started   <!-- Not started | In progress | Complete -->
+Status: Complete   <!-- Not started | In progress | Complete -->
 
 Part of [Structured table references, AGGREGATE, and the blocking reference-semantics gaps](../structured-table-references-and-aggregate.md) — **read that master plan first**: it carries the governing principle P0, the settled scope S1-S8, the repo-specific rules (TDD, test commands, gates, the union-tag coordination hazard) and the cross-phase open decisions. This file assumes them.
 
@@ -428,7 +428,42 @@ shape: header `0x02` → `0x03`, +4 bytes for the empty map, old readers throw
 
 ## Phase Summary
 
-_(write when phase completes)_
+**Status: Complete** — branch `feat/table-model`, sixteen commits, merged fast-forward into `main`. Gates at the
+merge: csharpier clean, Release build 0 warnings, core **1777 / 0**, Excel **93 / 0**, function counts unchanged.
+
+**What it delivers.** A `Table` record with derived geometry (header row, data band, totals row, first and last
+column) and a column-name index memoized OFF the record, in a `ConditionalWeakTable` keyed by reference identity;
+a table-name rule that rejects anything Excel would read as a cell reference, bounded on the letter run as well as
+on the grid; `Workbook.Tables`, `Workbook.DefineTable` with an A1-range overload, and symmetric rejection when a
+name and a table would collide in either direction. Nothing reads a table yet — that is Phases 4 to 6 — so this
+phase's user-visible surface is the API and the recompute fix below.
+
+**The third serialized `Workbook` member, which is what makes this the only phase in the plan that changes what a
+saved file means.** Measured, not argued: an empty workbook 9 → 13 bytes; the `CellStore` golden 726 → 730 and the
+interning golden 429 → 433, byte 0 `02` → `03` with the middle byte-identical. A file written by an earlier version
+still LOADS with an empty registry; a reader from an earlier version THROWS `Workbook property count is 2 but
+binary's header maked as 3` rather than misreading. Both halves were reproduced independently by two reviewers, one
+of which built the old code in a scratch copy and ran seven old-reader cases with positive controls, and read the
+GENERATED formatter to confirm the exact null branch the code relies on.
+
+**The user-visible fix that came with it.** A definition change now forces a full recompute. Before, a dependent
+cell kept its old value even though `Recalculate` reported `rebuilt=True`, because whichever public method ran first
+consumed the staleness snapshot; `EstimateImpact` now reads a sticky flag without clearing it and `Recalculate`
+clears it, so the order of the two calls no longer matters. Reproduced on both sides: 3 before, 15 after, with the
+flag proven not to latch and a plain reported edit still costing a partial recompute.
+
+**Two corrections that earned their place.** B3: a field-based column memo let a `with` copy resolve a RENAMED
+column by the old index, silently; the test that would have failed was written first and the memo moved off the
+record. M2: `TryParseColumn` accepted a 24-letter run and returned a NEGATIVE column that reached a real formula —
+bounded, with the boundary pinned on both sides through a formula rather than through the parser unit alone.
+
+**Process record.** The plan told an implementer to PASTE a regenerated golden string that was wrong; the first task
+derived it instead, from two independent methods, and the plan file is corrected. Task 4 was absorbed by Task 3
+because the gated tests could not compile without it, so its items were reviewed as part of the final review rather
+than skipped, and the reviewer added the rejection pins its absorption had left unwritten. My own controller fix to
+a docs twin dropped four sentences the English original keeps, caught by a reviewer and restored. And a false
+mechanism — "MemoryPack bypasses field initializers" — was found propagated across two engine comments, one test
+comment and three plan files, all corrected after someone finally read the generated formatter.
 
 ## Re-verification against main @ 10c7897 (2026-09-10)
 
