@@ -567,12 +567,12 @@ The guard tests are precise about which of those two mistakes each one catches:
   `SUM(ROW(INDEX(A1:A3,1,1)))` is `1`, the top row of the resolved reference, not the vector `[1,2,3]`.
   Discovering its shape would resolve the argument a second time and draw a volatile twice, so the array
   shape is deliberately deferred there.
-- The **criteria / positional-scan** family does not read a computed array — it **rejects** one with
-  `#REF!`. `SUMIF`/`SUMIFS`, `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` and `MAXIFS`/`MINIFS` walk their
-  arguments position by position, and every range slot they take — criteria range and
-  sum/average/max/min range alike — requires a *reference*: an argument that is not a reference node and that
-  the element-wise evaluation would stream is refused before the scan opens, in every slot and at every
-  arity. `COUNTIF(A1:A3*1,">0")`, `SUMIF(A1:A3*1,">0")`, `COUNTIFS(A1:A3*1,">0")`,
+- The **criteria / positional-scan** family does not read a computed array *wherever it can recognise one* —
+  it **rejects** it with `#REF!`. `SUMIF`/`SUMIFS`, `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` and
+  `MAXIFS`/`MINIFS` walk their arguments position by position, and every range slot they take — criteria
+  range and sum/average/max/min range alike — requires a *reference*: an argument that is not a reference
+  node and that the element-wise evaluation would stream is refused before the scan opens, in every slot and
+  at every arity. `COUNTIF(A1:A3*1,">0")`, `SUMIF(A1:A3*1,">0")`, `COUNTIFS(A1:A3*1,">0")`,
   `AVERAGEIF(A1:A3*1,">0")`, `SUMIFS(B1:B3,A1:A3*1,">0")`, `SUMIFS(A1:A3*1,B1:B3,">0")`,
   `SUMIF(A1:A3,">0",B1:B3*1)`, `COUNTIFS(A1:A3,">0",B1:B3*1,">1")`, `COUNTIF(ROW(A1:A3),">1")`,
   `COUNTIF(-A1:A3,"<0")` and `COUNTIF(LEN(A1:A3),">0")` are all `#REF!`. Excel refuses the family the same
@@ -594,14 +594,21 @@ The guard tests are precise about which of those two mistakes each one catches:
   rejected is whatever is already a reference or is not array-eligible: a reference-returning function
   (`CHOOSE`, `OFFSET`, `INDEX`), a defined name, a single cell and a whole column all stay ranges, so
   `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` and `COUNTIF(OFFSET(A1,0,0,3,1),">0")` are `2`, as on the oracle in
-  both modes. Three shapes are **deliberate deviations** left for the compatibility sweep, each pinned as one
-  in `CriteriaComputedArgumentTests`: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `0` here where the oracle
-  answers `2` in *both* entry modes — a scalar-conditioned `IF` is an opaque scalar here rather than its
+  both modes. Four shapes are **deliberate deviations**, each pinned as one in
+  `CriteriaComputedArgumentTests` — three left for the compatibility sweep and the fourth for Phase 7's
+  `LET` routing: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `0` here where the oracle answers `2` in *both*
+  entry modes — a scalar-conditioned `IF` is an opaque scalar here rather than its
   branch's reference, and closing that is the sweep's own item, deliberately not part of this rule;
   `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes (a bare
   *scalar* in a range slot, a shape no array producer takes); and `SUMIF(A:A*1,">0")` is `0` where the oracle
   answers `#REF!` in both modes (the cost guard refuses a whole-column operand, so the argument is never
-  array-eligible and the gate never sees it). `SUMPRODUCT` is the one member of that family that opted in to
+  array-eligible and the gate never sees it); and a `LET` is `0` from **either** side of its binding —
+  `COUNTIF(LET(r,A1:A3,r*1),">0")` and `LET(r,A1:A3*1,COUNTIF(r,">0"))`, with the `SUMIF` twins alike — where
+  the oracle answers `#REF!` array-entered (`#VALUE!` typed), because a `LET` node is an opaque scalar to the
+  shape probe while a `LET`-bound name *is* a reference node whose binding was already collapsed when it was
+  captured, so the gate's predicate sees no array either way. That last one is **pre-existing** (measured
+  identical before this rule) and belongs to Phase 7's `LET` routing, which is also where
+  `LET(f,FILTER(…),COUNTIF(f,…))` lands. `SUMPRODUCT` is the one member of that family that opted in to
   computed arrays — `SUMPRODUCT((A1:A3<>0)*1)` = 2 and `SUMPRODUCT(A1:A3*1,B1:B3)` = 32, matching the oracle
   in both modes — and the fold-based consumers listed under **Supported** above (`SUM(IF(…))` and friends)
   have always taken them. `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a
@@ -719,10 +726,15 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   union twin is `#VALUE!` here, making this the one row where a name does not match its literal; and a `LET`
   node in a consumer's own argument slot stays opaque because the shape probe does not look inside it, so
   `SUM(LET(r,Rng,(r<>0)*1))` is `1` against **2** in both entry modes — Phase 7's `LET` routing owns that
-  one. A `LET`-bound name *inside* an array position does resolve, through the `LET` scope that
-  [name resolution](#named-ranges) checks first: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
-  `LET(r,A1:A3,COUNT(r*1))` = **3** and `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both
-  entry modes where they were `1`, `0` and `#REF!` before this rule.
+  one. A `LET`-bound name *inside* an array position does resolve **when the name is bound to a range**,
+  through the `LET` scope that [name resolution](#named-ranges) checks first:
+  `LET(r,A1:A3,SUM((r<>0)*1))` = **2**, `LET(r,A1:A3,COUNT(r*1))` = **3** and
+  `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both entry modes where they were `1`, `0` and
+  `#REF!` before this rule. A name bound to a **computed array** does not: the binding is evaluated as a
+  scalar when it is captured, so `LET(r,A1:A3*1,COUNT(r*1))` is `0`, `LET(r,A1:A3*1,SUM(r*1))` is `#VALUE!`
+  and `LET(r,A1:A3*1,INDEX(r*2,3))` is `#REF!` against the oracle's **3**, **14** and **18** in both entry
+  modes — unchanged by this rule (measured on Aspose.Cells 26.6.0, 2026-09-10, and on the engine before and
+  after the rule), and Phase 7's `LET` routing owns that half too.
 - **A range-aware function is never lifted over its SCALAR slots.** Excel lifts a range-aware function too:
   it consumes the range in the slot that takes one and repeats the *whole call* per element of a rectangle
   handed to any other slot. MySheet's classification is per *function*, not per slot, so a rectangle in a

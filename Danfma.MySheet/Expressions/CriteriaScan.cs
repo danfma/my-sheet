@@ -12,7 +12,8 @@ namespace Danfma.MySheet.Expressions;
 /// mini-CSE <see cref="ArrayEvaluation.ArrayStream"/>, so a computed array argument is a first-class vector
 /// instead of one collapsed scalar. The *IFS family keeps <see cref="Open(Expression, EvaluationContext)"/>,
 /// where Excel requires real ranges: a computed array in one of those slots is REJECTED up front by
-/// <see cref="RejectComputedArray"/> rather than read.</para>
+/// <see cref="RejectComputedArray"/> rather than read — within the limits
+/// <see cref="Open(Expression, EvaluationContext)"/>'s own doc names.</para>
 /// </summary>
 internal struct PositionalRange
 {
@@ -86,10 +87,24 @@ internal struct PositionalRange
     /// (zero-copy over <see cref="RangeSnapshot.Values"/>) → the dense positional stream for a closed
     /// rectangle (no allocation) → a materialized list for open ranges/unions/scalars.
     ///
-    /// <para>It never reads a computed array: every caller in the criteria family runs
-    /// <see cref="RejectComputedArray"/> on the same argument first, so the materialized fallback below sees
-    /// only the shapes Excel accepts as a range (a reference, a name, a scalar, a refused open range) and the
-    /// one-element <c>#VALUE!</c> collapse of an array can no longer reach a scan.</para>
+    /// <para>What it does not read is a RECOGNISED computed array, which is narrower than "an array": every
+    /// caller in the criteria family runs <see cref="RejectComputedArray"/> on the same argument first, and
+    /// that predicate is exactly <c>!IsBareReferenceNode(argument) &amp;&amp; IsArrayEligible(argument,
+    /// context)</c>, so the materialized fallback below STILL produces the one-element <c>#VALUE!</c>
+    /// collapse whenever an array reaches the slot behind a node the predicate excludes. Three such shapes
+    /// exist today, all PRE-EXISTING (measured identical on <c>main</c>) and each pinned as a known
+    /// divergence in <c>CriteriaComputedArgumentTests</c>: a <c>Let</c> NODE, which
+    /// <see cref="ArrayEvaluation"/>'s shape probe treats as an opaque scalar, so
+    /// <c>COUNTIF(LET(r,A1:A3,r*1),"&gt;0")</c> is <c>0</c>; a LET-BOUND NAME, which
+    /// <see cref="ArrayEvaluation.IsBareReferenceNode"/> admits as a reference node while
+    /// <see cref="NamedReferences.CaptureValue"/> has already collapsed the binding to one scalar, so
+    /// <c>LET(r,A1:A3*1,COUNTIF(r,"&gt;0"))</c> is <c>0</c>; and an operand the mini-CSE cost guard REFUSES,
+    /// which is therefore not array-eligible, so <c>SUMIF(A:A*1,"&gt;0")</c> is <c>0</c>. The oracle answers
+    /// <c>#REF!</c> array-entered for all three (typed: <c>#VALUE!</c> for the two <c>LET</c> shapes,
+    /// <c>#REF!</c> for the open range) — Aspose.Cells 26.6.0, measured 2026-09-10. So the fallback sees the
+    /// shapes Excel accepts as a range (a reference, a name, a scalar, a refused open range) AND the
+    /// collapses those three shapes still deliver; the gate removes the arrays the mini-CSE can recognise,
+    /// not every array.</para>
     /// </summary>
     public static PositionalRange Open(Expression argument, EvaluationContext context)
     {

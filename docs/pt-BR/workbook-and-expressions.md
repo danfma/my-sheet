@@ -596,13 +596,13 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   `SUM(ROW(INDEX(A1:A3,1,1)))` é `1`, a linha superior da referência resolvida, e não o vetor `[1,2,3]`.
   Descobrir o formato dela resolveria o argumento uma segunda vez e sortearia uma volátil duas vezes, então
   ali o formato de array é deliberadamente adiado.
-- A família de **critérios / varredura posicional** não lê um array computado — ela o **rejeita** com
-  `#REF!`. `SUMIF`/`SUMIFS`, `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` e `MAXIFS`/`MINIFS` percorrem
-  seus argumentos posição a posição, e todo slot de intervalo que elas recebem — intervalo de critérios e
-  intervalo de soma/média/máximo/mínimo igualmente — exige uma *referência*: um argumento que não é um nó de
-  referência e que a avaliação elemento a elemento transmitiria é recusado antes de a varredura abrir, em
-  todos os slots e em todas as aridades. `COUNTIF(A1:A3*1,">0")`, `SUMIF(A1:A3*1,">0")`,
-  `COUNTIFS(A1:A3*1,">0")`, `AVERAGEIF(A1:A3*1,">0")`, `SUMIFS(B1:B3,A1:A3*1,">0")`,
+- A família de **critérios / varredura posicional** não lê um array computado *onde consegue reconhecer um* —
+  ela o **rejeita** com `#REF!`. `SUMIF`/`SUMIFS`, `COUNTIF`/`COUNTIFS`, `AVERAGEIF`/`AVERAGEIFS` e
+  `MAXIFS`/`MINIFS` percorrem seus argumentos posição a posição, e todo slot de intervalo que elas recebem —
+  intervalo de critérios e intervalo de soma/média/máximo/mínimo igualmente — exige uma *referência*: um
+  argumento que não é um nó de referência e que a avaliação elemento a elemento transmitiria é recusado
+  antes de a varredura abrir, em todos os slots e em todas as aridades. `COUNTIF(A1:A3*1,">0")`,
+  `SUMIF(A1:A3*1,">0")`, `COUNTIFS(A1:A3*1,">0")`, `AVERAGEIF(A1:A3*1,">0")`, `SUMIFS(B1:B3,A1:A3*1,">0")`,
   `SUMIFS(A1:A3*1,B1:B3,">0")`, `SUMIF(A1:A3,">0",B1:B3*1)`, `COUNTIFS(A1:A3,">0",B1:B3*1,">1")`,
   `COUNTIF(ROW(A1:A3),">1")`, `COUNTIF(-A1:A3,"<0")` e `COUNTIF(LEN(A1:A3),">0")` são todos `#REF!`. O Excel
   recusa a família do mesmo jeito: com um argumento **computado** (`SUMIFS((A1:A3)*1,A1:A3,">0")` e as sete
@@ -624,21 +624,29 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   é rejeitado é tudo o que já é uma referência ou não é elegível a array: uma função que retorna referência
   (`CHOOSE`, `OFFSET`, `INDEX`), um nome definido, uma célula única e uma coluna inteira continuam sendo
   intervalos, então `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` e `COUNTIF(OFFSET(A1,0,0,3,1),">0")` dão `2`, como
-  no oráculo nos dois modos. Três formas são **desvios deliberados** deixados para a varredura de
-  compatibilidade, cada uma fixada como tal em `CriteriaComputedArgumentTests`:
+  no oráculo nos dois modos. Quatro formas são **desvios deliberados**, cada uma fixada como tal em
+  `CriteriaComputedArgumentTests` — três deixadas para a varredura de compatibilidade e a quarta para o
+  roteamento do `LET` da Fase 7:
   `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` dá `0` aqui, onde o oráculo responde `2` nos *dois* modos de entrada —
   um `IF` de condição escalar aqui é um escalar opaco em vez da referência do seu ramo, e fechar isso é item
   da própria varredura, deliberadamente fora desta regra; `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`
   onde o oráculo responde `#REF!` nos dois modos (um *escalar* puro em slot de intervalo, forma que nenhum
   produtor de array assume); e `SUMIF(A:A*1,">0")` dá `0` onde o oráculo responde `#REF!` nos dois modos (a
   guarda de custo recusa um operando de coluna inteira, então o argumento nunca é elegível a array e a
-  comporta nunca o vê). O `SUMPRODUCT` é o único membro dessa família que optou por aceitar arrays
-  computados — `SUMPRODUCT((A1:A3<>0)*1)` = 2 e `SUMPRODUCT(A1:A3*1,B1:B3)` = 32, coincidindo com o oráculo
-  nos dois modos — e os consumidores de dobra listados em **Suportado** acima (`SUM(IF(…))` e companhia)
-  sempre os aceitaram. O `SUBTOTAL` e a forma-referência do `AGGREGATE` não seguem nem um caminho nem o
-  outro — eles rejeitam um array computado de saída, inclusive um elevado (`SUBTOTAL(9,LEN(A1:A3))` e
-  `AGGREGATE(9,4,LEN(A1:A3))` são `#VALUE!` nos dois motores); quem o consome é a forma-array do
-  `AGGREGATE`, elevações incluídas (`AGGREGATE(15,6,LEN(A1:A3),1)` = 1, medido nos dois).
+  comporta nunca o vê); e um `LET` dá `0` dos **dois** lados da vinculação —
+  `COUNTIF(LET(r,A1:A3,r*1),">0")` e `LET(r,A1:A3*1,COUNTIF(r,">0"))`, com os gêmeos de `SUMIF` também —
+  onde o oráculo responde `#REF!` inserido como array (`#VALUE!` digitado), porque um nó `LET` é um escalar
+  opaco para a sondagem de formato, enquanto um nome vinculado por `LET` *é* um nó de referência cuja
+  vinculação já foi reduzida a escalar na captura, então a comporta não vê array de jeito nenhum. Essa última
+  é **pré-existente** (medida idêntica antes desta regra) e pertence ao roteamento do `LET` da Fase 7, que
+  é onde `LET(f,FILTER(…),COUNTIF(f,…))` vai cair. O `SUMPRODUCT` é o único membro dessa família que optou
+  por aceitar arrays computados — `SUMPRODUCT((A1:A3<>0)*1)` = 2 e `SUMPRODUCT(A1:A3*1,B1:B3)` = 32,
+  coincidindo com o oráculo nos dois modos — e os consumidores de dobra listados em **Suportado**
+  acima (`SUM(IF(…))` e companhia) sempre os aceitaram. O `SUBTOTAL` e a forma-referência do
+  `AGGREGATE` não seguem nem um caminho nem o outro — eles rejeitam um array computado de saída,
+  inclusive um elevado (`SUBTOTAL(9,LEN(A1:A3))` e `AGGREGATE(9,4,LEN(A1:A3))` são `#VALUE!` nos
+  dois motores); quem o consome é a forma-array do `AGGREGATE`, elevações incluídas
+  (`AGGREGATE(15,6,LEN(A1:A3),1)` = 1, medido nos dois).
 - Um intervalo **aberto/de coluna inteira** em posição de array é recusado e o consumidor permanece em seu
   caminho escalar/de intervalo comum — a única exceção é a identidade `INDEX(ROW($A:$A), n)` acima, que
   retorna `n` sem materializar a coluna. `SMALL(IF(A:A=…, ROW(A:A)), k)` sobre uma coluna *aberta* portanto
@@ -760,11 +768,16 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   um nome não coincide com seu literal; e um nó `LET` no próprio slot de argumento de um consumidor continua
   opaco, porque a sondagem de formato não olha para dentro dele, então `SUM(LET(r,Rng,(r<>0)*1))` dá `1`
   contra **2** nos dois modos de entrada — quem cuida dessa é a correção de roteamento do `LET` da Fase 7. Um
-  nome vinculado por `LET` *dentro* de uma posição de array, por outro lado, resolve, através do escopo do
-  `LET` que a [resolução de nomes](#intervalos-nomeados) consulta primeiro:
-  `LET(r,A1:A3,SUM((r<>0)*1))` = **2**, `LET(r,A1:A3,COUNT(r*1))` = **3** e `LET(r,A1:A3,INDEX(r*2,3))` =
-  **18**, coincidindo com o oráculo nos dois modos de entrada, onde antes desta regra eram `1`, `0` e
-  `#REF!`.
+  nome vinculado por `LET` *dentro* de uma posição de array, por outro lado, resolve **quando o nome está
+  vinculado a um intervalo**, através do escopo do `LET` que a
+  [resolução de nomes](#intervalos-nomeados) consulta primeiro: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
+  `LET(r,A1:A3,COUNT(r*1))` = **3** e `LET(r,A1:A3,INDEX(r*2,3))` = **18**, coincidindo com o oráculo nos
+  dois modos de entrada, onde antes desta regra eram `1`, `0` e `#REF!`. Um nome vinculado a um **array
+  computado** não resolve: a vinculação é avaliada como escalar no momento da captura, então
+  `LET(r,A1:A3*1,COUNT(r*1))` dá `0`, `LET(r,A1:A3*1,SUM(r*1))` dá `#VALUE!` e
+  `LET(r,A1:A3*1,INDEX(r*2,3))` dá `#REF!` contra os **3**, **14** e **18** do oráculo nos dois modos de
+  entrada — inalterado por esta regra (medido no Aspose.Cells 26.6.0, em 2026-09-10, e no motor antes e
+  depois da regra), e quem cuida dessa metade também é o roteamento do `LET` da Fase 7.
 - **Uma função ciente de intervalos nunca é elevada sobre os slots ESCALARES dela.** O Excel também eleva
   uma função ciente de intervalos: ele consome o intervalo no slot que recebe um e repete a *chamada
   inteira* por elemento de um retângulo entregue a qualquer outro slot. A classificação do MySheet é por

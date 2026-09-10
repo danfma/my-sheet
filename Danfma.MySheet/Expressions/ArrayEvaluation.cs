@@ -40,7 +40,9 @@ internal readonly struct ArrayEvaluationResult
 /// (Phase 11a Rule A, <see cref="ResolveNameShape"/>): a rectangle streams its cells exactly like the
 /// literal — a rectangle on a MISSING sheet included, so the per-element <c>#REF!</c> streams — an open
 /// range is refused, a single cell or a union broadcasts the resolved node's value, and a constant, a
-/// formula name or an unknown name broadcasts the name's own value (<c>#NAME?</c> included). At a
+/// formula name that does NOT resolve to a reference, or an unknown name broadcasts the name's own value
+/// (<c>#NAME?</c> included) — a formula name that DOES resolve to one is that reference, and takes the
+/// rectangle/open-range/single-cell arm accordingly. At a
 /// consumer's TOP level a bare name is a reference and takes the reference path exactly as a bare literal
 /// range does: <see cref="IsBareReferenceNode"/> is the one predicate the three top-level gates share, and
 /// DefinedNameArrayEligibilityTests' must-not-move pins are what make it load-bearing. Two shapes are LIFTED
@@ -395,8 +397,9 @@ internal static class ArrayEvaluation
             // The twin of Probe's NameReference arm, on the same oracle: a rectangle streams its cells (a
             // missing sheet included — BuildRange hands back the per-element #REF!); the cost guard refuses
             // an open range; a single cell or a union broadcasts the RESOLVED node's own scalar answer
-            // (error included); a constant, a formula name or an unknown name broadcasts the name's own
-            // value, which is where #NAME? still flows through.
+            // (error included); a constant, a formula name that does NOT resolve to a reference, or an
+            // unknown name broadcasts the name's own value, which is where #NAME? still flows through. A
+            // formula name that DOES resolve to one takes the arm its resolved reference belongs to.
             case NameReference:
             {
                 switch (ResolveNameShape(expression, context, out var resolved))
@@ -639,8 +642,12 @@ internal static class ArrayEvaluation
     // What a bare defined name contributes to the mini-CSE, once resolved (Phase 11a Rule A).
     private enum NameShape
     {
-        // Not a reference at all — a constant, a formula name, an unknown name, a LET-bound scalar: the
-        // name evaluates itself once and broadcasts its own value (or its own #NAME?).
+        // Not a reference at all — a constant, a formula name that does NOT resolve to a reference, an
+        // unknown name, a LET-bound scalar: the name evaluates itself once and broadcasts its own value (or
+        // its own #NAME?). A formula name that DOES resolve to one is NOT opaque: NamedReferences
+        // .TryResolveReference resolves the formula, so a name bound to `OFFSET(Sheet1!$A$1,0,0,3,1)` is
+        // Range and streams the cells — SUM((OffName<>0)*1) = 2 here against 1 before Rule A, and 2 on the
+        // oracle array-entered (#VALUE! typed; Aspose.Cells 26.6.0, measured 2026-09-10).
         Opaque,
 
         // A rectangle, on an existing sheet or not: the name streams the cells exactly like the literal.
