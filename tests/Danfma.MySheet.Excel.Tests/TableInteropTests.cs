@@ -7,10 +7,12 @@ namespace Danfma.MySheet.Excel.Tests;
 
 /// <summary>
 /// Interop with Excel <b>Tables</b> (a <c>&lt;table&gt;</c> part, a.k.a. a ListObject) and the STRUCTURED
-/// REFERENCES they enable (<c>Tabela1[Valor]</c>). MySheet has no table model and its tokenizer has no
-/// <c>[</c>, so a structured reference cannot parse — what these tests pin is that such a formula degrades
-/// the AFFECTED CELL ONLY (falling back to the cached value Excel stored alongside it, reported via
-/// <see cref="ExcelLoadOptions.OnWarning"/>) instead of aborting the whole load.
+/// REFERENCES they enable (<c>Tabela1[Valor]</c>). The loader does not populate MySheet's table registry —
+/// <see cref="Workbook.Tables"/> exists and <c>Workbook.DefineTable</c> is its only writer, but nothing reads
+/// an xlsx <c>&lt;table&gt;</c> part into it — and the tokenizer has no <c>[</c>, so a structured reference
+/// cannot parse. What these tests pin is that such a formula degrades the AFFECTED CELL ONLY (falling back to
+/// the cached value Excel stored alongside it, reported via <see cref="ExcelLoadOptions.OnWarning"/>) instead
+/// of aborting the whole load.
 ///
 /// ClosedXML writes the table (an independent implementation, like every other fixture here); the
 /// structured-reference formula cells are injected through the OpenXML SDK afterwards because ClosedXML
@@ -116,7 +118,9 @@ public class TableInteropTests
             await Assert.That(workbook.GetCellValue("Data", "B2").ToDouble()).IsEqualTo(10.0);
             // Re-evaluated by MySheet, not read from the cached <v>.
             await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(42.0);
-            // MySheet has no table model: the table's name is not a resolvable reference.
+            // The loader does not populate the table registry, and it does not turn the table's name into a
+            // defined name either — so nothing the evaluator resolves comes out of the <table> part.
+            await Assert.That(workbook.Tables.Count).IsEqualTo(0);
             await Assert.That(workbook.DefinedNames.ContainsKey("Tabela1")).IsFalse();
         }
         finally
