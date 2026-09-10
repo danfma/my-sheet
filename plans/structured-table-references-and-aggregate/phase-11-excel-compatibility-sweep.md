@@ -425,6 +425,20 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Files:* `Danfma.MySheet/Expressions/CriteriaScan.cs` or wherever criteria equality lives, the criteria test files, both docs twins
       *Why:* A count that silently includes a row Excel excludes, in the family this sweep already has an item for.
 
+## Controller addition after Phase 11b (2026-09-10)
+
+- [ ] **29.** Eight boolean FLAG slots reject the text `TRUE` and `FALSE` where the oracle coerces them. Measured by
+      Phase 11b on Aspose.Cells 26.6.0 (2026-09-10, both entry modes agreeing) across every remaining caller of
+      `ValueCoercion.CoerceToBool`: `VLOOKUP(5,D1:D3,1,"TRUE")`, `HLOOKUP`'s range_lookup,
+      `ADDRESS(1,1,1,"TRUE")` = `$A$1`, `TEXTJOIN(",","TRUE",…)` = `a,b`, `FIXED(1234.567,1,"TRUE")` = 1234.6,
+      `DAYS360(…,"TRUE")` = 60, `VDB`'s no_switch and a bond argument — the oracle accepts the two words
+      case-insensitively and rejects other text with `#VALUE!`, exactly the rule Phase 11b implemented for the
+      condition slots. Phase 11b deliberately did NOT widen its own scope to these; the fix is likely to route the
+      eight through the same opt-in extension it added, which makes this cheap.
+      *Files:* the eight call sites the Phase 11b summary names, their test files, both docs twins
+      *Why:* Phase 11b's design assumed a shared fix would BREAK the folding functions and the measurement showed
+      the opposite — those functions never reach the helper, and the eight slots that do all want the new rule.
+
 ## Implementation items
 
 - [ ] **1.** Create `tests/Danfma.MySheet.Tests/Expressions/ExcelCompatibilitySweepTests.cs` holding the acceptance pins for (a)-(f) ONLY, each carrying **Aspose's** value and each therefore failing on `1b1e2d3` with the MySheet value named in the comment. Reuse `MathAggregateTests`'s `Calc(formula, params (string Id, object Value)[] cells)` shape (it is the nearest sibling; copy the helper rather than making it public). Pins, with today's failing value in brackets: **(a)** on the (a) fixture — `AGGREGATE(9,o,C1:C3)` = 8 for o in 0..3 [today 5] and 11 for o in 4..7 [passes], `AGGREGATE(9,o,F1:F3)` = 11 for all o in 0..7 [today 8 at 0-3], `AGGREGATE(3,o,C1:C3)` = 2 for 0..3 [today 1] and 3 for 4..7, `AGGREGATE(3,o,F1:F3)` = 3 for all o [today 2 at 0-3], `AGGREGATE(9,o,D1:D3)` = 8 / 11 and `SUBTOTAL(9,C1:C3)` = 8, `SUBTOTAL(3,C1:C3)` = 2, `SUBTOTAL(9,F1:F3)` = 11 as no-regression pins [all pass today]. **(b)** `SUBTOTAL(9,7)`, `SUBTOTAL(9,A1:A3,7)`, `SUBTOTAL(2,7)`, `SUBTOTAL(3,7)`, `SUBTOTAL(9,"7")`, `SUBTOTAL(9,TRUE)`, `SUBTOTAL(9,A1:A3,"")`, `AGGREGATE(9,4,7)`, `AGGREGATE(9,6,7)`, `AGGREGATE(9,4,A1:A3,7)`, `AGGREGATE(9,0,A1:A3,7)` → `ErrorValue.NotValue` [today 7/21/1/1/0/0/14/7/7/21/21], plus the no-regression pins `AGGREGATE(9,4,A1:A3,B1)` = 15, `SUBTOTAL(9,A1)` = 5, `AGGREGATE(15,6,7,1)` = `AGGREGATE(15,4,7,1)` = `AGGREGATE(14,6,7,1)` = `AGGREGATE(16,6,7,0.5)` = 7, and `AGGREGATE(15,6,1/0,1)` → `ErrorValue.NotValue` [today `#DIV/0!`]. **(c)** `MODE.SNGL(A1:A4)` = 2 on 2,1,1,2 [today 1]; = 1 on 1,2,2,1 [today 2]; `MODE.SNGL(A1:A6)` = 3 on 3,1,2,1,2,3 [today 1]; and `MODE(...)` / `AGGREGATE(13,4,...)` equal to it on each. **(d)** the seven `#DIV/0!` rows of (d)'s table [today `#NUM!`], plus `AGGREGATE(15,0,E2:E2,1)` = `#DIV/0!`, `AGGREGATE(15,6,G1:G1,1)` = `#NUM!`, `AGGREGATE(15,6,E1:E1,1)` = 5, `AGGREGATE(15,6,E1:E2,1)` = 5, `AGGREGATE(15,6,E2:E3,1)` = 9, `AGGREGATE(9,6,E2)` = 0 as no-regression pins. **(e)** MOVED TO PHASE 11a — DELIVERED 2026-09-10 in `tests/Danfma.MySheet.Tests/Expressions/DefinedNameArrayEligibilityTests.cs` (the pins are `COUNT((Rng<>"")*1)` = 3 [was 1], `SUM((Rng<>0)*1)` = 2 [was 1], `SMALL(IF(Rng>0,Rng),1)` = 5 [was 0], each asserted EQUAL to its literal-range twin exactly as this half asked; do NOT duplicate them here). **(f)** all fifteen `IF`/`CHOOSE` rows of (f)'s table.

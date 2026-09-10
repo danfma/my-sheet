@@ -1,6 +1,6 @@
 # Phase 11b: text "TRUE" and "FALSE" in a boolean slot
 
-Status: Not started   <!-- Not started | In progress | Complete -->
+Status: Complete   <!-- Not started | In progress | Complete -->
 
 A user bug report of 2026-09-10, measured on both sides before any code was written. Runs in PARALLEL with
 Phase 3's tail and Phase 7; it shares no engine file with either.
@@ -97,4 +97,31 @@ number; it goes to the compatibility sweep beside the existing criteria item, no
 
 ## Phase Summary
 
-_(write when the phase completes)_
+**Status: Complete** — branch `feat/boolean-text`, three commits, core **1676 / 0** (1636 baseline + 40 tests),
+Excel **93 / 0**, Release 0 warnings, csharpier clean.
+
+`IF`, `NOT` and `IFS` now accept the text `TRUE` and `FALSE` in a condition slot, compared case-insensitively with
+no trimming and no other accepted spelling. The fix is an opt-in extension `CoerceToBoolAllowingTextWords` beside
+`ValueCoercion.CoerceToBool`, a **pure addition of 37 lines with 0 deletions**, called from exactly four sites, so
+the nine other callers of the shared helper are provably untouched.
+
+**What the design got wrong, and what saved it anyway.** This file argued that a shared-helper fix would break
+`AND`, `OR` and `XOR` because they coerce text. Measured on the tree, they do not reach the helper at all:
+`LogicalReduction` skips `Text` and `Blank` before the call, and its reference arm switches on kind. So the stated
+mechanism was wrong — but the conclusion held for a larger reason the implementer found: the helper has **13 call
+sites**, and eight are unrelated boolean FLAG slots (`VLOOKUP` and `HLOOKUP`'s range_lookup, `ADDRESS`'s a1,
+`TEXTJOIN`'s ignore_empty, `FIXED`'s no_commas, `DAYS360`'s method, `VDB`'s no_switch, a bond argument), which a
+shared change would have moved at once and unmeasured.
+
+**Two things the implementer found that the design missed.** `IF` has TWO condition sites, not one — `If.Evaluate`
+and `IfOperand.At`, the array-condition path — so fixing only the first would have left the scalar and array paths
+disagreeing. And `IFS` shares the rule, measured, so it is fixed too.
+
+**The open question, answered by measurement** (Aspose.Cells 26.6.0, 2026-09-10; plain and array-entered agree on
+every row): `IFS` coerces and is fixed; `SWITCH` does NOT, because its expression is not a boolean slot, and it was
+already correct here and is now pinned as a guard; `FILTER`'s include slot DOES coerce, which Phase 7 must apply
+when it builds that function, since it does not exist yet.
+
+**Handed to the compatibility sweep, both measured:** the eight boolean flag slots above, where the oracle coerces
+the two words and rejects other text while MySheet rejects everything; and `COUNTIF` counting a cell holding the
+text `TRUE` as the boolean, which is a criteria-family type-equality rule rather than a coercion one.
