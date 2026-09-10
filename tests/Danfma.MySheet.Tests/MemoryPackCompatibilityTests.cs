@@ -25,6 +25,14 @@ public class MemoryPackCompatibilityTests
         var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", FixtureFileName);
         var workbook = Workbook.Load(path);
 
+#if MYSHEET_TABLES
+        // This fixture begins `01 02 00 00 00 fb ff ff ff ...` — a ONE-member Workbook, written before
+        // DefinedNames existed. It is the precedent that proves the append-only schema move Phase 3 repeats:
+        // MemoryPack tolerates a header count BELOW the declared member count and leaves the absent members
+        // null, and Workbook.RestoreComparers turns that null into an empty registry.
+        await Assert.That(workbook.Tables.Count).IsEqualTo(0);
+#endif
+
         // The custom-function registry is not serialized; hosts re-register after loading.
         workbook.RegisterFunction(
             "DOUBLE",

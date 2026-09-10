@@ -42,6 +42,13 @@ public class ContainerVersionCompatibilityTests
 
         var loaded = Workbook.Load(path);
         await Assert.That(loaded.GetCellValue("Sheet1", "A3").ToDouble()).IsEqualTo(3.0);
+
+#if MYSHEET_TABLES
+        // The Brotli body decompresses to a MODEL whose first byte is 0x02 (Sheets + DefinedNames, last four
+        // bytes zero), below the declared 3 — and the MSWM container header layout is independent of the
+        // model's member count, so v2 keeps loading with an empty registry.
+        await Assert.That(loaded.Tables.Count).IsEqualTo(0);
+#endif
     }
 
     // Fixture generator — intentionally NOT a [Test] (same convention as MemoryPackCompatibilityTests). The
