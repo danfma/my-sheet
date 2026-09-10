@@ -660,4 +660,164 @@ public class MiniCseConsumerTests
             .That(OnTextual("=SUMIFS(LEN(A1:A3),A1:A3,\">0\")"))
             .IsEqualTo(ErrorValue.NotValue);
     }
+
+    // --- Phase 10: every consumer over a BROADCAST argument, leaf pair and composite ---
+
+    // Phase 10's fixture, the one VectorBroadcastingTests owns and documents: A1:C3 = 1..9 ROW-MAJOR,
+    // E1:E3 = 1,2,3 (a 3x1 column), E5:G5 = 10,20,30 (a 1x3 row), H1:H2 = 1,2 (a 2x1 column). H1:H2 is the
+    // only operand whose extent is neither 1 nor 3, so it is the one that leaves positions uncovered.
+    private static object? OnBroadcastGrid(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        var value = 1;
+        foreach (var row in new[] { 1, 2, 3 })
+        {
+            foreach (var column in new[] { "A", "B", "C" })
+            {
+                sheet[$"{column}{row}"] = new NumberValue(value++);
+            }
+        }
+
+        sheet["E1"] = new NumberValue(1);
+        sheet["E2"] = new NumberValue(2);
+        sheet["E3"] = new NumberValue(3);
+        sheet["E5"] = new NumberValue(10);
+        sheet["F5"] = new NumberValue(20);
+        sheet["G5"] = new NumberValue(30);
+        sheet["H1"] = new NumberValue(1);
+        sheet["H2"] = new NumberValue(2);
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
+    [Test]
+    public async Task OrderSelectionAndAggregate_OverABroadcastLeafPair()
+    {
+        // A1:C3 (3x3) against H1:H2 (2x1) is the phase's uncovered shape: [1,2,3 / 8,10,12 / #N/A x3].
+        // Every value here is Aspose.Cells 26.6.0, measured 2026-09-10, CSE column. Green on arrival —
+        // Task 3 completed the rule; these pins are the safety net that was missing, since the two SILENT
+        // wrong numbers Task 3 found were exactly a shape no consumer pin covered.
+        //
+        // SMALL/LARGE propagate the error element (the gather scans the whole array and the first error
+        // wins), so both are #N/A rather than the 1 and the 12 the covered population would give.
+        await Assert
+            .That(OnBroadcastGrid("=SMALL(A1:C3*H1:H2,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(OnBroadcastGrid("=LARGE(A1:C3*H1:H2,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // AGGREGATE option 6 ("ignore error values") is the first consumer whose ANSWER changes from an
+        // error to a NUMBER because of this phase: the three uncovered positions are skippable #N/A
+        // elements where the pre-phase per-element #VALUE! fill covered all nine. Function 15 = SMALL,
+        // 14 = LARGE; the post-skip population is the six covered numbers {1,2,3,8,10,12}, so k = 6 is its
+        // largest (12), k = 1 of LARGE is the same 12, and k = 7 is past the end → #NUM!.
+        await Assert.That(Num(OnBroadcastGrid("=AGGREGATE(15,6,A1:C3*H1:H2,6)"))).IsEqualTo(12.0);
+        await Assert.That(Num(OnBroadcastGrid("=AGGREGATE(14,6,A1:C3*H1:H2,1)"))).IsEqualTo(12.0);
+        await Assert
+            .That(OnBroadcastGrid("=AGGREGATE(15,6,A1:C3*H1:H2,7)"))
+            .IsEqualTo(ErrorValue.Number);
+
+        // Function 9 = SUM takes the REFERENCE slot (Phase 2's rule), which a computed array can never
+        // fill: #VALUE!, and this phase does not change that.
+        await Assert
+            .That(OnBroadcastGrid("=AGGREGATE(9,6,A1:C3*H1:H2)"))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task EveryConsumer_OverACompositeReadAtAForeignExtent()
+    {
+        // The path Tasks 2 and 3 opened, and the one whose absence let two silent wrong numbers survive:
+        // the consumer's argument is a COMPOSITE whose own extent is not the extent it is read at.
+        //
+        // (A1:A3*H1:H2) is a 3x1 composite [1, 8, #N/A]; times the 1x3 row E5:G5 it is read at 3x3 —
+        // 10,20,30 / 80,160,240 / #N/A x3. (E1:E3+1) is a 3x1 composite [2,3,4] read at the same 3x3 with
+        // NOTHING uncovered — 20,40,60 / 30,60,90 / 40,80,120 — so each consumer is pinned on both sides
+        // of the rule and a pin cannot pass by answering "error" everywhere.
+        //
+        // Aspose.Cells 26.6.0, measured 2026-09-10, CSE column, every line. All green on arrival.
+        const string Uncovered = "(A1:A3*H1:H2)*E5:G5";
+        const string Covered = "(E1:E3+1)*E5:G5";
+
+        // The SUM/COUNT frame the rest read against: six covered elements of nine.
+        await Assert.That(OnBroadcastGrid($"=SUM({Uncovered})")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnBroadcastGrid($"=COUNT({Uncovered})"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnBroadcastGrid($"=SUM({Covered})"))).IsEqualTo(540.0);
+        await Assert.That(Num(OnBroadcastGrid($"=COUNT({Covered})"))).IsEqualTo(9.0);
+
+        // SMALL / LARGE.
+        await Assert
+            .That(OnBroadcastGrid($"=SMALL({Uncovered},1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(OnBroadcastGrid($"=LARGE({Uncovered},1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnBroadcastGrid($"=SMALL({Covered},1)"))).IsEqualTo(20.0);
+        await Assert.That(Num(OnBroadcastGrid($"=LARGE({Covered},1)"))).IsEqualTo(120.0);
+
+        // k = 9 over the covered composite is the assertion that cannot be satisfied by a one-element
+        // population: the composite really is read nine times, not once.
+        await Assert.That(Num(OnBroadcastGrid($"=SMALL({Covered},9)"))).IsEqualTo(120.0);
+
+        // MAX / MIN — the NumericAggregation.Fold family, same stream as SUM.
+        await Assert.That(OnBroadcastGrid($"=MAX({Uncovered})")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnBroadcastGrid($"=MIN({Uncovered})")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnBroadcastGrid($"=MAX({Covered})"))).IsEqualTo(120.0);
+        await Assert.That(Num(OnBroadcastGrid($"=MIN({Covered})"))).IsEqualTo(20.0);
+
+        // AGGREGATE. Option 6 skips the three uncovered elements, so the post-skip population is the six
+        // covered numbers {10,20,30,80,160,240}: k = 1 → 10, k = 6 → 240, LARGE's k = 1 → 240, k = 7 past
+        // the end → #NUM!. Function 9 keeps its reference-slot #VALUE! even where nothing is uncovered.
+        await Assert.That(Num(OnBroadcastGrid($"=AGGREGATE(15,6,{Uncovered},1)"))).IsEqualTo(10.0);
+        await Assert.That(Num(OnBroadcastGrid($"=AGGREGATE(15,6,{Uncovered},6)"))).IsEqualTo(240.0);
+        await Assert.That(Num(OnBroadcastGrid($"=AGGREGATE(14,6,{Uncovered},1)"))).IsEqualTo(240.0);
+        await Assert
+            .That(OnBroadcastGrid($"=AGGREGATE(15,6,{Uncovered},7)"))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert.That(Num(OnBroadcastGrid($"=AGGREGATE(15,6,{Covered},1)"))).IsEqualTo(20.0);
+        await Assert
+            .That(OnBroadcastGrid($"=AGGREGATE(9,6,{Covered})"))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // INDEX, which is the consumer that can name WHICH positions are uncovered.
+        await Assert.That(Num(OnBroadcastGrid($"=INDEX({Uncovered},2,3)"))).IsEqualTo(240.0);
+        await Assert
+            .That(OnBroadcastGrid($"=INDEX({Uncovered},3,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // SUMPRODUCT's composite cases live in MathAggregateTests, beside its own dimension rule.
+    }
+
+    [Test]
+    public async Task CriteriaFamily_OverABroadcastArray_StillRefusesIt()
+    {
+        // The sixth consumer stays the odd one out after Phase 10 exactly as it was before it:
+        // CriteriaScan.Open is deliberately NOT CriteriaScan.OpenArrayOrRange, so SUMIF/SUMIFS/COUNTIF
+        // never see a computed array — broadcast or not — and answer from the scalar path instead.
+        //
+        // This is a DIVERGENCE, pinned deliberately, not a rule. Aspose.Cells 26.6.0, measured
+        // 2026-09-10: all six lines below are #REF! CSE-entered (#VALUE! entered plainly). Closing it is
+        // Phase 11's, and it has to be an edit to these lines rather than a silent change of answer.
+        // Green on arrival, and the composite half is what Task 3's opening of the composite path makes
+        // worth pinning: the criteria family must not start seeing composites either.
+        await Assert.That(Num(OnBroadcastGrid("=SUMIF(A1:C3*H1:H2,\">0\")"))).IsEqualTo(0.0);
+        await Assert
+            .That(OnBroadcastGrid("=SUMIFS(A1:C3,A1:C3*H1:H2,\">0\")"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Num(OnBroadcastGrid("=COUNTIF(A1:C3*H1:H2,\">0\")"))).IsEqualTo(0.0);
+
+        // The same three over a COMPOSITE read at a foreign extent.
+        await Assert
+            .That(Num(OnBroadcastGrid("=SUMIF((A1:A3*H1:H2)*E5:G5,\">0\")")))
+            .IsEqualTo(0.0);
+        await Assert
+            .That(OnBroadcastGrid("=SUMIFS(A1:C3,(A1:A3*H1:H2)*E5:G5,\">0\")"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Num(OnBroadcastGrid("=COUNTIF((A1:A3*H1:H2)*E5:G5,\">0\")")))
+            .IsEqualTo(0.0);
+    }
 }

@@ -218,6 +218,118 @@ public class MathAggregateTests
             .IsEqualTo(ErrorValue.NotValue);
     }
 
+    // --- Phase 10: SUMPRODUCT's dimension rule is NOT the operator's broadcasting rule ---
+    //
+    // Phase 10's fixture, the one VectorBroadcastingTests owns and documents: A1:C3 = 1..9 ROW-MAJOR,
+    // E1:E3 = 1,2,3 (a 3x1 column), E5:G5 = 10,20,30 (a 1x3 row), H1:H2 = 1,2 (a 2x1 column).
+    private static readonly (string, object)[] BroadcastGrid =
+    [
+        ("A1", 1),
+        ("B1", 2),
+        ("C1", 3),
+        ("A2", 4),
+        ("B2", 5),
+        ("C2", 6),
+        ("A3", 7),
+        ("B3", 8),
+        ("C3", 9),
+        ("E1", 1),
+        ("E2", 2),
+        ("E3", 3),
+        ("E5", 10),
+        ("F5", 20),
+        ("G5", 30),
+        ("H1", 1),
+        ("H2", 2),
+    ];
+
+    [Test]
+    public async Task SumProduct_NeverBroadcastsItsOwnArguments_NotEvenAOneByOneRange()
+    {
+        // Phase 10 taught the OPERATOR to broadcast mismatched vectors; SUMPRODUCT's own rule is
+        // untouched, and the oracle confirms it is the stricter of the two. Every pair below is a shape
+        // the operator now accepts — a 3x1 against a 3x3, a 1x3 against a 3x3, a 3x1 against a 1x3, a 2x1
+        // against a 3x1, and a 1x1 RANGE against a 3x3 — and SUMPRODUCT rejects all five.
+        //
+        // The 1x1 line is the sharpest: `SUM(A1:C3*E1:E1)` is 45 (a 1x1 range broadcasts like a scalar),
+        // so a "helpful" routing of SumProduct.SameShape through Broadcasting.Axis would turn this
+        // #VALUE! into 45 without any other pin noticing. Aspose.Cells 26.6.0, measured 2026-09-10, CSE
+        // column (plain entry agrees): #VALUE! for all five. Green on arrival.
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:C3,E1:E3)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:C3,E5:G5)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUMPRODUCT(E1:E3,E5:G5)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:A3,H1:H2)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:C3,E1:E1)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task SumProduct_ConsumesABroadcastExpressionInsideOneArgument()
+    {
+        // The other half of the same rule: a broadcast that happens INSIDE one argument is consumed as
+        // the broadcast array, uncovered #N/A elements and all. Aspose.Cells 26.6.0, measured 2026-09-10,
+        // CSE column (plain entry agrees on these three). Green on arrival.
+        await Assert.That(Num(Calc("=SUMPRODUCT(A1:C3*E1:E3)", BroadcastGrid))).IsEqualTo(108.0);
+        await Assert.That(Num(Calc("=SUMPRODUCT(E1:E3*E5:G5)", BroadcastGrid))).IsEqualTo(360.0);
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:C3*H1:H2)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // And the two rules meet: the broadcast argument's EXTENT is what the dimension rule then judges.
+        // A1:C3*E1:E3 is 3x3, so a second 3x3 argument pairs with it (750), while the 3x1 E1:E3 it was
+        // built from does NOT — SUMPRODUCT still refuses to broadcast between its own arguments.
+        await Assert
+            .That(Num(Calc("=SUMPRODUCT(A1:C3*E1:E3,A1:C3)", BroadcastGrid)))
+            .IsEqualTo(750.0);
+        await Assert
+            .That(Calc("=SUMPRODUCT(A1:C3*E1:E3,E1:E3)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task SumProduct_OverACompositeReadAtAForeignExtent()
+    {
+        // The composite path Phase 10's Tasks 2 and 3 opened, at SUMPRODUCT's door: the argument is a
+        // COMPOSITE whose own extent is not the extent it is read at. (A1:A3*H1:H2) is a 3x1 composite
+        // [1, 8, #N/A] read at 3x3 against the 1x3 row — 10,20,30 / 80,160,240 / #N/A x3 — and
+        // (E1:E3+1) is a 3x1 composite [2,3,4] read at the same 3x3 with nothing uncovered.
+        //
+        // Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (plain entry agrees on all four).
+        // Green on arrival.
+        await Assert
+            .That(Calc("=SUMPRODUCT((A1:A3*H1:H2)*E5:G5)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Num(Calc("=SUMPRODUCT((E1:E3+1)*E5:G5)", BroadcastGrid)))
+            .IsEqualTo(540.0);
+
+        // Paired with a bare 3x3 argument, which the composite's 3x3 extent matches exactly: the #N/A
+        // elements propagate through the fold, and the covered composite gives a real dot product —
+        // 20*1 + 40*2 + 60*3 + 30*4 + 60*5 + 90*6 + 40*7 + 80*8 + 120*9.
+        await Assert
+            .That(Calc("=SUMPRODUCT((A1:A3*H1:H2)*E5:G5,A1:C3)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Num(Calc("=SUMPRODUCT((E1:E3+1)*E5:G5,A1:C3)", BroadcastGrid)))
+            .IsEqualTo(3240.0);
+
+        // …and the dimension rule still judges the composite by the extent it was READ at, not by the 3x1
+        // of the sub-expression inside it: pairing the same 3x3 composite with the bare 3x1 E1:E3 is
+        // #VALUE!, not a broadcast.
+        await Assert
+            .That(Calc("=SUMPRODUCT((E1:E3+1)*E5:G5,E1:E3)", BroadcastGrid))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
     [Test]
     public async Task SumProduct_OrientationMismatch_IsValueError_BehindAShapelessArgument()
     {
