@@ -359,6 +359,39 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* It is a documented claim about Excel that measurement disproves, which is the exact defect class this
       project has shipped thirteen times, and here it is in user-facing docs rather than a comment.
 
+## Controller addition after the Phase 10 final review, part 2 (2026-09-10) — measured by the Fable reviewer
+
+- [ ] **25.** A RECTANGLE as the shorter operand against a ROW vector: the oracle fills the uncovered column with
+      **0**, not `#N/A`, whenever the rectangle has at least as many rows as the vector has columns. Measured on
+      Aspose.Cells 26.6.0 (2026-09-10), CSE and plain agreeing with themselves: `SUM(A1:B3*E5:G5)` = **420** with
+      `COUNT` 9 and `INDEX(...,1,3)` = **0**, against `#N/A` / 6 / `#N/A` here; likewise `SUM(A1:B4*E5:H5)` 740,
+      `SUM(A1:C4*E5:H5)` 1640, `SUM(A1:B3*A1:C1)` 42, the composite twin `SUM((E5:F5*E1:E3)*E5:G5)` 3000, and
+      `SUMPRODUCT(A1:B3*E5:G5)` 420. **Phase 10 never fixtured this class** — every shape it measured has the
+      VECTOR as the shorter operand — which is why the rule shipped coherent and the DOCS shipped a false claim of
+      agreement (fixed in the phase's own wave).
+      **The oracle is self-inconsistent here, so do not match it blindly.** With fewer rows than the vector has
+      columns it reverts to the documented rule (`SUM(A1:B3*E5:H5)` `#N/A`, `COUNT` 6), yet
+      `INDEX(A1:B2*E5:G5,1,3)` is still 0 in that same mode while its own `COUNT` says the position is uncovered.
+      The column-vector mirror never behaves this way (`SUM(A1:C2*J1:J4)`, `SUM(A1:B3*J1:J4)`, `SUM(A1:C2*E1:E3)`
+      are all `#N/A` with `COUNT` 6, agreeing with us). That pattern reads as a bounds check against the wrong
+      axis. Decide deliberately: match the oracle, or keep our coherent `#N/A` under P0's "genuinely cannot match"
+      clause as the two-axis mismatch already does. Whichever you choose, a real-Excel fixture would settle it and
+      is worth the trouble here, because this is not an exotic shape.
+      *Files:* `Danfma.MySheet/Expressions/Broadcasting.cs` if matched, `tests/Danfma.MySheet.Tests/Expressions/VectorBroadcastingTests.cs`, both docs twins
+      *Why:* An ordinary shape a user would write, where we and the oracle disagree by a whole column of values
+      rather than by an error code.
+
+- [ ] **26.** The oracle's `INDEX` over a UNARY or LIFTED composite disagrees with the oracle's own element-wise
+      forms at the collision between a real error and an uncovered position. Measured (CSE, `A3` = `=1/0`):
+      `INDEX(-(A1:C3)*H1:H2,3,1)`, and the `ABS`, `LEN` and `ROUND` twins, all answer `#N/A`, while
+      `SUM(ISERR(-(A1:C3)*H1:H2)*1)` = 1 and `ISNA` = 2 say that same position is `#DIV/0!`. Leaf and
+      binary-composite forms answer `#DIV/0!` and agree with their own sums. MySheet answers `#DIV/0!` everywhere,
+      matching the element-wise forms. Same family as the `INDEX`-over-a-reference quirk already pinned in
+      `VectorBroadcastingTests`. Recorded so that nobody later "fixes" our behaviour by pinning it through
+      `INDEX`, which is the one form the oracle answers inconsistently.
+      *Files:* none unless a decision changes behaviour; the note is the deliverable
+      *Why:* It is a trap for a future implementer, not a defect of ours.
+
 ## Implementation items
 
 - [ ] **1.** Create `tests/Danfma.MySheet.Tests/Expressions/ExcelCompatibilitySweepTests.cs` holding the acceptance pins for (a)-(f) ONLY, each carrying **Aspose's** value and each therefore failing on `1b1e2d3` with the MySheet value named in the comment. Reuse `MathAggregateTests`'s `Calc(formula, params (string Id, object Value)[] cells)` shape (it is the nearest sibling; copy the helper rather than making it public). Pins, with today's failing value in brackets: **(a)** on the (a) fixture — `AGGREGATE(9,o,C1:C3)` = 8 for o in 0..3 [today 5] and 11 for o in 4..7 [passes], `AGGREGATE(9,o,F1:F3)` = 11 for all o in 0..7 [today 8 at 0-3], `AGGREGATE(3,o,C1:C3)` = 2 for 0..3 [today 1] and 3 for 4..7, `AGGREGATE(3,o,F1:F3)` = 3 for all o [today 2 at 0-3], `AGGREGATE(9,o,D1:D3)` = 8 / 11 and `SUBTOTAL(9,C1:C3)` = 8, `SUBTOTAL(3,C1:C3)` = 2, `SUBTOTAL(9,F1:F3)` = 11 as no-regression pins [all pass today]. **(b)** `SUBTOTAL(9,7)`, `SUBTOTAL(9,A1:A3,7)`, `SUBTOTAL(2,7)`, `SUBTOTAL(3,7)`, `SUBTOTAL(9,"7")`, `SUBTOTAL(9,TRUE)`, `SUBTOTAL(9,A1:A3,"")`, `AGGREGATE(9,4,7)`, `AGGREGATE(9,6,7)`, `AGGREGATE(9,4,A1:A3,7)`, `AGGREGATE(9,0,A1:A3,7)` → `ErrorValue.NotValue` [today 7/21/1/1/0/0/14/7/7/21/21], plus the no-regression pins `AGGREGATE(9,4,A1:A3,B1)` = 15, `SUBTOTAL(9,A1)` = 5, `AGGREGATE(15,6,7,1)` = `AGGREGATE(15,4,7,1)` = `AGGREGATE(14,6,7,1)` = `AGGREGATE(16,6,7,0.5)` = 7, and `AGGREGATE(15,6,1/0,1)` → `ErrorValue.NotValue` [today `#DIV/0!`]. **(c)** `MODE.SNGL(A1:A4)` = 2 on 2,1,1,2 [today 1]; = 1 on 1,2,2,1 [today 2]; `MODE.SNGL(A1:A6)` = 3 on 3,1,2,1,2,3 [today 1]; and `MODE(...)` / `AGGREGATE(13,4,...)` equal to it on each. **(d)** the seven `#DIV/0!` rows of (d)'s table [today `#NUM!`], plus `AGGREGATE(15,0,E2:E2,1)` = `#DIV/0!`, `AGGREGATE(15,6,G1:G1,1)` = `#NUM!`, `AGGREGATE(15,6,E1:E1,1)` = 5, `AGGREGATE(15,6,E1:E2,1)` = 5, `AGGREGATE(15,6,E2:E3,1)` = 9, `AGGREGATE(9,6,E2)` = 0 as no-regression pins. **(e)** `COUNT((Rng<>"")*1)` = 3 [today 1], `SUM((Rng<>0)*1)` = 2 [today 1], `SMALL(IF(Rng>0,Rng),1)` = 5 [today 0], each asserted EQUAL to its literal-range twin in the same assertion so the pin states the invariant, not just the number. **(f)** all fifteen `IF`/`CHOOSE` rows of (f)'s table.
