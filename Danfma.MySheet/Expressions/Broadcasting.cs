@@ -20,10 +20,15 @@ namespace Danfma.MySheet.Expressions;
 /// shorter operand does not cover is a per-element <c>#N/A</c> — <c>SUM(A1:C3*H1:H2)</c> is <c>#N/A</c>
 /// while <c>COUNT(A1:C3*H1:H2)</c> is 6 and <c>IFERROR</c> recovers the three uncovered elements.</item>
 /// </list>
-/// The <c>#N/A</c> is answered by the LEAF that is uncovered, never by its parent: the operator's existing
-/// left-then-right error precedence then decides between one side's own error and the other side's
-/// uncovered position (<c>INDEX(A1:C3*H1:H2,3,1)</c> with <c>A3</c> = <c>#DIV/0!</c> is <c>#DIV/0!</c>,
-/// the operands swapped it is <c>#N/A</c>).
+/// The <c>#N/A</c> is answered by the OPERAND that is uncovered, whichever kind it is: a leaf
+/// (<c>RangeOperand</c>, <c>PositionNumbersOperand</c>), or a COMPOSITE uncovered at its consumer's extent,
+/// which answers its own <c>#N/A</c> and never asks its children — the four composites in
+/// <c>ArrayOperands.cs</c> (<c>BinaryOperand</c>, <c>IfOperand</c>, <c>UnaryOperand</c>,
+/// <c>LiftedFunctionOperand</c>) each project before descending, so <c>(A1:B2*1)</c> read at 3x3 is the
+/// composite's own <c>#N/A</c> (<c>VectorBroadcastingTests</c>). The operator's existing left-then-right
+/// error precedence then decides between one side's own error and the other side's uncovered position
+/// (<c>INDEX(A1:C3*H1:H2,3,1)</c> with <c>A3</c> = <c>#DIV/0!</c> is <c>#DIV/0!</c>, the operands swapped
+/// it is <c>#N/A</c>).
 /// </remarks>
 internal static class Broadcasting
 {
