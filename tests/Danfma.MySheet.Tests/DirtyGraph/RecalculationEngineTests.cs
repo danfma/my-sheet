@@ -266,4 +266,132 @@ public class RecalculationEngineTests
         await Assert.That(result.StructureRebuilt).IsTrue();
         await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(99.0);
     }
+
+    // ============ Redefinição = evento de invalidação TOTAL (não só rebuild do grafo) ======================
+
+    // Bumpar a versão e reconstruir o grafo NÃO basta: os valores já memoizados sobrevivem à redefinição. Medido
+    // hoje, com Rng = Data!A1:A2 alargado para Data!A1:A4, o engine responde `mode=Partial dirty=0 rebuilt=True`
+    // e Main!B1 continua servindo 3 (quer 15) — só InvalidateCache() limpa. É um defeito PRÉ-EXISTENTE do
+    // DefineName, que a redefinição de tabela herdaria: uma mudança de definição tem de ser tratada como
+    // invalidação completa.
+    [Test]
+    public async Task RedefiningADefinedName_ForcesAFullRecompute()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new NumberValue(1);
+        data["A2"] = new NumberValue(2);
+        data["A3"] = new NumberValue(4);
+        data["A4"] = new NumberValue(8);
+        wb.DefineName("Rng", "Data!A1:A2");
+        main["B1"] = ExpressionParser.Parse("=SUM(Rng)", main);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece
+
+        wb.DefineName("Rng", "Data!A1:A4");
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.DirtyCellCount).IsEqualTo(-1);
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0);
+    }
+
+    // O par documentado planejar-depois-agir consome o sinal. EnsureFresh atualiza o snapshot como efeito
+    // colateral, então quem rodar PRIMEIRO come a única evidência de que a definição mudou: medido hoje,
+    // EstimateImpact([]) devolve `RecommendFull=False ConeSize=0` e o Recalculate([]) seguinte devolve
+    // `mode=Partial dirty=0 rebuilt=False` com B1 = 3. A invalidação precisa ser PEGAJOSA — lida por
+    // EstimateImpact sem limpar, limpa só no braço que chama InvalidateCache.
+    [Test]
+    public async Task RedefiningADefinedName_ForcesAFullRecompute_EvenAfterEstimateImpact()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new NumberValue(1);
+        data["A2"] = new NumberValue(2);
+        data["A3"] = new NumberValue(4);
+        data["A4"] = new NumberValue(8);
+        wb.DefineName("Rng", "Data!A1:A2");
+        main["B1"] = ExpressionParser.Parse("=SUM(Rng)", main);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece
+
+        wb.DefineName("Rng", "Data!A1:A4");
+        var estimate = engine.EstimateImpact([]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(estimate.RecommendFull).IsTrue();
+        await Assert.That(estimate.ConeSize).IsEqualTo(-1);
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.DirtyCellCount).IsEqualTo(-1);
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0);
+    }
+
+#if MYSHEET_TABLES
+    // O gêmeo de tabela: redefinir uma TABELA é o MESMO evento de invalidação total, porque o contador é único
+    // (DefinitionsVersion). A Fase 3 ainda não tem nó de fórmula que REFERENCIE uma tabela (isso é a Fase 5), então
+    // o valor stale é montado do único jeito disponível: uma edição de célula que NUNCA é reportada ao engine.
+    // Literal→literal não bumpa Sheet.StructuralVersion, logo o único sinal de staleness é a redefinição.
+    [Test]
+    public async Task RedefiningATable_ForcesAFullRecompute()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new NumberValue(1);
+        data["A2"] = new NumberValue(2);
+        data["A3"] = new NumberValue(4);
+        data["A4"] = new NumberValue(8);
+        wb.DefineTable("Vendas", "Data", "A1:A2", ["Produto"]);
+        main["B1"] = ExpressionParser.Parse("=SUM(Data!A1:A2)", main);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece
+
+        data["A2"] = new NumberValue(14); // edição NÃO reportada: sozinha, não gera nenhum sinal
+        wb.DefineTable("Vendas", "Data", "A1:A4", ["Produto"]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.DirtyCellCount).IsEqualTo(-1);
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0);
+    }
+
+    [Test]
+    public async Task RedefiningATable_ForcesAFullRecompute_EvenAfterEstimateImpact()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new NumberValue(1);
+        data["A2"] = new NumberValue(2);
+        data["A3"] = new NumberValue(4);
+        data["A4"] = new NumberValue(8);
+        wb.DefineTable("Vendas", "Data", "A1:A2", ["Produto"]);
+        main["B1"] = ExpressionParser.Parse("=SUM(Data!A1:A2)", main);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece
+
+        data["A2"] = new NumberValue(14); // edição NÃO reportada
+        wb.DefineTable("Vendas", "Data", "A1:A4", ["Produto"]);
+        var estimate = engine.EstimateImpact([]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(estimate.RecommendFull).IsTrue();
+        await Assert.That(estimate.ConeSize).IsEqualTo(-1);
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.DirtyCellCount).IsEqualTo(-1);
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0);
+    }
+#endif
 }
