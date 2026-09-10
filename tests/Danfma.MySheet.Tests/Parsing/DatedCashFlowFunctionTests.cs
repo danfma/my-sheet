@@ -7,6 +7,11 @@ namespace Danfma.MySheet.Tests.Parsing;
 /// <summary>
 /// XNPV and XIRR (dated cash flows), cross-checked against the <see cref="Financial"/> oracle. Includes a
 /// stiff, long, irregular schedule to guard the bracketing solver (the RATE/IRR lesson).
+/// <para>
+/// The date cells are seeded with <see cref="DateTime.ToOADate"/> as an INDEPENDENT oracle, which is valid
+/// only because every fixture date is modern: from serial 61 (1900-03-01) up an Excel serial and the OLE
+/// Automation date are the same number. Below that they differ — see <c>DateEpochTests</c>.
+/// </para>
 /// </summary>
 public class DatedCashFlowFunctionTests
 {

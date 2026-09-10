@@ -61,7 +61,7 @@ Como o conteúdo do arquivo é mapeado para dentro do workbook:
 | String compartilhada / inline | `StringValue` (trechos de rich text achatados em texto puro). |
 | Célula booleana | `BooleanValue`. |
 | Célula de erro | `ErrorValue` (avaliada como o `Error` correspondente). |
-| Célula de data | `NumberValue` com o **número serial** do Excel (datas ISO-8601 em arquivos no modo strict são convertidas via `ToOADate`). |
+| Célula de data | `NumberValue` com o **número serial** do Excel (datas ISO-8601 em arquivos no modo strict são convertidas para o epoch do próprio Excel, no qual o serial 1 é 1900-01-01 — veja [Referência de funções → Data e hora](function-reference.md#data-e-hora-25)). |
 | Célula vazia / só com estilo | Nada é armazenado — é lida como em branco. |
 | "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Um nó leve que compartilha a árvore já interpretada da mestre (veja [Fórmulas compartilhadas](#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava) abaixo) quando a forma da mestre é suportada; caso contrário, é expandida em uma fórmula independente exatamente como antes. |
 | Nome definido com escopo de workbook (`<definedName>`) | Uma entrada em [`Workbook.DefinedNames`](workbook-and-expressions.md#intervalos-nomeados): o texto `refersTo` passa pelo parse como uma fórmula. Nomes **com escopo de planilha** (aqueles com `localSheetId`) e os nomes **nativos `_xlnm.*`** do Excel (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) são ignorados. |
@@ -233,8 +233,11 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   mescladas, gráficos e afins não são modelados. `Load` os ignora; `SaveAsExcel` não os produz;
   `MergeIntoExcel` *preserva* a formatação existente no destino, mas não consegue criá-la.
 - **Datas são números seriais**: elas entram e saem como `double`s (a própria representação do Excel).
-  Aplique a formatação de data no template (fluxo de mesclagem) ou converta com `DateTime.FromOADate` no
-  seu código.
+  Aplique a formatação de data no template (fluxo de mesclagem) ou converta para `DateTime` no seu próprio
+  código — atento ao epoch: um serial do Excel só é igual ao valor de `DateTime.FromOADate` do .NET a partir
+  do serial 61 (1900-03-01). Abaixo disso o Excel conta um dia de forma diferente e carrega um 1900-02-29
+  fantasma no serial 60, então o `FromOADate` está errado ali — veja [Referência de funções → Data e
+  hora](function-reference.md#data-e-hora-25).
 - **Marcadores absolutos não são preservados na escrita**: `$A$1` passa pelo parse sem problema (ele
   identifica a mesma célula), mas é reescrito como `A1` — uma perda de fidelidade apenas em exportações
   com `FormulaMode.Formulas`, e apenas cosmética, a menos que você planeje copiar/preencher fórmulas no

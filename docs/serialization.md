@@ -132,6 +132,15 @@ non-volatile cells — it changes nothing about how invalidation works afterward
 [custom functions](custom-functions.md) must still be re-registered: cells that were **not** cached at save
 time (or that you invalidate) will re-evaluate their calls and need the implementation present.
 
+**Excel's date epoch (3.17.0).** The wire format does not change: a date is a `NumberValue` double and stays
+one, with no new union tag. What changes is what an early-1900 serial MEANS. From 3.17.0 on, serial 1 is
+1900-01-01, serial 0 is Excel's day zero 1900-01-00 and serial 60 is Excel's phantom 1900-02-29; before 3.17.0
+the engine read those serials one calendar day earlier (serial 1 was 1899-12-31). Serials from 61 (1900-03-01)
+up — every date a real workbook holds — are unaffected. A snapshot written by 3.16.x therefore reloads
+byte-identically, but a cached result of a formula over the `[0, 61)` window is now a day off:
+`=DATE(1900,1,1)` cached as `2` reads back as `2` until `InvalidateCache()`. If a workbook computes over
+early-1900 dates, invalidate the cache once after upgrading.
+
 ## Compression
 
 MemoryPack optimizes for speed, so its layout is fixed-width and redundant — which means it compresses
@@ -191,6 +200,11 @@ tags. Workbooks saved by an older version therefore remain loadable by newer ver
 Because only the tags (never type names) go on the wire, the [2.0 namespace
 reorganization](migrating-to-2.0.md) did not change the format at all: files saved by 1.x load in 2.0
 unchanged, guarded by a frozen pre-2.0 binary fixture in the test suite.
+
+Releases that changed how a saved value is *interpreted* without touching the format:
+
+- **3.17.0** — no format change and no new tag. Early-1900 date serials (`[0, 61)`) change MEANING by one
+  calendar day; cached results over that window need one `InvalidateCache()`.
 
 ### Forward-compatibility: shared-formula delta nodes (tags 319-321)
 

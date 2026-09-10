@@ -307,9 +307,11 @@ public class StreamingLoadEdgeTests
             """,
             async workbook =>
             {
-                await Assert
-                    .That(workbook.GetCellValue("S", "A1").ToDouble())
-                    .IsEqualTo(new DateTime(2026, 7, 10).ToOADate());
+                // 46213 is 2026-07-10 on EXCEL's epoch (serial 1 = 1900-01-01), which is the only epoch the
+                // engine has. The literal is deliberate: .NET's ToOADate() happens to give the same number
+                // for a modern date, but writing it here would name the OLE Automation epoch that MySheet
+                // no longer uses (the sibling test below covers the window where the two disagree).
+                await Assert.That(workbook.GetCellValue("S", "A1").ToDouble()).IsEqualTo(46213d);
             }
         );
     }

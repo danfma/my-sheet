@@ -5,9 +5,10 @@ namespace Danfma.MySheet.Tests.Parsing;
 
 // Phase 9 — Excel's date serial epoch. Acceptance pins for the 1900 window: serial 1 is 1900-01-01, serial 0
 // is the day-zero "1900-01-00", serial 60 is Excel's phantom 1900-02-29, and every function that COUNTS
-// across that window spans one serial more than the Gregorian calendar does. MySheet converts through .NET's
-// OLE Automation date (epoch 1899-12-30), so exactly the serials [0, 61) differ; from serial 61 (1900-03-01)
-// on the two systems agree numerically.
+// across that window spans one serial more than the Gregorian calendar does. Before this phase MySheet
+// converted through .NET's OLE Automation date (epoch 1899-12-30), so exactly the serials [0, 61) differed;
+// from serial 61 (1900-03-01) on the two systems agree numerically, which is why the map change moves no
+// modern date.
 //
 // Provenance: every expected value in this file was MEASURED on Aspose.Cells 26.6.0 on 2026-09-09 — PLAIN cell entry (a
 // formula assigned to a cell), not CSE — and not quoted from a documentation page, because no page produces

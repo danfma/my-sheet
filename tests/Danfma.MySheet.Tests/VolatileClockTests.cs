@@ -6,7 +6,10 @@ namespace Danfma.MySheet.Tests;
 
 // Phase F1 (volatile functions) — the clock path: TODAY/NOW plus the epoch cache model. Time comes from an
 // injected FixedTimeProvider so the values are reproducible and the LOCAL-time conversion is exercised.
-// NOW() is the local wall-clock rendered as an Excel serial (OADate); TODAY() is its whole-day floor.
+// NOW() is the local wall-clock rendered as an Excel serial (serial 1 = 1900-01-01); TODAY() is its whole-day
+// floor. The expectations below use DateTime.ToOADate() as an INDEPENDENT oracle, which is valid only because
+// every fixture instant is a modern date: from serial 61 (1900-03-01) up the Excel serial and the OLE
+// Automation date are the same number. Do not copy the pattern into a test with an early-1900 date.
 public class VolatileClockTests
 {
     private const double Tolerance = 1e-9;

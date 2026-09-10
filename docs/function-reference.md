@@ -224,7 +224,7 @@ defensive 1-second match timeout.
 | `SEARCH` | `SEARCH(find_text, within_text, [start_num])` | Case-insensitive position with `?` `*` wildcards (`~` escapes); not found → `#VALUE!`. |
 | `SUBSTITUTE` | `SUBSTITUTE(text, old_text, new_text, [instance_num])` | Case-sensitive replacement — every occurrence, or only the 1-based `instance_num`. |
 | `T` | `T(value)` | The value if it is text, otherwise `""`. |
-| `TEXT` | `TEXT(value, format_text)` | Formats a value (number and date formats, e.g. `"0.00"`, `"dd/mm/yyyy"`). |
+| `TEXT` | `TEXT(value, format_text)` | Formats a value (number and date formats, e.g. `"0.00"`, `"dd/mm/yyyy"`). A date format reads Excel's own 1900 calendar — see [Date and time](#date-and-time-25). |
 | `TEXTAFTER` | `TEXTAFTER(text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found])` | Text after the nth delimiter (negative counts from the end); miss → `if_not_found` or `#N/A`. |
 | `TEXTBEFORE` | `TEXTBEFORE(text, delimiter, [instance_num], [match_mode], [match_end], [if_not_found])` | Text before the nth delimiter (negative counts from the end); miss → `if_not_found` or `#N/A`. |
 | `TEXTJOIN` | `TEXTJOIN(delimiter, ignore_empty, text1, …)` | Joins values with a delimiter; range-aware. |
@@ -355,24 +355,45 @@ the whole family are cross-checked against the `ExcelFinancialFunctions` oracle.
 
 ## Date and time (25)
 
-Dates are **serial numbers** (`double`), exactly like Excel: the integer part counts days from the
-1899-12-30 epoch and the fraction is the time of day. Date functions take numeric serials (build them with
-`DATE`/`TIME`, or numeric text `CoerceToNumber` accepts); they do **not** implicitly parse date *strings*
-(use `DATEVALUE`/`TIMEVALUE` for that). A negative serial is out of range → `#NUM!`. `TODAY`/`NOW` read the
-clock and are **volatile** — see [Volatile functions](workbook-and-expressions.md#volatile-functions).
-Documented limitation: serials 1..59 (Jan–Feb 1900) render one day behind Excel and serial 60 (Excel's
-fictitious 1900-02-29) is not representable; real dates (serial ≥ 61, 1900-03-01) are exact.
+Dates are **serial numbers** (`double`), exactly like Excel: the integer part counts days and the fraction is
+the time of day. Date functions take numeric serials (build them with `DATE`/`TIME`, or numeric text
+`CoerceToNumber` accepts); they do **not** implicitly parse date *strings* (use `DATEVALUE`/`TIMEVALUE` for
+that). A negative serial is out of range → `#NUM!`. `TODAY`/`NOW` read the clock and are **volatile** — see
+[Volatile functions](workbook-and-expressions.md#volatile-functions).
+
+**Where the count starts.** Serial **1** is **1900-01-01**, serial 2 is 1900-01-02, and so on —
+`YEAR(1)`/`MONTH(1)`/`DAY(1)` are 1900/1/1. Serial **0** is Excel's *day zero*: not a real date, but a
+placeholder Excel writes as `1900-01-00`, so `DAY(0)` = 0 and `DATE(1900,1,0)` = 0. Nothing exists below it —
+`DATE(1900,1,-1)` is `#NUM!` and `DATEVALUE("1899-12-31")` is `#VALUE!`.
+
+**Serial 60 is a day that never happened.** Lotus 1-2-3 treated 1900 as a leap year; Excel copied the bug to
+stay file-compatible with it, and has carried a phantom **1900-02-29** at serial 60 ever since. MySheet
+carries it for the same reason — so that a serial means the same date in both. But 1900 was not a leap year,
+so the functions do not agree on what serial 60 *is*:
+
+- **`DATE` cannot build it.** `DATE(1900,2,29)` rolls into March and gives **61**, and both `DATE(1900,2,28)`
+  and `DATE(1900,3,0)` give 59. Only two things reach 60: arithmetic on serials (59 + 1), and
+  `DATEVALUE("1900-02-29")` = **60** (also `"2/29/1900"` and `"29-Feb-1900"`).
+- **The calendar functions read it as 1900-02-28.** `DAY(60)` = 28, `EDATE(60,0)` = `EOMONTH(60,0)` = 59, and
+  `WEEKDAY(60)` = 3 — serial 60 collapses onto serial 59 and reports its weekday.
+- **`TEXT` and the 30/360 day counts see a real February 29**, because for them February 1900 has 29 days:
+  `TEXT(60,"yyyy-mm-dd")` = `1900-02-29`, `DAYS360(59,61)` = 3, `YEARFRAC(60,61)` = 2/360.
+- **Everything that counts days counts serials**, so a span containing serial 60 is one day longer than the
+  Gregorian calendar between the same two dates: `DATEDIF(1,61,"D")` = 60, `NETWORKDAYS(1,61)` = 45.
+
+From serial **61** (1900-03-01) upward — where every date a real workbook holds lives — the phantom day is
+behind you and none of this applies.
 
 | Function | Arguments | Description |
 | --- | --- | --- |
 | `DATE` | `DATE(year, month, day)` | Serial from parts; Excel overflow (month 13 → next Jan, day 0 → prior month-end); year 0–1899 adds 1900. |
-| `DATEDIF` | `DATEDIF(start, end, unit)` | Difference in `"Y"`/`"M"`/`"D"`/`"MD"`/`"YM"`/`"YD"`; `start > end` → `#NUM!`. `"MD"` is officially unreliable. |
-| `DATEVALUE` | `DATEVALUE(date_text)` | Parses a date string (invariant `yyyy-MM-dd`, `M/d/yyyy`, `d-MMM-yyyy`, …) to a whole-day serial; unparseable → `#VALUE!`. |
+| `DATEDIF` | `DATEDIF(start, end, unit)` | Difference in `"Y"`/`"M"`/`"D"`/`"MD"`/`"YM"`/`"YD"`; `start > end` → `#NUM!`. `"MD"` is officially unreliable. `"MD"`/`"YD"` count serials from `start` pushed forward by every **whole** month (year) in the span, clamped to the target month's last day (`DATEDIF(DATE(2024,1,31),DATE(2024,3,1),"MD")` = 1). |
+| `DATEVALUE` | `DATEVALUE(date_text)` | Parses a date string (invariant `yyyy-MM-dd`, `M/d/yyyy`, `d-MMM-yyyy`, …) to a whole-day serial; unparseable → `#VALUE!`, and so is any date **before 1900-01-01** (`DATEVALUE("1899-12-31")`). Excel's phantom `"1900-02-29"` parses, to serial 60. |
 | `DAY` | `DAY(serial)` | Day of the month (1–31). |
 | `DAYS` | `DAYS(end, start)` | Whole days between two dates (may be negative). |
-| `DAYS360` | `DAYS360(start, end, [method])` | 30/360 day count; US (NASD) default, `TRUE` = European. |
-| `EDATE` | `EDATE(start, months)` | The same day-of-month `months` away, clamped to the month end. |
-| `EOMONTH` | `EOMONTH(start, months)` | Last day of the month `months` away from `start`. |
+| `DAYS360` | `DAYS360(start, end, [method])` | 30/360 day count; US (NASD) default, `TRUE` = European. The US method has **no end-of-February adjustment** and **no roll of a month-end `end` to the 1st of the next month** — it matches Excel as measured, not the Microsoft page (see the notes below the table). |
+| `EDATE` | `EDATE(start, months)` | The same day-of-month `months` away, clamped to the month end; a result before serial 0 → `#NUM!`. |
+| `EOMONTH` | `EOMONTH(start, months)` | Last day of the month `months` away from `start`; a result before serial 0 → `#NUM!` (`EOMONTH(1,-1)` = 0 is still valid). |
 | `HOUR` | `HOUR(serial)` | Hour (0–23) of the time fraction. |
 | `ISOWEEKNUM` | `ISOWEEKNUM(serial)` | ISO 8601 week number (weeks start Monday; week 1 holds the first Thursday). |
 | `MINUTE` | `MINUTE(serial)` | Minute (0–59) of the time fraction. |
@@ -384,12 +405,63 @@ fictitious 1900-02-29) is not representable; real dates (serial ≥ 61, 1900-03-
 | `TIME` | `TIME(hour, minute, second)` | Time-of-day fraction; components 0–32767 roll over, taken mod 24h; negative → `#NUM!`. |
 | `TIMEVALUE` | `TIMEVALUE(time_text)` | Parses a time string (`HH:mm[:ss]`, `h:mm[:ss] AM/PM`) to a `[0,1)` fraction; unparseable → `#VALUE!`. |
 | `TODAY` | `TODAY()` | Volatile: the current local date as a whole-day serial (the floor of `NOW()`). See [Volatile functions](workbook-and-expressions.md#volatile-functions). |
-| `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Day of week; `return_type` 1/2/3 and 11–17 (see the WEEKDAY table). |
+| `WEEKDAY` | `WEEKDAY(serial, [return_type])` | Day of week; `return_type` 1/2/3 and 11–17 (see the WEEKDAY table). The weekday is Excel's Lotus-inherited one, read straight off the serial: `WEEKDAY(1)` = 1 (Sunday) although 1900-01-01 was really a Monday — matching Excel. |
 | `WEEKNUM` | `WEEKNUM(serial, [return_type])` | Week of year; System 1 for 1/2/11–17, ISO 8601 (System 2) for 21. |
 | `WORKDAY` | `WORKDAY(start, days, [holidays])` | Date `days` working days from `start` (start excluded); negative walks backward. |
 | `WORKDAY.INTL` | `WORKDAY.INTL(start, days, [weekend], [holidays])` | `WORKDAY` with a custom weekend; invalid/all-weekend → `#NUM!`. |
 | `YEAR` | `YEAR(serial)` | Calendar year (1900–9999). |
-| `YEARFRAC` | `YEARFRAC(start, end, [basis])` | Year fraction on basis 0 (US 30/360), 1 (actual/actual), 2 (actual/360), 3 (actual/365), 4 (European 30/360). |
+| `YEARFRAC` | `YEARFRAC(start, end, [basis])` | Year fraction on basis 0 (US 30/360), 1 (actual/actual), 2 (actual/360), 3 (actual/365), 4 (European 30/360). Basis 0 has **no end-of-February rule** and pulls a February-end `start` to day 30 only **after** testing a day-31 `end`, so it deliberately disagrees with `DAYS360` on some February-end pairs (see the notes below the table). |
+
+**`TEXT` is the only place a 1900-02-29 is printed** (`TEXT(60,"yyyy-mm-dd")` = `1900-02-29`) **and the only
+place a day zero is** (`TEXT(0,"yyyy-mm-dd")` = `1900-01-00`). The one exception inside a format is
+`ddd`/`dddd`: they name the Lotus weekday, and asking for one also pulls the printed day *number* back onto
+February 28 — `TEXT(60,"yyyy-mm-dd dddd")` = `1900-02-28 Tuesday`, where `TEXT(60,"yyyy-mm-dd")` keeps the 29.
+A negative serial is `#VALUE!` in `TEXT`, not the `#NUM!` the date functions answer.
+
+**Working days in January–February 1900 walk the real calendar, not Excel's.** `WORKDAY`, `WORKDAY.INTL`,
+`NETWORKDAYS` and `NETWORKDAYS.INTL` match Excel exactly from serial 61 (1900-03-01) on — every date a real
+workbook holds. Below that, Excel's own answers are not self-consistent, so there is no rule to reproduce and
+the walk simply keeps following the real Gregorian weekday it follows everywhere else — above serial 61 the two
+agree, below it they can differ. Measured on Aspose.Cells 26.6.0 (2026-09-09), Excel:
+
+1. gives the same day for the 4th and the 5th working day from one start — `WORKDAY(6,4)` = `WORKDAY(6,5)` =
+   12 — so its result is not a function of `days`;
+2. does the same under a one-day weekend: `WORKDAY.INTL(1,5,"1000000")` = `WORKDAY.INTL(1,6,"1000000")` = 7;
+3. answers `WORKDAY(58,4)` = 64, a serial it *itself* treats as a weekend (`WEEKDAY(64)` = 1,
+   `NETWORKDAYS(64,64)` = 0, `TEXT(64,"dddd")` = Sunday);
+4. and is not additive over a split range: `NETWORKDAYS(58,62)` = 4, while `NETWORKDAYS(58,58)` +
+   `NETWORKDAYS(59,61)` + `NETWORKDAYS(62,62)` = 1 + 3 + 1 = 5 — a total no per-day working/non-working
+   verdict can produce.
+
+The cause of the difference is a single day: 1900-01-05 is a **Friday** on the real calendar and a Thursday on
+Excel's Lotus weekday. Exactly four rows in the whole window come out differently as a result — MySheet first,
+Excel second: `WORKDAY(5,1)` **8** / 6, `WORKDAY(6,1)` **8** / 9, `WORKDAY(6,4)` **11** / 12, `WORKDAY(13,1)`
+**15** / 16. Everything else below serial 61 agrees, including the rows that depend on the phantom day being a
+working day of the walk: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59, `NETWORKDAYS(59,61)` = 3,
+`NETWORKDAYS(1,61)` = 45.
+
+**Three changes in 3.17.0 that are not about 1900** — they move results on modern dates too:
+
+- **`YEARFRAC` basis 0 lost its end-of-February rule, and its two 30/360 steps swapped order.** An `end` on
+  the last day of February is no longer promoted to a nominal day 30, so
+  `YEARFRAC(DATE(2024,2,29),DATE(2025,2,28),0)` is 358/360 and `YEARFRAC(DATE(2023,2,28),DATE(2024,2,29),0)` is
+  359/360 — both were exactly 1 before 3.17.0. The pull of a February-end `start` to day 30 survives, but it
+  now runs *after* the day-31 `end` test and so no longer drags a day-31 end down with it:
+  `YEARFRAC(DATE(2023,2,28),DATE(2023,3,31),0)` = 31/360 (was 30/360).
+- **`DAYS360` (US) lost the first-of-next-month roll entirely**, and orders its February pull the *other* way
+  round from `YEARFRAC` basis 0. A month-end `end` is no longer rolled to the 1st of the next month:
+  `DAYS360(DATE(2011,1,1),DATE(2011,4,30))` = 119 (was 120), `DAYS360(DATE(2011,1,15),DATE(2011,9,30))` = 255
+  (was 256), `DAYS360(DATE(2024,1,31),DATE(2024,2,29))` = 29 (was 30),
+  `DAYS360(DATE(2024,1,16),DATE(2024,2,29))` = 43 (was 45), `DAYS360(DATE(2024,2,28),DATE(2024,2,29))` = 1
+  (was 3). A day-31 `end` still drops to 30 once the adjusted `start` reached 30, so
+  `DAYS360(DATE(2011,1,1),DATE(2011,12,31))` = 360 is unchanged. And because the February pull runs *first*
+  here, it does drag a day-31 end down: `DAYS360(DATE(2023,2,28),DATE(2023,3,31))` = 30, against `YEARFRAC`'s
+  31/360 above — the two functions now **deliberately disagree** on February-end and day-31 pairs, exactly as
+  Excel does.
+- **`DATEDIF`'s `"MD"` and `"YD"` anchor differently.** Both now count serials from `start` pushed forward by
+  every whole month (year) in the span, with that shift clamped to the target month's last day, instead of
+  borrowing the previous month's length: `DATEDIF(DATE(2024,1,31),DATE(2024,3,1),"MD")` = 1, where the old
+  formula answered −1, and `DATEDIF(DATE(2024,2,29),DATE(2025,3,1),"YD")` = 1.
 
 ## Compatibility — legacy aliases (11)
 

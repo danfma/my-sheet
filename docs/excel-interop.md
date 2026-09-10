@@ -59,7 +59,7 @@ How file content maps into the workbook:
 | Shared / inline string | `StringValue` (rich-text runs flattened to plain text). |
 | Boolean cell | `BooleanValue`. |
 | Error cell | `ErrorValue` (evaluates to the corresponding `Error`). |
-| Date cell | `NumberValue` with the Excel **serial number** (ISO-8601 dates in strict-mode files are converted via `ToOADate`). |
+| Date cell | `NumberValue` with the Excel **serial number** (ISO-8601 dates in strict-mode files are converted onto Excel's own epoch, where serial 1 is 1900-01-01 — see [Function reference → Date and time](function-reference.md#date-and-time-25)). |
 | Style-only / empty cell | Nothing stored — reads as blank. |
 | Shared-formula "slave" (a dragged formula cell carrying no formula text) | A lightweight node sharing the master's parsed tree (see [Shared formulas](#shared-formulas-a-shared-master-tree-with-per-slave-deltas) below) when the master's shape is supported; otherwise expanded into an independent formula exactly as before. |
 | Workbook-scoped defined name (`<definedName>`) | An entry in [`Workbook.DefinedNames`](workbook-and-expressions.md#named-ranges): the `refersTo` text is parsed as a formula. **Sheet-scoped** names (those with a `localSheetId`) and Excel's **builtin `_xlnm.*`** names (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) are skipped. |
@@ -219,7 +219,10 @@ Being honest about what the interop MVP does **not** do:
   the like are not modeled. `Load` ignores them; `SaveAsExcel` does not produce them; `MergeIntoExcel`
   *preserves* the target's existing formatting but cannot create it.
 - **Dates are serial numbers**: they enter and leave as `double`s (Excel's own representation). Apply
-  date formatting in the template (merge flow) or convert with `DateTime.FromOADate` in your code.
+  date formatting in the template (merge flow) or convert to a `DateTime` in your own code — minding the
+  epoch: an Excel serial equals .NET's `DateTime.FromOADate` value only from serial 61 (1900-03-01) upward.
+  Below that Excel counts a day differently and carries a phantom 1900-02-29 at serial 60, so `FromOADate`
+  is wrong there — see [Function reference → Date and time](function-reference.md#date-and-time-25).
 - **Absolute markers are not preserved on write**: `$A$1` parses fine (it identifies the same cell) but
   un-parses as `A1` — a fidelity loss only in `FormulaMode.Formulas` exports, and only cosmetic unless
   you plan to copy/fill formulas in Excel afterwards.

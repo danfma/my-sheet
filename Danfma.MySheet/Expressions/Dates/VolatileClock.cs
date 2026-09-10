@@ -3,7 +3,9 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions.Dates;
 
 // Volatile clock functions (F1): NOW and TODAY. Both read the workbook's injectable TimeProvider in LOCAL
-// time (like Excel) and return an Excel serial (OADate). They mark the evaluation volatile so the cell — and
+// time (like Excel) and return an Excel serial through DateSerial (Workbook.EpochNow), NOT an OLE Automation
+// date — the two coincide only from serial 61 (1900-03-01) up, which is where a clock reading always lands.
+// They mark the evaluation volatile so the cell — and
 // its dependents, transitively — is cached per epoch and refreshed by Workbook.Recalculate(); within an epoch
 // the clock is sampled once (Workbook.EpochNow), so every NOW()/TODAY() in a pass agrees. Zero arguments.
 

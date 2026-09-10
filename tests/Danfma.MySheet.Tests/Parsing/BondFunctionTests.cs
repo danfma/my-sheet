@@ -8,6 +8,12 @@ namespace Danfma.MySheet.Tests.Parsing;
 /// Wave-6 bond math: coupon schedule, PRICE/YIELD/DURATION/MDURATION, accrued interest, single-period
 /// discount securities and T-bills. Expected values come from the <see cref="Financial"/> oracle. Bond day
 /// counts and coupon dates were fuzzed against the oracle across the five bases and three frequencies.
+/// <para>
+/// The oracle's <see cref="DateTime"/> answers are turned into serials with <see cref="DateTime.ToOADate"/>,
+/// which keeps it an INDEPENDENT oracle and is valid only because every fixture date is modern: from serial 61
+/// (1900-03-01) up an Excel serial and the OLE Automation date are the same number. Below that they differ —
+/// see <c>DateEpochTests</c>.
+/// </para>
 /// </summary>
 public class BondFunctionTests
 {

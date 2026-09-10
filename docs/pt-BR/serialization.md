@@ -143,6 +143,16 @@ personalizadas](custom-functions.md) ainda precisam ser registradas novamente: c
 em cache no momento do save (ou que você invalidar) reavaliarão suas chamadas e precisarão da
 implementação presente.
 
+**O epoch de datas do Excel (3.17.0).** O formato do fio não muda: uma data é um `double` de `NumberValue` e
+continua sendo isso, sem nenhuma tag nova de union. O que muda é o que um serial do início de 1900
+SIGNIFICA. Da 3.17.0 em diante, o serial 1 é 1900-01-01, o serial 0 é o dia zero do Excel (1900-01-00) e o
+serial 60 é o 1900-02-29 fantasma do Excel; antes da 3.17.0 o motor lia esses seriais um dia de calendário
+mais cedo (o serial 1 era 1899-12-31). Os seriais a partir de 61 (1900-03-01) — toda data que uma planilha
+real guarda — não são afetados. Um snapshot escrito pela 3.16.x, portanto, recarrega byte a byte igual, mas o
+resultado em cache de uma fórmula sobre a janela `[0, 61)` agora está um dia deslocado: `=DATE(1900,1,1)`
+guardado em cache como `2` é lido de volta como `2` até um `InvalidateCache()`. Se um workbook computa sobre
+datas do início de 1900, invalide o cache uma vez depois de atualizar.
+
 ## Compressão
 
 O MemoryPack otimiza para velocidade, então seu layout é de largura fixa e redundante — o que significa
@@ -206,6 +216,12 @@ carregáveis por versões mais novas da biblioteca.
 Como apenas as tags (nunca os nomes de tipo) vão para o fio, a [reorganização de namespaces da
 2.0](migrating-to-2.0.md) não mudou o formato em absolutamente nada: arquivos salvos pela 1.x carregam
 na 2.0 sem alteração, garantido por uma fixture binária pré-2.0 congelada na suíte de testes.
+
+Versões que mudaram como um valor salvo é *interpretado* sem tocar no formato:
+
+- **3.17.0** — nenhuma mudança de formato e nenhuma tag nova. Os seriais de data do início de 1900
+  (`[0, 61)`) mudam de SIGNIFICADO em um dia de calendário; resultados em cache sobre essa janela precisam de
+  um `InvalidateCache()`.
 
 ### Compatibilidade futura: nós de delta de fórmula compartilhada (tags 319-321)
 
