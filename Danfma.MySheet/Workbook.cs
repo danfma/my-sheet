@@ -34,14 +34,21 @@ public sealed partial class Workbook
     // Memoized cell values; not serialized. Invalidation is explicit (see InvalidateCache). The dense paged
     // store addresses cells numerically (sheet handle + col/row derived on the fly from the A1 id), replacing
     // the old ConcurrentDictionary<(string,string), ComputedValue> — no per-cell box and no per-lookup string
-    // tuple hash. Lazily created race-free (never `= new()` on the field: MemoryPack bypasses initializers).
+    // tuple hash. Created lazily and race-free by the ValueStore getter (an Interlocked publish); never
+    // `= new(...)` on the field, because a field initializer runs BEFORE the constructor body and would
+    // therefore capture ValueStoreOptions.Default even for `new Workbook(options)` — pinned by
+    // ValueStoreOptionsTests.CustomPageSize_FlowsToStore_AndComputesCorrectly.
     [MemoryPackIgnore]
     private SheetValueStore? _valueStore;
 
     // The value-store geometry this workbook was constructed with (page/group sizes, sparsity thresholds).
     // Runtime CONFIG, not document state: [MemoryPackIgnore], so the wire schema is untouched and it comes back
-    // null after a Load — the ValueStore accessor falls back to ValueStoreOptions.Default in that case (the
-    // field-initializer bypass lesson: never rely on `= ...` here). Captured once at construction; immutable.
+    // null after a Load: the generated deserializer materializes the workbook with `new Workbook() { … }`, and
+    // an object initializer over the parameterless [MemoryPackConstructor] never assigns an ignored member, so
+    // this field keeps what that constructor left — nothing. The ValueStore accessor falls back to
+    // ValueStoreOptions.Default in that case (pinned by
+    // ValueStoreOptionsTests.DeserializedWorkbook_FallsBackToDefaultGeometry_AndEvaluates). Captured once at
+    // construction; immutable.
     [MemoryPackIgnore]
     private ValueStoreOptions? _valueStoreOptions;
 
@@ -128,8 +135,10 @@ public sealed partial class Workbook
     // Workbook so the schema is append-only — files written before it existed (object header 0x01 or 0x02
     // instead of 0x03) still load with this field NULL, which RestoreComparers turns into an empty registry.
     // A private serialized field behind a read-only projection (the Sheet._cells/Sheet.Cells shape) so that,
-    // unlike DefinedNames, no caller can mutate the map behind DefinitionsVersion's back. The initializer
-    // runs only for a fresh `new Workbook()`; MemoryPack bypasses it on deserialize.
+    // unlike DefinedNames, no caller can mutate the map behind DefinitionsVersion's back. This initializer
+    // runs on deserialize too — the generated formatter materializes the workbook as
+    // `new Workbook() { Sheets = …, DefinedNames = …, _tables = … }`, so the object initializer OVERWRITES the
+    // fresh map with whatever the reader produced, which is null for a file that carries no third member.
     [MemoryPackInclude]
     private Dictionary<string, Table> _tables = new(StringComparer.OrdinalIgnoreCase);
 

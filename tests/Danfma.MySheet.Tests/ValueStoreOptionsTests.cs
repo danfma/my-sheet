@@ -284,8 +284,10 @@ public class ValueStoreOptionsTests
             MemoryPackSerializer.Serialize(custom)
         )!;
 
-        // The custom options are gone (runtime config, not persisted): the restored workbook uses the defaults,
-        // with no NullReferenceException from the bypassed field initializer (the F1 lesson).
+        // The custom options are gone (runtime config, not persisted): the generated formatter materializes the
+        // workbook through the parameterless [MemoryPackConstructor] and assigns only the serialized members, so
+        // _valueStoreOptions comes back null and the ValueStore getter's `?? Default` is what keeps this from
+        // being a NullReferenceException (the F1 lesson).
         await Assert.That(loaded.ValueStoreForTesting.ConfiguredPageRows).IsEqualTo(1024);
         await Assert.That(loaded.ValueStoreForTesting.ConfiguredColumnGroupSize).IsEqualTo(64);
 

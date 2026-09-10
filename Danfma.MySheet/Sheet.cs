@@ -37,10 +37,11 @@ public sealed partial class Sheet : IEnumerable<KeyValuePair<string, Expression>
 
     // The write-maintained structural index (whole-column scale), owned per-Sheet because the write choke
     // point lives here. Runtime-only: [MemoryPackIgnore] so it never touches the wire schema, and lazily
-    // created race-free via GetStructuralIndex (never `= new()` on the field — MemoryPack bypasses field
-    // initializers on deserialize, so a loaded sheet starts with a null index and rebuilds it once on its
-    // first open-range read). Built lazily, then kept up to date by SetCell/Remove; it SURVIVES
-    // Workbook.InvalidateCache (structure is orthogonal to the value caches).
+    // created race-free via GetStructuralIndex (no `= new()` on the field: a field initializer cannot pass
+    // `this` to SheetStructuralIndex, and the field is ignored on the wire, so a loaded sheet starts with a
+    // null index and rebuilds it once on its first open-range read — the generated formatter materializes the
+    // sheet as `new Sheet() { … }` and assigns only the serialized members). Built lazily, then kept up to date
+    // by SetCell/Remove; it SURVIVES Workbook.InvalidateCache (structure is orthogonal to the value caches).
     [MemoryPackIgnore]
     private SheetStructuralIndex? _structuralIndex;
 
