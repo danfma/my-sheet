@@ -285,12 +285,15 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
 
 - [ ] **21.** Lone `d` / `m` / `y` format tokens inside the 1900 window. Phase 9's token-substitution rendering
       fixed every serial at or above 61 (`TEXT(45366,"d")` = 15, `"m"` = 3, `"y"` = 24, `"s"` = 0, `"h"` = 12 —
-      all now matching the oracle where several previously printed a whole date or `#VALUE!`), but below 61 Aspose
-      reads a lone token off the DateTime map with neither this engine's rule nor Excel's documented one:
-      measured `TEXT(0,"d")` = 31, `TEXT(60,"d")` = 28, `TEXT(0,"m")` = 12, `TEXT(0,"y")` = 99 against 0, 29, 1
-      and 00 here. Phase 9 pinned MySheet's answers in `Text_LoneFieldTokens` so they cannot move silently.
-      Decide whether to match the oracle here at all: it is inside the window where the user already granted an
-      exception for the working-day family, and the same reasoning may apply.
+      all now matching the oracle where several previously printed a whole date or `#VALUE!`), but below 61 the two disagree. **The rule is derivable** — Phase 9's
+      reviewer found it, correcting the earlier "no rule" reading: Aspose reads a run of ONE letter off the raw
+      DateTime map and a run of TWO or more off the day-zero/phantom-aware map. Measured (PLAIN, 2026-09-09):
+      `TEXT(60,"d")` = 28 but `TEXT(60,"dd")` = 29, and `TEXT(60,"xdd")` = 29; `TEXT(0,"d")` = 31,
+      `TEXT(0,"m")` = 12, `TEXT(0,"y")` = "99". MySheet uses the phantom-aware map at every run length and
+      answers 29 / 29 / 0 / 1 / "00". All of it is now pinned in `Text_LoneFieldTokens`, both the parity rows and
+      the divergence. Since the rule IS consistent, matching it is a small, well-defined change — unlike the
+      working-day family, where the user's exception rests on Aspose being self-contradictory. Decide on that
+      basis.
       *Files:* `Danfma.MySheet/Expressions/Text/Text.cs`, `tests/Danfma.MySheet.Tests/Parsing/TextFormatTests.cs`
       *Why:* Narrow (four serials) but it is the last unexplained 1900 divergence after Phase 9, and it is already
       pinned, so the decision is cheap to act on.

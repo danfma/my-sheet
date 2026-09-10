@@ -75,11 +75,18 @@ public class TextFormatTests
         await Assert.That(Calc("=TEXT(45366.5,\"hh:mm mmmm\")") as string).IsEqualTo("12:00 March");
     }
 
-    // A format that is ONE letter is an OPEN QUESTION in Phase 9, recorded in the phase file as a P0 work
-    // item: Aspose answers the plain field (TEXT(45366,"d") = 15, "m" = 3, "y" = 24, "s" = 0, "h" = 0) and so
-    // does MySheet now, but the two still disagree inside the 1900 window, where Aspose reads a lone d/m/y
-    // off the DateTime map with no day-zero and no phantom rule: TEXT(0,"d") = 31 and TEXT(60,"d") = 28
-    // against 0 and 29 here. Pinned as MySheet answers so the open question cannot move silently.
+    // A format that is ONE letter is an OPEN QUESTION in Phase 9, recorded as a sweep work item. Aspose
+    // answers the plain field (TEXT(45366,"d") = 15, "m" = 3, "y" = 24, "s" = 0, "h" = 12) and so does MySheet
+    // now, but the two disagree inside the 1900 window. The rule Aspose follows there was DERIVED by Phase 9's
+    // reviewer and it is not "no rule": a run of ONE letter reads the raw DateTime map, a run of TWO or more
+    // reads the day-zero/phantom-aware map. Measured on Aspose.Cells 26.6.0 (PLAIN, 2026-09-09):
+    // TEXT(60,"d") = 28 but TEXT(60,"dd") = 29, and TEXT(60,"xdd") = 29; TEXT(0,"d") = 31, TEXT(0,"m") = 12,
+    // TEXT(0,"y") = "99". MySheet answers 29 / 29 / 29 / 0 / 1 / "00" — the phantom-aware map at every run
+    // length. Both sides are asserted below so neither can move silently: the modern rows are parity, the
+    // 1900 rows are the pinned divergence.
+    //
+    // The four 1900 assertions exist because an earlier version of this comment CLAIMED they were pinned when
+    // they were not — a sentence stating a test that did not exist.
     [Test]
     public async Task Text_LoneFieldTokens()
     {
@@ -90,6 +97,16 @@ public class TextFormatTests
         await Assert.That(Calc("=TEXT(45366,\"m/d\")") as string).IsEqualTo("3/15");
         await Assert.That(Calc("=TEXT(45366.5,\"h\")") as string).IsEqualTo("12");
         await Assert.That(Calc("=TEXT(45366.5,\"s\")") as string).IsEqualTo("0");
+
+        // Inside the 1900 window MySheet reads the phantom-aware map at EVERY run length, so a lone token
+        // disagrees with Aspose (its measured answers in the comment above). These four are the divergence.
+        await Assert.That(Calc("=TEXT(0,\"d\")") as string).IsEqualTo("0");
+        await Assert.That(Calc("=TEXT(60,\"d\")") as string).IsEqualTo("29");
+        await Assert.That(Calc("=TEXT(0,\"m\")") as string).IsEqualTo("1");
+        await Assert.That(Calc("=TEXT(0,\"y\")") as string).IsEqualTo("00");
+
+        // The run-length contrast that identifies Aspose's rule: two letters agree on both engines.
+        await Assert.That(Calc("=TEXT(60,\"dd\")") as string).IsEqualTo("29");
     }
 
     [Test]
