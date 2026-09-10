@@ -794,32 +794,37 @@ public class MiniCseConsumerTests
     }
 
     [Test]
-    public async Task CriteriaFamily_OverABroadcastArray_StillRefusesIt()
+    public async Task CriteriaFamily_OverABroadcastArray_IsRef()
     {
-        // The sixth consumer stays the odd one out after Phase 10 exactly as it was before it:
-        // CriteriaScan.Open is deliberately NOT CriteriaScan.OpenArrayOrRange, so SUMIF/SUMIFS/COUNTIF
-        // never see a computed array — broadcast or not — and answer from the scalar path instead.
+        // The sixth consumer stays the odd one out after Phase 10, and Phase 11a Rule B makes that explicit:
+        // CriteriaScan.Open is deliberately NOT CriteriaScan.OpenArrayOrRange, so SUMIF/SUMIFS/COUNTIF never
+        // stream a computed array — broadcast or not — and now REJECT it with #REF! rather than answering
+        // from the collapsed scalar path (0, #VALUE!, 0 and 0, #VALUE!, 0 at 0b93d66, the divergence this
+        // test used to pin deliberately).
         //
-        // This is a DIVERGENCE, pinned deliberately, not a rule. Aspose.Cells 26.6.0, measured
-        // 2026-09-10: all six lines below are #REF! CSE-entered (#VALUE! entered plainly). Closing it is
-        // Phase 11's, and it has to be an edit to these lines rather than a silent change of answer.
-        // Green on arrival, and the composite half is what Task 3's opening of the composite path makes
-        // worth pinning: the criteria family must not start seeing composites either.
-        await Assert.That(Num(OnBroadcastGrid("=SUMIF(A1:C3*H1:H2,\">0\")"))).IsEqualTo(0.0);
+        // Aspose.Cells 26.6.0, measured 2026-09-10: all six lines below are #REF! array-entered (#VALUE!
+        // entered plainly — a different mode, never compared against these). The composite half is what
+        // Task 3's opening of the composite path made worth pinning: the criteria family must not start
+        // seeing composites either, and rejecting them is how it does not.
+        await Assert
+            .That(OnBroadcastGrid("=SUMIF(A1:C3*H1:H2,\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
             .That(OnBroadcastGrid("=SUMIFS(A1:C3,A1:C3*H1:H2,\">0\")"))
-            .IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(Num(OnBroadcastGrid("=COUNTIF(A1:C3*H1:H2,\">0\")"))).IsEqualTo(0.0);
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnBroadcastGrid("=COUNTIF(A1:C3*H1:H2,\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
 
         // The same three over a COMPOSITE read at a foreign extent.
         await Assert
-            .That(Num(OnBroadcastGrid("=SUMIF((A1:A3*H1:H2)*E5:G5,\">0\")")))
-            .IsEqualTo(0.0);
+            .That(OnBroadcastGrid("=SUMIF((A1:A3*H1:H2)*E5:G5,\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
             .That(OnBroadcastGrid("=SUMIFS(A1:C3,(A1:A3*H1:H2)*E5:G5,\">0\")"))
-            .IsEqualTo(ErrorValue.NotValue);
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
-            .That(Num(OnBroadcastGrid("=COUNTIF((A1:A3*H1:H2)*E5:G5,\">0\")")))
-            .IsEqualTo(0.0);
+            .That(OnBroadcastGrid("=COUNTIF((A1:A3*H1:H2)*E5:G5,\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 }

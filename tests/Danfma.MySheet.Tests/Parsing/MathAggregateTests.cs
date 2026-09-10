@@ -146,46 +146,51 @@ public class MathAggregateTests
     }
 
     [Test]
-    public async Task CriteriaFamily_StillRefusesAComputedArray()
+    public async Task CriteriaFamily_RejectsAComputedArrayWithRef()
     {
         // The negative control for the arm above: SUMPRODUCT is the one member of the positional-scan family
-        // that opted IN to computed arrays (PositionalRange.OpenArrayOrRange), and its siblings keep the
-        // plain PositionalRange.Open, where a non-reference argument falls to ArgumentFlattening's `default`
-        // arm and is EVALUATED as a scalar — (A1:A3)*1 is then a one-element sequence holding the #VALUE! of
-        // a range in an arithmetic operation. "Refuses" therefore has two SHAPES, and both are pinned
-        // because only one of them is an error.
+        // that opted IN to computed arrays (PositionalRange.OpenArrayOrRange). Its siblings did NOT move onto
+        // that factory — Phase 11a Rule B has them REJECT a computed array in a range slot with #REF!
+        // instead: the slot takes a reference, and a non-reference node the mini-CSE would stream is refused
+        // before the scan opens. Aspose.Cells 26.6.0, measured 2026-09-10: #REF! array-entered for every line
+        // below (#VALUE! entered plainly — a different mode, never compared against these).
         //
-        // PAIRED forms — a real criteria range beside the collapsed argument — see 1 element against 3 and
-        // raise the scan's up-front length mismatch. Excel says #VALUE! here too, so this half is parity.
-        // All four are listed because the docs name them as a group: a family member drifting off this
-        // shared mismatch check would otherwise leave the docs' "four shapes" sentence quietly wrong.
+        // Before Rule B "refuses" had two SHAPES, and both were pinned because only one of them was an error.
+        // PAIRED forms — a real criteria range beside the collapsed argument — saw 1 element against 3 and
+        // raised the scan's up-front length mismatch (#VALUE! at 0b93d66). All four are listed because the
+        // docs name them as a group.
         await Assert
             .That(Calc("=SUMIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
-            .IsEqualTo(ErrorValue.NotValue);
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
             .That(Calc("=AVERAGEIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
-            .IsEqualTo(ErrorValue.NotValue);
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
             .That(Calc("=MAXIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
-            .IsEqualTo(ErrorValue.NotValue);
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
             .That(Calc("=MINIFS((A1:A3)*1,A1:A3,\">0\")", FlagData))
-            .IsEqualTo(ErrorValue.NotValue);
+            .IsEqualTo(ErrorValue.Reference);
 
-        // SINGLE-criteria forms have nothing to mismatch against: the lone #VALUE! element matches no
-        // criterion, so SUMIF/COUNTIF report an empty scan (0) and AVERAGEIF divides by a zero count. These
-        // are SILENT answers, not errors, which is exactly why they are pinned — a reader who assumes the
-        // whole family errors would be wrong, and any move of these consumers onto OpenArrayOrRange has to
-        // change this line deliberately.
-        await Assert.That(Calc("=SUMIF((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
-        await Assert.That(Calc("=COUNTIF((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
-        // COUNTIFS belongs to the SILENT half despite its plural name: its first argument IS the criteria
+        // SINGLE-criteria forms had nothing to mismatch against: the lone #VALUE! element matched no
+        // criterion, so SUMIF/COUNTIF reported an empty scan (0 at 0b93d66) and AVERAGEIF divided by a zero
+        // count (#DIV/0!). Those were SILENT answers, which is exactly why they were pinned and why the gate
+        // exists: a shipped FILTER behind them would be silently wrong.
+        await Assert
+            .That(Calc("=SUMIF((A1:A3)*1,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=COUNTIF((A1:A3)*1,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.Reference);
+        // COUNTIFS belonged to the SILENT half despite its plural name: its first argument IS the criteria
         // range, so a single pair has no second length to disagree with. The docs state the four shapes as
         // pinned, and this is the line that makes COUNTIFS part of that claim.
-        await Assert.That(Calc("=COUNTIFS((A1:A3)*1,\">0\")", FlagData)).IsEqualTo(0.0);
+        await Assert
+            .That(Calc("=COUNTIFS((A1:A3)*1,\">0\")", FlagData))
+            .IsEqualTo(ErrorValue.Reference);
         await Assert
             .That(Calc("=AVERAGEIF((A1:A3)*1,\">0\")", FlagData))
-            .IsEqualTo(ErrorValue.DivByZero);
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     [Test]

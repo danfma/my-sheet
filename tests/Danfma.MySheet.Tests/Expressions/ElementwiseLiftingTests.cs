@@ -420,27 +420,31 @@ public class ElementwiseLiftingTests
     }
 
     [Test]
-    public async Task LiftedShapes_OverADefinedName_AreNotLifted_KnownDivergence()
+    public async Task LiftedShapes_OverADefinedName_AreLifted()
     {
-        // A defined name is captured as a reference VALUE, so it reaches the mini-CSE as an opaque scalar
-        // unless the consuming shape resolves the name itself. ROW/COLUMN do (Phase 7 gave them that path);
-        // nothing else does, so EVERY other array shape over a name is a gap. Oracle, against the answers
-        // pinned here: SUM(LEN(MyName)) = 6, SUM(-MyName) = -356, SUM(MyName%) = 3.56, SUM(MyName*2) = 712.
-        await Assert.That(OnNamedLengths("=SUM(LEN(MyName))")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(OnNamedLengths("=SUM(-MyName)")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(OnNamedLengths("=SUM(MyName%)")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(OnNamedLengths("=SUM(MyName*2)")).IsEqualTo(ErrorValue.NotValue);
+        // Phase 11a Rule A: a defined name in an array position is whatever it is bound to, so every lifted
+        // shape over MyName answers what it answers over the literal A1:A3. Before that arm the name was
+        // captured as a reference VALUE and reached the mini-CSE as an opaque scalar; ROW/COLUMN resolved the
+        // name themselves (Phase 7 gave them that path) and nothing else did. Aspose.Cells 26.6.0, re-measured
+        // 2026-09-10, ARRAY-ENTERED column: 6, -356, 3.56, 712 (plain is #VALUE! on all four — implicit
+        // intersection, no signal). Pinned as #VALUE! ×4 until this phase.
+        await Assert.That(Num(OnNamedLengths("=SUM(LEN(MyName))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnNamedLengths("=SUM(-MyName)"))).IsEqualTo(-356.0);
+        await Assert.That(Num(OnNamedLengths("=SUM(MyName%)"))).IsEqualTo(3.56).Within(Tolerance);
+        await Assert.That(Num(OnNamedLengths("=SUM(MyName*2)"))).IsEqualTo(712.0);
 
-        // The COMPARISON shapes are the load-bearing half of this pin, because they are SILENT rather than
-        // errors: the name collapses to its first cell, 1 > 1 is FALSE, and IF's else branch answers 1 — a
-        // plausible number where the oracle answers 2 (22 and 333 both exceed 1). A reader who only saw the
-        // #VALUE!s above would think the gap always announces itself.
-        await Assert.That(Num(OnNamedLengths("=SUM(IF(MyName>1,1,0))"))).IsEqualTo(1.0);
-        await Assert.That(Num(OnNamedLengths("=SUMPRODUCT(--(MyName>1))"))).IsEqualTo(1.0);
-        await Assert.That(Num(OnNamedLengths("=SUM((MyName>1)*1)"))).IsEqualTo(1.0);
+        // The COMPARISON shapes are the load-bearing half of this pin, because before the arm they were
+        // SILENT rather than errors: the name collapsed to one truthy reference value, and each of the three
+        // answered 1 — a plausible number where the oracle answers 2 (22 and 333 both exceed 1). Aspose
+        // 26.6.0 array-entered: 2, 2, 2 (plain: #VALUE!, 2, #VALUE! — SUMPRODUCT's own array entry makes the
+        // plain column agree there, and only there).
+        await Assert.That(Num(OnNamedLengths("=SUM(IF(MyName>1,1,0))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnNamedLengths("=SUMPRODUCT(--(MyName>1))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnNamedLengths("=SUM((MyName>1)*1)"))).IsEqualTo(2.0);
 
-        // The controls: reading the name is unaffected (356 on both engines), and ROW over it IS lifted
-        // (6 on both), which is what makes this a gap about the LIFTED shapes and not about names.
+        // The controls: reading the name is unaffected (356 in both modes), and ROW over it was lifted
+        // before this phase (6 array-entered; plain is 1 — implicit intersection), which is what made the
+        // old pin a gap about the LIFTED shapes and not about names.
         await Assert.That(Num(OnNamedLengths("=SUM(MyName)"))).IsEqualTo(356.0);
         await Assert.That(Num(OnNamedLengths("=SUM(ROW(MyName))"))).IsEqualTo(6.0);
     }
