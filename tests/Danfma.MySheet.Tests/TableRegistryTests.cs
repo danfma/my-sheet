@@ -160,6 +160,45 @@ public class TableRegistryTests
             .Throws<ArgumentException>();
     }
 
+    // === The A1 overload's `reference` parsing ============================================================
+    //
+    // `reference` is the BARE xlsx <table ref="…"> string, so the only two accepted shapes are one A1 corner
+    // ("C2") and two separated by a single ':'. These cases were implemented alongside the overload itself
+    // (Workbook.TryParseTableReference), so every assertion below is GREEN on arrival: they are regression
+    // pins for the malformed-input rejections, not a red-to-green cycle.
+
+    [Test]
+    [Arguments("A1:B4:C5")] // two colons: the text after the first ':' is not a bare A1 corner
+    [Arguments("Data!A1:B4")] // a sheet qualifier: `sheetName` carries the sheet, `reference` never does
+    [Arguments("A0:B4")] // row 0 does not exist (CellAddress.TryParseRow rejects it)
+    public async Task A1Overload_MalformedReference_Throws(string reference)
+    {
+        var wb = new Workbook();
+
+        await Assert
+            .That(() => wb.DefineTable("T", "Data", reference, ["Produto", "Total"]))
+            .Throws<ArgumentException>();
+    }
+
+    // The two shapes that DO parse: CellAddress.TryParseA1 skips the absolute markers and
+    // TryParseTableReference normalizes the corners with Math.Min/Math.Max, so both register the same geometry
+    // as the plain "A1:B4" of Sample().
+    [Test]
+    [Arguments("$A$1:$B$4")]
+    [Arguments("B4:A1")] // reversed corners
+    public async Task A1Overload_AbsoluteMarkersAndReversedCorners_AreAccepted(string reference)
+    {
+        var wb = new Workbook();
+
+        wb.DefineTable("T", "Data", reference, ["Produto", "Total"]);
+        var table = wb.Tables["T"];
+
+        await Assert.That(table.FirstRow).IsEqualTo(1);
+        await Assert.That(table.LastRow).IsEqualTo(4);
+        await Assert.That(table.FirstColumn).IsEqualTo(1);
+        await Assert.That(table.LastColumn).IsEqualTo(2);
+    }
+
     [Test]
     public async Task FirstRowZero_Throws()
     {
