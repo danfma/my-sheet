@@ -517,6 +517,35 @@ public class DynamicArrayTests
             .IsEqualTo(1.0);
     }
 
+    [Test]
+    public async Task TheReferenceGuard_SeesAGhostSheet_ThroughTheThreeSelectors()
+    {
+        // Item 13. ReferenceGuard.MissingSheet is the SYNTACTIC pass the error-IGNORING family (COUNT, and
+        // ROWS before its own resolution) runs over its argument nodes so a deleted sheet is a structural
+        // #REF! rather than an empty range it silently counts as 0; without an arm for FILTER/SORT/UNIQUE the
+        // guard's default arm ignores a producer and COUNT answers 0, exactly the hole the guard exists to
+        // close. The three arms stand for the producer's SOURCE argument the way the unary-plus arm stands
+        // for its operand; SEQUENCE has no reference argument and needs none.
+        //
+        // The project's policy here is set by MissingSheetReferenceTests (COUNT(Ghost!A:A) = #REF!), and the
+        // oracle does NOT share it: Aspose.Cells 26.6.0, 2026-09-10, plain == CSE, COUNT(Ghost!A1:A3) = 0 and
+        // COUNT(FILTER(Ghost!A1:A3,Ghost!B1:B3>0)) = COUNT(SORT(Ghost!A1:A3)) = COUNT(UNIQUE(Ghost!A1:A3)) = 0
+        // — the same silent hole, one function up — while SUM(Ghost!A1:A3), SUM(FILTER(Ghost!…)) and
+        // ROWS(FILTER(Ghost!A1:A3,Ghost!B1:B3>0)) are #REF! in both modes. The COUNT rows therefore pin the
+        // existing policy, not the oracle; the ROWS row pins both.
+        // Observed today (registered, no arm): 0 for the three COUNT rows and #REF! for ROWS.
+        await Assert
+            .That(Calc("=COUNT(FILTER(Ghost!A1:A3,Ghost!B1:B3>0))", Grid))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Calc("=COUNT(SORT(Ghost!A1:A3))", Grid)).IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=COUNT(UNIQUE(Ghost!A1:A3))", Grid))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=ROWS(FILTER(Ghost!A1:A3,Ghost!B1:B3>0))", Grid))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
     // ------------------------------------------------------------------ consumers
 
     [Test]

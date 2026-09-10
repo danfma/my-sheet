@@ -93,6 +93,19 @@ internal static class ReferenceGuard
                     ? MissingSheet(resolvedRange!, context)
                     : Error.Ref;
 
+            // Phase 7: the three axis-selection producers stand for their SOURCE array the way the unary-plus
+            // arm above stands for its operand — COUNT(FILTER(Ghost!A1:A3,…)) must be the same structural
+            // #REF! as COUNT(Ghost!A1:A3), not the silent 0 an empty selection would count to. SEQUENCE has
+            // no reference argument and needs no arm; the include/flag slots are read by the build itself.
+            case Lookup.Filter filter:
+                return MissingSheet(filter.Arguments[0], context);
+
+            case Lookup.Sort sort:
+                return MissingSheet(sort.Arguments[0], context);
+
+            case Lookup.Unique unique:
+                return MissingSheet(unique.Arguments[0], context);
+
             default:
                 return null;
         }
