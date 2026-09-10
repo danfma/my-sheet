@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.18.0"></a>
+## [3.18.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.18.0) (2026-09-10)
+
+### Features
+
+* **criteria:** a computed array in a criteria-family range slot is #REF! ([cf8707b](https://www.github.com/danfma/my-sheet/commit/cf8707b852bf5c7f47e590e8fde040caba2951d4))
+* **eval:** a defined name in an array position is whatever it is bound to ([8ae501d](https://www.github.com/danfma/my-sheet/commit/8ae501d98cae62deefc8e97a5a839dc130aaf51a))
+
 <a name="3.17.0"></a>
 ## [3.17.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.17.0) (2026-09-10)
 
