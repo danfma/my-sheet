@@ -266,17 +266,25 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       `tests/Danfma.MySheet.Tests/Parsing/DateWorkdayTests.NetworkDaysIntl_InvalidWeekendArgs` — so under the P0
       addendum (a measurement beats a page) the test's expectation changes with the code, and its comment must
       record that the page said `#VALUE!` and the oracle says `#NUM!`.
+      **Also measured by Phase 9's fix wave, same family:** with `days` = 0 Aspose answers the start serial even
+      when the weekend argument is INVALID (`WORKDAY.INTL(45366,0,0)` = `WORKDAY.INTL(45366,0,"00X0011")` = 45366),
+      while MySheet errors, because weekend parsing runs before `Advance`'s zero-days shortcut. Phase 9 put the
+      zero-days shortcut ahead of the all-weekend guard only; this needs it ahead of weekend PARSING too. Pin both
+      the valid-mask and invalid-weekend forms of `days` = 0.
       *Files:* `Danfma.MySheet/Expressions/Dates/WorkdayFunctions.cs`, `tests/Danfma.MySheet.Tests/Parsing/DateWorkdayTests.cs`, `docs/function-reference.md`, `docs/pt-BR/function-reference.md`
       *Why:* Cheap, and it is the clearest live example of the addendum's rule: a page-sourced golden that the
       oracle contradicts.
 
-- [ ] **19.** `WORKDAY` can CRASH instead of answering. `Workday.Advance` calls `Math.Abs(days)` on an `int`, so
-      `WORKDAY(x, -2147483648)` throws `OverflowException` out of evaluation — an exception escaping into the host
-      application, which is worse than any wrong answer, and pre-existing (verbatim from before Phase 9). The
-      oracle is no guide here: it answers 45366 for that input and itself throws on `WORKDAY(45366,2147483647)`
-      and `WORKDAY(2958465,1)`. Also measured: `WORKDAY(45366,100000000)` = 140045366 on Aspose, past 9999-12-31,
-      against `#NUM!` here. Decide MySheet's own contract — no evaluation may throw; an out-of-range result is
-      `#NUM!` — and pin the extremes, including `int.MinValue`, `int.MaxValue` and a jump past the maximum serial.
+- [ ] **19.** `WORKDAY` and `WORKDAY.INTL` CRASH instead of answering, for a whole interval of inputs rather than one
+      literal value. Measured by Phase 9's fix wave: `WORKDAY(45362,-3000000000)` throws
+      `OverflowException: Negating the minimum value of a twos complement number is invalid.` at
+      `Danfma.MySheet/Expressions/Dates/WorkdayFunctions.cs:393` (`var remaining = Math.Abs(days);`), reached from
+      `Workday.Evaluate` (:353). The cause is line 392's `(int)Math.Truncate(daysArg)`, which SATURATES every
+      `days` at or below -2147483648 to `int.MinValue` — so the crash covers the entire open interval below that,
+      not just the literal, and `WORKDAY.INTL` reaches the same line. An exception escaping evaluation into the
+      host is worse than any wrong answer. The oracle is no guide: Aspose answers 45362 for this input and itself
+      throws on other extremes. Set MySheet's own contract — no evaluation throws, an out-of-range result is
+      `#NUM!` — and pin the interval ends plus a saturating value, for both functions.
       *Files:* `Danfma.MySheet/Expressions/Dates/WorkdayFunctions.cs`, `tests/Danfma.MySheet.Tests/Parsing/DateWorkdayTests.cs`
       *Why:* This is a robustness bug, not a compatibility one, and it is the only item in the sweep where
       matching the oracle is explicitly NOT the goal — Aspose crashes too.
