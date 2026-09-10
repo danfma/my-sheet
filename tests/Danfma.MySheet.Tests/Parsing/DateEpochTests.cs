@@ -10,14 +10,27 @@ namespace Danfma.MySheet.Tests.Parsing;
 // from serial 61 (1900-03-01) on the two systems agree numerically, which is why the map change moves no
 // modern date.
 //
-// Provenance: every expected value in this file was MEASURED on Aspose.Cells 26.6.0 on 2026-09-09 — PLAIN cell entry (a
-// formula assigned to a cell), not CSE — and not quoted from a documentation page, because no page produces
-// these numbers. Aspose is the oracle for "Excel" under the master plan's P0 rule.
+// Provenance — this file holds TWO kinds of expectation, and the difference matters:
 //
-// The Guard_* tests are GREEN today and must STAY green. They are the rows the central epoch map ALONE
-// regresses: day counts that agree only because the old epoch's off-by-one cancels between the two ends, and
-// the working-day rows the shifted calendar would move. A Guard_* failure is a REGRESSION, never progress.
-// They are deliberately kept in their own tests so that a RED pin failing first can never hide one.
+// (1) ORACLE PINS, the default here. Every ORACLE value quoted in this file was MEASURED on Aspose.Cells
+//     26.6.0 on 2026-09-09 — PLAIN cell entry (a formula assigned to a cell), not CSE — and never quoted from
+//     a documentation page, because no page produces these numbers. Aspose is the oracle for "Excel" under
+//     the master plan's P0 rule.
+// (2) WALK PINS, the working-day rows below serial 61 in Guard_WorkdayRowsTheRealCalendarWalkMustNotMove and
+//     Guard_WorkdayRowsWhereTheOracleContradictsItselfMustNotMove. Their EXPECTED value is what MySheet's
+//     real-calendar serial walk produces, NOT what Aspose answers, by CONTROLLER RULING under the USER RULING
+//     of 2026-09-09: Aspose has no derivable rule there and contradicts itself, so there is nothing
+//     consistent to pin. Every one of those rows records Aspose's measured answer beside the assertion, so
+//     the size of the accepted deviation stays visible; a row commented "agree" is both kinds at once. The
+//     sub-61 rows of NetworkDays_CountsSerialsOnTheRealCalendar and Workday_StepsSerialsOnTheRealCalendar are
+//     walk pins too — they simply coincide with the oracle on every shape they use, as each says.
+//
+// The Guard_* tests are GREEN today and must STAY green. Most of them are the rows the central epoch map
+// ALONE regresses: day counts that agree only because the old epoch's off-by-one cancels between the two
+// ends, and the working-day rows the shifted epoch map would move. The two working-day guards also carry the
+// accepted deviations of kind (2), which is why they may not be deleted — a deleted row is an invisible
+// deviation. A Guard_* failure is a REGRESSION, never progress. They are deliberately kept in their own tests
+// so that a RED pin failing first can never hide one.
 public class DateEpochTests
 {
     // The 30/360 and Actual/365 pins are exact ratios of small integers; 1e-10 is far tighter than any
@@ -44,6 +57,10 @@ public class DateEpochTests
         sheet["M3"] = new NumberValue(45370d); // Tuesday
         sheet["M4"] = new NumberValue(45371d); // Wednesday
         sheet["M6"] = new NumberValue(45363d); // Tuesday, inside the span 45362..45366
+
+        // A holiday inside the 1900 window, for the NETWORKDAYS row Aspose contradicts itself on. MySheet has
+        // no array-constant syntax, so a holiday argument has to come from a cell.
+        sheet["J1"] = new NumberValue(59d); // 1900-02-28 — inside the span 58..62
 
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
@@ -328,17 +345,17 @@ public class DateEpochTests
             .Within(RatioTolerance);
     }
 
-    // --- NETWORKDAYS / WORKDAY: the working-day family walks the shifted calendar. ---
+    // --- NETWORKDAYS / WORKDAY: the working-day family walks the REAL calendar on serials. ---
     //
     // The walk runs on SERIALS and reads each weekday off the serial through the central map, so Excel's
     // phantom serial 60 is a day of the walk (a working Wednesday, the same day serial 59 names) and a holiday
     // set keyed by serial can never drift. Below serial 61 the walk is the REAL calendar by CONTROLLER RULING
     // under the USER RULING of 2026-09-09, not Aspose's composite; every row in the two tests immediately
     // below happens to agree with Aspose anyway, and the rows that do not are re-pinned in
-    // Guard_WorkdayRowsTheShiftedCalendarMustNotMove with both numbers recorded.
+    // Guard_WorkdayRowsTheRealCalendarWalkMustNotMove with both numbers recorded.
 
     [Test]
-    public async Task NetworkDays_CountsOnTheShiftedCalendar()
+    public async Task NetworkDays_CountsSerialsOnTheRealCalendar()
     {
         // Aspose (26.6.0, 2026-09-09, PLAIN) and the real-calendar serial walk agree on every row here.
         await Assert.That(Num("=NETWORKDAYS(1,10)")).IsEqualTo(8d);
@@ -352,7 +369,7 @@ public class DateEpochTests
     }
 
     [Test]
-    public async Task Workday_StepsOnTheShiftedCalendar()
+    public async Task Workday_StepsSerialsOnTheRealCalendar()
     {
         // Every argument is a serial <= 60, so by the CONTROLLER RULING these pin the real-calendar walk — and
         // on these six shapes the walk reproduces Aspose exactly (26.6.0, 2026-09-09, PLAIN: 8, 12, 15, 15, 1,
@@ -465,7 +482,7 @@ public class DateEpochTests
     }
 
     [Test]
-    public async Task Guard_WorkdayRowsTheShiftedCalendarMustNotMove()
+    public async Task Guard_WorkdayRowsTheRealCalendarWalkMustNotMove()
     {
         // RE-PINNED by CONTROLLER RULING at Task 2 close, under the USER RULING of 2026-09-09: every argument
         // here is a serial <= 60, so these rows are NOT Aspose pins any more. They pin the REAL-calendar serial
@@ -487,6 +504,38 @@ public class DateEpochTests
         await Assert.That(Num("=WORKDAY(6,1)")).IsEqualTo(8d); // walk 8, Aspose 9 — accepted deviation
         await Assert.That(Num("=WORKDAY(6,4)")).IsEqualTo(11d); // walk 11, Aspose 12 — accepted deviation
         await Assert.That(Num("=WORKDAY(13,1)")).IsEqualTo(15d); // walk 15, Aspose 16 — accepted deviation
+    }
+
+    [Test]
+    public async Task Guard_WorkdayRowsWhereTheOracleContradictsItselfMustNotMove()
+    {
+        // The rows the function reference quotes as EXAMPLES of the sub-61 divergence: the four Aspose
+        // self-contradictions listed there (a result that is not a function of `days`, a landing day Aspose
+        // itself calls a weekend, and a non-additive NETWORKDAYS). Like the guard above, these are MySheet's
+        // answers and NOT Aspose pins — they exist so the doc's numbers are pinned rather than unpinned prose
+        // and cannot drift silently. Aspose's column is MEASURED on Aspose.Cells 26.6.0 on 2026-09-09, PLAIN
+        // cell entry.
+        //
+        // Aspose answers 64 here, and 64 is a Sunday on BOTH calendars (WEEKDAY(64) = 1, NETWORKDAYS(64,64) =
+        // 0, TEXT(64,"dddd") = Sunday), so no working-day walk can land on it.
+        await Assert.That(Num("=WORKDAY(58,4)")).IsEqualTo(62d); // walk 62, Aspose 64
+        // A span that CROSSES serial 61 — the structural half of the divergence, and the half no rule can
+        // explain away. The walk counts the phantom serial 60 as the working Wednesday it repeats, so it is
+        // ADDITIVE over a split; Aspose is not. Both engines answer 1, 3 and 1 to the three parts below, which
+        // sum to the walk's 5 — Aspose's 4 for the whole span is therefore NOT producible by any per-day
+        // working/non-working verdict, and that is precisely why additivity fails on its side.
+        await Assert.That(Num("=NETWORKDAYS(58,62)")).IsEqualTo(5d); // walk 5, Aspose 4
+        await Assert.That(Num("=NETWORKDAYS(58,58)")).IsEqualTo(1d); // walk 1, Aspose 1 — agree
+        await Assert.That(Num("=NETWORKDAYS(59,61)")).IsEqualTo(3d); // walk 3, Aspose 3 — agree
+        await Assert.That(Num("=NETWORKDAYS(62,62)")).IsEqualTo(1d); // walk 1, Aspose 1 — agree
+        // Under a one-day weekend Aspose gives the SAME day for the 5th and the 6th working day, so the walk
+        // can only reproduce one of the two rows; it reproduces the second.
+        await Assert.That(Num("=WORKDAY.INTL(1,5,\"1000000\")")).IsEqualTo(6d); // walk 6, Aspose 7
+        await Assert.That(Num("=WORKDAY.INTL(1,6,\"1000000\")")).IsEqualTo(7d); // walk 7, Aspose 7 — agree
+        // The same crossing span with the J1 holiday (serial 59) taken out of it: 1 + 2 + 1 = 4 on both
+        // engines part by part, and Aspose again answers one less than its own parts for the whole span.
+        await Assert.That(Num("=NETWORKDAYS(58,62,J1)")).IsEqualTo(4d); // walk 4, Aspose 3
+        await Assert.That(Num("=NETWORKDAYS(59,61,J1)")).IsEqualTo(2d); // walk 2, Aspose 2 — agree
     }
 
     [Test]
