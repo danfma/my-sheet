@@ -104,10 +104,12 @@ public class ElementwiseLiftingMechanismTests
     }
 
     [Test]
-    public async Task UnaryOperand_ShapeMismatch_IsAValueError()
+    public async Task UnaryOperand_ForeignExtent_ProjectsThroughBroadcasting()
     {
-        // The same guard every array operand carries: asked for a shape other than its own, every element is
-        // #VALUE! (Excel's dimension-mismatch rule).
+        // Asked at an extent other than its own, the operand projects through Broadcasting.TryProject like
+        // every other array operand: index 0 of a 2x1 extent lands on its covered row 1 (-1), and index 3 of
+        // a 4x1 extent is beyond its three rows (#N/A). FLIPPED by Phase 10 (Task 3) from #VALUE! at the
+        // covered position — the pre-Phase-10 guard refused any extent that was not the operand's own.
         var operand = new UnaryOperand(
             UnaryOperator.Negate,
             new PositionNumbersOperand(1, PositionAxis.Row, 3, 1),
@@ -115,8 +117,10 @@ public class ElementwiseLiftingMechanismTests
             1
         );
 
-        operand.At(0, 2, 1).TryGetError(out var error);
-        await Assert.That(error).IsEqualTo(Error.Value);
+        await Assert.That(operand.At(0, 2, 1).AsDouble()).IsEqualTo(-1.0);
+
+        operand.At(3, 4, 1).TryGetError(out var error);
+        await Assert.That(error).IsEqualTo(Error.NA);
     }
 
     // --- LiftedFunctionOperand ---
@@ -154,8 +158,11 @@ public class ElementwiseLiftingMechanismTests
     }
 
     [Test]
-    public async Task LiftedFunctionOperand_ShapeMismatch_IsAValueError()
+    public async Task LiftedFunctionOperand_ForeignExtent_ProjectsThroughBroadcasting()
     {
+        // The same projection for the lifted operand: index 0 of a 1x1 extent reads its row 1 (-1), and
+        // index 3 of a 4x1 extent is uncovered (#N/A), answered by this operand BEFORE any slot is rebound.
+        // FLIPPED by Phase 10 (Task 3) from #VALUE! at the covered position, for the reason above.
         var (workbook, _) = Sheet();
         var context = new EvaluationContext(workbook);
 
@@ -168,8 +175,10 @@ public class ElementwiseLiftingMechanismTests
             1
         );
 
-        operand.At(0, 1, 1).TryGetError(out var error);
-        await Assert.That(error).IsEqualTo(Error.Value);
+        await Assert.That(operand.At(0, 1, 1).AsDouble()).IsEqualTo(-1.0);
+
+        operand.At(3, 4, 1).TryGetError(out var error);
+        await Assert.That(error).IsEqualTo(Error.NA);
     }
 
     [Test]

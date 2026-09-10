@@ -647,7 +647,15 @@ internal static class ArrayEvaluation
             return false;
         }
 
-        operand = new IfOperand(condition, whenTrue, whenFalse, condition.Rows, condition.Columns);
+        // The IF's extent is the fold of all three operands (a scalar, the synthesized FALSE included,
+        // contributes nothing): IF(E1:E3>1,E5:G5,0) is 3x3, not the condition's 3x1. Each operand then
+        // projects that extent in its own At(), so a 2x1 condition over a 3x3 branch marks row 3 #N/A.
+        var shape = new ShapeFold();
+        shape.Fold(condition);
+        shape.Fold(whenTrue);
+        shape.Fold(whenFalse);
+
+        operand = new IfOperand(condition, whenTrue, whenFalse, shape.Rows, shape.Columns);
         return true;
     }
 

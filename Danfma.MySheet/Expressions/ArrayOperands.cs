@@ -23,18 +23,15 @@ internal abstract class ArrayOperand
 
     /// <summary>
     /// The value at a row-major index within a target <paramref name="rows"/>×<paramref name="columns"/>
-    /// extent: a scalar broadcasts to every position; an array LEAF is read through
+    /// extent: a scalar broadcasts to every position; an array operand is read through
     /// <see cref="Broadcasting.TryProject"/> — an axis of extent 1 repeats along the target's, and a
     /// position the array does not cover is <c>#N/A</c> (Excel's rule, measured on Aspose.Cells 26.6.0,
-    /// 2026-09-10, CSE column — see <see cref="Broadcasting"/>).
+    /// 2026-09-10, CSE column — see <see cref="Broadcasting"/>). A COMPOSITE (<c>BinaryOperand</c>,
+    /// <c>IfOperand</c>, <c>UnaryOperand</c>, <c>LiftedFunctionOperand</c>) projects first and then asks its
+    /// children at its OWN index and extent, so nested vectors compose level by level:
+    /// <c>SUM((A1:A3*H1:H2)*E5:G5)</c> is <c>#N/A</c> with six countable elements
+    /// (<c>VectorBroadcastingTests</c>).
     /// </summary>
-    /// <remarks>
-    /// The two LEAVES (<c>RangeOperand</c>, <c>PositionNumbersOperand</c>) project as described. The four
-    /// COMPOSITES still answer <c>#VALUE!</c> for any extent that is not their own, which is the pre-Phase-10
-    /// rule and is why <c>SUM((A1:A3*H1:H2)*E5:G5)</c> is <c>#VALUE!</c> here against the oracle's <c>#N/A</c>.
-    /// Phase 10's composite item removes those four guards; until it lands, read this contract as describing
-    /// the leaves only.
-    /// </remarks>
     public abstract ComputedValue At(int index, int rows, int columns);
 }
 
@@ -186,19 +183,23 @@ internal sealed class BinaryOperand : ArrayOperand
 
     public override ComputedValue At(int index, int rows, int columns)
     {
-        if (_rows != rows || _columns != columns)
+        if (!Broadcasting.TryProject(index, rows, columns, _rows, _columns, out var own))
         {
-            return ComputedValue.Error(Error.Value);
+            return ComputedValue.Error(Error.NA);
         }
 
         return BinaryOperation.Apply(
             _operator,
-            _left.At(index, _rows, _columns),
-            _right.At(index, _rows, _columns)
+            _left.At(own, _rows, _columns),
+            _right.At(own, _rows, _columns)
         );
     }
 }
 
+// IF over an array condition: the extent is the fold of the condition AND both branches (the builder's
+// ShapeFold), so IF(E1:E3>1,E5:G5,0) is 3x3 and IF(H1:H2>1,A1:C3,0) marks row 3 #N/A instead of quietly
+// counting the else-values of a 2x1 extent. Each element reads the condition at the IF's own index, then
+// ONLY the taken branch — the other branch is never read, which is what keeps a volatile branch drawn once.
 internal sealed class IfOperand : ArrayOperand
 {
     private readonly ArrayOperand _condition;
@@ -228,20 +229,21 @@ internal sealed class IfOperand : ArrayOperand
 
     public override ComputedValue At(int index, int rows, int columns)
     {
-        if (_rows != rows || _columns != columns)
+        if (!Broadcasting.TryProject(index, rows, columns, _rows, _columns, out var own))
         {
-            return ComputedValue.Error(Error.Value);
+            return ComputedValue.Error(Error.NA);
         }
 
-        var conditionValue = _condition.At(index, _rows, _columns);
+        var conditionValue = _condition.At(own, _rows, _columns);
 
-        // A condition that is (or coerces from) an error propagates that error at this position.
+        // A condition that is (or coerces from) an error propagates that error at this position — an
+        // uncovered condition included, so its #N/A wins over whatever the branches hold there.
         if (conditionValue.CoerceToBool(out var taken) is { } error)
         {
             return ComputedValue.Error(error);
         }
 
-        return taken ? _whenTrue.At(index, _rows, _columns) : _whenFalse.At(index, _rows, _columns);
+        return taken ? _whenTrue.At(own, _rows, _columns) : _whenFalse.At(own, _rows, _columns);
     }
 }
 
@@ -275,8 +277,10 @@ internal sealed record ScratchLiteral : ValueExpression
     public override ComputedValue Evaluate(EvaluationContext context) => Value;
 }
 
-// Negate/Percent over an array: BinaryOperand's shape guard, then the same coerce-then-apply ladder
-// UnaryOperation.Evaluate runs for its non-Plus operators (UnaryOperation.Apply). Plus is NEVER built into
+// Negate/Percent over an array: the same Broadcasting.TryProject projection as every array operand (#N/A
+// where the operand does not cover the position, the inner operand asked at THIS operand's own index and
+// extent), then the same coerce-then-apply ladder UnaryOperation.Evaluate runs for its non-Plus operators
+// (UnaryOperation.Apply). Plus is NEVER built into
 // this operand: it is Excel's reference-preserving no-op, routed through NamedReferences.CaptureValue so a
 // range comes back as a REFERENCE value (SUM(+A1:A3) reads the cells today, and must keep doing so), and the
 // builder's pattern excludes it so `+range` stays the opaque scalar that carries that reference.
@@ -301,12 +305,12 @@ internal sealed class UnaryOperand : ArrayOperand
 
     public override ComputedValue At(int index, int rows, int columns)
     {
-        if (_rows != rows || _columns != columns)
+        if (!Broadcasting.TryProject(index, rows, columns, _rows, _columns, out var own))
         {
-            return ComputedValue.Error(Error.Value);
+            return ComputedValue.Error(Error.NA);
         }
 
-        return UnaryOperation.Apply(_operator, _inner.At(index, _rows, _columns));
+        return UnaryOperation.Apply(_operator, _inner.At(own, _rows, _columns));
     }
 }
 
@@ -314,11 +318,13 @@ internal sealed class UnaryOperand : ArrayOperand
 // node is created ONCE, through the registry's own factory, over a slot per argument; At() rebinds the slots
 // to the element's values and evaluates that one node — the scalar body of the function is reused verbatim,
 // so the lifted answer is the scalar answer element by element. The shape rule is BinaryOperand's, applied
-// N-ary by the builder: scalars broadcast; arrays must share the shape, or the mismatched ones answer the
-// #VALUE! marker from their own At() guard, which the body then receives as a VALUE — an error-propagating
-// body (LEN, ROUND, LEFT, arithmetic) fills the result with #VALUE!, while an error-consuming body (IFERROR,
-// IS*, N, T, IFS, SWITCH) sees the marker as its error argument and keeps going (today's behaviour, pinned,
-// ahead of the broadcasting phase). The guard below is this operand's OWN shape check for its consumer.
+// N-ary by the builder's ShapeFold through Broadcasting.Axis: scalars broadcast, and every array argument is
+// read through Broadcasting.TryProject at this operand's OWN index and extent, so an axis of extent 1
+// repeats (SUM(ROUND(E1:E3,E5:G5)) = 18, the outer product) and a position an argument does not cover
+// hands the body a real per-element #N/A — an error-propagating body (LEN, ROUND, LEFT, arithmetic) carries
+// it to that element, while an error-consuming body (IFERROR, IS*, N, T, IFS, SWITCH) recovers it:
+// SUM(IFERROR(A1:C3*H1:H2,0)) = 36, SUM(ISNA(A1:C3*H1:H2)*1) = 3 (VectorBroadcastingTests; Aspose.Cells
+// 26.6.0, 2026-09-10, CSE column). The projection below is this operand's OWN, for its consumer's extent.
 //
 // An OMITTED optional argument is the one slot that is not scratch. The parser leaves a literal BlankValue in
 // it, and ten of the lifted built-ins (FIXED, DOLLAR, NUMBERVALUE, TEXTBEFORE/TEXTAFTER, VALUETOTEXT, the
@@ -367,16 +373,16 @@ internal sealed class LiftedFunctionOperand : ArrayOperand
 
     public override ComputedValue At(int index, int rows, int columns)
     {
-        if (_rows != rows || _columns != columns)
+        if (!Broadcasting.TryProject(index, rows, columns, _rows, _columns, out var own))
         {
-            return ComputedValue.Error(Error.Value);
+            return ComputedValue.Error(Error.NA);
         }
 
         for (var j = 0; j < _scratch.Length; j++)
         {
             if (_scratch[j] is { } slot)
             {
-                slot.Value = _arguments[j].At(index, _rows, _columns);
+                slot.Value = _arguments[j].At(own, _rows, _columns);
             }
         }
 

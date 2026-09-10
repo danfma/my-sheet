@@ -206,8 +206,10 @@ public class VectorBroadcastingTests
     [Test]
     public async Task ChainedAndMixedOperators_BroadcastAtEveryLevel()
     {
-        // A 3x3 against a 3x1 against a 1x3 — the intermediate result is itself an operand asked at the
-        // outer extent, so every level must project. Today #VALUE! for all three.
+        // A 3x3 against a 3x1 against a 1x3: the two LEAVES project at every level, but the intermediate
+        // A1:C3*E1:E3 is itself a 3x3, so the outer extent is the composite's OWN and its projection is the
+        // identity — this pin does not read a composite at a foreign extent (that is
+        // ACompositeOperand_ReadAtAForeignExtent_ProjectsBeforeAskingItsChildren). Today #VALUE! for all three.
         await Assert.That(Num(OnGrid("=SUM(A1:C3*E1:E3*E5:G5)"))).IsEqualTo(2280.0);
 
         // The rule is the OPERATOR's, not multiplication's: a comparison broadcasts (2 hits in row 2 times 2,
@@ -220,11 +222,97 @@ public class VectorBroadcastingTests
     public async Task NestedExtents_ProjectThroughEveryLevel()
     {
         // (A1:C3*H1:H2)*E5:G5: the inner product is a 3x3 with an uncovered row 3 and the outer operand is a
-        // 1x3 row, so the #N/A survives the second broadcast and SIX positions stay countable. A composite
-        // that forwarded the PARENT's index to its children instead of its own projected index would answer
-        // #N/A for covered positions here. Today #VALUE! / 0.
+        // 1x3 row, so the #N/A survives the second fold and SIX positions stay countable. What this pin does
+        // NOT prove: that the composite projects — A1:C3 dominates every fold, so the inner 3x3 is read at its
+        // own 3x3 extent and its projection is the identity (Task 2's reviewer, 2026-09-10). The pin that
+        // reads a composite at a DIFFERENT extent is
+        // ACompositeOperand_ReadAtAForeignExtent_ProjectsBeforeAskingItsChildren. Today #VALUE! / 0.
         await Assert.That(OnGrid("=SUM(A1:C3*H1:H2*E5:G5)")).IsEqualTo(ErrorValue.NotAvailable);
         await Assert.That(Num(OnGrid("=COUNT(A1:C3*H1:H2*E5:G5)"))).IsEqualTo(6.0);
+    }
+
+    // --- Composites read at a FOREIGN extent (Task 3 witnesses) ---
+    //
+    // Every value below: Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (plain entry answers #VALUE! for
+    // every SUM and 0 for every COUNT, and agrees on every INDEX). "Today" is this tree at 2c8ff98, where the
+    // four composites still carried the equal-shape guard.
+
+    [Test]
+    public async Task ACompositeOperand_ReadAtAForeignExtent_ProjectsBeforeAskingItsChildren()
+    {
+        // The controller's fixture: A1:A3*H1:H2 is a 3x1 COMPOSITE ([1, 8, #N/A]) inside a 3x3 whose other
+        // operand is a 1x3 row. The composite is asked at 3x3, an extent that is not its own, so it must
+        // project the parent's index onto its 3x1 BEFORE handing its own index to its two leaves — the
+        // pre-Phase-10 guard refused the extent instead. Rows 1-2 are covered (six numbers), row 3 is #N/A.
+        // Today #VALUE! / 0 / #VALUE! ×3.
+        await Assert.That(OnGrid("=SUM((A1:A3*H1:H2)*E5:G5)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT((A1:A3*H1:H2)*E5:G5)"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnGrid("=INDEX((A1:A3*H1:H2)*E5:G5,1,1)"))).IsEqualTo(10.0);
+        await Assert.That(Num(OnGrid("=INDEX((A1:A3*H1:H2)*E5:G5,2,3)"))).IsEqualTo(240.0);
+        await Assert
+            .That(OnGrid("=INDEX((A1:A3*H1:H2)*E5:G5,3,1)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // The same composite on the RIGHT of the outer operator: the side does not matter to the projection.
+        // Today #VALUE! / 0.
+        await Assert.That(OnGrid("=SUM(E5:G5*(A1:A3*H1:H2))")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(E5:G5*(A1:A3*H1:H2))"))).IsEqualTo(6.0);
+
+        // Composites that broadcast COMPLETELY at the foreign extent — a 3x1 column composite and a 1x3 row
+        // composite, each read at 3x3 with nothing uncovered: (2+3+4)*60 and (11+21+31)*6. Today #VALUE! ×3.
+        await Assert.That(Num(OnGrid("=SUM((E1:E3+1)*E5:G5)"))).IsEqualTo(540.0);
+        await Assert.That(Num(OnGrid("=SUM((E5:G5+1)*E1:E3)"))).IsEqualTo(378.0);
+        await Assert.That(Num(OnGrid("=INDEX((E1:E3+1)*E5:G5,3,2)"))).IsEqualTo(80.0);
+    }
+
+    [Test]
+    public async Task AnIfComposite_ProjectsAtAForeignExtent_AndReadsItsOwnChildrenAtItsOwn()
+    {
+        // An IF as the composite read at a foreign extent: IF(E1:E3>1,1,0) is a 3x1 [0, 1, 1] inside a 3x3
+        // (two true rows × 60 = 120, nine numbers), and IF(H1:H2>1,1,0) is a 2x1 inside a 3x3 with row 3
+        // uncovered. Today #VALUE! / 0 / #VALUE! / 0.
+        await Assert.That(Num(OnGrid("=SUM(IF(E1:E3>1,1,0)*E5:G5)"))).IsEqualTo(120.0);
+        await Assert.That(Num(OnGrid("=COUNT(IF(E1:E3>1,1,0)*E5:G5)"))).IsEqualTo(9.0);
+        await Assert.That(OnGrid("=SUM(IF(H1:H2>1,1,0)*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(IF(H1:H2>1,1,0)*A1:C3)"))).IsEqualTo(6.0);
+
+        // The other direction: an IF whose CONDITION is a composite (H1:H2*1, a 2x1) narrower than the IF's
+        // own 3x3 extent. The IF must ask its condition at 3x3 so that row 3 is #N/A and rows 1-2 read the
+        // real comparison. Today 4 / 2 — silent wrong NUMBERS: the IF took its condition's 2x1 as its extent
+        // and read A1:C3 at 2x1, so only A2 was ever summed.
+        await Assert
+            .That(OnGrid("=SUM(IF((H1:H2*1)>1,A1:C3,0))"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(IF((H1:H2*1)>1,A1:C3,0))"))).IsEqualTo(6.0);
+
+        // And an IF whose taken BRANCH is a composite (E1:E3*2, a 3x1) read at the IF's 3x3 extent from a
+        // 1x3 condition: columns 2-3 are true and each reads the whole doubled column, 2*(2+4+6). Today
+        // #VALUE! / 1 — the branch composite refused the 1x3 extent, and the one false 0 was counted.
+        await Assert.That(Num(OnGrid("=SUM(IF(E5:G5>10,E1:E3*2,0))"))).IsEqualTo(24.0);
+        await Assert.That(Num(OnGrid("=COUNT(IF(E5:G5>10,E1:E3*2,0))"))).IsEqualTo(9.0);
+    }
+
+    [Test]
+    public async Task AUnaryAndALiftedComposite_ProjectAtAForeignExtent()
+    {
+        // Phase 8's two composites read at an extent that is not their own. -H1:H2 is a 2x1 UnaryOperand
+        // inside a 3x3 (row 3 uncovered); ABS(H1:H2) is a 2x1 LiftedFunctionOperand inside the same 3x3, and
+        // inside a 2x3 against the row vector where nothing is uncovered (3*60); ROUND(E1:E3,0) is a 3x1
+        // lifted operand read at 3x3 (6*60). Today #VALUE! / 0 / #VALUE! / 0 / #VALUE! / #VALUE!.
+        await Assert.That(OnGrid("=SUM(-H1:H2*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(-H1:H2*A1:C3)"))).IsEqualTo(6.0);
+        await Assert.That(OnGrid("=SUM(ABS(H1:H2)*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(ABS(H1:H2)*A1:C3)"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnGrid("=SUM(ABS(H1:H2)*E5:G5)"))).IsEqualTo(180.0);
+        await Assert.That(Num(OnGrid("=SUM(ROUND(E1:E3,0)*E5:G5)"))).IsEqualTo(360.0);
+
+        // Three levels: a lifted composite over a binary composite, read at a wider extent still. ROUND
+        // projects the 3x3 index onto its 3x1, then hands its own index to A1:A3*H1:H2, which projects again
+        // onto its leaves; the #N/A at row 3 survives both. Today #VALUE! / 0.
+        await Assert
+            .That(OnGrid("=SUM(ROUND(A1:A3*H1:H2,0)*E5:G5)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(ROUND(A1:A3*H1:H2,0)*E5:G5)"))).IsEqualTo(6.0);
     }
 
     // --- IF: the condition AND both branches fold into one extent ---
