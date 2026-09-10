@@ -1,6 +1,6 @@
 # Phase 9: Excel's 1900 date serial epoch (serial 1 = 1900-01-01, phantom 1900-02-29 at serial 60)
 
-Status: Not started   <!-- Not started | In progress | Complete -->
+Status: Complete   <!-- Not started | In progress | Complete -->
 
 Adversarial verifier verdict: **needs-revision** (3 blockers, 5 majors, 8 minors — every one MEASURED on Aspose.Cells 26.6.0 with a fresh probe (1,824 formulas beyond the designer's 448) and on a Release build of `1b1e2d3` plus an item-2-only prototype; sections after "Design decision"). Headline: the central map, the calendar-function pins and the regression claim all reproduce; the NETWORKDAYS/WORKDAY "third calendar" does not — it is not one rule, and the verifier recommends an explicit exception request for serials ≤ 60 in those two families (M1).
 
@@ -294,4 +294,71 @@ Aspose answered every row it was asked. What remains is only what its answers do
 
 ## Phase Summary
 
-_(write when phase completes)_
+**Status: Complete** — branch `feat/date-epoch`, commits `f0fbb4a..275c25e` (31 commits: 6 tasks, their review
+fix rounds, the consolidated wave after the three-part final review, and the controller's plan and lesson
+commits), pending fast-forward merge to `main`. Gates at the head: csharpier clean (356 files), Release build 0
+warnings, core **1537/1537**, Excel **93/93**, both frozen wire goldens unchanged, no MemoryPack tag added, no
+public API changed, function counts unchanged at **306**.
+
+**What it fixes.** MySheet's date serial 1 was 1899-12-31. Excel's is 1900-01-01, with serial 0 as "day zero"
+1900-01-00 and serial 60 as the phantom 1900-02-29 no real calendar has. Every function built on the conversion
+moved with it: `DATE`, `DATEVALUE`, `TIMEVALUE`, `YEAR`/`MONTH`/`DAY`, `WEEKDAY`, `WEEKNUM`/`ISOWEEKNUM`,
+`EDATE`/`EOMONTH`, `DAYS`, `DATEDIF`, `DAYS360`, `YEARFRAC`, `TEXT`, the working-day family, `XNPV`/`XIRR` and
+the bond/coupon family's date arguments.
+
+**The engineering rule that unified it.** Anything that COUNTS days subtracts SERIALS, never mapped
+`DateTime`s, because the round trip `FromDateTime(ToDateTimeUnchecked(s))` is the identity for every serial
+except the whole half-open day `[60, 61)`, which returns `s − 1`. The 30/360 family is the deliberate exception
+in the other direction: `DAYS360` and `YEARFRAC` bases 0 and 4 must SEE the phantom day. `TEXT` is the only
+place a 1900-02-29 or a 1900-01-00 is printed. The engine now documents three calendars, each with its named
+users: the `DateTime` map, the Lotus weekday, and the Lotus calendar.
+
+**Ordering that mattered.** Task 1 routed six call sites that converted dates on their own, BEFORE any pin was
+written, because the phase file's own verification gate ("`TEXT(1,"dddd")` must fail") could not fail while
+`TEXT` never asked the central converter. A gate that says "this must fail" and does not is worse than no gate.
+The conversion was then split into `ToDateTimeUnchecked` (the map) and `ToDateTime` (the map plus the `#NUM!`
+policy), because `TEXT` answers `#VALUE!` for an unrepresentable serial — and the map's doc comment now says
+outright which of the two the epoch lives in, since editing the other compiles, passes, and silently leaves
+`TEXT` on the old epoch.
+
+**The user's exception, and how it is bounded.** For `WORKDAY`, `WORKDAY.INTL`, `NETWORKDAYS` and
+`NETWORKDAYS.INTL` at serials ≤ 60, MySheet walks the REAL calendar and does not reproduce Aspose. Granted by
+the user with the evidence in hand: Aspose has no derivable rule there (fourteen candidates fitted, the best
+still wrong on 17 of 580 rows) and contradicts itself — `WORKDAY(6,4)` = `WORKDAY(6,5)` = 12;
+`WORKDAY.INTL(1,5,"1000000")` = `WORKDAY.INTL(1,6,"1000000")` = 7; `WORKDAY(58,4)` = 64 although serial 64 is a
+weekend on both calendars; and `NETWORKDAYS` is non-additive in three separate measured shapes. From serial 61
+on, every answer matches: **76 `Modern_*` pins** cover Monday and Friday starts, `days` of 0, ±1, ±5, ±20 and
+fractional, holidays on and off a weekend, and every `INTL` weekend form including a one-day and an all-weekend
+mask. Two independent reviewers measured 480 and 274 further rows and found zero deviation at or above 61, in
+either direction across the boundary. Every pin whose arguments are all ≤ 60 records BOTH numbers, the walk's as
+the expectation and Aspose's beside it, with no row deleted, so the exception's size stays visible.
+
+**Three behaviour changes that have nothing to do with 1900** and are documented for upgraders: `YEARFRAC`
+basis 0 lost its end-of-February rule and its rule ORDER changed, so `DAYS360` and `YEARFRAC` basis 0 now
+deliberately disagree on February-end and day-31 pairs exactly as Aspose does; `DAYS360` lost the
+first-of-next-month roll entirely; and `DATEDIF`'s `md` and `yd` units anchor on the completed months and years
+instead of a reconstructed date, because the plan's formula answered −1 on modern dates.
+
+**Wire and interop.** No format change and no new union tag: a date is a `NumberValue` double and stays one.
+What changes is what a serial in `[0, 61)` MEANS, so a cached result over that window is a day off until
+`InvalidateCache()` — verified by building a workbook on the pre-phase build, warming its cache, saving, and
+loading it here. The loader was proven end to end with two independent producers (ClosedXML and raw OOXML), and
+the phantom serial 60 survives a load and an export unchanged.
+
+**What this phase measured and deliberately did not fix**, all recorded as sweep items with the oracle's answer:
+the bond family's own 30/360 keeps a start-of-February rule Aspose lacks; `YEARFRAC` basis 1 is wrong on any
+modern span of a year or less that crosses a year boundary (7 of 12 measured rows — the highest-impact item in
+the sweep, and my first record of it wrongly called it a day-zero artefact); a malformed weekend mask is `#NUM!`
+on the oracle against `#VALUE!` here, contradicting a page-sourced test; `WORKDAY` throws `OverflowException`
+for every `days` at or below `int.MinValue`; `TEXT`'s `A/P` prints two letters where the oracle prints one; and
+a lone format token inside the 1900 window follows a rule the reviewer derived (one letter reads the raw map,
+two or more read the phantom-aware map).
+
+**Process record.** The phase produced NINE separate instances of one defect class: a comment or doc sentence
+asserting something the code did not carry. A false Excel-parity label, intent stated as fact, a "shares the
+exact same" claim, an abstract hazard note, a "pinned" claim for tests that did not exist, a present-tense
+description of the removed epoch, an interop guide teaching the old conversion, a header claiming every value
+was oracle-measured when four pin the walk, and finally a passage promising a narrowness nobody measured — which
+took THREE attempts to fix, because each rewrite replaced one closure claim with a narrower one. The durable
+cures are in `tasks/lessons.md`: grep for the artifact a sentence cites instead of reading the sentence, and
+never write a reassurance sentence whose negative half no test enforces.
