@@ -39,8 +39,8 @@ public sealed partial class Workbook
     // In every version `modelLength` is the UNCOMPRESSED model length, used to slice the (decompressed) body
     // into model vs. values. The value block is the MemoryPack of a List<CachedCellValue> surrogate (empty for
     // a cold compressed save). Load sniffs the 4-byte magic: a match is a container, anything else is a raw
-    // (legacy or cold) model — the raw MemoryPack object header is a small member count (Workbook = 0x02),
-    // never 'M' (0x4D), so the two are unambiguous.
+    // (legacy or cold) model — the raw MemoryPack object header is a small member count (Workbook = 0x03
+    // since the table registry; 0x01/0x02 for older files), never 'M' (0x4D), so the two are unambiguous.
     //
     // Every container writer below (whole-array default, single-pass streaming, or the opt-in pooled/Pipelines
     // writers) produces the SAME bytes for the same model/values/compression — WorkbookIoBuffering is a

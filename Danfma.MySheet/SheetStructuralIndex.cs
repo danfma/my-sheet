@@ -11,8 +11,9 @@ namespace Danfma.MySheet;
 //      changes which cells exist; only an insert/delete does, and both paths update it in place).
 //   2. ReverseDependencyGraph buckets (DirtyGraph/ReverseDependencyGraph.cs) — a built SNAPSHOT, not
 //      write-maintained. Staleness is version-checked, not intercepted: RecalculationEngine compares each
-//      Sheet.StructuralVersion (bumped on formula add/remove/change) and Workbook.NamesVersion (bumped on
-//      DefineName) against the versions it was built from, and rebuilds the WHOLE graph when either moved.
+//      Sheet.StructuralVersion (bumped on formula add/remove/change) and Workbook.DefinitionsVersion (bumped
+//      on DefineName/DefineTable) against the versions it was built from, and rebuilds the WHOLE graph when
+//      either moved.
 //      A pure value edit bumps neither, so it never triggers a rebuild.
 //   3. SheetValueStore pages (SheetValueStore.cs) — memoized computed values, EPOCH-scoped:
 //      Workbook.InvalidateCache clears them unconditionally, and every read after that repopulates lazily.

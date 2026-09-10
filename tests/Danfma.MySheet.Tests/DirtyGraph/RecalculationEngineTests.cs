@@ -240,7 +240,7 @@ public class RecalculationEngineTests
     // Um nome é resolvido para sua definição ATUAL na construção do grafo (DependencyExtractor.ResolveName).
     // Redefinir um nome — repontá-lo para outra referência — muda a estrutura de dependências exatamente como
     // editar uma fórmula, mas não toca em nenhuma Sheet, então nenhum Sheet.StructuralVersion bumpa. Sem
-    // rastrear isso separadamente (Workbook.NamesVersion), o grafo antigo (nome→alvo velho) sobrevive à
+    // rastrear isso separadamente (Workbook.DefinitionsVersion), o grafo antigo (nome→alvo velho) sobrevive à
     // redefinição, e uma edição na dependente NOVA não marca dirty a fórmula que usa o nome → valor stale.
     [Test]
     public async Task NameRedefinition_MarksTheGraphStale_SoDependentsFollowTheNewTarget()

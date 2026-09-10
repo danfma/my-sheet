@@ -3,7 +3,7 @@ using Danfma.MySheet.Expressions;
 namespace Danfma.MySheet.DirtyGraph;
 
 // See the structural-layers invariant note atop SheetStructuralIndex.cs: this graph is layer 2 (a built
-// snapshot, staled by Sheet.StructuralVersion / Workbook.NamesVersion), distinct from the write-maintained
+// snapshot, staled by Sheet.StructuralVersion / Workbook.DefinitionsVersion), distinct from the write-maintained
 // SheetStructuralIndex (layer 1) and the epoch-scoped SheetValueStore pages (layer 3).
 
 /// <summary>

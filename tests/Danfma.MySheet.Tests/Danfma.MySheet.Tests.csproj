@@ -8,12 +8,11 @@
 
     <!-- Phase 3 Task 1 landed the table-registry acceptance pins (TableRegistryTests, the
          `Tables.Count == 0` backward-compatibility guards and RedefiningATable_ForcesAFullRecompute)
-         behind MYSHEET_TABLES. Danfma.MySheet.Table, Workbook.Tables and Workbook.DefineTable do not
-         exist yet, and a missing type is a BUILD failure, not a usable RED test: it would take the whole
-         1582-test suite down instead of failing the pins. The task that lands the model (Phase 3 items
-         1-14) must uncomment the line below IN THE SAME COMMIT — those pins are its acceptance criteria.
-         This is the ONLY switch; grep MYSHEET_TABLES for everything it turns on. -->
-    <!-- <DefineConstants>$(DefineConstants);MYSHEET_TABLES</DefineConstants> -->
+         behind MYSHEET_TABLES while Danfma.MySheet.Table, Workbook.Tables and Workbook.DefineTable did not
+         exist yet — a missing type is a BUILD failure, not a usable RED test. The symbol has been ON since
+         the registry landed (Phase 3 items 1-14); it is kept only so `grep MYSHEET_TABLES` still finds
+         every pin the registry is the acceptance criterion for. -->
+    <DefineConstants>$(DefineConstants);MYSHEET_TABLES</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

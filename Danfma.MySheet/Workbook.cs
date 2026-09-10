@@ -114,32 +114,57 @@ public sealed partial class Workbook
     /// <see cref="DefineName(string, Expression)"/> / <see cref="DefineName(string, string)"/>; a
     /// <see cref="Expressions.NameReference"/> in a formula resolves against this map (after the LET scope).
     /// Mutating this dictionary directly (rather than through <see cref="DefineName(string, Expression)"/>)
-    /// is NOT tracked by <see cref="NamesVersion"/>, so a <see cref="RecalculationEngine"/> built over the
-    /// workbook would not notice the change — go through <see cref="DefineName(string, Expression)"/> instead.
+    /// is NOT tracked by <see cref="DefinitionsVersion"/>, so a <see cref="RecalculationEngine"/> built over
+    /// the workbook would not notice the change — go through <see cref="DefineName(string, Expression)"/>
+    /// instead.
     /// </summary>
-    // MemoryPack serializes members in declaration order; this MUST stay the LAST serialized member of
-    // Workbook so the schema is append-only — files written before it existed (which carry only Sheets)
-    // still load, leaving this empty.
+    // MemoryPack serializes members in declaration order; this is the SECOND of the three serialized members
+    // (Sheets, DefinedNames, _tables) and its position is fixed — files written before it existed (which
+    // carry only Sheets) still load, leaving this empty.
     public Dictionary<string, Expression> DefinedNames { get; private set; } =
         new(StringComparer.OrdinalIgnoreCase);
 
-    // Monotonic counter of DefinedNames mutations, bumped by DefineName. A defined name is resolved into the
-    // reverse dependency graph at BUILD time (DependencyExtractor.ResolveName bakes in the definition current at
-    // that point), so redefining a name — repointing it at a different reference — changes the dependency
-    // structure exactly like a formula edit does, but touches no Sheet and so would never bump any
-    // Sheet.StructuralVersion. RecalculationEngine snapshots this alongside the per-sheet versions to detect
-    // that staleness. Runtime-only ([MemoryPackIgnore]): a loaded workbook starts at 0 and any engine built
-    // after Load rebuilds from the current state anyway. Single-thread edit contract, same as StructuralVersion.
+    // MemoryPack serializes members in declaration order; this MUST stay the LAST serialized member of
+    // Workbook so the schema is append-only — files written before it existed (object header 0x01 or 0x02
+    // instead of 0x03) still load with this field NULL, which RestoreComparers turns into an empty registry.
+    // A private serialized field behind a read-only projection (the Sheet._cells/Sheet.Cells shape) so that,
+    // unlike DefinedNames, no caller can mutate the map behind DefinitionsVersion's back. The initializer
+    // runs only for a fresh `new Workbook()`; MemoryPack bypasses it on deserialize.
+    [MemoryPackInclude]
+    private Dictionary<string, Table> _tables = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The table registry (case-insensitive, like Excel): every <see cref="Table"/> registered through
+    /// <see cref="DefineTable(Table)"/> or
+    /// <see cref="DefineTable(string, string, string, IReadOnlyList{string}, bool, bool)"/>, keyed by
+    /// <see cref="Table.Name"/>. Read-only — <see cref="DefineTable(Table)"/> is the only writer, so every
+    /// change is counted by <see cref="DefinitionsVersion"/>.
+    /// </summary>
     [MemoryPackIgnore]
-    private long _namesVersion;
+    public IReadOnlyDictionary<string, Table> Tables => _tables;
 
-    /// <summary>The count of <see cref="DefineName(string, Expression)"/> calls this workbook has seen; the
-    /// reverse dependency graph uses it (together with each sheet's <see cref="Sheet.StructuralVersion"/>) to
-    /// detect that it went stale. Internal — part of the recalculation contract, not host API.</summary>
-    internal long NamesVersion => _namesVersion;
+    // Monotonic counter of DEFINITION changes — DefinedNames and the table registry — bumped by DefineName and
+    // DefineTable. One counter for both namespaces: a defined name is resolved into the reverse dependency
+    // graph at BUILD time (DependencyExtractor.ResolveName bakes in the definition current at that point), so
+    // redefining a name — repointing it at a different reference — changes the dependency structure exactly
+    // like a formula edit does, but touches no Sheet and so would never bump any Sheet.StructuralVersion; a
+    // table redefinition is the same kind of event, and RecalculationEngine only ever rebuilds the WHOLE graph,
+    // so distinguishing the two would buy nothing. RecalculationEngine snapshots this alongside the per-sheet
+    // versions to detect that staleness. Runtime-only ([MemoryPackIgnore]): a loaded workbook starts at 0 and
+    // any engine built after Load rebuilds from the current state anyway. Single-thread edit contract, same as
+    // StructuralVersion.
+    [MemoryPackIgnore]
+    private long _definitionsVersion;
 
-    // MemoryPack rebuilds the dictionaries with the default (case-sensitive) comparer, and older files
-    // carry no DefinedNames at all (null after deserialization); restore ours in both cases.
+    /// <summary>The count of <see cref="DefineName(string, Expression)"/> + <see cref="DefineTable(Table)"/>
+    /// calls this workbook has seen; the reverse dependency graph uses it (together with each sheet's
+    /// <see cref="Sheet.StructuralVersion"/>) to detect that it went stale. Internal — part of the
+    /// recalculation contract, not host API.</summary>
+    internal long DefinitionsVersion => _definitionsVersion;
+
+    // MemoryPack rebuilds the dictionaries with the default (case-sensitive) comparer, and older files carry
+    // no DefinedNames (object header 0x01) or no table registry (0x01 and 0x02) at all — the member is null
+    // after deserialization; restore ours in every case.
     [MemoryPackOnDeserialized]
     private void RestoreComparers()
     {
@@ -147,6 +172,9 @@ public sealed partial class Workbook
         DefinedNames = DefinedNames is null
             ? new Dictionary<string, Expression>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, Expression>(DefinedNames, StringComparer.OrdinalIgnoreCase);
+        _tables = _tables is null
+            ? new Dictionary<string, Table>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, Table>(_tables, StringComparer.OrdinalIgnoreCase);
     }
 
     public Sheet this[string key] => Sheets[key];
@@ -565,11 +593,12 @@ public sealed partial class Workbook
     {
         ArgumentNullException.ThrowIfNull(reference);
         NamedReferences.ValidateName(name);
+        ThrowIfNameTaken(name, definingTable: false);
 
         DefinedNames[name] = reference;
         unchecked
         {
-            _namesVersion++;
+            _definitionsVersion++;
         }
     }
 
@@ -583,6 +612,7 @@ public sealed partial class Workbook
     {
         ArgumentNullException.ThrowIfNull(formulaText);
         NamedReferences.ValidateName(name);
+        ThrowIfNameTaken(name, definingTable: false);
 
         var text = formulaText.StartsWith('=') ? formulaText : "=" + formulaText;
 
@@ -602,8 +632,155 @@ public sealed partial class Workbook
         DefinedNames[name] = expression;
         unchecked
         {
-            _namesVersion++;
+            _definitionsVersion++;
         }
+    }
+
+    /// <summary>
+    /// Registers (or redefines) a table. Redefining an existing name REPLACES the table — Excel forbids two
+    /// tables sharing a name, so a second call with the same name means "resize/redefine this table". Table
+    /// names share one namespace with defined names (Excel's Name Manager rule): a name already taken by
+    /// <see cref="DefineName(string, Expression)"/> throws <see cref="ArgumentException"/>, as does any
+    /// name, geometry or column-name problem (see <see cref="Table"/>). The sheet need NOT exist here, exactly
+    /// as for a defined name: a missing sheet is an evaluation-time concern (<see cref="GetCellValue"/>
+    /// resolves one to <c>#REF!</c>), not a registration one.
+    /// Already-memoized values are NOT evicted (a table redefinition changes no cell): call
+    /// <see cref="InvalidateCache"/> when formulas that read the table must observe the new geometry.
+    /// </summary>
+    public void DefineTable(Table table)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+
+        // Validate the CALLER's object first, so a failure message names it rather than the snapshot.
+        table.Validate();
+        ThrowIfNameTaken(table.Name, definingTable: true);
+
+        // A defensive snapshot of the column names: Table memoizes a name -> ordinal lookup keyed on them, so a
+        // caller mutating their List<string> after registering would leave that memo silently lying. The
+        // copy's memo starts cold (it is keyed by reference identity, off the record).
+        var registered = table with
+        {
+            ColumnNames = table.ColumnNames.ToArray(),
+        };
+
+        _tables[registered.Name] = registered;
+        unchecked
+        {
+            _definitionsVersion++;
+        }
+    }
+
+    /// <summary>
+    /// Convenience overload taking the table range in A1 form — <paramref name="reference"/> is exactly the
+    /// xlsx <c>&lt;table ref="…"&gt;</c> string (<c>"A1:B4"</c>, or a single cell such as <c>"C2"</c>; the
+    /// corners may come in either order). <paramref name="sheetName"/> is a plain, unquoted sheet name, not
+    /// a formula qualifier. The range spans the WHOLE table, header and totals rows included, so its width
+    /// must equal <paramref name="columnNames"/>.Count; anything else throws <see cref="ArgumentException"/>.
+    /// Delegates to <see cref="DefineTable(Table)"/>, which documents the registration rules.
+    /// </summary>
+    public void DefineTable(
+        string name,
+        string sheetName,
+        string reference,
+        IReadOnlyList<string> columnNames,
+        bool hasHeaderRow = true,
+        bool hasTotalsRow = false
+    )
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(columnNames);
+
+        if (
+            !TryParseTableReference(
+                reference,
+                out var firstColumn,
+                out var lastColumn,
+                out var firstRow,
+                out var lastRow
+            )
+        )
+        {
+            throw new ArgumentException(
+                $"Table '{name}': '{reference}' is not an A1 range (e.g. \"A1:B4\") or cell (e.g. \"C2\").",
+                nameof(reference)
+            );
+        }
+
+        var width = lastColumn - firstColumn + 1;
+        if (width != columnNames.Count)
+        {
+            throw new ArgumentException(
+                $"Table '{name}': the range '{reference}' spans {width} column(s) but {columnNames.Count} "
+                    + "column name(s) were given.",
+                nameof(columnNames)
+            );
+        }
+
+        DefineTable(
+            new Table(
+                name,
+                sheetName,
+                firstRow,
+                lastRow,
+                firstColumn,
+                hasHeaderRow,
+                hasTotalsRow,
+                columnNames
+            )
+        );
+    }
+
+    // "A1:B4" or "C2": at most one ':', each corner a bare A1 address (CellAddress.TryParseA1), the corners
+    // normalized so the first row/column is the smaller one.
+    private static bool TryParseTableReference(
+        string reference,
+        out int firstColumn,
+        out int lastColumn,
+        out int firstRow,
+        out int lastRow
+    )
+    {
+        firstColumn = lastColumn = firstRow = lastRow = 0;
+
+        var colon = reference.IndexOf(':');
+        var start = colon < 0 ? reference : reference[..colon];
+        var end = colon < 0 ? reference : reference[(colon + 1)..];
+
+        if (
+            end.Contains(':')
+            || !CellAddress.TryParseA1(start, out var startColumn, out var startRow)
+            || !CellAddress.TryParseA1(end, out var endColumn, out var endRow)
+        )
+        {
+            return false;
+        }
+
+        firstColumn = Math.Min(startColumn, endColumn);
+        lastColumn = Math.Max(startColumn, endColumn);
+        firstRow = Math.Min(startRow, endRow);
+        lastRow = Math.Max(startRow, endRow);
+        return true;
+    }
+
+    // Excel's Name Manager keeps tables and defined names in ONE namespace and refuses a duplicate. Enforced
+    // symmetrically here so the invariant never depends on which was defined first; redefining an entry in its
+    // OWN namespace is not a collision (both maps replace on redefine).
+    private void ThrowIfNameTaken(string name, bool definingTable)
+    {
+        var taken = definingTable ? DefinedNames.ContainsKey(name) : _tables.ContainsKey(name);
+        if (!taken)
+        {
+            return;
+        }
+
+        var (defining, other) = definingTable
+            ? ("table", "defined name")
+            : ("defined name", "table");
+        throw new ArgumentException(
+            $"'{name}' cannot be used as a {defining}: a {other} with that name already exists, and tables "
+                + "and defined names share one namespace.",
+            nameof(name)
+        );
     }
 
     // Walks the parsed definition for any cell/range reference left on the sentinel ("") sheet — i.e.
