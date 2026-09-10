@@ -68,7 +68,11 @@ public readonly record struct RecalculationResult(
 /// (changing a literal input) does NOT bump, so it keeps the cheap path. The rebuild is the amortized cost of a
 /// formula edit; value edits never pay it. Redefining a workbook-level name is a structural edit too — a name
 /// resolves into the graph at build time, so repointing it changes the dependency structure — and is caught the
-/// same way via <see cref="Workbook.DefinitionsVersion"/>, the counter that also covers table definitions.</para>
+/// same way via <see cref="Workbook.DefinitionsVersion"/>, the counter that also covers table definitions. A
+/// definition change is STRONGER than a formula edit, though: rebuilding the graph does not evict the values
+/// already memoized through the old definition, so <see cref="Recalculate"/> answers it with a full
+/// <see cref="Workbook.InvalidateCache"/> (<see cref="RecalculationMode.FullFallback"/>, dirty count
+/// <c>-1</c>) instead of a partial evict.</para>
 ///
 /// <para><b>Contract.</b> Create the engine AFTER the workbook is populated (typically after a first
 /// <see cref="Workbook.ComputeAll"/>). You MUST report every cell you edit — a cell whose value/formula changed
@@ -82,6 +86,13 @@ public sealed class RecalculationEngine
     private Dictionary<Sheet, long> _snapshot;
     private long _definitionsSnapshot;
 
+    // STICKY. EnsureFresh consumes the version comparison as a side effect (it re-snapshots), so whichever
+    // public method runs first would eat the only evidence that a definition changed and the second would see
+    // nothing to do — measured: EstimateImpact then Recalculate left the dependent cell stale with
+    // rebuilt=False. So the fact is latched here instead: EstimateImpact READS it without clearing, and only
+    // the Recalculate arm that actually calls InvalidateCache clears it.
+    private bool _definitionsChanged;
+
     internal RecalculationEngine(Workbook workbook)
     {
         _workbook = workbook;
@@ -93,11 +104,19 @@ public sealed class RecalculationEngine
     /// <summary>
     /// Analyzes the impact of editing <paramref name="edited"/> WITHOUT recomputing or evicting — the same
     /// full-vs-partial decision <see cref="Recalculate"/> makes internally, surfaced so the host can plan (show
-    /// the cost, batch edits, choose a strategy). Rebuilds the graph first if a formula edit made it stale.
+    /// the cost, batch edits, choose a strategy). Rebuilds the graph first if a formula edit made it stale. A
+    /// defined name or table (re)definition since the last <see cref="Recalculate"/> always estimates
+    /// <see cref="ImpactEstimate.RecommendFull"/>, and estimating does NOT consume that signal — the following
+    /// <see cref="Recalculate"/> still evicts.
     /// </summary>
     public ImpactEstimate EstimateImpact(IReadOnlyCollection<CellRef> edited)
     {
-        EnsureFresh();
+        // Reads the sticky flag WITHOUT clearing it: estimating must not consume the signal the following
+        // Recalculate needs to evict.
+        if (EnsureFresh().DefinitionsChanged)
+        {
+            return ImpactEstimate.Full("definição (nome/tabela) alterada");
+        }
 
         if (!TryTranslate(edited, out var deps))
         {
@@ -111,7 +130,9 @@ public sealed class RecalculationEngine
     /// Marks <paramref name="edited"/> dirty and recomputes selectively (evict-and-pull): computes the affected
     /// cone, evicts only those cells, and returns — reading any cell then yields fresh values (lazily). A large
     /// cone (a hot column) falls back to a full <see cref="Workbook.InvalidateCache"/>. Rebuilds the dependency
-    /// graph first if a formula edit (or a sheet add/remove) made it stale. Pass
+    /// graph first if a formula edit (or a sheet add/remove) made it stale. A defined name or table
+    /// (re)definition is not repairable by a partial pass — the values memoized through the old definition are
+    /// stale — so it takes the full <see cref="Workbook.InvalidateCache"/> arm. Pass
     /// <paramref name="collectOutputs"/> to also get the affected output cells (the sinks) in the result — the
     /// set to read to populate another sheet/PDF; skipped by default since it costs an extra walk.
     /// </summary>
@@ -120,7 +141,22 @@ public sealed class RecalculationEngine
         bool collectOutputs = false
     )
     {
-        var rebuilt = EnsureFresh();
+        var (rebuilt, definitionsChanged) = EnsureFresh();
+
+        // A (re)definition invalidates VALUES, not just the graph: rebuilding alone leaves every memoized
+        // result of the old definition in place. This is the arm that clears the sticky flag.
+        if (definitionsChanged)
+        {
+            _definitionsChanged = false;
+            _workbook.InvalidateCache();
+            return new RecalculationResult(
+                RecalculationMode.FullFallback,
+                -1,
+                [],
+                rebuilt,
+                "definição (nome/tabela) alterada — recompute completo"
+            );
+        }
 
         if (!TryTranslate(edited, out var deps))
         {
@@ -162,34 +198,42 @@ public sealed class RecalculationEngine
         );
     }
 
+    // What EnsureFresh found: whether it rebuilt the graph, and whether a definition changed at any point since
+    // the last Recalculate evicted (the sticky half — see _definitionsChanged).
+    private readonly record struct FreshnessResult(bool Rebuilt, bool DefinitionsChanged);
+
     // Rebuilds the internal graph if the workbook's structure changed (any sheet's version advanced, or a sheet
-    // was added/removed) since the last build. Returns whether a rebuild happened.
-    private bool EnsureFresh()
+    // was added/removed) or a definition changed since the last build, and latches the definition change so the
+    // caller that evicts can still see it.
+    private FreshnessResult EnsureFresh()
     {
-        if (!IsStale())
+        var definitionChange = HasDefinitionChange();
+        if (definitionChange)
         {
-            return false;
+            _definitionsChanged = true;
+        }
+
+        if (!definitionChange && !HasSheetStructureChange())
+        {
+            return new FreshnessResult(false, _definitionsChanged);
         }
 
         _engine = DirtyEngine.Build(_workbook);
         _snapshot = SnapshotVersions();
         _definitionsSnapshot = _workbook.DefinitionsVersion;
-        return true;
+        return new FreshnessResult(true, _definitionsChanged);
     }
 
-    // Stale if the set of sheets changed (count/identity), any sheet's structural version advanced, or a
-    // defined name or table was (re)defined. Sheet identity is stable (the same Sheet object lives for the
-    // workbook's life), so a removed sheet drops from the map and a new one is absent from it — both caught
-    // here. A name redefinition touches no Sheet at all — DependencyExtractor.ResolveName bakes the name's
-    // definition into the graph at build time — so it needs its own version check via
-    // Workbook.DefinitionsVersion.
-    private bool IsStale()
-    {
-        if (_workbook.DefinitionsVersion != _definitionsSnapshot)
-        {
-            return true;
-        }
+    // A defined name or table was (re)defined. It touches no Sheet at all — DependencyExtractor.ResolveName
+    // bakes the name's definition into the graph at build time — so it needs its own version check via
+    // Workbook.DefinitionsVersion, and it invalidates values as well as the graph (Recalculate's full arm).
+    private bool HasDefinitionChange() => _workbook.DefinitionsVersion != _definitionsSnapshot;
 
+    // The set of sheets changed (count/identity) or any sheet's structural version advanced. Sheet identity is
+    // stable (the same Sheet object lives for the workbook's life), so a removed sheet drops from the map and a
+    // new one is absent from it — both caught here.
+    private bool HasSheetStructureChange()
+    {
         var sheets = _workbook.Sheets;
         if (sheets.Count != _snapshot.Count)
         {
