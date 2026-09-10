@@ -876,11 +876,11 @@ registro `nome → Table` somente para leitura, e `DefineTable` é seu único es
 > **O que é modelado, e o que não é.** O registro guarda o *modelo* da tabela — o nome, o intervalo, as flags
 > de cabeçalho/totais e os nomes das colunas — e ele sobrevive ao `Save`/`Load`. A **sintaxe** de referência
 > estruturada ainda não está implementada: `=SUM(Tabela1[Valor])` lança `ParseException: Unexpected character
-> '[' (at position 11)` (medido em 2026-09-10 na versão que introduz o registro), e o `ExcelFile.Load` também
-> não preenche o registro a partir de uma parte `<table>` do xlsx ([Interop com Excel → Escopo e
-> limitações](excel-interop.md#escopo-e-limitações)). Ou seja, nada no avaliador lê uma tabela ainda: você
-> registra uma para preservar o modelo num round-trip e para dar à sintaxe de referência algo contra o que
-> resolver quando ela chegar.
+> '[' (at position 11).` (medido em 2026-09-10 na versão que introduz o registro — o ponto final faz parte da
+> mensagem), e o `ExcelFile.Load` também não preenche o registro a partir de uma parte `<table>` do xlsx
+> ([Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações)). Ou seja, nada no avaliador
+> lê uma tabela ainda: você registra uma para preservar o modelo num round-trip e para dar à sintaxe de
+> referência algo contra o que resolver quando ela chegar.
 
 ```csharp
 var workbook = new Workbook();
@@ -941,8 +941,8 @@ tabela pode nomear uma planilha que não foi adicionada (ou que foi removida). U
 questão de tempo de avaliação — uma referência a ela resolve para `#REF!` em vez de lançar (veja
 [`GetCellValue`](#workbook)).
 
-**Zero linhas de dados é legal.** Uma tabela só de cabeçalho (`ref="A1:A1"` com linha de cabeçalho) é um
-estado de modelo válido, não um erro: `DataRowCount` é `0` e `TryGetColumnRange` devolve `false` para uma
+**Zero linhas de dados é válido.** Uma tabela só de cabeçalho (`ref="A1:A1"` com linha de cabeçalho) é um
+estado de modelo legítimo, não um erro: `DataRowCount` é `0` e `TryGetColumnRange` devolve `false` para uma
 coluna *conhecida*, deixando a decisão entre `#REF!` e vazio para quem chama, em vez de devolver um intervalo
 invertido.
 

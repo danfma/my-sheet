@@ -830,11 +830,11 @@ sheet-anchored rectangle with named columns. `Workbook.Tables` is the read-only 
 > **What is modelled, and what is not.** The registry holds the table *model* — the name, the range, the
 > header/totals flags and the column names — and it survives `Save`/`Load`. The structured-reference
 > **syntax** is not implemented yet: `=SUM(Tabela1[Valor])` raises `ParseException: Unexpected character '['
-> (at position 11)` (measured 2026-09-10 on the release that introduces the registry), and `ExcelFile.Load`
-> does not populate the registry from an xlsx `<table>` part either ([Excel interop → Scope and
-> limitations](excel-interop.md#scope-and-limitations)). So nothing in the evaluator reads a table yet: you
-> register one to keep the model through a round trip, and to give the reference syntax something to resolve
-> against when it lands.
+> (at position 11).` (measured 2026-09-10 on the release that introduces the registry — the trailing period is
+> part of the message), and `ExcelFile.Load` does not populate the registry from an xlsx `<table>` part either
+> ([Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations)). So nothing in the
+> evaluator reads a table yet: you register one to keep the model through a round trip, and to give the
+> reference syntax something to resolve against when it lands.
 
 ```csharp
 var workbook = new Workbook();
