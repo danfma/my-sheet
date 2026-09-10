@@ -240,15 +240,23 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* A generic divergence on modern dates in the accrual functions, not a 1900 edge, so every real bond
       workbook is affected.
 
-- [ ] **17.** `YEARFRAC` basis 1 computes its denominator from the MAPPED years, so Excel's day zero contributes
-      1899: measured `YEARFRAC(0,366,1)` = **1** on Aspose against 366/365 here, and `YEARFRAC(0,1500,1)` =
-      1500/365.1667 here against `(1,1500,1)` = 1499/365.2. Phase 9 left basis 1 on the mapped years on purpose.
-      Derive the denominator rule from the oracle across a year boundary and match it.
+- [ ] **17.** `YEARFRAC` basis 1 (actual/actual) is wrong on ORDINARY MODERN spans, not just at the day zero.
+      **Re-scoped 2026-09-09 after Phase 9's final reviewer measured it — my earlier text called it a day-zero
+      artefact, which hid the real defect.** Measured on Aspose.Cells 26.6.0 (PLAIN, 2026-09-09), Aspose first:
+      `YEARFRAC(DATE(2024,1,1),DATE(2025,1,1),1)` = **1** against 1.0013680 here;
+      `(DATE(2023,12,31),DATE(2024,1,1),1)` = 1/365 against 1/365.5;
+      `(DATE(2023,3,1),DATE(2024,2,28),1)` = 0.99726 against 0.99590;
+      `(DATE(2023,6,1),DATE(2024,6,1),1)` = 1 against 1.00137 — **7 of 12 measured modern rows differ**, i.e. any
+      span of a year or less that crosses a year boundary. Cause: `DayCount` averages every calendar year the span
+      touches regardless of the span's length. PRE-EXISTING (the pre-phase build gives the same numbers), so it is
+      not a Phase 9 regression, but basis 1 is the actual/actual convention most financial models use, which makes
+      this the highest-impact item in the sweep. Derive Excel's real rule from the oracle across the cases that
+      distinguish it (span within one calendar year; span exactly one year crossing a boundary; span over a leap
+      day; span longer than a year) before writing code, and keep the day-zero rows (`YEARFRAC(0,366,1)` = 1 on
+      Aspose against 366/365 here) as the narrow tail of the same fix rather than its subject.
       *Files:* `Danfma.MySheet/Expressions/DayCount.cs`, `tests/Danfma.MySheet.Tests/Parsing/DateEpochTests.cs` or the nearest sibling, both docs twins
-      *Why:* Basis 1 is the actual/actual convention most financial models use; a denominator off by a fraction of
-      a day moves every interest figure derived from it.
-
-## Controller additions after verification, part 3 (2026-09-09) — measured by Phase 9's Task 4
+      *Why:* Every interest and accrual figure computed on basis 1 over a year boundary is currently off, and the
+      error is small enough to pass unnoticed in a spreadsheet and large enough to matter in money.
 
 - [ ] **18.** A malformed or wrong-length `WORKDAY.INTL` / `NETWORKDAYS.INTL` weekend mask is **`#NUM!`** on the
       oracle, not `#VALUE!`. Measured on Aspose.Cells 26.6.0 (PLAIN, 2026-09-09) by Phase 9 Task 4:
