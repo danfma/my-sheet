@@ -428,12 +428,15 @@ public class ElementwiseLiftingMechanismTests
     [Test]
     public async Task BroadcastArgument_ErrorConsumingBody_SeesNoMarker()
     {
-        // IFERROR(A1:C3, E1:E3): the 3x1 column broadcasts across the 3x3 (Phase 10), so IFERROR sees no
-        // error in any slot and returns the 3x3 side's element — nine numbers. The count was 9 before Phase
-        // 10 too, by a different route (the 3x1 side answered a #VALUE! marker that IFERROR consumed), which
-        // is why the pin survived the flip unchanged; Aspose.Cells 26.6.0 answers 9 (verifier correction M3,
-        // 2026-09-09, CSE column). The uncovered-shape companion, where IFERROR DOES see a real #N/A, is
-        // VectorBroadcastingTests' SUM(IFERROR(A1:C3*H1:H2,0)) = 36.
+        // IFERROR(A1:C3, E1:E3) = 9, and the REASON matters because two earlier versions of this comment got
+        // it wrong in opposite directions. IFERROR SHORT-CIRCUITS on its first argument alone: it evaluates
+        // argument 1 only when argument 0 is an error. Here argument 0 is A1:C3, which never errors at any
+        // position, so argument 1 is never read — before Phase 10 or after it. The lift still computes the
+        // second argument's element into its scratch slot (a #VALUE! marker before this phase, a broadcast
+        // number now), and IFERROR simply never looks at it. So the count is 9 for one reason only: nine
+        // non-error elements on the left. Aspose.Cells 26.6.0 answers 9 as well (2026-09-09, CSE column), but
+        // that agreement is not what this test is about. The companion where IFERROR DOES see a real error is
+        // VectorBroadcastingTests' SUM(IFERROR(A1:C3*H1:H2,0)) = 36, whose left side has #N/A in the tail.
         var (workbook, sheet) = Sheet();
         foreach (var column in new[] { "A", "B", "C", "E" })
         {

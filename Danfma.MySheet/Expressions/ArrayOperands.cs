@@ -23,11 +23,18 @@ internal abstract class ArrayOperand
 
     /// <summary>
     /// The value at a row-major index within a target <paramref name="rows"/>×<paramref name="columns"/>
-    /// extent: a scalar broadcasts to every position; an array is read through
+    /// extent: a scalar broadcasts to every position; an array LEAF is read through
     /// <see cref="Broadcasting.TryProject"/> — an axis of extent 1 repeats along the target's, and a
     /// position the array does not cover is <c>#N/A</c> (Excel's rule, measured on Aspose.Cells 26.6.0,
     /// 2026-09-10, CSE column — see <see cref="Broadcasting"/>).
     /// </summary>
+    /// <remarks>
+    /// The two LEAVES (<c>RangeOperand</c>, <c>PositionNumbersOperand</c>) project as described. The four
+    /// COMPOSITES still answer <c>#VALUE!</c> for any extent that is not their own, which is the pre-Phase-10
+    /// rule and is why <c>SUM((A1:A3*H1:H2)*E5:G5)</c> is <c>#VALUE!</c> here against the oracle's <c>#N/A</c>.
+    /// Phase 10's composite item removes those four guards; until it lands, read this contract as describing
+    /// the leaves only.
+    /// </remarks>
     public abstract ComputedValue At(int index, int rows, int columns);
 }
 
