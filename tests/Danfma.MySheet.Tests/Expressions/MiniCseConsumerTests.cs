@@ -448,8 +448,10 @@ public class MiniCseConsumerTests
     {
         // ROW(A1:C3) is the 3x1 COLUMN [1,2,3] → 6. FLIPPED by Phase 10 (verifier correction B1): Phase 1
         // fabricated a 3x3 rectangle, each row number once per column, and pinned 18 here; Excel's shape is
-        // the vector — Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (plain entry agrees): 6, with
-        // COUNT(ROW(A1:C3)) = 3 pinned in VectorBroadcastingTests.
+        // the vector — Aspose.Cells 26.6.0, CSE column: 6, with COUNT(ROW(A1:C3)) = 3 pinned in
+        // VectorBroadcastingTests. Plain entry does NOT agree, as an earlier version of this comment said:
+        // typed, ROW of a rectangle is the single top row, so SUM and COUNT both answer 1 there (re-measured
+        // 2026-09-10, both columns). The CSE column is the one this engine implements everywhere.
         await Assert.That(Num(OnPositionGrid("=SUM(ROW(A1:C3))"))).IsEqualTo(6.0);
     }
 

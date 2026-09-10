@@ -381,7 +381,10 @@ Details:
 rectangle. That follows the `@` rule as documented, but it is the likeliest point of divergence from a real
 Excel build and was **not** measured; the alternative reading — the formula cell's own (column, row) when
 the rectangle contains it — is one extra branch in `ImplicitIntersection`. A union is likewise deliberately
-left at `#VALUE!`.
+left at `#VALUE!`. A **computed array** never reaches this rule at all — a bare `=A1:C3*E1:E3` or `=LEN(A1:A3)`
+in a cell is the operator's or the function's own `#VALUE!`, not an intersection — and Excel's answer for the
+typed form of those is measured and recorded under
+[implicit array arguments](#implicit-array-arguments); reconciling the two is the array half of this rule.
 
 ## Implicit array arguments
 
@@ -397,6 +400,17 @@ ExpressionParser.Parse("=INDEX(ROW(B2:B5),1)", sheet);                    // →
 ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // → 4 (identity: nth row)
 ```
 
+**Which entry mode the Excel numbers on this page come from.** Excel answers these shapes *differently*
+depending on how the formula was entered. Typed normally it applies legacy implicit intersection **inside**
+the argument; array-entered (`Ctrl+Shift+Enter`) it evaluates the whole array. So `SUM(A1:C3*E1:E3)` over the
+fixture below is `#VALUE!` typed and **108** array-entered, and `SUM(ROW(A1:C3))` is **1** typed — `ROW` of a
+rectangle answers its single top row there — against **6** array-entered. MySheet has no array-entry concept
+at all: a formula is a formula, and every consumer described here implements the **array-entered** rule. Every
+Excel figure quoted in this section and in its divergence list is therefore the array-entered one unless the
+line says *typed* (all measured on Aspose.Cells 26.6.0, 2026-09-10). If you type one of these formulas into a
+real Excel and compare, expect the typed answer rather than ours; the one place where MySheet's own answer
+follows neither is [the cell boundary](#implicit-intersection-at-the-cell-boundary), below.
+
 **Supported.** The consumers are the numeric aggregators (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, and —
 through the same fold — `SMALL`, `LARGE`, the percentiles), `INDEX`, `SUMPRODUCT`, and the **array form** of
 [`AGGREGATE`](function-reference.md) (`function_num` 14-19), where option 6 drops the `#DIV/0!` elements that
@@ -406,13 +420,34 @@ deliberately **not** consumers: their arguments are `ref`s, and Excel rejects a 
 26.6.0, which is exactly why AGGREGATE documents a second syntax for arrays. An argument is evaluated as an
 array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is such an array
 (with or without an else branch), `ROW`/`COLUMN` over a rectangle, or one of the two **lifted** shapes
-described further down. That rectangle may be written literally (`SUM(ROW(A1:C3))` = 18,
-`SUM(COLUMN(A1:C3))` = 18) or merely *denoted* by the argument — a
+described further down. That rectangle may be written literally — `ROW(A1:C3)` is the 3x1 column `[1,2,3]`
+and `COLUMN(A1:C3)` the 1x3 row `[1,2,3]`, one number per rank rather than one per cell, so
+`SUM(ROW(A1:C3))` and `SUM(COLUMN(A1:C3))` are both 6 and `COUNT` of either is 3 (array-entered; typed, both
+sums are 1) — or merely *denoted* by the argument — a
 [defined name](#named-ranges) (`SUM(ROW(MyName))` = 6 and `COUNT(ROW(MyName))` = 3 for a name over three
 rows, while `COUNT(MyName)` counts the cells' own values) or a `:` range with reference-returning endpoints
-(`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Scalars broadcast across the vector. A branch-less `IF` yields a
+(`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). A branch-less `IF` yields a
 logical `FALSE` where the condition is false, and the aggregators ignore logicals/text (exactly why
 `SMALL(IF(…))` skips the non-matching rows). The first per-element error wins, as in Excel.
+
+**How two arrays of different shape combine (broadcasting).** A scalar broadcasts to every position — and so
+does a **1x1 range**, which is a vector too: `SUM(A1:C3*E1:E1)` = 45. Otherwise each axis is decided on its
+own, and an extent of 1 defers to the other side: an Nx1 **column** repeats across every column
+(`SUM(A1:C3*E1:E3)` = 108), a 1xM **row** repeats down every row (`SUM(A1:C3*E5:G5)` = 960), and an Nx1
+against a 1xM is the NxM **outer product** (`SUM(E1:E3*E5:G5)` = 360). `IF` folds its condition and *both*
+branches into one extent by the same rule (`SUM(IF(E1:E3>1,A1:C3,0))` = 39, `SUM(IF(E1:E3>1,E5:G5,0))` = 120).
+Where both extents exceed 1 and differ, the result takes the **larger** one and every position the shorter
+operand does not cover is **`#N/A`** — a per-element error, not a whole-expression one, so a consumer that
+skips or catches errors still answers: `SUM(A1:C3*H1:H2)` is `#N/A` while `COUNT(A1:C3*H1:H2)` = 6 and
+`AGGREGATE(15,6,A1:C3*H1:H2,6)` = 12. `SUMPRODUCT` keeps its own stricter rule, and only for its **own**
+argument list: those must match exactly, a 1x1 included — `SUMPRODUCT(A1:C3,E1:E3)` and
+`SUMPRODUCT(A1:C3,E1:E1)` are both `#VALUE!`, where the operator would have broadcast both — while a broadcast
+written *inside* one argument is consumed as the array it computes (`SUMPRODUCT(A1:C3*E1:E3)` = 108). Fixture:
+`A1:C3` = 1…9 row-major, `E1:E3` = 1,2,3, `E5:G5` = 10,20,30, `H1:H2` = 1,2. Every figure here is measured on
+Aspose.Cells 26.6.0, 2026-09-10, array-entered — typed, every `SUM` form above is `#VALUE!` there and
+`COUNT(A1:C3*H1:H2)` is 0, while the `AGGREGATE` and `SUMPRODUCT` forms answer the same in both modes
+(they are array-native under either entry) — and pinned by `VectorBroadcastingTests`,
+`MiniCseConsumerTests` and `MathAggregateTests`.
 
 **Lifted unary operators and scalar functions.** Two further shapes become arrays wherever one of the
 consumers above asks for one, by applying a scalar body element by element:
@@ -443,10 +478,15 @@ Inside a lifted call:
 - **Scalar arguments broadcast**, and each is evaluated exactly **once** per evaluation rather than once per
   element: `SUM(ROUND(A1:A3,0))` reads the `0` once, and a volatile or a host function in a scalar slot is
   called a single time for the whole vector.
-- **Two array arguments must have the same shape.** Equal shapes pair position by position
-  (`SUM(ROUND(A1:A3,B1:B3))` = 6 over 1,2,3 and 10,20,30); a mismatch hands the body a `#VALUE!` marker for
-  every element instead of broadcasting the shorter side, so `SUM(LEFT(D7:F9,A1:A3))` — 3x3 against 3x1 —
-  is `#VALUE!`. Excel broadcasts instead; that is the first of the known divergences below.
+- **Two array arguments broadcast per axis**, by the same rule the operator's operands follow (the
+  broadcasting paragraph above). Equal shapes pair position by position (`SUM(ROUND(A1:A3,B1:B3))` = 6 over
+  1,2,3 and 10,20,30); an extent of 1 defers to the other side, so `SUM(ROUND(A1:C3,E1:E3))` — 3x3 against
+  3x1 — is 45; and where both extents exceed 1 and differ, the uncovered positions are `#N/A`, so
+  `SUM(ROUND(A1:C3,H1:H2))` is `#N/A` while `COUNT(ROUND(A1:C3,H1:H2))` = 6. An earlier release handed the
+  body a `#VALUE!` marker for *every* element instead; that is gone, which changes what an
+  error-*consuming* body sees — `SUM(LEN(IFERROR(LEFT(D7:F9,E6:E8),"zz")))` is 0, not 18, because the
+  broadcast blank column makes every element `LEFT(x,0)` = `""` and leaves `IFERROR` nothing to recover
+  (all array-entered, measured on Aspose.Cells 26.6.0).
 - **An omitted argument keeps the function's own default.** `FIXED(A1:A3,,TRUE)` still formats two decimals
   per element: an omitted slot stays a blank literal in the tree rather than becoming a per-element slot, so
   the function's "argument not supplied" branch still fires.
@@ -505,6 +545,19 @@ The guard tests are precise about which of those two mistakes each one catches:
   `=LEN(A1:A3)` too; only its legacy `Ctrl+Shift+Enter` form gives the top-left `LEN(A1)` (measured on
   Aspose.Cells 26.6.0, 2026-09-09). Giving the boundary that array half is future work, and the current
   answer is pinned so the change has to be deliberate.
+- **A broadcast product in a bare cell is `#VALUE!` too**, and the boundary is where that gap lives rather
+  than in the broadcasting rule: `=A1:C3*E1:E3` typed into a cell never enters the element-wise evaluation,
+  so it is the multiplication operator's own `#VALUE!`, while `=SUM(A1:C3*E1:E3)` in that same cell is 108.
+  Excel's rule for the typed form is not an array rule at all — it applies implicit intersection to **each
+  range operand separately, before the operator**, using the formula cell's own row and column, so the same
+  formula answers differently in different cells: `=A1:A3*E1:E3` is **21** in `J3` (`A3`×`E3`) and **1** in
+  `J1`, `=E1:E3*10` is **20** in `L2`, **30** in `L3` and `#VALUE!` in `L5` (row 5 misses `E1:E3`), and a 2-D
+  operand never intersects, so `=A1:C3*E1:E3` is `#VALUE!` there as well — the only way to get the top-left
+  element of the computed array is to ask for it, `=INDEX(E1:E3*10,1,1)` = **10** (all typed entry, measured
+  on Aspose.Cells 26.6.0, 2026-09-10). Closing that belongs to the
+  [cell boundary](#implicit-intersection-at-the-cell-boundary) rule — the per-operand behaviour above is what
+  the array half of `@` has to be reconciled with — not to the consumers described here; today's `#VALUE!` is
+  pinned by `CellBoundaryIntersectionTests` so the change has to be deliberate.
 - **Unary `+` is deliberately not lifted.** It is Excel's reference-preserving no-op, so `+A1:A3` stays a
   *reference* and the consumer folds it on the ordinary range path: `SUM(+A1:A3)` = 6 for `A1:A3` = 1,2,3,
   exactly as `SUM(A1:A3)` does, and unchanged by the lift. The cost of keeping it opaque is that a `-` over
@@ -527,9 +580,13 @@ The guard tests are precise about which of those two mistakes each one catches:
   Excel refuses the whole family outright instead: for a computed argument `SUMIF`, `SUMIFS`, `COUNTIF`,
   `COUNTIFS`, `AVERAGEIF`, `AVERAGEIFS`, `MAXIFS` and `MINIFS` each answer `#VALUE!` on plain entry and
   `#REF!` when array-entered (`SUMIFS((A1:A3)*1,A1:A3,">0")` and the seven others, measured on Aspose.Cells
-  26.6.0, 2026-09-09). So the paired forms' `#VALUE!` coincides with Excel only on plain entry, and the three
-  silent answers are a divergence — both recorded for the planned Excel-compatibility sweep, not asserted as
-  Excel's rule.
+  26.6.0, 2026-09-09). So the paired forms' `#VALUE!` coincides with Excel only on the typed form, and the
+  three silent answers are a divergence — both recorded for the planned Excel-compatibility sweep, not
+  asserted as Excel's rule. A **broadcast** argument changes nothing here: the family never enters the
+  element-wise evaluation, so `SUMIF(A1:C3*H1:H2,">0")` and `COUNTIF(A1:C3*H1:H2,">0")` are `0` and
+  `SUMIFS(A1:C3,A1:C3*H1:H2,">0")` is `#VALUE!` here, against `#REF!` array-entered and `#VALUE!` typed on
+  the oracle for all three (measured 2026-09-10, both engines; pinned by
+  `MiniCseConsumerTests.CriteriaFamily_OverABroadcastArray_StillRefusesIt`).
   `SUMPRODUCT` is the one member of that family that opted in to computed arrays; the fold-based
   consumers listed under **Supported** above (`SUM(IF(…))` and friends) have always taken them. A **lifted**
   argument is refused there for exactly the same reason — `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#VALUE!`, with
@@ -549,19 +606,37 @@ The guard tests are precise about which of those two mistakes each one catches:
   `A1:A3` and is then dragged to a whole column gets the old `#VALUE!` back, with no other warning.
 - A **scalar** condition keeps `IF`'s native short-circuit — only an array condition drives the zip.
 
-**Known divergences.** Every one of these is pinned by a test as a *gap*, not asserted as Excel's rule, so
-closing one is always a deliberate edit. Excel here means Aspose.Cells 26.6.0, the version this project
-measures against, with the formula array-entered (`Ctrl+Shift+Enter`) — the entry form whose semantics this
-element-wise evaluation reproduces without the keystroke.
+**Known divergences.** Each of these is pinned by a test as a *gap*, not asserted as Excel's rule, so closing
+one is always a deliberate edit; the single entry with no pin says so in its own words. Excel here means
+Aspose.Cells 26.6.0, the version this project measures against, with the formula array-entered
+(`Ctrl+Shift+Enter`) — the entry form whose semantics this element-wise evaluation reproduces without the
+keystroke — and any figure taken from the typed form is labelled *typed* where it appears.
 
-- **Two arrays of different shape are not broadcast.** MySheet requires equal shapes and fills the
-  mismatched side with a `#VALUE!` marker per element; Excel repeats an Nx1 column across every column of an
-  NxM rectangle, and a 1xM row down every row. So over `A1:C3` = 1…9, `E1:E3` = 1,2,3 and `E5:G5` = 10,20,30,
-  `SUM(A1:C3*E1:E3)` is `#VALUE!` here and **108** in Excel, `SUM(A1:C3*E5:G5)` **960**, and
-  `SUM(ROUND(A1:C3,E1:E3))` **45** (all measured 2026-09-09, all three `#VALUE!` here). Because the marker is
-  handed to the body as an ordinary value, an error-*consuming* body keeps going and can land on Excel's
-  answer anyway: `COUNT(IFERROR(A1:C3,E1:E3))` is **9** on both. Broadcasting is planned; until it lands,
-  give both array arguments the same shape.
+- **Uncovered on BOTH axes at once is `#N/A` here, and the oracle has no answer to match.** The
+  broadcasting rule above is per axis, so a 2x2 against a 3x3 leaves five of the nine positions uncovered on
+  the row axis, the column axis or both, and each is `#N/A` while the four covered positions compute:
+  `SUM(A1:B2*A1:C3)` is `#N/A` and `COUNT(A1:B2*A1:C3)` = 4. Excel answers `#N/A` too whenever a position is
+  short on **one** axis (`INDEX(A1:B3*A1:C2,3,1)` — a 3x2 against a 2x3 — is `#N/A` on both engines), but
+  for the doubly-uncovered shape it answers **`#REF!`** from `INDEX` — in typed *and*
+  array-entered form alike — and its calculator never returns at all for `SUM` or `COUNT` over that same
+  array (no answer after ten minutes here, and over 200 s in each entry mode when the phase first met it,
+  while `ROWS`/`COLUMNS` over it still report 3 and 3 immediately). All
+  measured on Aspose.Cells 26.6.0, 2026-09-10. That is why this one is *not* on the compatibility sweep:
+  a `#REF!` on two axes against an `#N/A` on one is not a rule to copy, and a computation that does not
+  terminate is not a behaviour to reproduce. Pinned by
+  `VectorBroadcastingTests.UncoveredOnBothAxes_StaysNotAvailable_WhereTheOracleIsSelfInconsistent`, whose
+  comment carries the measurement.
+- **`ROWS`/`COLUMNS` over a computed array is `#VALUE!` here**, where Excel reports the array's real extent.
+  For an operator's result or a lifted call — `ROWS(A1:C3*2)`, `COLUMNS(A1:C3*2)`, `ROWS(A1:C3*H1:H2)`,
+  `COLUMNS(E1:E3*E5:G5)`, `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` — MySheet answers `#VALUE!` and Excel answers the
+  extent (**3**, **3**, **3**, **3** for the four broadcast forms, the *broadcast* extent rather than either
+  operand's), typed and array-entered alike; over `ROW`/`COLUMN`'s own vector MySheet answers 1 where Excel
+  answers 3 (`ROWS(ROW(A1:C3))`). Both sides measured on 2026-09-10, Excel on Aspose.Cells 26.6.0. The reason
+  is the consumer list rather than the broadcasting rule: `ROWS` and `COLUMNS` want a *reference* and were
+  never taught to enter the element-wise evaluation, so they see the operator's ordinary `#VALUE!`. `INDEX`
+  *is* a consumer, so the extent is observable through it — `INDEX(A1:C3*H1:H2,3,1)` is the `#N/A` of an
+  uncovered position, not the `#REF!` of an out-of-bounds one. Recorded for the planned Excel-compatibility
+  sweep. This is the one entry in this list with **no test pinning it**: nothing fails if the `#VALUE!` moves.
 - **`SUM(ROW(Ghost!A1:A3))`** — a rectangle written *literally* on a sheet that does not exist, in an array
   position — answers `6`, the row numbers `1+2+3`, where Excel answers `#REF!`. The scalar
   `ROW(Ghost!A1:A3)` in the same workbook is already `#REF!`, and so is the array path over a name that
@@ -615,8 +690,9 @@ element-wise evaluation reproduces without the keystroke.
   a per-element lift, and `#VALUE!` here. Pinned by
   `ElementwiseLiftingTests.AConsumesFunction_IsNotLiftedOverItsScalarSlots_KnownDivergence`.
 
-The last five are recorded for a planned Excel-compatibility sweep and are deliberately left as they
-are for now.
+Every one of these is deliberately left as it is for now, and all but two are recorded for a planned
+Excel-compatibility sweep: the two-axis mismatch is not, because the oracle offers no answer to match there,
+and neither is the ghost-sheet rectangle, whose cause is a syntactic fast path rather than a rule.
 
 Volatile sub-expressions inside the array behave like any other volatile: a `RAND()` (broadcast, or in a
 range cell the comparison reads) taints the consuming cell, so [`Recalculate()`](#the-epoch-model)

@@ -396,7 +396,11 @@ Detalhes:
 está dentro do retângulo. Isso segue a regra do `@` como documentada, mas é o ponto mais provável de
 divergência em relação a um Excel real e **não** foi medido; a leitura alternativa — a (coluna, linha) da
 própria célula da fórmula quando o retângulo a contém — é um ramo a mais em `ImplicitIntersection`. Uma
-união também fica deliberadamente em `#VALUE!`.
+união também fica deliberadamente em `#VALUE!`. Um **array computado** nunca chega a esta regra — um
+`=A1:C3*E1:E3` ou um `=LEN(A1:A3)` puro em uma célula é o `#VALUE!` do próprio operador ou da própria função,
+e não uma interseção — e a resposta do Excel para a forma digitada desses casos está medida e registrada em
+[argumentos implícitos de array](#argumentos-implícitos-de-array); reconciliar as duas é a metade de array
+desta regra.
 
 ## Argumentos implícitos de array
 
@@ -412,6 +416,19 @@ ExpressionParser.Parse("=INDEX(ROW(B2:B5),1)", sheet);                    // →
 ExpressionParser.Parse("=INDEX(ROW($A:$A),4)", sheet);                    // → 4 (identidade: n-ésima linha)
 ```
 
+**De qual modo de entrada vêm os números do Excel nesta página.** O Excel responde a estas formas de maneira
+*diferente* conforme o modo como a fórmula foi inserida. Digitada normalmente, ele aplica a interseção
+implícita legada **dentro** do argumento; inserida como array (`Ctrl+Shift+Enter`), ele avalia o array
+inteiro. Por isso `SUM(A1:C3*E1:E3)` sobre a fixture abaixo é `#VALUE!` digitada e **108** inserida como
+array, e `SUM(ROW(A1:C3))` é **1** digitada — ali o `ROW` de um retângulo responde a sua única linha
+superior — contra **6** inserida como array. O MySheet não tem nenhum conceito de entrada como array: uma
+fórmula é uma fórmula, e todos os consumidores descritos aqui implementam a regra da entrada **como array**.
+Portanto, todo número do Excel citado nesta seção e na lista de divergências dela é o da entrada como array,
+a não ser que a linha diga *digitada* (tudo medido no Aspose.Cells 26.6.0, em 2026-09-10). Se você digitar
+uma destas fórmulas em um Excel de verdade e comparar, espere a resposta da forma digitada, e não a nossa; o
+único ponto em que a resposta do próprio MySheet não segue nenhuma das duas é
+[a fronteira da célula](#interseção-implícita-na-fronteira-da-célula), abaixo.
+
 **Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX` e —
 através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUCT` e a **forma-array** do
 [`AGGREGATE`](function-reference.md) (`function_num` 14-19), onde a opção 6 descarta os elementos
@@ -422,14 +439,37 @@ rejeita um array computado em um deles — `SUBTOTAL(9,ROW(A1:A3))` e `AGGREGATE
 segunda sintaxe para arrays. Um argumento é avaliado como um array quando é uma comparação de **intervalo
 fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim (com ou sem ramo `else`),
 `ROW`/`COLUMN` sobre um retângulo, ou uma das duas formas **elevadas** (*lifted*) descritas mais abaixo.
-Esse retângulo pode estar escrito literalmente (`SUM(ROW(A1:C3))` = 18,
-`SUM(COLUMN(A1:C3))` = 18) ou apenas ser *denotado* pelo argumento — um
+Esse retângulo pode estar escrito literalmente — `ROW(A1:C3)` é a coluna 3x1 `[1,2,3]` e `COLUMN(A1:C3)` a
+linha 1x3 `[1,2,3]`, um número por posição de linha ou coluna e não um por célula, de modo que
+`SUM(ROW(A1:C3))` e `SUM(COLUMN(A1:C3))` são ambos 6 e o `COUNT` de qualquer um deles é 3 (inseridos como
+array; digitados, os dois somam 1) — ou apenas ser *denotado* pelo argumento — um
 [nome definido](#intervalos-nomeados) (`SUM(ROW(MyName))` = 6 e `COUNT(ROW(MyName))` = 3 para um nome sobre
 três linhas, enquanto `COUNT(MyName)` conta os valores das próprias células) ou um intervalo `:` com
-extremidades que retornam referências (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Escalares são propagados
-(*broadcast*) por todo o vetor. Um `IF` sem ramo produz um lógico `FALSE` onde a condição é falsa, e os
+extremidades que retornam referências (`SUM(ROW(INDEX(A1:A3,1,1):A3))` = 6). Um `IF` sem ramo produz um
+lógico `FALSE` onde a condição é falsa, e os
 agregadores ignoram lógicos/texto (exatamente por isso `SMALL(IF(…))` pula as linhas sem correspondência).
 O primeiro erro por elemento prevalece, como no Excel.
+
+**Como dois arrays de formatos diferentes se combinam (propagação, *broadcasting*).** Um escalar é propagado
+para todas as posições — e um **intervalo 1x1** também, porque ele igualmente é um vetor:
+`SUM(A1:C3*E1:E1)` = 45. Fora disso, cada eixo é decidido por conta própria, e uma extensão igual a 1 cede à
+do outro lado: uma **coluna** Nx1 se repete em todas as colunas (`SUM(A1:C3*E1:E3)` = 108), uma **linha** 1xM
+se repete em todas as linhas (`SUM(A1:C3*E5:G5)` = 960), e uma Nx1 contra uma 1xM é o **produto externo** NxM
+(`SUM(E1:E3*E5:G5)` = 360). O `IF` dobra a condição e *os dois* ramos em uma única extensão pela mesma regra
+(`SUM(IF(E1:E3>1,A1:C3,0))` = 39, `SUM(IF(E1:E3>1,E5:G5,0))` = 120). Quando as duas extensões passam de 1 e
+diferem, o resultado assume a **maior** delas e toda posição que o operando mais curto não cobre é
+**`#N/A`** — um erro por elemento, não da expressão inteira, então um consumidor que descarta ou captura
+erros ainda responde: `SUM(A1:C3*H1:H2)` é `#N/A`, enquanto `COUNT(A1:C3*H1:H2)` = 6 e
+`AGGREGATE(15,6,A1:C3*H1:H2,6)` = 12. O `SUMPRODUCT` mantém a própria regra, mais estrita, e apenas para a
+**sua** lista de argumentos: eles precisam bater exatamente, inclusive um 1x1 — `SUMPRODUCT(A1:C3,E1:E3)` e
+`SUMPRODUCT(A1:C3,E1:E1)` são ambos `#VALUE!`, onde o operador teria propagado os dois —, enquanto uma
+propagação escrita *dentro* de um argumento é consumida como o array que ela computa
+(`SUMPRODUCT(A1:C3*E1:E3)` = 108). Fixture: `A1:C3` = 1…9 por linhas, `E1:E3` = 1, 2 e 3, `E5:G5` = 10, 20 e
+30, `H1:H2` = 1 e 2. Todos os números daqui foram medidos no Aspose.Cells 26.6.0, em 2026-09-10, com entrada
+como array — digitadas, todas as formas com `SUM` acima dão `#VALUE!` ali e `COUNT(A1:C3*H1:H2)` dá 0,
+enquanto as formas com `AGGREGATE` e `SUMPRODUCT` respondem o mesmo nos dois modos (são nativas de array em
+qualquer entrada) — e estão fixados por `VectorBroadcastingTests`, `MiniCseConsumerTests` e
+`MathAggregateTests`.
 
 **Operadores unários e funções escalares elevados (*lifted*).** Duas outras formas passam a produzir um
 array onde qualquer um dos consumidores acima pede um, aplicando um corpo escalar elemento a elemento:
@@ -460,11 +500,16 @@ Dentro de uma chamada elevada:
 - **Argumentos escalares são propagados** (*broadcast*) e cada um é avaliado exatamente **uma vez** por
   avaliação, e não uma vez por elemento: `SUM(ROUND(A1:A3,0))` lê o `0` uma vez, e uma volátil ou uma função
   do host em um slot escalar é chamada uma única vez para todo o vetor.
-- **Dois argumentos de array precisam ter o mesmo formato.** Formatos iguais são pareados posição a posição
-  (`SUM(ROUND(A1:A3,B1:B3))` = 6 sobre 1, 2, 3 e 10, 20, 30); uma divergência de formato entrega ao corpo um
-  marcador `#VALUE!` para cada elemento, em vez de propagar o lado menor, então `SUM(LEFT(D7:F9,A1:A3))` —
-  3x3 contra 3x1 — é `#VALUE!`. O Excel propaga (*broadcast*); essa é a primeira das divergências conhecidas
-  abaixo.
+- **Dois argumentos de array são propagados eixo a eixo**, pela mesma regra que os operandos de um operador
+  seguem (o parágrafo sobre propagação acima). Formatos iguais são pareados posição a posição
+  (`SUM(ROUND(A1:A3,B1:B3))` = 6 sobre 1, 2, 3 e 10, 20, 30); uma extensão igual a 1 cede à do outro lado,
+  então `SUM(ROUND(A1:C3,E1:E3))` — 3x3 contra 3x1 — é 45; e onde as duas extensões passam de 1 e diferem, as
+  posições não cobertas são `#N/A`, então `SUM(ROUND(A1:C3,H1:H2))` é `#N/A` enquanto
+  `COUNT(ROUND(A1:C3,H1:H2))` = 6. Uma versão anterior entregava ao corpo um marcador `#VALUE!` para *cada*
+  elemento; isso acabou, o que muda o que um corpo que *consome* erros vê —
+  `SUM(LEN(IFERROR(LEFT(D7:F9,E6:E8),"zz")))` é 0, e não 18, porque a coluna em branco propagada torna cada
+  elemento `LEFT(x,0)` = `""` e não sobra nada para o `IFERROR` recuperar (tudo inserido como array, medido no
+  Aspose.Cells 26.6.0).
 - **Um argumento omitido mantém o padrão da própria função.** `FIXED(A1:A3,,TRUE)` continua formatando duas
   casas decimais por elemento: um slot omitido permanece um literal em branco na árvore, em vez de virar um
   slot por elemento, então o ramo "argumento não fornecido" da função ainda é acionado.
@@ -527,6 +572,20 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   para um `=LEN(A1:A3)` digitado normalmente; só a forma legada com `Ctrl+Shift+Enter` devolve o `LEN(A1)`
   do canto superior esquerdo (medido no Aspose.Cells 26.6.0, 2026-09-09). Dar essa metade de array à
   fronteira é trabalho futuro, e a resposta atual está fixada por teste para que a mudança seja deliberada.
+- **Um produto propagado em uma célula pura também é `#VALUE!`**, e essa lacuna vive na fronteira, não na
+  regra de propagação: `=A1:C3*E1:E3` digitada em uma célula nunca entra na avaliação elemento a elemento,
+  então é o `#VALUE!` do próprio operador de multiplicação, enquanto `=SUM(A1:C3*E1:E3)` nessa mesma célula é
+  108. A regra do Excel para a forma digitada não é uma regra de array: ele aplica a interseção implícita a
+  **cada operando de intervalo separadamente, antes do operador**, usando a linha e a coluna da própria
+  célula da fórmula — por isso a mesma fórmula responde coisas diferentes em células diferentes:
+  `=A1:A3*E1:E3` é **21** em `J3` (`A3`×`E3`) e **1** em `J1`, `=E1:E3*10` é **20** em `L2`, **30** em `L3` e
+  `#VALUE!` em `L5` (a linha 5 não alcança `E1:E3`), e um operando 2-D nunca intersecta, então `=A1:C3*E1:E3`
+  é `#VALUE!` ali também — o único jeito de obter o elemento do canto superior esquerdo do array computado é
+  pedir por ele, `=INDEX(E1:E3*10,1,1)` = **10** (tudo com entrada digitada, medido no Aspose.Cells 26.6.0,
+  em 2026-09-10). Fechar isso é assunto da regra da
+  [fronteira da célula](#interseção-implícita-na-fronteira-da-célula) — o comportamento por operando acima é
+  com o que a metade de array do `@` precisa ser reconciliada —, e não dos consumidores descritos aqui; o
+  `#VALUE!` de hoje está fixado por `CellBoundaryIntersectionTests` para que a mudança seja deliberada.
 - **O `+` unário deliberadamente não é elevado.** Ele é o no-op do Excel que preserva referências, então
   `+A1:A3` continua sendo uma *referência* e o consumidor a dobra pelo caminho comum de intervalo:
   `SUM(+A1:A3)` = 6 para `A1:A3` = 1, 2 e 3, exatamente como `SUM(A1:A3)`, e sem mudança alguma com a
@@ -553,7 +612,11 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   (`SUMIFS((A1:A3)*1,A1:A3,">0")` e as outras sete, medido no Aspose.Cells 26.6.0, em 2026-09-09). Então o
   `#VALUE!` das formas pareadas coincide com o Excel só na digitação normal, e as três respostas silenciosas
   são uma divergência — as duas coisas registradas para a varredura de compatibilidade com o Excel já
-  planejada, e não afirmadas como a regra do Excel. O `SUMPRODUCT` é o
+  planejada, e não afirmadas como a regra do Excel. Um argumento **propagado** não muda nada aqui: a família
+  nunca entra na avaliação elemento a elemento, então `SUMIF(A1:C3*H1:H2,">0")` e
+  `COUNTIF(A1:C3*H1:H2,">0")` dão `0` e `SUMIFS(A1:C3,A1:C3*H1:H2,">0")` dá `#VALUE!` aqui, contra `#REF!`
+  como array e `#VALUE!` digitado no oráculo para todos os três (medido em 2026-09-10, nos dois motores;
+  fixado por `MiniCseConsumerTests.CriteriaFamily_OverABroadcastArray_StillRefusesIt`). O `SUMPRODUCT` é o
   único membro dessa família que optou por aceitar arrays computados; os consumidores de dobra listados em
   **Suportado** acima (`SUM(IF(…))` e companhia) sempre os aceitaram. Um argumento **elevado** é recusado
   ali exatamente pelo mesmo motivo — `SUMIFS(LEN(A1:A3),A1:A3,">0")` é `#VALUE!`, com a mesma divisão
@@ -576,19 +639,38 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   zip.
 
 **Divergências conhecidas.** Cada uma delas está fixada por teste como uma *lacuna*, e não afirmada como a
-regra do Excel, de modo que fechar qualquer uma é sempre uma edição deliberada. Excel aqui significa
+regra do Excel, de modo que fechar qualquer uma é sempre uma edição deliberada; a única entrada sem teste que
+a fixe diz isso com as próprias palavras. Excel aqui significa
 Aspose.Cells 26.6.0, a versão contra a qual este projeto mede, com a fórmula inserida como array
 (`Ctrl+Shift+Enter`) — a forma de entrada cuja semântica esta avaliação elemento a elemento reproduz sem a
-combinação de teclas.
+combinação de teclas — e todo número tirado da forma digitada vem rotulado como *digitada* onde aparece.
 
-- **Dois arrays de formatos diferentes não são propagados.** O MySheet exige formatos iguais e preenche o
-  lado divergente com um marcador `#VALUE!` por elemento; o Excel repete uma coluna Nx1 em todas as colunas
-  de um retângulo NxM, e uma linha 1xM em todas as linhas. Assim, com `A1:C3` = 1…9, `E1:E3` = 1, 2 e 3 e
-  `E5:G5` = 10, 20 e 30, `SUM(A1:C3*E1:E3)` é `#VALUE!` aqui e **108** no Excel, `SUM(A1:C3*E5:G5)` **960**
-  e `SUM(ROUND(A1:C3,E1:E3))` **45** (todos medidos em 2026-09-09, todos os três `#VALUE!` aqui). Como o
-  marcador é entregue ao corpo como um valor comum, um corpo que *consome* erros segue adiante e pode até
-  chegar à resposta do Excel: `COUNT(IFERROR(A1:C3,E1:E3))` é **9** nos dois. A propagação (*broadcast*)
-  está planejada; até ela chegar, dê o mesmo formato aos dois argumentos de array.
+- **Não coberto nos DOIS eixos ao mesmo tempo é `#N/A` aqui, e o oráculo não tem resposta a igualar.** A
+  regra de propagação acima é por eixo, então um 2x2 contra um 3x3 deixa cinco das nove posições não cobertas
+  no eixo das linhas, no das colunas ou em ambos, e cada uma é `#N/A`, enquanto as quatro cobertas calculam:
+  `SUM(A1:B2*A1:C3)` é `#N/A` e `COUNT(A1:B2*A1:C3)` = 4. O Excel também responde `#N/A` sempre que uma
+  posição fica curta em **um** eixo (`INDEX(A1:B3*A1:C2,3,1)` — um 3x2 contra um 2x3 — é `#N/A` nos dois
+  motores), mas, para a forma duplamente não coberta, ele responde **`#REF!`** pelo `INDEX` — tanto digitada
+  quanto inserida como array — e a calculadora dele nunca retorna para um `SUM` ou um `COUNT` sobre esse mesmo
+  array (sem resposta depois de dez minutos aqui, e mais de 200 s em cada modo de entrada quando a fase topou
+  com isso pela primeira vez, enquanto `ROWS`/`COLUMNS` sobre ele ainda informam 3 e 3 imediatamente).
+  Tudo medido no Aspose.Cells 26.6.0, em 2026-09-10. É por isso que esta divergência *não* está na varredura
+  de compatibilidade: um `#REF!` em dois eixos contra um `#N/A` em um só não é uma regra a copiar, e um cálculo
+  que não termina não é um comportamento a reproduzir. Fixada por
+  `VectorBroadcastingTests.UncoveredOnBothAxes_StaysNotAvailable_WhereTheOracleIsSelfInconsistent`, cujo
+  comentário carrega a medição.
+- **`ROWS`/`COLUMNS` sobre um array computado é `#VALUE!` aqui**, onde o Excel informa a extensão real do
+  array. Para o resultado de um operador ou de uma chamada elevada — `ROWS(A1:C3*2)`, `COLUMNS(A1:C3*2)`,
+  `ROWS(A1:C3*H1:H2)`, `COLUMNS(E1:E3*E5:G5)`, `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` — o MySheet responde
+  `#VALUE!` e o Excel responde a extensão (**3**, **3**, **3** e **3** para as quatro formas propagadas, a
+  extensão *propagada* e não a de um dos operandos), tanto digitada quanto inserida como array; sobre o vetor
+  do próprio `ROW`/`COLUMN`, o MySheet responde 1 onde o Excel responde 3 (`ROWS(ROW(A1:C3))`). Os dois lados
+  medidos em 2026-09-10, o Excel no Aspose.Cells 26.6.0. O motivo é a lista de consumidores, e não a regra de
+  propagação: `ROWS` e `COLUMNS` querem uma *referência* e nunca foram ensinados a entrar na avaliação
+  elemento a elemento, então veem o `#VALUE!` comum do operador. O `INDEX` *é* um consumidor, então por ele a
+  extensão é observável — `INDEX(A1:C3*H1:H2,3,1)` é o `#N/A` de uma posição não coberta, e não o `#REF!` de
+  uma fora dos limites. Registrado para a varredura de compatibilidade com o Excel já planejada. Esta é a
+  única entrada desta lista **sem nenhum teste que a fixe**: nada quebra se esse `#VALUE!` mudar.
 - **`SUM(ROW(Ghost!A1:A3))`** — um retângulo escrito *literalmente* sobre uma planilha que não existe, em
   posição de array — responde `6`, os números de linha `1+2+3`, enquanto o Excel responde `#REF!`. O
   `ROW(Ghost!A1:A3)` escalar na mesma pasta de trabalho já é `#REF!`, assim como o caminho de array sobre um
@@ -644,8 +726,10 @@ combinação de teclas.
   elevação por elemento, e `#VALUE!` aqui. Fixado por
   `ElementwiseLiftingTests.AConsumesFunction_IsNotLiftedOverItsScalarSlots_KnownDivergence`.
 
-As cinco últimas estão registradas para uma varredura de compatibilidade com o Excel já planejada e são
-deliberadamente mantidas como estão por enquanto.
+Todas elas são deliberadamente mantidas como estão por enquanto, e todas menos duas estão registradas para
+uma varredura de compatibilidade com o Excel já planejada: a divergência dos dois eixos não está, porque ali
+o oráculo não oferece resposta a igualar, e o retângulo em planilha inexistente também não, porque a causa
+dele é um atalho sintático e não uma regra.
 
 Subexpressões voláteis dentro do array se comportam como qualquer outra volátil: um `RAND()` (propagado,
 ou em uma célula de intervalo que a comparação lê) contamina a célula consumidora, então
