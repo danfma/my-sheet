@@ -479,4 +479,71 @@ public class VectorBroadcastingTests
         // rectangles of the SAME range's dimensions.
         await Assert.That(Num(OnGrid("=SUM(ROW(A1:A3)*COLUMN(A1:C1))"))).IsEqualTo(36.0);
     }
+
+    [Test]
+    public async Task RowAndColumnVectors_KeepTheRectangleIdioms_AndLoseTheRectanglesElementCount()
+    {
+        // The consequences of B1 a consumer can observe (Task 2 pins; Aspose.Cells 26.6.0, measured
+        // 2026-09-10, CSE column — plain entry answers 1 for the bare COUNT and #VALUE! for the products).
+        // Measured on this tree at 2f77c97 (the MxN rectangles): the three idiom sums were ALREADY 108, 96
+        // and 228 — regression pins, the rectangle and the vector agree there — while the element-count
+        // lines answered 9 / 1 / 2 / #VALUE! / 0.
+        //
+        // The idioms: the 3x1 row vector times the rectangle weights each row by its number (6 + 30 + 72),
+        // the 1x3 column vector weights each column (12 + 30 + 54), and both at once (row * column * cell).
+        await Assert.That(Num(OnGrid("=SUM(ROW(A1:C3)*A1:C3)"))).IsEqualTo(108.0);
+        await Assert.That(Num(OnGrid("=SUM(COLUMN(A1:C3)*A1:C3)"))).IsEqualTo(96.0);
+        await Assert.That(Num(OnGrid("=SUM(ROW(A1:C3)*COLUMN(A1:C3)*A1:C3)"))).IsEqualTo(228.0);
+
+        // The element count is the vector's: COLUMN(A1:C3) has three elements, ROW(A1:C3) has no column 3
+        // for INDEX and no 4th smallest for SMALL, and against the 2x1 H1:H2 it is a 3x1 with row 3
+        // uncovered — two covered elements, not six.
+        await Assert.That(Num(OnGrid("=COUNT(COLUMN(A1:C3))"))).IsEqualTo(3.0);
+        await Assert.That(OnGrid("=INDEX(ROW(A1:C3),1,3)")).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(OnGrid("=SMALL(ROW(A1:C3),4)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(OnGrid("=SUM(ROW(A1:C3)*H1:H2)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(ROW(A1:C3)*H1:H2)"))).IsEqualTo(2.0);
+    }
+
+    // --- The COLUMN-axis uncovered path (Task 2 witnesses) ---
+
+    [Test]
+    public async Task AnUncoveredColumn_IsMarkedExactlyLikeAnUncoveredRow()
+    {
+        // Before these pins SUM(E5:F5*E5:G5) above was the only streamed witness of the column-axis half
+        // of Broadcasting.TryProject, and every worked example in the design is row-axis. Aspose.Cells
+        // 26.6.0, measured 2026-09-10, CSE column (plain entry answers #VALUE! / 0 for the SUMs and COUNTs
+        // and agrees on every INDEX). Measured on this tree at 2f77c97: #VALUE! for every SUM and INDEX
+        // below, 0 for every COUNT — the equal-shape guard's per-element fill.
+        //
+        // 3x2 against 3x3 → 3x3: the LEFT operand has no column 3, so (1,3), (2,3) and (3,3) are #N/A and
+        // the six positions in columns 1-2 are the squares 1, 4, 16, 25, 49, 64 — an uncovered COLUMN, not a
+        // tail of the row-major index range, which is what distinguishes this path from the row-axis pins.
+        await Assert.That(OnGrid("=SUM(A1:B3*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(A1:B3*A1:C3)"))).IsEqualTo(6.0);
+        await Assert.That(OnGrid("=INDEX(A1:B3*A1:C3,1,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX(A1:B3*A1:C3,2,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(OnGrid("=INDEX(A1:B3*A1:C3,3,3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=INDEX(A1:B3*A1:C3,1,1)"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnGrid("=INDEX(A1:B3*A1:C3,3,2)"))).IsEqualTo(64.0);
+
+        // A 1x2 ROW against the 3x3: the row repeats down every row AND leaves column 3 uncovered — both
+        // clauses on one operand. (3,2) is 20*8; (3,3) is #N/A.
+        await Assert.That(OnGrid("=SUM(E5:F5*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(E5:F5*A1:C3)"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnGrid("=INDEX(E5:F5*A1:C3,3,2)"))).IsEqualTo(160.0);
+        await Assert.That(OnGrid("=INDEX(E5:F5*A1:C3,3,3)")).IsEqualTo(ErrorValue.NotAvailable);
+
+        // The covered element of the 1x2-against-1x3 pin above: 20*20.
+        await Assert.That(Num(OnGrid("=INDEX(E5:F5*E5:G5,1,2)"))).IsEqualTo(400.0);
+
+        // The same path through a POSITION operand: COLUMN(A1:B1) is the 1x2 row [1,2] (B1), so against
+        // the 3x3 it is #N/A down column 3 and column c's number times the cell elsewhere — (2,2) is 2*5.
+        await Assert.That(OnGrid("=SUM(COLUMN(A1:B1)*A1:C3)")).IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=COUNT(COLUMN(A1:B1)*A1:C3)"))).IsEqualTo(6.0);
+        await Assert
+            .That(OnGrid("=INDEX(COLUMN(A1:B1)*A1:C3,2,3)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnGrid("=INDEX(COLUMN(A1:B1)*A1:C3,2,2)"))).IsEqualTo(10.0);
+    }
 }
