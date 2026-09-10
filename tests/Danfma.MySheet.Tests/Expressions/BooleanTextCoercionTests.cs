@@ -25,7 +25,12 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// <b>IGNORE</b> a text argument rather than coercing it — measured: <c>AND("FALSE",TRUE)</c> is TRUE, where
 /// coercion would give FALSE, and <c>AND("yes",TRUE)</c> is TRUE rather than an error. Their answers here
 /// already coincide with that ignore rule, so <b>no other test in the suite would catch a shared-helper fix
-/// breaking them</b>: <see cref="And_TextFalse_IsIgnoredNotCoerced"/> is the only thing standing there.
+/// breaking them</b>. THREE guards stand there, not one, and the arithmetic says why: <c>And</c> folds on
+/// <c>trueCount == total</c>, <c>Or</c> on <c>trueCount &gt; 0</c> and <c>Xor</c> on <c>trueCount % 2 == 1</c>, so
+/// under a coercing fold <c>OR("TRUE",FALSE)</c> and <c>XOR("TRUE",FALSE)</c> each flip from FALSE to TRUE exactly
+/// as <c>AND("FALSE",TRUE)</c> flips from TRUE to FALSE — see
+/// <see cref="And_TextFalse_IsIgnoredNotCoerced"/>, <see cref="Or_TextTrue_IsIgnoredNotCoerced"/> and
+/// <see cref="Xor_TextTrue_IsIgnoredNotCoerced"/>. (An earlier version of this comment named only the first.)
 /// Arithmetic (<c>"TRUE"+0</c>), comparison (<c>"TRUE"=TRUE</c>) and <c>SUMPRODUCT(--(A1:A2=TRUE))</c> keep
 /// rejecting/ignoring too, and <c>SWITCH</c> compares its expression with <c>=</c> equality rather than
 /// coercing it (measured: <c>SWITCH("TRUE",TRUE,1,0)</c> = 0, <c>SWITCH("TRUE","TRUE",1,0)</c> = 1).
