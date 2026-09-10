@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.19.0"></a>
+## [3.19.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.19.0) (2026-09-10)
+
+### Features
+
+* **tables:** register tables on the Workbook as its third serialized member ([0887770](https://www.github.com/danfma/my-sheet/commit/0887770f69dc223d8de9a24f56c42ad68381d993))
+* **tables:** Table record with derived geometry and a column index memoized off the record ([41adb54](https://www.github.com/danfma/my-sheet/commit/41adb54e6a4a939182e2289d9ce460cdadfa2217))
+* **tables:** table-name rule, Table.Validate and the grid-bounded cell-reference check ([873142b](https://www.github.com/danfma/my-sheet/commit/873142bfe4ca615ba6ff9ad8686b52cf6b93a1e1))
+
+### Bug Fixes
+
+* **parsing:** bound TryParseColumn's accumulator and add CellAddress.TryParseA1 ([7142472](https://www.github.com/danfma/my-sheet/commit/7142472da1628d19f91f8de6f963bbb16fb05216))
+* **recalc:** tratar mudança de definição como invalidação total ([40646c5](https://www.github.com/danfma/my-sheet/commit/40646c503eead76a3161c3a69ab2a4b50a433821))
+
 <a name="3.18.0"></a>
 ## [3.18.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.18.0) (2026-09-10)
 
