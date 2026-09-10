@@ -44,7 +44,7 @@ semântico por época (a técnica do lookup cache do próprio Excel 2016+ e das 
 - **Anti-ClosedXML**: nada disso é API nova nem modelo novo — é cache interno, bounded, descartável. O
   modelo esparso e o hot path de célula única ficam intocados.
 - **Thread-safety**: caches em `ConcurrentDictionary` + criação lazy via `Interlocked.CompareExchange`
-  (lição do MemoryPack: field initializers são bypassados no deserialize — nunca `= new()` em campo de
+  (lição do MemoryPack: field initializers são bypassados no deserialize — nunca `= new() **[CORRIGIDO 2026-09-10: isso é mito. O formatador gerado materializa o objeto com `new T() { … }` sobre o `[MemoryPackConstructor]` sem parâmetros, então o field initializer RODA e depois é sobrescrito pelo valor lido — verificado lendo o formatador gerado.]**` em campo de
   cache do Workbook). Campos `[MemoryPackIgnore]`.
 
 ## Estimativa (a validar na Fase 0/3)

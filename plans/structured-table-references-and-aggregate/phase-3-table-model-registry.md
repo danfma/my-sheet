@@ -143,7 +143,7 @@ shape: header `0x02` → `0x03`, +4 bytes for the empty map, old readers throw
       16,384, so the dictionary is at worst a wash and usually a large win, and it is built once per table.
       Lazy + Interlocked is the codebase's exact race-free memo pattern: Workbook.ValueStore:68-80 and
       Sheet.GetStructuralIndex:63-72. The 'never `= new()` on the field' rule is mandatory here for the
-      documented reason at Workbook.cs:36-38 and Sheet.cs:39-42 — MemoryPack bypasses field initializers,
+      documented reason at Workbook.cs:36-38 and Sheet.cs:39-42 — MemoryPack bypasses field initializers, **[CORRECTED 2026-09-10 by reading the generated formatter: that is a myth. The formatter materializes the object with `new T() { … }` over the parameterless `[MemoryPackConstructor]`, so a field initializer DOES run and is then overwritten by the deserialized value. The real reasons those two fields carry no initializer are different and are now stated at each site.]**
       which I confirmed: a `[MemoryPackInclude]` member on a Workbook-shaped type came back null (not the
       initializer's value) when reading an older payload.
 - [ ] **4.** In Table.cs add `public int SheetColumnAt(int columnIndex) => FirstColumn + columnIndex;` (1-based sheet column for a 0-based table column ordinal), and `public bool TryGetColumnRange(string columnName, out int sheetColumn, out int firstRow, out int lastRow)` returning the [#Data] rows for that column (false when the name is unknown OR DataRowCount == 0).

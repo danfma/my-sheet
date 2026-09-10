@@ -82,7 +82,7 @@ Delivered on branch `feat/warm-start` (from HEAD `d38e5e1`), two commits, no pus
 - Surrogate is a MemoryPackable `internal record CachedCellValue` (Kind + double + string? + int errorCode);
   `ComputedValue` stays non-serializable. `Error.Code`/`Error.FromCode` (internal) bridge the error code.
 - Load repopulates `_cache` through the existing lazy `_cache ??= new()` path (survives MemoryPack's
-  field-initializer bypass), consistent with the other lazy fields.
+  field-initializer bypass) **[CORRECTED 2026-09-10: this is a myth. The generated formatter materializes the object with `new T() { … }` over the parameterless `[MemoryPackConstructor]`, so a field initializer DOES run and is then overwritten by the deserialized value — verified by reading the generated formatter.]**, consistent with the other lazy fields.
 
 Files: `Danfma.MySheet/WorkbookSaveOptions.cs`, `Danfma.MySheet/CachedCellValue.cs`,
 `Danfma.MySheet/Workbook.cs` (Save/SaveAsync overloads, container writer/reader, snapshot/restore),
