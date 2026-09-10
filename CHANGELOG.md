@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.17.0"></a>
+## [3.17.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.17.0) (2026-09-10)
+
+### Features
+
+* **eval:** AGGREGATE(function_num, options, ref1, [k]) ([8087a8b](https://www.github.com/danfma/my-sheet/commit/8087a8be1db9118f45b7c61059fc6478ac41cf72))
+* **eval:** broadcast vector operands in the mini-CSE, Excel's per-axis rule ([1882888](https://www.github.com/danfma/my-sheet/commit/18828880ce1402b852598f072cc1b18bcfd1ec39))
+* **eval:** composites project through Broadcasting.TryProject and IF folds all three shapes ([2ea3537](https://www.github.com/danfma/my-sheet/commit/2ea3537c432d0591cd2814ea7ab718b166d8f7e7))
+* **eval:** implicit intersection at the cell boundary ([b8fa6b6](https://www.github.com/danfma/my-sheet/commit/b8fa6b60b4f2be7c2608c2d401491d8680cfa05e))
+* **eval:** KthValueStreaming can skip error elements ([745e6fc](https://www.github.com/danfma/my-sheet/commit/745e6fcf1472a585e205541b6d11af44da376e56))
+* **eval:** lift unary '-'/'%' and pure-scalar built-ins over arrays in the mini-CSE ([725dea5](https://www.github.com/danfma/my-sheet/commit/725dea5516d90f744ee351875b784ba561acbcd8))
+* **eval:** ROW/COLUMN over a name or a reference inside the mini-CSE ([7fa24d2](https://www.github.com/danfma/my-sheet/commit/7fa24d218af7581d9b856a1a26691cf369aae589))
+* **eval:** ROW/COLUMN over any reference-producing expression ([d6df57a](https://www.github.com/danfma/my-sheet/commit/d6df57a82afdce68b7506a56e24f92c24f931fef))
+* **parser:** classify registry entries for array lifting ([2c7acc6](https://www.github.com/danfma/my-sheet/commit/2c7acc6c22aceb0c47ead4e75294d19d81b595b9))
+* **parser:** mark the 180 pure-scalar built-ins as Elementwise ([b3ff90d](https://www.github.com/danfma/my-sheet/commit/b3ff90d370333bd8905ac353bc33530e2d82591c))
+
+### Bug Fixes
+
+* **eval:** a whole-argument error propagates through AGGREGATE's ignore-errors bit ([b83dd7f](https://www.github.com/danfma/my-sheet/commit/b83dd7fd8615d9939e11fe38eaa23a0fb876e08d))
+* **eval:** count days on serials and 30/360 on the Lotus calendar ([b60c3ca](https://www.github.com/danfma/my-sheet/commit/b60c3ca2630c23f729fe9f1ca1c703a3709daf11))
+* **eval:** DATEVALUE rejects pre-1900 dates and parses the phantom Feb 29 ([e5ffe07](https://www.github.com/danfma/my-sheet/commit/e5ffe07e673d0ae867694d24cf26963a951f89a1))
+* **eval:** discount XNPV and XIRR on serial differences ([d5bf3e8](https://www.github.com/danfma/my-sheet/commit/d5bf3e8f95dd6d27b84c4144493adade8c432ab9))
+* **eval:** keep a malformed range id out of the cell boundary ([57926e4](https://www.github.com/danfma/my-sheet/commit/57926e457e41dcd83164c1519fac2036b5d0e959))
+* **eval:** place serial 1 on 1900-01-01 in the central date map ([db26d57](https://www.github.com/danfma/my-sheet/commit/db26d5707783892d5a95bd2012f2050c232a98b5))
+* **eval:** re-check the resolved sheet in ROWS/COLUMNS/AREAS ([02cae13](https://www.github.com/danfma/my-sheet/commit/02cae1394b57126da10d738304712838c5b8fba0))
+* **eval:** ROW/COLUMN of a rectangle are vectors, not MxN rectangles ([1ed60b1](https://www.github.com/danfma/my-sheet/commit/1ed60b1d858facded6d9fc682512c20ead5ce048))
+* **eval:** SUBTOTAL and AGGREGATE 1-13 reject a computed-array argument, as Excel does ([34a52ab](https://www.github.com/danfma/my-sheet/commit/34a52ab1cfd97e8eb49c355dde54cf716eedbe62))
+* **eval:** SUBTOTAL folds a computed-array argument ([3b3b798](https://www.github.com/danfma/my-sheet/commit/3b3b798f9614e46d80afc9748373a24c892ce1e8))
+* **eval:** SUMPRODUCT compares every shape, not just the first argument's ([fae04cc](https://www.github.com/danfma/my-sheet/commit/fae04cc2e16b99e979d8396a73eed91353db83ca))
+* **eval:** SUMPRODUCT reads computed arrays and honours the dimension rule ([b9ddfc0](https://www.github.com/danfma/my-sheet/commit/b9ddfc01dea6aef500d4cf1b3af90aae3e00f633))
+* **eval:** TEXT prints Excel's own 1900 calendar ([0e4ad86](https://www.github.com/danfma/my-sheet/commit/0e4ad86ff01e6e21b15ef146ff3a727027321d98))
+* **eval:** the nested-aggregate skip sees through a shared-formula slave ([afec6e9](https://www.github.com/danfma/my-sheet/commit/afec6e9a027565c7940e377bb49fce9c82ebb8e7))
+* **eval:** throw, not #VALUE!, on Apply's unreachable Plus arm ([77c2ca2](https://www.github.com/danfma/my-sheet/commit/77c2ca20bf98cd21e99db82960b48d7c423eb7b7))
+* **eval:** walk serials in the working-day family, on the real calendar ([5e6c7bd](https://www.github.com/danfma/my-sheet/commit/5e6c7bd3cbad94e2a09ed4dc7c0a6cd0856a4136))
+* **eval:** WEEKDAY walks the Lotus weekday, EDATE/EOMONTH stop at day zero ([fb0dc7c](https://www.github.com/danfma/my-sheet/commit/fb0dc7c156018456f5b8a6c7b31765151ffc1350))
+* **eval:** YEAR/MONTH/DAY answer Excel's day zero ([e221a92](https://www.github.com/danfma/my-sheet/commit/e221a9297af4cb96958e93287863f80dee633005))
+* **excel:** degrade an unparsable formula or literal per cell instead of aborting the load ([507477b](https://www.github.com/danfma/my-sheet/commit/507477b2395b54f85207ead2a00fa636e5fded75))
+
 <a name="3.16.1"></a>
 ## [3.16.1](https://www.github.com/danfma/my-sheet/releases/tag/v3.16.1) (2026-09-09)
 
