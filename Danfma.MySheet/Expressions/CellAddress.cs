@@ -118,7 +118,10 @@ internal readonly record struct CellAddress(int Column, int Row)
 
     /// <summary>
     /// Parses an all-letters column label (e.g. <c>A</c>, <c>AB</c>) to its 1-based column number, stripping
-    /// any absolute markers (<c>$</c>). Returns <c>false</c> when the text is empty or holds a non-letter.
+    /// any absolute markers (<c>$</c>). Returns <c>false</c> when the text is empty, holds a non-letter, or
+    /// exceeds <see cref="int.MaxValue"/> (column <c>FXSHRXW</c>) — the same ceiling <see cref="TryParseRow"/>
+    /// applies, so a long letter run is rejected instead of wrapping into a negative or bogus column (24
+    /// <c>A</c>s used to come back as -965696553).
     /// </summary>
     public static bool TryParseColumn(string label, out int column)
     {
@@ -138,11 +141,56 @@ internal readonly record struct CellAddress(int Column, int Row)
                 return false;
             }
 
-            column = column * 26 + (char.ToUpperInvariant(raw) - 'A' + 1);
+            var digit = char.ToUpperInvariant(raw) - 'A' + 1;
+
+            // Overflow guard: column * 26 + digit must stay <= int.MaxValue.
+            if (column > (int.MaxValue - digit) / 26)
+            {
+                column = 0;
+                return false;
+            }
+
+            column = column * 26 + digit;
             seen = true;
         }
 
         return seen;
+    }
+
+    /// <summary>
+    /// Parses an A1 corner such as <c>A1</c> or <c>$B$500</c> into its 1-based column and row: the text is
+    /// split at the first digit (absolute markers skipped), the letter run goes through
+    /// <see cref="TryParseColumn"/> and the digit run through <see cref="TryParseRow"/>, so both halves
+    /// inherit the <c>$</c> stripping, the row-0 rejection and the two overflow ceilings. Returns
+    /// <c>false</c> (both outputs 0) when either half is empty or fails.
+    /// </summary>
+    public static bool TryParseA1(string text, out int column, out int row)
+    {
+        column = 0;
+        row = 0;
+
+        var split = 0;
+        while (split < text.Length && !char.IsDigit(text[split]))
+        {
+            split++;
+        }
+
+        if (split == 0 || split == text.Length)
+        {
+            return false;
+        }
+
+        if (
+            !TryParseColumn(text[..split], out var parsedColumn)
+            || !TryParseRow(text[split..], out var parsedRow)
+        )
+        {
+            return false;
+        }
+
+        column = parsedColumn;
+        row = parsedRow;
+        return true;
     }
 
     public string ToId()

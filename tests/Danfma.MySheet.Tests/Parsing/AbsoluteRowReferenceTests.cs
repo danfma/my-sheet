@@ -169,6 +169,22 @@ public class AbsoluteRowReferenceTests
         await Assert.That(absolute).IsEqualTo(relative);
     }
 
+    // The column endpoint applies the same ceiling: CellAddress.TryParseColumn used to wrap a 24-letter run
+    // into a NEGATIVE column (-965696553) and hand the parser a bogus open range; it now fails the endpoint
+    // parse, and the range degrades exactly like the huge-row form.
+    [Test]
+    public async Task HugeColumn_FailsExactlyLikeAHugeRow()
+    {
+        var (workbook, sheet) = Sheets();
+        const string wrapped = "AAAAAAAAAAAAAAAAAAAAAAAA";
+
+        var column = Eval($"=COUNTA({wrapped}:{wrapped})", sheet, workbook);
+        var row = Eval("=COUNTA(99999999999:99999999999)", sheet, workbook);
+
+        await Assert.That(column is ErrorValue).IsTrue();
+        await Assert.That(column).IsEqualTo(row);
+    }
+
     // --- Mixed cell/row endpoints. `A1:1` is an existing one-sided open-range extension ("row 1 from column
     // A rightward"); the absolute form must behave identically, not differently (external review of PR #9).
 
