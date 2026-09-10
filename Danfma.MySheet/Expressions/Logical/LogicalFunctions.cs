@@ -61,7 +61,13 @@ public sealed partial record Ifs(Expression[] Arguments) : Function
 
         for (var i = 0; i + 1 < Arguments.Length; i += 2)
         {
-            if (Arguments[i].Evaluate(context).CoerceToBool(out var condition) is { } error)
+            // Each test is a boolean condition slot, so it takes IF's text "TRUE"/"FALSE" rule. Measured
+            // on Aspose.Cells 26.6.0 (2026-09-10), both entry modes: IFS("TRUE",1,TRUE,2) = 1,
+            // IFS("FALSE",1,TRUE,2) = 2, IFS("yes",1,TRUE,2) = #VALUE!.
+            if (
+                Arguments[i].Evaluate(context).CoerceToBoolAllowingTextWords(out var condition) is
+                { } error
+            )
             {
                 return ComputedValue.Error(error);
             }

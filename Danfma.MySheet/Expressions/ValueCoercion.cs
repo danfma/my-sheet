@@ -81,6 +81,43 @@ internal static class ValueCoercion
         }
     }
 
+    /// <summary>
+    /// Coerces to a boolean CONDITION the way Excel does in a condition slot: <see cref="CoerceToBool"/>,
+    /// plus the two words <c>TRUE</c> and <c>FALSE</c> supplied as TEXT. The match is case-INSENSITIVE
+    /// (<c>OrdinalIgnoreCase</c>) and is NOT trimmed — <c>" TRUE "</c>, <c>"yes"</c>, <c>"1"</c>, <c>"0"</c>
+    /// and <c>""</c> all stay <c>#VALUE!</c>, so this accepts exactly two more spellings than
+    /// <see cref="CoerceToBool"/> and nothing else. Measured on Aspose.Cells 26.6.0 (2026-09-10), plain and
+    /// array-entered entry agreeing: <c>=IF("TRUE",1,0)</c> = 1, <c>=IF("true",1,0)</c> = 1,
+    /// <c>=NOT("FALSE")</c> = TRUE, <c>=IF(" TRUE ",1,0)</c> = <c>#VALUE!</c>.
+    /// <para>
+    /// This is a deliberate OPT-IN rather than a widening of <see cref="CoerceToBool"/>, and it is called
+    /// from exactly four sites: <c>If</c>'s condition, <c>IfOperand</c>'s per-element condition (IF's array
+    /// path), <c>Not</c>'s argument and <c>Ifs</c>' tests. Every OTHER caller of <see cref="CoerceToBool"/>
+    /// must keep its current behaviour — above all <c>LogicalReduction</c>, because <c>AND</c>/<c>OR</c>/
+    /// <c>XOR</c> <b>IGNORE</b> a text operand rather than coercing it (measured: <c>=AND("FALSE",TRUE)</c>
+    /// is TRUE, where coercion would give FALSE).
+    /// </para>
+    /// </summary>
+    public static Error? CoerceToBoolAllowingTextWords(this in ComputedValue value, out bool result)
+    {
+        if (value.TryGetText(out var text))
+        {
+            if (string.Equals(text, "TRUE", StringComparison.OrdinalIgnoreCase))
+            {
+                result = true;
+                return null;
+            }
+
+            if (string.Equals(text, "FALSE", StringComparison.OrdinalIgnoreCase))
+            {
+                result = false;
+                return null;
+            }
+        }
+
+        return value.CoerceToBool(out result);
+    }
+
     /// <summary>Coerces to text (blank→""; number→invariant; bool→TRUE/FALSE). <c>null</c> on success, or the <see cref="Error"/> to propagate.</summary>
     public static Error? CoerceToText(this in ComputedValue value, out string text)
     {

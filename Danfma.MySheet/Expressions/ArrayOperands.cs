@@ -237,8 +237,10 @@ internal sealed class IfOperand : ArrayOperand
         var conditionValue = _condition.At(own, _rows, _columns);
 
         // A condition that is (or coerces from) an error propagates that error at this position — an
-        // uncovered condition included, so its #N/A wins over whatever the branches hold there.
-        if (conditionValue.CoerceToBool(out var taken) is { } error)
+        // uncovered condition included, so its #N/A wins over whatever the branches hold there. The text
+        // "TRUE"/"FALSE" coerces here exactly as it does in If.Evaluate, so the array path of a condition
+        // never disagrees with the scalar one.
+        if (conditionValue.CoerceToBoolAllowingTextWords(out var taken) is { } error)
         {
             return ComputedValue.Error(error);
         }

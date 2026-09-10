@@ -7,7 +7,13 @@ public sealed partial record If(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        if (Arguments[0].Evaluate(context).CoerceToBool(out var condition) is { } error)
+        // The condition slot accepts the TEXT "TRUE"/"FALSE" (case-insensitive, not trimmed) on top of the
+        // usual truthiness — see ValueCoercion.CoerceToBoolAllowingTextWords. AND/OR/XOR must NOT: they
+        // IGNORE text, so they keep the plain CoerceToBool through LogicalReduction.
+        if (
+            Arguments[0].Evaluate(context).CoerceToBoolAllowingTextWords(out var condition) is
+            { } error
+        )
         {
             return ComputedValue.Error(error);
         }
