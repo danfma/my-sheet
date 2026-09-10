@@ -817,7 +817,9 @@ Os nomes são de nível de workbook e **case-insensitive**, exatamente como no E
 > Um intervalo nomeado **não** é uma **Tabela** do Excel (um ListObject). Um nome é um apelido estático para
 > uma expressão; uma tabela é uma região nomeada com colunas nomeadas, linha de totais, um intervalo que
 > cresce conforme linhas são adicionadas e uma sintaxe de referência própria (`Tabela1[Valor]`, `[@Valor]`).
-> O MySheet modela o primeiro, e não a segunda — veja
+> O MySheet modela os nomes *e* o modelo da tabela ([Tabelas](#tabelas) — nome, intervalo, flags de
+> cabeçalho/totais e nomes de coluna), mas nem a sintaxe de referência estruturada, nem o intervalo que
+> cresce por conta própria: um redimensionamento é uma segunda chamada de `DefineTable`. Veja
 > [Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações).
 
 ```csharp
@@ -844,7 +846,8 @@ ExpressionParser.Parse("=Rate*100", main).Evaluate(workbook);     // 10
 parse do texto e **exige que toda referência seja qualificada por planilha** — uma referência não
 qualificada (por exemplo, `A1:A3`) lança `ArgumentException`, já que um nome de nível de workbook não tem
 planilha implícita. Um nome vazio, ou um que colida com o formato de uma referência de célula (`A1`) ou
-com um literal booleano, também é rejeitado.
+com um literal booleano, também é rejeitado — e um nome já tomado por uma tabela também é, porque nomes e
+tabelas compartilham um único namespace ([Tabelas](#tabelas)).
 
 **Ordem de resolução.** Um `NameReference` resolve nesta ordem:
 
@@ -863,6 +866,105 @@ fórmula, então `=Sales` sobre `Data!A1:A3` mostra `Data!A3` quando digitado na
 
 **Ciclos.** Um nome que se refere a si mesmo, diretamente ou por meio de uma cadeia (`A → B → A`), é
 detectado por um rastreamento thread-local e produz `#REF!` em vez de estourar a pilha.
+
+## Tabelas
+
+Um workbook também pode registrar **tabelas** — o modelo por trás da parte `<table>` do Excel (um
+ListObject): um retângulo nomeado, ancorado numa planilha, com colunas nomeadas. `Workbook.Tables` é o
+registro `nome → Table` somente para leitura, e `DefineTable` é seu único escritor.
+
+> **O que é modelado, e o que não é.** O registro guarda o *modelo* da tabela — o nome, o intervalo, as flags
+> de cabeçalho/totais e os nomes das colunas — e ele sobrevive ao `Save`/`Load`. A **sintaxe** de referência
+> estruturada ainda não está implementada: `=SUM(Tabela1[Valor])` lança `ParseException: Unexpected character
+> '[' (at position 11)` (medido em 2026-09-10 na versão que introduz o registro), e o `ExcelFile.Load` também
+> não preenche o registro a partir de uma parte `<table>` do xlsx ([Interop com Excel → Escopo e
+> limitações](excel-interop.md#escopo-e-limitações)). Ou seja, nada no avaliador lê uma tabela ainda: você
+> registra uma para preservar o modelo num round-trip e para dar à sintaxe de referência algo contra o que
+> resolver quando ela chegar.
+
+```csharp
+var workbook = new Workbook();
+workbook.Sheets.Add("Data");
+
+// A sobrecarga A1: `reference` é exatamente a string <table ref="…"> do xlsx, então abrange a tabela TODA.
+workbook.DefineTable(
+    "Tabela1", "Data", "C2:E9", ["Produto", "Qtd", "Total"],
+    hasHeaderRow: true, hasTotalsRow: true);
+
+var table = workbook.Tables["tabela1"];   // case-insensitive, como no Excel
+
+table.HeaderRow;     // 2  — FirstRow, porque HasHeaderRow
+table.FirstDataRow;  // 3
+table.LastDataRow;   // 8
+table.TotalsRow;     // 9  — LastRow, porque HasTotalsRow
+table.DataRowCount;  // 6
+table.FirstColumn;   // 3  (C)
+table.LastColumn;    // 5  (E) — derivado de ColumnNames.Count
+
+table.TryGetColumnIndex("QTD", out var ordinal);      // true, ordinal = 1
+table.TryGetColumnRange("qtd", out var column, out var firstRow, out var lastRow);
+                                                      // true, 4, 3, 8 — apenas a faixa [#Data]
+```
+
+**Geometria.** `FirstRow`/`LastRow` abrangem o intervalo inteiro, **incluindo** as linhas de cabeçalho e de
+totais, exatamente como faz o atributo `ref` do xlsx; `FirstColumn` é a coluna mais à esquerda na planilha, e
+a última decorre de `ColumnNames.Count`. Todo o resto — `HeaderRow`, `TotalsRow`, `FirstDataRow`,
+`LastDataRow`, `DataRowCount`, `LastColumn` — é **derivado**, então as faixas de cabeçalho, dados e totais
+nunca podem se contradizer, e nada disso vai para o fio.
+
+**Nomes.** Os nomes de tabela seguem a **regra de nome de tabela do Excel**, não a de nome definido: começar
+com uma letra ou `_`, depois apenas letras, dígitos, `.` e `_`, no máximo 255 caracteres, e nada que o Excel
+leria como uma referência — uma célula dentro da grade na forma A1 (`A1`, `T1`, `XFD1048576`), a forma `R1C1`
+(`R1C1`, `r2c3`) ou as letras isoladas reservadas `C`/`R` (em qualquer caixa). O MySheet também rejeita
+`TRUE`/`FALSE`, que seu tokenizador lê como booleanos, e uma barra invertida em qualquer posição do nome (o
+Excel permite uma inicial, mas o tokenizador nunca a leria dentro de um identificador). Os nomes padrão do
+próprio Excel **são** válidos (`Tabela1`, `Table1`: a sequência de letras passa do limite de três letras de
+uma coluna, então não são células), assim como um nome letras-seguidas-de-dígitos fora da grade (`XFE1`,
+`A1048577`).
+
+**Um único namespace com os nomes definidos.** O Gerenciador de Nomes do Excel mantém tabelas e nomes juntos
+e recusa uma duplicata; o `Workbook` impõe isso simetricamente — `DefineTable` lança `ArgumentException` para
+um nome que um nome definido já ocupa, e `DefineName` lança para um que uma tabela ocupa —, de modo que a
+invariante nunca depende de qual veio primeiro.
+
+**Colunas.** Os nomes de coluna são escritos por humanos e *não* estão sujeitos à regra de nomes, mas têm de
+ser não vazios, ao menos um, e **únicos ignorando a caixa** (o Excel resolve `Table1[col]` para
+`Table1[Col]`), que é também como `TryGetColumnIndex`/`TryGetColumnRange` os comparam. Na sobrecarga A1, a
+largura do intervalo tem de ser igual a `columnNames.Count`.
+
+**Redefinir substitui.** Uma segunda chamada de `DefineTable` com o mesmo nome substitui a entrada — é assim
+que uma tabela é redimensionada ou tem suas colunas alteradas — e o registro mantém exatamente uma entrada
+por nome.
+
+**A planilha não precisa existir.** O registro nunca toca em `Sheets`, exatamente como um nome definido: uma
+tabela pode nomear uma planilha que não foi adicionada (ou que foi removida). Uma planilha ausente é uma
+questão de tempo de avaliação — uma referência a ela resolve para `#REF!` em vez de lançar (veja
+[`GetCellValue`](#workbook)).
+
+**Zero linhas de dados é legal.** Uma tabela só de cabeçalho (`ref="A1:A1"` com linha de cabeçalho) é um
+estado de modelo válido, não um erro: `DataRowCount` é `0` e `TryGetColumnRange` devolve `false` para uma
+coluna *conhecida*, deixando a decisão entre `#REF!` e vazio para quem chama, em vez de devolver um intervalo
+invertido.
+
+**Redefinição e valores desatualizados.** Nem `DefineTable` nem `DefineName` removem nada do cache de
+memoização — uma (re)definição não muda nenhuma célula —, então uma fórmula que já leu a definição antiga
+continua servindo seu valor memoizado. Duas formas de tornar a mudança observável:
+
+- Chamar `InvalidateCache()` você mesmo: o cache inteiro vai embora e tudo é recomputado sob demanda.
+- Ou deixar o motor de recálculo incremental fazer isso. `Workbook.CreateRecalculationEngine()` devolve um
+  `RecalculationEngine` — um grafo de dependências reverso que, dadas as células que você reporta como
+  editadas, remove do cache apenas o cone afetado em vez do cache inteiro. Ele rastreia mudanças de definição
+  separadamente (elas não tocam em nenhuma planilha, então nenhuma versão estrutural de planilha se move) e
+  responde a uma delas com uma invalidação **completa**, não com uma remoção parcial: o
+  `RecalculationEngine.Recalculate(...)` seguinte chama `InvalidateCache()` por você e relata
+  `Mode = RecalculationMode.FullFallback` com `DirtyCellCount = -1`. Seu correspondente de planejar antes de
+  agir, o `RecalculationEngine.EstimateImpact(...)`, relata `RecommendFull = true` (`ConeSize = -1`) pelo
+  mesmo motivo e **não** consome o sinal, então a ordem das duas chamadas não importa: estimar primeiro ainda
+  deixa a remoção para o `Recalculate` seguinte.
+
+> `RecalculationEngine.Recalculate(edited)` **não** é `Workbook.Recalculate()`. O método do workbook atualiza
+> apenas as células voláteis e avança a [época volátil](#o-modelo-de-época); o método do motor é a passagem
+> incremental guiada por edições descrita acima. Os dois nomes não têm relação além da palavra.
 
 ## Funções voláteis
 

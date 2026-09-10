@@ -770,7 +770,9 @@ but any expression (a constant, a formula, another name) is allowed. Names are w
 
 > A named range is **not** an Excel **Table** (a ListObject). A name is a static alias for one expression;
 > a table is a named region with named columns, a totals row, a range that grows as rows are added, and its
-> own reference syntax (`Tabela1[Valor]`, `[@Valor]`). MySheet models the first and not the second — see
+> own reference syntax (`Tabela1[Valor]`, `[@Valor]`). MySheet models names *and* the table model
+> ([Tables](#tables) — name, range, header/totals flags and column names), but neither the
+> structured-reference syntax nor the self-growing range: a resize is a second `DefineTable` call. See
 > [Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations).
 
 ```csharp
@@ -796,7 +798,8 @@ ExpressionParser.Parse("=Rate*100", main).Evaluate(workbook);     // 10
 `DefineName(string, Expression)` or the `DefineName(string, string)` convenience overload, which parses
 the text and **requires every reference to be sheet-qualified** — an unqualified reference (e.g. `A1:A3`)
 throws `ArgumentException`, since a workbook-level name has no implicit sheet. An empty name, or one that
-collides with a cell-reference shape (`A1`) or a boolean literal, is also rejected.
+collides with a cell-reference shape (`A1`) or a boolean literal, is also rejected — and so is a name already
+taken by a table, because names and tables share one namespace ([Tables](#tables)).
 
 **Resolution order.** A `NameReference` resolves in this order:
 
@@ -817,6 +820,100 @@ column, so `=Sales` over `Data!A1:A3` shows `Data!A3` when it is typed in row 3.
 
 **Cycles.** A name that refers to itself, directly or through a chain (`A → B → A`), is detected by a
 thread-local guard and yields `#REF!` instead of overflowing the stack.
+
+## Tables
+
+A workbook can also register **tables** — the model behind Excel's `<table>` part (a ListObject): a named,
+sheet-anchored rectangle with named columns. `Workbook.Tables` is the read-only `name → Table` registry and
+`DefineTable` is its only writer.
+
+> **What is modelled, and what is not.** The registry holds the table *model* — the name, the range, the
+> header/totals flags and the column names — and it survives `Save`/`Load`. The structured-reference
+> **syntax** is not implemented yet: `=SUM(Tabela1[Valor])` raises `ParseException: Unexpected character '['
+> (at position 11)` (measured 2026-09-10 on the release that introduces the registry), and `ExcelFile.Load`
+> does not populate the registry from an xlsx `<table>` part either ([Excel interop → Scope and
+> limitations](excel-interop.md#scope-and-limitations)). So nothing in the evaluator reads a table yet: you
+> register one to keep the model through a round trip, and to give the reference syntax something to resolve
+> against when it lands.
+
+```csharp
+var workbook = new Workbook();
+workbook.Sheets.Add("Data");
+
+// The A1 overload: `reference` is exactly the xlsx <table ref="…"> string, so it spans the WHOLE table.
+workbook.DefineTable(
+    "Tabela1", "Data", "C2:E9", ["Produto", "Qtd", "Total"],
+    hasHeaderRow: true, hasTotalsRow: true);
+
+var table = workbook.Tables["tabela1"];   // case-insensitive, like Excel
+
+table.HeaderRow;     // 2  — FirstRow, because HasHeaderRow
+table.FirstDataRow;  // 3
+table.LastDataRow;   // 8
+table.TotalsRow;     // 9  — LastRow, because HasTotalsRow
+table.DataRowCount;  // 6
+table.FirstColumn;   // 3  (C)
+table.LastColumn;    // 5  (E) — derived from ColumnNames.Count
+
+table.TryGetColumnIndex("QTD", out var ordinal);      // true, ordinal = 1
+table.TryGetColumnRange("qtd", out var column, out var firstRow, out var lastRow);
+                                                      // true, 4, 3, 8 — the [#Data] band only
+```
+
+**Geometry.** `FirstRow`/`LastRow` span the whole range **including** the header and totals rows, exactly as
+the xlsx `ref` attribute does; `FirstColumn` is the leftmost sheet column and the last one follows from
+`ColumnNames.Count`. Everything else — `HeaderRow`, `TotalsRow`, `FirstDataRow`, `LastDataRow`,
+`DataRowCount`, `LastColumn` — is **derived**, so the header, data and totals bands can never contradict each
+other, and none of it goes on the wire.
+
+**Names.** Table names follow **Excel's table-name rule**, not the defined-name one: start with a letter or
+`_`, then only letters, digits, `.` and `_`, at most 255 characters, and nothing Excel would read as a
+reference — a cell inside the grid in A1 form (`A1`, `T1`, `XFD1048576`), the `R1C1` form (`R1C1`, `r2c3`),
+or the reserved single letters `C`/`R` (either case). MySheet also rejects `TRUE`/`FALSE`, which its
+tokenizer reads as booleans, and a backslash anywhere in the name (Excel permits a leading one, but the
+tokenizer would never read it into an identifier). Excel's own default names **are** legal (`Tabela1`,
+`Table1`: their letter run is past the three-letter column bound, so they are not cells), as is a
+letters-then-digits name outside the grid (`XFE1`, `A1048577`).
+
+**One namespace with defined names.** Excel's Name Manager keeps tables and names together and refuses a
+duplicate; `Workbook` enforces that symmetrically — `DefineTable` throws `ArgumentException` for a name a
+defined name already holds, and `DefineName` throws for one a table holds — so the invariant never depends on
+which came first.
+
+**Columns.** Column names are human-authored and are *not* subject to the name rule, but they must be
+non-blank, at least one, and **unique ignoring case** (Excel resolves `Table1[col]` to `Table1[Col]`), which
+is also how `TryGetColumnIndex`/`TryGetColumnRange` compare them. In the A1 overload the range's width must
+equal `columnNames.Count`.
+
+**Redefining replaces.** A second `DefineTable` under the same name replaces the entry — that is how a table
+is resized or its columns changed — and the registry keeps exactly one entry per name.
+
+**The sheet need not exist.** Registration never touches `Sheets`, exactly like a defined name: a table can
+name a sheet that has not been added (or has been removed). A missing sheet is an evaluation-time concern —
+a reference into one resolves to `#REF!` rather than throwing (see [`GetCellValue`](#workbook)).
+
+**Zero data rows is legal.** A header-only table (`ref="A1:A1"` with a header row) is a valid model state,
+not an error: `DataRowCount` is `0` and `TryGetColumnRange` returns `false` for a *known* column, leaving the
+`#REF!`-or-empty decision to the caller instead of handing back an inverted range.
+
+**Redefinition and stale values.** Neither `DefineTable` nor `DefineName` evicts anything from the
+memoization cache — a (re)definition changes no cell — so a formula that already read the old definition
+keeps serving its memoized value. Two ways to make the change observable:
+
+- Call `InvalidateCache()` yourself: the whole cache goes and everything recomputes lazily.
+- Or let the incremental recalculation engine do it. `Workbook.CreateRecalculationEngine()` returns a
+  `RecalculationEngine` — a reverse dependency graph that, given the cells you report as edited, evicts only
+  the affected cone instead of the whole cache. It tracks definition changes separately (they touch no sheet,
+  so no sheet's structural version moves) and answers one with a **full** invalidation rather than a partial
+  evict: the next `RecalculationEngine.Recalculate(...)` calls `InvalidateCache()` for you and reports
+  `Mode = RecalculationMode.FullFallback` with `DirtyCellCount = -1`. Its plan-before-you-act counterpart,
+  `RecalculationEngine.EstimateImpact(...)`, reports `RecommendFull = true` (`ConeSize = -1`) for the same
+  reason and does **not** consume the signal, so the order of the two calls does not matter: estimating first
+  still leaves the following `Recalculate` to evict.
+
+> `RecalculationEngine.Recalculate(edited)` is **not** `Workbook.Recalculate()`. The workbook method
+> refreshes only volatile cells and advances the [volatile epoch](#the-epoch-model); the engine method is the
+> edit-driven incremental pass described above. The two names are unrelated beyond the word.
 
 ## Volatile functions
 

@@ -83,8 +83,16 @@ var warm = Workbook.Load("model.mysheet"); // reads back with the cache pre-popu
 ### File format
 
 - **Cold, uncompressed** (`Save(path)`, or `IncludeComputedValues = false` with `Compression = None`) — the
-  raw MemoryPack of the model, byte-for-byte identical to every prior version. This is a permanent contract,
-  guarded by a regression test.
+  raw MemoryPack of the model, with **no container header of any kind**. That *write shape* is the permanent
+  contract, and it is deterministic: the same model always serializes to the same bytes, guarded by frozen
+  base64 goldens in the test suite (`CellStoreTests.Wire_IsByteIdentical_AfterNumericKeys` and
+  `SheetNameInterningTests.Wire_IsByteIdentical_AfterInterning`). What is **not** promised is byte identity
+  across library *versions*: adding a serialized member to `Workbook` shifts every saved file, because
+  MemoryPack writes the member count in the object header. That has now happened twice — `0x01` → `0x02`
+  when `DefinedNames` was added (the frozen `workbook-pre-namespaces.msgpack.bin` fixture still carries
+  `0x01`) and `0x02` → `0x03` for the table registry (see [Forward-compatibility: the table
+  registry](#forward-compatibility-the-table-registry-a-third-workbook-member)). Older *files* keep loading
+  in both cases; older *readers* do not.
 - **Container** — every other combination is a small self-describing container: the magic `MSWM`, a 1-byte
   format version, the uncompressed model length (int32 LE), then the body. `Load` sniffs the 4-byte magic: a
   match is a container, anything else is a raw (cold or pre-existing) model, so old files keep loading
@@ -266,6 +274,57 @@ format](#file-format)) instead of v2. This is also a **one-way** boundary:
 
 There is no option to opt back into writing v2 — the same append-only-in-spirit policy as the tags above:
 a superseded write format is dropped, not kept as a knob, while the reader keeps it forever.
+
+### Forward-compatibility: the table registry (a third `Workbook` member)
+
+`Workbook` now serializes a **third** member: the table registry that `Workbook.DefineTable` writes and
+`Workbook.Tables` exposes (see [Workbook, sheets and expressions →
+Tables](workbook-and-expressions.md#tables)). Unlike a new union tag, a new member on `Workbook` itself
+changes the shape of **every** saved file — the object header carries the member count — so this boundary
+applies whether or not the workbook holds a single table, and whether the file came from
+`Workbook.Save`/`SaveAsync` or from a save after `ExcelFile.Load`. (`ExcelFile.Load` does not populate the
+registry from an xlsx `<table>` part yet — see [Excel interop → Scope and
+limitations](excel-interop.md#scope-and-limitations) — but a workbook it produced still gets the new header
+when you save it.)
+
+This is a **one-way** compatibility boundary:
+
+- **No new union tag.** The registry lives on `Workbook`, not in the expression union, and nothing in the
+  formula language reads a table yet: a structured reference (`Tabela1[Valor]`) does not parse. The node
+  that will represent one, and the union tag it claims (the next free tag is **323** — 0-322 are taken),
+  belong to the reference-semantics work; that half of the boundary does not exist yet.
+- **The object header goes `0x02` → `0x03`, and an empty registry costs four bytes.** MEASURED 2026-09-10
+  on the branch that introduces the registry (MemoryPack 1.21.4, cold uncompressed `Save`): an empty
+  `Workbook` serializes to **13** bytes (`03` + three zero-length maps) where the previous version wrote
+  **9** (`02` + two); byte 0 is the only byte that changes, and the four added bytes are the empty registry
+  at the very end. On a populated workbook the frozen cell-store golden goes **726 → 730** bytes with every
+  byte after the header still at its old offset — pinned by
+  `CellStoreTests.Wire_NewGolden_IsPreTablesGoldenPlusEmptyTablesMember` and its twin in
+  `SheetNameInterningTests` (429 → 433 bytes).
+- **A file saved by this or a later version cannot be opened by an older one.** The older `Workbook`
+  declares two members and MemoryPack refuses a header that announces three. MEASURED 2026-09-10, an
+  older-version reader over a file this version wrote (both a raw `MemoryPackSerializer.Deserialize` and
+  `Workbook.Load` throw it, and both for an empty workbook and one holding a table):
+  `MemoryPackSerializationException: Danfma.MySheet.Workbook property count is 2 but binary's header maked
+  as 3, can't deserialize about versioning.` — "maked" is MemoryPack's own typo, and searching for it
+  verbatim is what should lead a user to this subsection. Same one-way shape as an appended union tag, but
+  it applies to **every** file, not only to files that use the new feature.
+- **Files saved by an older version keep loading — forever, with an empty registry.** MemoryPack tolerates
+  a header count *below* the declared member count and leaves the absent members `null`, and `Workbook`'s
+  `[MemoryPackOnDeserialized]` hook turns that `null` into an empty (case-insensitive) registry. The
+  precedent is already frozen in the suite: `workbook-pre-namespaces.msgpack.bin` begins `01 02 00 00 00 …`
+  — a ONE-member `Workbook`, written before `DefinedNames` existed — and still loads
+  (`MemoryPackCompatibilityTests.PreNamespaceFixture_LoadsAndReevaluates`), as do the two-member (`0x02`)
+  cell-store golden (`CellStoreTests.PreTablesGolden_StillLoads_WithEmptyTables`) and the v2 warm container
+  whose compressed body is a two-member model
+  (`ContainerVersionCompatibilityTests.GoldenV2Fixture_IsVersion2_AndLoadsForever`) — all three arrive with
+  `Tables.Count == 0`.
+
+**What this breaks that a new tag does not.** The `AGGREGATE` note above ends by saying only a new member on
+`Workbook` itself would change the shape of every saved file and force the frozen goldens to be
+regenerated. This is that case: both wire goldens were regenerated for it, and *mechanically* — the new
+constant is `[0x03] + old[1..] + four zero bytes`, never a captured debug print — so the constants
+themselves record exactly what moved.
 
 ## When to use which format
 

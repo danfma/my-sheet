@@ -88,8 +88,18 @@ var warm = Workbook.Load("model.mysheet"); // lida de volta com o cache já pree
 ### Formato do arquivo
 
 - **Frio, descomprimido** (`Save(path)`, ou `IncludeComputedValues = false` com `Compression = None`) — o
-  MemoryPack bruto do modelo, byte a byte idêntico a toda versão anterior. Este é um contrato permanente,
-  garantido por um teste de regressão.
+  MemoryPack bruto do modelo, **sem cabeçalho de container de nenhuma espécie**. Esse *formato de escrita* é
+  o contrato permanente, e ele é determinístico: o mesmo modelo sempre é serializado nos mesmos bytes,
+  garantido por goldens em base64 congeladas na suíte de testes
+  (`CellStoreTests.Wire_IsByteIdentical_AfterNumericKeys` e
+  `SheetNameInterningTests.Wire_IsByteIdentical_AfterInterning`). O que **não** é prometido é identidade de
+  bytes entre *versões* da biblioteca: acrescentar um membro serializado a `Workbook` desloca todo arquivo
+  salvo, porque o MemoryPack escreve a contagem de membros no cabeçalho do objeto. Isso já aconteceu duas
+  vezes — `0x01` → `0x02` quando `DefinedNames` foi acrescentado (a fixture congelada
+  `workbook-pre-namespaces.msgpack.bin` ainda carrega `0x01`) e `0x02` → `0x03` para o registro de tabelas
+  (veja [Compatibilidade futura: o registro de
+  tabelas](#compatibilidade-futura-o-registro-de-tabelas-um-terceiro-membro-de-workbook)). Os *arquivos*
+  antigos continuam carregando nos dois casos; os *leitores* antigos, não.
 - **Container** — qualquer outra combinação é um pequeno container autodescritivo: o número mágico `MSWM`,
   1 byte de versão do formato, o tamanho do modelo descomprimido (int32 LE), e então o corpo. O `Load`
   inspeciona os 4 bytes do número mágico: uma correspondência indica um container; qualquer outra coisa é
@@ -290,6 +300,61 @@ arquivo](#formato-do-arquivo)) em vez do v2. Este também é um limite de **mão
 Não há opção para voltar a escrever v2 — a mesma política em espírito append-only das tags acima: um
 formato de escrita substituído é descartado, não mantido como um knob, enquanto o leitor o mantém para
 sempre.
+
+### Compatibilidade futura: o registro de tabelas (um terceiro membro de `Workbook`)
+
+O `Workbook` agora serializa um **terceiro** membro: o registro de tabelas que `Workbook.DefineTable`
+escreve e `Workbook.Tables` expõe (veja [Workbook, planilhas e expressões →
+Tabelas](workbook-and-expressions.md#tabelas)). Diferente de uma tag nova de union, um membro novo no
+próprio `Workbook` muda o formato de **todo** arquivo salvo — o cabeçalho do objeto carrega a contagem de
+membros —, então este limite se aplica haja ou não uma única tabela no workbook, e tanto para o arquivo
+vindo de `Workbook.Save`/`SaveAsync` quanto para um save feito depois de `ExcelFile.Load`. (O
+`ExcelFile.Load` ainda não preenche o registro a partir da parte `<table>` do xlsx — veja [Interop com Excel
+→ Escopo e limitações](excel-interop.md#escopo-e-limitações) —, mas um workbook produzido por ele também
+recebe o cabeçalho novo quando você o salva.)
+
+Este é um limite de compatibilidade em **uma única direção**:
+
+- **Nenhuma tag nova de union.** O registro vive no `Workbook`, não na union de expressões, e nada na
+  linguagem de fórmulas lê uma tabela ainda: uma referência estruturada (`Tabela1[Valor]`) não passa pelo
+  parser. O nó que representará uma delas, e a tag de union que ele tomará (a próxima tag livre é a **323** —
+  as de 0 a 322 estão ocupadas), pertencem ao trabalho de semântica de referências; essa metade do limite
+  ainda não existe.
+- **O cabeçalho do objeto vai de `0x02` para `0x03`, e um registro vazio custa quatro bytes.** MEDIDO em
+  2026-09-10 no branch que introduz o registro (MemoryPack 1.21.4, `Save` frio e descomprimido): um
+  `Workbook` vazio é serializado em **13** bytes (`03` + três mapas de comprimento zero), onde a versão
+  anterior escrevia **9** (`02` + dois); o byte 0 é o único byte que muda, e os quatro bytes acrescentados
+  são o registro vazio no final. Num workbook populado, a golden congelada do armazenamento de células vai
+  de **726 para 730** bytes, com todo byte depois do cabeçalho ainda no offset antigo — fixado por
+  `CellStoreTests.Wire_NewGolden_IsPreTablesGoldenPlusEmptyTablesMember` e por seu gêmeo em
+  `SheetNameInterningTests` (429 → 433 bytes).
+- **Um arquivo salvo por esta versão ou por uma posterior não pode ser aberto por uma anterior.** O
+  `Workbook` antigo declara dois membros e o MemoryPack recusa um cabeçalho que anuncia três. MEDIDO em
+  2026-09-10, com um leitor da versão anterior sobre um arquivo escrito por esta versão (tanto um
+  `MemoryPackSerializer.Deserialize` cru quanto `Workbook.Load` lançam, e tanto para um workbook vazio
+  quanto para um com uma tabela): `MemoryPackSerializationException: Danfma.MySheet.Workbook property count
+  is 2 but binary's header maked as 3, can't deserialize about versioning.` — "maked" é um erro de digitação
+  do próprio MemoryPack, e é a busca por esse texto literal que deve levar o usuário a esta subseção. Mesma
+  forma de mão única de uma tag de union acrescentada, mas aplicada a **todo** arquivo, não apenas aos que
+  usam o recurso novo.
+- **Arquivos salvos por uma versão mais antiga continuam carregando — para sempre, com o registro vazio.** O
+  MemoryPack tolera uma contagem de cabeçalho *abaixo* da contagem de membros declarada e deixa os membros
+  ausentes como `null`, e o hook `[MemoryPackOnDeserialized]` do `Workbook` transforma esse `null` num
+  registro vazio (case-insensitive). O precedente já está congelado na suíte:
+  `workbook-pre-namespaces.msgpack.bin` começa com `01 02 00 00 00 …` — um `Workbook` de UM membro, escrito
+  antes de `DefinedNames` existir — e continua carregando
+  (`MemoryPackCompatibilityTests.PreNamespaceFixture_LoadsAndReevaluates`), assim como a golden de dois
+  membros (`0x02`) do armazenamento de células
+  (`CellStoreTests.PreTablesGolden_StillLoads_WithEmptyTables`) e o container v2 aquecido cujo corpo
+  comprimido é um modelo de dois membros
+  (`ContainerVersionCompatibilityTests.GoldenV2Fixture_IsVersion2_AndLoadsForever`) — os três chegam com
+  `Tables.Count == 0`.
+
+**O que isto quebra e uma tag nova não.** A nota do `AGGREGATE` acima termina dizendo que só um membro novo
+no próprio `Workbook` mudaria o formato de todo arquivo salvo e obrigaria a regenerar as goldens congeladas.
+Este é esse caso: as duas goldens de fio foram regeneradas por causa dele, e *mecanicamente* — a constante
+nova é `[0x03] + antigo[1..] + quatro bytes zero`, nunca um print de depuração capturado —, então as
+próprias constantes registram exatamente o que se moveu.
 
 ## Quando usar cada formato
 
