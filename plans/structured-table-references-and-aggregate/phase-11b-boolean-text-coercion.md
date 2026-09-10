@@ -86,8 +86,11 @@ number; it goes to the compatibility sweep beside the existing criteria item, no
 
 - A shared-helper fix breaks `AND`, `OR` and `XOR` in a way no existing test catches, because their current answers
   coincide with the ignore rule. Item 1's `AND("FALSE",TRUE)` guard is the only thing standing there.
-- `IF` is consumed by the mini-CSE, the cell boundary and `AggregateCodes`; a change to its condition path must not
-  move those. Run the full suite, not the filtered class.
+- `IF` is consumed by the mini-CSE and the cell boundary; a change to its condition path must not move those. Run
+  the full suite, not the filtered class. **CORRECTED 2026-09-10 by the review: `AggregateCodes` has no coupling to
+  `IF`'s condition at all, so naming it here was an unsubstantiated risk. The two real condition paths are
+  `If.Evaluate` for a scalar condition and `IfOperand.At` for an array one, and there is no third — `Entry<If>` is
+  not `Elementwise`, so no generic lift bypasses them.**
 
 ## Open questions owned by this phase
 
