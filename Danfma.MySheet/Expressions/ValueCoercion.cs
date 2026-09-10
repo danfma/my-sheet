@@ -88,14 +88,19 @@ internal static class ValueCoercion
     /// and <c>""</c> all stay <c>#VALUE!</c>, so this accepts exactly two more spellings than
     /// <see cref="CoerceToBool"/> and nothing else. Measured on Aspose.Cells 26.6.0 (2026-09-10), plain and
     /// array-entered entry agreeing: <c>=IF("TRUE",1,0)</c> = 1, <c>=IF("true",1,0)</c> = 1,
-    /// <c>=NOT("FALSE")</c> = TRUE, <c>=IF(" TRUE ",1,0)</c> = <c>#VALUE!</c>.
+    /// <c>=NOT("FALSE")</c> = TRUE and <c>SUM(FILTER(A1:A3,"TRUE"))</c> = 14 over 5, 0, 9, while
+    /// <c>=IF(" TRUE ",1,0)</c>, <c>(…,"yes")</c> and <c>(…,"1")</c> are all <c>#VALUE!</c>
+    /// (<c>BooleanTextCoercionTests</c>, <c>FilterTests</c>).
     /// <para>
-    /// This is a deliberate OPT-IN rather than a widening of <see cref="CoerceToBool"/>, and it is called
-    /// from exactly four sites: <c>If</c>'s condition, <c>IfOperand</c>'s per-element condition (IF's array
-    /// path), <c>Not</c>'s argument and <c>Ifs</c>' tests. Every OTHER caller of <see cref="CoerceToBool"/>
-    /// must keep its current behaviour — above all <c>LogicalReduction</c>, because <c>AND</c>/<c>OR</c>/
-    /// <c>XOR</c> <b>IGNORE</b> a text operand rather than coercing it (measured: <c>=AND("FALSE",TRUE)</c>
-    /// is TRUE, where coercion would give FALSE).
+    /// This is a deliberate OPT-IN rather than a widening of <see cref="CoerceToBool"/>, and it is called from
+    /// exactly these sites: <c>If</c>'s condition, <c>IfOperand</c>'s per-element condition (IF's array path),
+    /// <c>Not</c>'s argument and <c>Ifs</c>' tests (Phase 11b), plus <c>FILTER</c>'s include slot and the
+    /// <c>by_col</c> and <c>exactly_once</c> flags of <c>SORT</c> and <c>UNIQUE</c> (Phase 7). The two phases
+    /// added this method independently, body for body, and merged onto this one definition. Every OTHER caller
+    /// of <see cref="CoerceToBool"/> must keep its current behaviour — above all <c>LogicalReduction</c>,
+    /// because <c>AND</c>, <c>OR</c> and <c>XOR</c> <b>IGNORE</b> a text operand rather than coercing it
+    /// (measured: <c>=AND("FALSE",TRUE)</c> is TRUE, where coercion would give FALSE, and the three fold on
+    /// different counts so each flips under a coercing fix).
     /// </para>
     /// </summary>
     public static Error? CoerceToBoolAllowingTextWords(this in ComputedValue value, out bool result)

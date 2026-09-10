@@ -741,7 +741,11 @@ internal static class ArrayEvaluation
         };
     }
 
-    private static ArrayOperand BuildRange(RangeReference range, EvaluationContext context)
+    // Internal, not private, for the same reason Probe and TryBuildOperand are: a producer whose SOURCE
+    // evaluated to a REFERENCE-kind scalar (INDIRECT("A1:A3"), OFFSET(A1,0,0,3,1), +A1:A3 — a reference-
+    // returning node is an opaque scalar to the builder) resolves that rectangle through the one range
+    // operand rather than wrapping the reference in a 1x1 singleton (SelectionProducers.TryBuildSource).
+    internal static ArrayOperand BuildRange(RangeReference range, EvaluationContext context)
     {
         var workbook = context.Workbook;
         var handle = workbook.ResolveDenseHandle(range.SheetName);
