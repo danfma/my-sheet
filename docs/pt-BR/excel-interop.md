@@ -261,7 +261,11 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   (ListObject) não é LIDA — suas células carregam como um intervalo comum, o nome, as colunas e a linha de totais são
   descartados, e o `SaveAsExcel` nunca grava uma. O modelo de tabela em si existe (`Workbook.Tables`), então a mesma
   tabela pode ser registrada à mão com `Workbook.DefineTable`; o que falta é o carregador preenchê-lo a partir do
-  arquivo.
+  arquivo. Como consequência, uma fórmula escrita como `Tabela1[Valor]` / `[@Valor]` / `[#Headers]` não passa pelo
+  parse: a célula afetada recai no valor que o Excel guardou em cache para ela (reportado como
+  `UnparsableFormula`) e perde sua fórmula. O `MergeIntoExcel` é a exceção que preserva a tabela em si — a parte
+  `<table>` e o elemento `<tableParts>` do template são copiados intactos —, mas o intervalo `ref` da tabela
+  **não** é redimensionado, então linhas escritas depois da sua última linha ficam fora da tabela.
 - **Uma fórmula que o parser rejeita degrada uma célula, não o carregamento**: um texto de fórmula que não
   passa pelo parse (uma referência estruturada é o caso comum) deixa aquela célula com o valor em cache,
   reportado via `OnWarning`. Essa é uma perda real de fidelidade — a célula para de reagir a mudanças nas
