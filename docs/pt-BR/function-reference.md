@@ -455,11 +455,15 @@ serial 61 também divergem, entre elas as quatro autocontradições acima: `WORK
 `NETWORKDAYS(58,62)` **5** / 4, `WORKDAY.INTL(1,5,"1000000")` **6** / 7 e `NETWORKDAYS(58,62,H)` com `H`
 guardando o serial 59 **4** / 3.
 
-O que *de fato* se sustenta é o limite no serial 61 e as linhas que dependem de o dia fantasma ser um dia útil
-da caminhada — essas concordam nos dois motores: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59,
-`NETWORKDAYS(59,61)` = 3, `NETWORKDAYS(1,61)` = 45. Todo número dos dois parágrafos acima é medido
-(Aspose.Cells 26.6.0, 2026-09-09, entrada simples na célula) e fixado por um teste, inclusive o lado do
-MySheet.
+O que se sustenta sem ressalva é apenas o próprio limite: a partir do serial 61, toda resposta corresponde.
+Abaixo dele algumas linhas concordam, entre elas `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59,
+`NETWORKDAYS(59,61)` = 3 e `NETWORKDAYS(1,61)` = 45 — mas a concordância ali é um fato linha por linha, não uma
+regra que se possa estender. Dois feriados em torno do dia fantasma ilustram isso: `NETWORKDAYS(58,62,H)` com
+`H` guardando os seriais 59 e 60 dá **3** aqui contra 2, mais uma vez a mesma autocontradição, porque o Aspose
+volta a responder menos que a soma das próprias partes. Todo RESULTADO DE FÓRMULA dos parágrafos acima é medido
+(Aspose.Cells 26.6.0, 2026-09-09, entrada simples na célula) e fixado por um teste, inclusive o lado do MySheet;
+as contagens de regras candidatas e de linhas varridas vêm da varredura do próprio plano da fase e não são
+asserções linha a linha.
 
 **Três mudanças da 3.17.0 que não têm nada a ver com 1900** — elas movem resultados em datas modernas também:
 

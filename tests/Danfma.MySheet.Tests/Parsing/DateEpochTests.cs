@@ -61,6 +61,7 @@ public class DateEpochTests
         // A holiday inside the 1900 window, for the NETWORKDAYS row Aspose contradicts itself on. MySheet has
         // no array-constant syntax, so a holiday argument has to come from a cell.
         sheet["J1"] = new NumberValue(59d); // 1900-02-28 — inside the span 58..62
+        sheet["J2"] = new NumberValue(60d); // the PHANTOM 1900-02-29, so J1:J2 straddles it
 
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
@@ -536,6 +537,14 @@ public class DateEpochTests
         // engines part by part, and Aspose again answers one less than its own parts for the whole span.
         await Assert.That(Num("=NETWORKDAYS(58,62,J1)")).IsEqualTo(4d); // walk 4, Aspose 3
         await Assert.That(Num("=NETWORKDAYS(59,61,J1)")).IsEqualTo(2d); // walk 2, Aspose 2 — agree
+        // FIFTH contradiction, found by the wave's own re-review: two holidays straddling the phantom day, one
+        // on the real serial 59 and one on the phantom 60. Parts are 1 + 1 + 1 = 3 on BOTH engines, and Aspose
+        // answers 2 for the whole span — one less than its own parts a third time. This row is why the docs no
+        // longer promise that "the rows depending on the phantom day agree": this is such a row and it does not.
+        await Assert.That(Num("=NETWORKDAYS(58,62,J1:J2)")).IsEqualTo(3d); // walk 3, Aspose 2
+        await Assert.That(Num("=NETWORKDAYS(58,58,J1:J2)")).IsEqualTo(1d); // walk 1, Aspose 1 — agree
+        await Assert.That(Num("=NETWORKDAYS(59,61,J1:J2)")).IsEqualTo(1d); // walk 1, Aspose 1 — agree
+        await Assert.That(Num("=NETWORKDAYS(62,62,J1:J2)")).IsEqualTo(1d); // walk 1, Aspose 1 — agree
     }
 
     [Test]

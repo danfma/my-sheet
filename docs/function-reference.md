@@ -443,10 +443,14 @@ second: `WORKDAY(5,1)` **8** / 6, `WORKDAY(6,1)` **8** / 9, `WORKDAY(6,4)` **11*
 **62** / 64, `NETWORKDAYS(58,62)` **5** / 4, `WORKDAY.INTL(1,5,"1000000")` **6** / 7, and
 `NETWORKDAYS(58,62,H)` with `H` holding serial 59 **4** / 3.
 
-What *does* hold is the boundary at serial 61, and the rows that depend on the phantom day being a working day
-of the walk — these agree on both engines: `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59, `NETWORKDAYS(59,61)` =
-3, `NETWORKDAYS(1,61)` = 45. Every number in the two paragraphs above is measured (Aspose.Cells 26.6.0,
-2026-09-09, plain cell entry) and pinned by a test, MySheet's side included.
+What holds without qualification is only the boundary itself: from serial 61 on, every answer matches. Below it
+some rows do agree, among them `WORKDAY(59,1)` = 60, `WORKDAY(60,-1)` = 59, `NETWORKDAYS(59,61)` = 3 and
+`NETWORKDAYS(1,61)` = 45 — but agreement there is a row-by-row fact, not a rule you can extend. Two holidays
+straddling the phantom day are a case in point: `NETWORKDAYS(58,62,H)` with `H` holding serials 59 and 60 is
+**3** here against 2, one more of the same self-contradiction, because Aspose again answers less than the sum of
+its own parts. Every FORMULA RESULT in the paragraphs above is measured (Aspose.Cells 26.6.0, 2026-09-09, plain
+cell entry) and pinned by a test, MySheet's side included; the counts of candidate rules and swept rows come
+from the phase plan's own sweep and are not per-row assertions.
 
 **Three changes in 3.17.0 that are not about 1900** — they move results on modern dates too:
 
