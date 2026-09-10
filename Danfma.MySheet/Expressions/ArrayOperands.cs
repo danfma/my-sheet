@@ -107,12 +107,17 @@ internal enum PositionAxis
     Column,
 }
 
-// ROW(range)/COLUMN(range): every cell in row r shares the same worksheet row number (TopRow + r), and
-// every cell in column c the same column number (LeftColumn + c). ONE class for both axes, because that
-// is the whole difference between them: decomposing a row-major index into its rectangle coordinates
-// gives the row as `index / _columns` and the column as `index % _columns`, so the operand needs the
-// origin of its own axis and which of the two divisions to use. Splitting it in two bought nothing but a
-// second copy of the mismatch guard.
+// ROW(range)/COLUMN(range) over a rectangle: a VECTOR along the operand's own axis — ROW(A1:C3) is the 3x1
+// column [1,2,3] and COLUMN(A1:C3) the 1x3 row [1,2,3], never an MxN rectangle. That is Excel's shape,
+// measured on Aspose.Cells 26.6.0 (2026-09-10, CSE column): SUM(ROW(A1:C3)) = 6, COUNT(ROW(A1:C3)) = 3,
+// SUM(COLUMN(A1:C3)) = 6. Phase 1 fabricated the rectangle ("every cell in row r shares the row number")
+// only because the operand tree could not broadcast; with Broadcasting.TryProject the vector's other axis
+// repeats, so the rectangle idioms still hold — SUM(ROW(A1:C3)*E1:E3) = 14, SUM(ROW(A1:A3)*COLUMN(A1:C1))
+// = 36 (the outer product) — while the element count is the vector's. ONE class for both axes, because
+// that is the whole difference between them: with the other axis of extent 1, `own / _columns` is the row
+// of a column vector and `own % _columns` the column of a row vector, so the operand needs only its axis's
+// origin and which of the two divisions to use. Splitting it in two bought nothing but a second copy of
+// the projection.
 internal sealed class PositionNumbersOperand : ArrayOperand
 {
     private readonly int _origin;

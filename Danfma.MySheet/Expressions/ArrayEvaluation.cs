@@ -469,20 +469,20 @@ internal static class ArrayEvaluation
         }
     }
 
-    // The operand over one axis of a resolved rectangle: that axis's origin (TopRow or LeftColumn) is what
-    // every cell along the other axis shares.
+    // The operand over one axis of a resolved rectangle: a VECTOR along that axis (an Nx1 column of row
+    // numbers, a 1xM row of column numbers) whose other axis has extent 1 and therefore repeats under
+    // broadcasting — Excel's shape, see PositionNumbersOperand.
     private static ArrayOperand PositionOperand(RangeBounds bounds, PositionAxis axis) =>
-        new PositionNumbersOperand(
-            axis is PositionAxis.Row ? bounds.TopRow : bounds.LeftColumn,
-            axis,
-            bounds.RowCount,
-            bounds.ColumnCount
-        );
+        axis is PositionAxis.Row
+            ? new PositionNumbersOperand(bounds.TopRow, axis, bounds.RowCount, 1)
+            : new PositionNumbersOperand(bounds.LeftColumn, axis, 1, bounds.ColumnCount);
 
     // What a ROW/COLUMN argument that DENOTES a reference contributes to the mini-CSE, once resolved.
     private enum PositionArgumentShape
     {
-        // A rectangle: ROW/COLUMN over it is a vector of positions, one per cell.
+        // A rectangle: ROW/COLUMN over it is a vector of positions along its own axis — an Nx1 column of
+        // row numbers, a 1xM row of column numbers (Aspose.Cells 26.6.0, measured 2026-09-10, CSE column:
+        // COUNT(ROW(A1:C3)) is 3, not 9).
         Array,
 
         // No rectangle to spread over — a single cell, a union, a name that does not resolve: the ROW/COLUMN

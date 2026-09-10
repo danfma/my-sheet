@@ -444,11 +444,13 @@ public class MiniCseConsumerTests
     }
 
     [Test]
-    public async Task Sum_OfRowOverRectangle_RepeatsEachRowNumberPerColumn()
+    public async Task Sum_OfRowOverRectangle_IsTheSumOfTheRowVector()
     {
-        // Regression pin for the pre-existing syntactic arm: ROW(A1:C3) is 3x3, each row number once per
-        // COLUMN → 3*(1+2+3) = 18, not 1+2+3.
-        await Assert.That(Num(OnPositionGrid("=SUM(ROW(A1:C3))"))).IsEqualTo(18.0);
+        // ROW(A1:C3) is the 3x1 COLUMN [1,2,3] → 6. FLIPPED by Phase 10 (verifier correction B1): Phase 1
+        // fabricated a 3x3 rectangle, each row number once per column, and pinned 18 here; Excel's shape is
+        // the vector — Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (plain entry agrees): 6, with
+        // COUNT(ROW(A1:C3)) = 3 pinned in VectorBroadcastingTests.
+        await Assert.That(Num(OnPositionGrid("=SUM(ROW(A1:C3))"))).IsEqualTo(6.0);
     }
 
     [Test]
@@ -456,35 +458,49 @@ public class MiniCseConsumerTests
     {
         // COLUMN had no array operand at all before this fix: SUM saw the single leftmost column number 1.
         await Assert.That(Num(OnPositionGrid("=SUM(COLUMN(A1:C1))"))).IsEqualTo(6.0);
-        await Assert.That(Num(OnPositionGrid("=SUM(COLUMN(A1:C3))"))).IsEqualTo(18.0);
         await Assert.That(Num(OnPositionGrid("=SMALL(COLUMN(A1:C1),2)"))).IsEqualTo(2.0);
+
+        // COLUMN(A1:C3) is the 1x3 ROW [1,2,3] → 6, the same as over A1:C1. FLIPPED by Phase 10 (verifier
+        // correction B1) from the fabricated 3x3's 18 — Aspose.Cells 26.6.0, measured 2026-09-10, CSE column.
+        await Assert.That(Num(OnPositionGrid("=SUM(COLUMN(A1:C3))"))).IsEqualTo(6.0);
     }
 
     [Test]
-    public async Task Sum_OfColumnOverName_RepeatsTheColumnPerRow()
+    public async Task Sum_OfColumnOverName_IsTheOneColumnNumber()
     {
-        // MyName is a single COLUMN of 3 rows: COLUMN(MyName) is [1,1,1] → 3 (and not 1, the scalar answer).
-        await Assert.That(Num(OnPositionGrid("=SUM(COLUMN(MyName))"))).IsEqualTo(3.0);
+        // MyName is a single COLUMN of 3 rows: COLUMN(MyName) is the 1x1 vector [1] → 1. FLIPPED by Phase
+        // 10 (verifier correction B1) from 3, the fabricated 3x1's [1,1,1] — Aspose.Cells 26.6.0, measured
+        // 2026-09-10, CSE column. The row-vector twin, SUM(ROW(MyName)) = 6, is pinned above and did not
+        // move; the pair is what shows the vector runs along the function's OWN axis.
+        await Assert.That(Num(OnPositionGrid("=SUM(COLUMN(MyName))"))).IsEqualTo(1.0);
     }
 
     [Test]
     public async Task RowAndColumnOperands_AgreeOnRowMajorOrder()
     {
-        // ROW(A1:B2) = [1,1,2,2] and COLUMN(A1:B2) = [1,2,1,2] in row-major order; zipped element-wise the
-        // products are [1,2,2,4] → 9. Any disagreement on the traversal order (e.g. a column-major COLUMN)
-        // still sums the same 4 values individually but pairs them differently: 1*1+1*2+2*1+2*2 = 9 only
-        // holds for the row-major pairing, and this asserts the PAIRING, which the two SUM cases cannot.
+        // ROW(A1:B2) is the 2x1 column [1,2] and COLUMN(A1:B2) the 1x2 row [1,2]; the operator broadcasts
+        // them into the 2x2 OUTER PRODUCT [1,2,2,4] → 9. Since Phase 10 this pins the outer product rather
+        // than the pairing of two fabricated 2x2 rectangles (the same 9 by a different route), and the
+        // asymmetric form that can tell the two apart lives in VectorBroadcastingTests:
+        // SUM(ROW(A1:A3)*COLUMN(A1:C1)) = 36.
         await Assert.That(Num(OnPositionGrid("=SUM(ROW(A1:B2)*COLUMN(A1:B2))"))).IsEqualTo(9.0);
     }
 
     [Test]
     public async Task SumProduct_OfRowAndColumn_ConsumesTheMiniCse()
     {
-        // SUMPRODUCT opts into the mini-CSE too (PositionalRange gained an array backing): ROW(A1:B2) =
-        // [1,1,2,2] and COLUMN(A1:B2) = [1,2,1,2] are zipped position by position, so this is the same 9
-        // as the SUM form above — not the 1*1 of two collapsed scalars.
+        // SUMPRODUCT opts into the mini-CSE too (PositionalRange gained an array backing), but keeps its
+        // own dimension rule: its ARGUMENTS must match exactly, and ROW(A1:B2) is a 2x1 against COLUMN's
+        // 1x2 → #VALUE!. FLIPPED by Phase 10 (verifier correction B1) from 9, the zip of two fabricated 2x2
+        // rectangles — Aspose.Cells 26.6.0, measured 2026-09-10, CSE column (plain entry agrees).
         await Assert
-            .That(Num(OnPositionGrid("=SUMPRODUCT(ROW(A1:B2),COLUMN(A1:B2))")))
+            .That(OnPositionGrid("=SUMPRODUCT(ROW(A1:B2),COLUMN(A1:B2))"))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // The working form: the broadcast happens INSIDE the one argument, which SUMPRODUCT then consumes
+        // as the 2x2 outer product — 9, as the SUM form above.
+        await Assert
+            .That(Num(OnPositionGrid("=SUMPRODUCT(ROW(A1:B2)*COLUMN(A1:B2))")))
             .IsEqualTo(9.0);
     }
 
