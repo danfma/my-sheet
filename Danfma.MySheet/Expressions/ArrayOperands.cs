@@ -7,6 +7,67 @@ namespace Danfma.MySheet.Expressions;
 // ==============================================================================================
 
 /// <summary>
+/// The ONE extension point for a node that PRODUCES an array inside the mini-CSE — Phase 7's
+/// <c>FILTER</c>, <c>SORT</c>, <c>UNIQUE</c> and <c>SEQUENCE</c>, and every later producer
+/// (<c>TRANSPOSE</c>, <c>SORTBY</c>, <c>TAKE</c>, <c>HSTACK</c>, …). A node that implements it is reached by
+/// exactly two arms — one in <see cref="ArrayEvaluation.Probe"/>, one in
+/// <see cref="ArrayEvaluation.TryBuildOperand"/> — so adding a producer never edits
+/// <c>ArrayEvaluation.cs</c>; it mirrors the codebase's extension-by-shared-abstraction style
+/// (<c>INumericFold</c>). A producer's node keeps <see cref="Expression.Evaluate"/> as its CELL answer,
+/// which is <see cref="ArrayEvaluation.FirstElement"/> — Excel's <c>@</c> on an array, the top-left.
+/// </summary>
+/// <remarks>
+/// <para>The two members are twins and MUST agree, because the mini-CSE's documented contract is
+/// <c>IsArrayEligible == (the build succeeds as an array)</c> and <c>NumericAggregation.Fold</c> relies on
+/// it to evaluate a volatile argument once: <see cref="ProbeArray"/> answers from SHAPE alone — it never
+/// evaluates the node, though like <see cref="ArrayEvaluation.Probe"/> it may resolve a name — and
+/// <see cref="TryBuildArrayOperand"/> returns <c>false</c> ONLY where the probe answered
+/// <c>Succeeds = false</c>. Both recurse into their children through the widened
+/// <see cref="ArrayEvaluation.Probe"/>/<see cref="ArrayEvaluation.TryBuildOperand"/> rather than by
+/// pattern-matching the child node, so a name, a table column or another producer in the child slot is
+/// whatever those two say it is.</para>
+///
+/// <para>A REFUSED child (an open range somewhere below — the cost guard) makes the producer refuse:
+/// <c>(false, false)</c> from the probe, <c>false</c> from the build. That is the <c>BinaryOperation</c>/
+/// <c>If</c> side of Phase 8's split, not the lift's opaque-scalar side, so the consumer keeps its scalar
+/// path and reaches <see cref="ArrayEvaluation.FirstElement"/>, which answers <c>#VALUE!</c>
+/// (<c>ArrayProducerContractTests</c>; <c>SUM(FILTER(A:A,A:A>0))</c> is the phase's pinned deviation).</para>
+///
+/// <para>Whatever the build hands back when it succeeds is an ARRAY with <c>Rows >= 1 &amp;&amp; Columns >= 1</c>
+/// — never a scalar, never a 0-extent shape: a 1x1 source, a bad argument and an EMPTY result are all a
+/// 1x1 <see cref="SingletonArrayOperand"/> (see <see cref="ArrayShaping"/> for the invariant and what
+/// breaks without it). The operand projects through <see cref="Broadcasting.TryProject"/> like every other
+/// array operand, so a producer composes under an operator, a lifted function, an <c>IF</c> or another
+/// producer with no code of its own.</para>
+///
+/// <para>Two mechanical rules for an implementation. (1) The interface and <see cref="ArrayOperand"/> are
+/// internal while the function records are public, so a record MUST implement both members EXPLICITLY
+/// (<c>bool IArrayProducer.TryBuildArrayOperand(…)</c>) — an implicit public method mentioning
+/// <see cref="ArrayOperand"/> is a CS0050 inconsistent-accessibility error. (2) The registry entry MUST be
+/// <see cref="ArrayLifting.Consumes"/>: the <c>Function when TryGetLift</c> arm sits BEFORE the producer
+/// arm in both switches, so an <see cref="ArrayLifting.Elementwise"/> producer would be lifted per element
+/// and answer from one cell.</para>
+/// </remarks>
+internal interface IArrayProducer
+{
+    /// <summary>
+    /// The shape twin of <see cref="TryBuildArrayOperand"/>: whether the build would succeed
+    /// (<c>Succeeds</c> — no refused open range on the eligible path) and whether it yields an array
+    /// (<c>IsArray</c> — always <c>true</c> when it succeeds, since a producer's result is never a scalar).
+    /// Never evaluates the node.
+    /// </summary>
+    (bool Succeeds, bool IsArray) ProbeArray(EvaluationContext context);
+
+    /// <summary>
+    /// Builds the producer's operand — its child operands through
+    /// <see cref="ArrayEvaluation.TryBuildOperand"/>, its scalar arguments evaluated ONCE here (the
+    /// build-time read the laziness contract sanctions) — or returns <c>false</c> when a child build is
+    /// refused. See the type remarks for what the operand must satisfy.
+    /// </summary>
+    bool TryBuildArrayOperand(EvaluationContext context, out ArrayOperand operand);
+}
+
+/// <summary>
 /// A recursively-built operand: either a scalar (to broadcast) or a rectangular array whose elements are
 /// computed on demand by <see cref="At"/>. Building FAILS (returns <c>false</c> from
 /// <see cref="ArrayEvaluation.TryBuildOperand"/>) only when the sub-tree reaches an open/whole-column

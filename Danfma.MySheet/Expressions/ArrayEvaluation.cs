@@ -52,6 +52,10 @@ internal readonly struct ArrayEvaluationResult
 /// <see cref="ArrayLifting.Elementwise"/> — a pure-scalar function such as <c>LEN</c>, <c>ROUND</c> or
 /// <c>IFERROR</c> — with at least one array argument, whose scalar body is evaluated once per element over
 /// rebound argument slots (<see cref="LiftedFunctionOperand"/>) while its scalar arguments broadcast. Any
+/// node that PRODUCES an array — Phase 7's <c>FILTER</c>/<c>SORT</c>/<c>UNIQUE</c>/<c>SEQUENCE</c> — plugs in
+/// through <see cref="IArrayProducer"/>, reached by one arm in each of <see cref="Probe"/> and
+/// <see cref="TryBuildOperand"/> and answering for its own shape and elements (a bare producer in a cell
+/// is its top-left element, <see cref="FirstElement"/>). Any
 /// node outside this set is treated as a scalar (broadcast); a whole-column/open range is REFUSED (the cost
 /// guard) so the whole evaluation reports "not an array" and the caller keeps its current scalar path — except
 /// INSIDE a lifted shape, where the refusal makes that unary/function an opaque scalar (evaluated once, its
@@ -169,6 +173,24 @@ internal static class ArrayEvaluation
         Probe(expression, context).IsArray;
 
     /// <summary>
+    /// Excel's <c>@</c> rule for an ARRAY: the value a cell shows for an array expression is its TOP-LEFT
+    /// element. This is the single <see cref="Expression.Evaluate"/> body of every <see cref="IArrayProducer"/>
+    /// record — <c>=FILTER(A1:B3,A1:A3>0)</c> in a cell is 5, <c>=SORT(A1:B3,1,-1)</c> is 9,
+    /// <c>=SEQUENCE(2,3,7,1)</c> is 7 and <c>=SEQUENCE(2,3)*10</c> is 10 (Aspose.Cells 26.6.0, 2026-09-10,
+    /// both entry modes; the contract pins are in <c>ArrayProducerContractTests</c>) — so the rule cannot
+    /// drift between the four. It builds the operand (the node's single evaluation, exactly as a consumer's
+    /// stream would be) and reads position 0 at the operand's own extent; when the build is refused (an open
+    /// range below — the cost guard) or does not yield an array there is no element to take, and the answer
+    /// is <c>#VALUE!</c>. It is a rule for PRODUCERS, not for ranges: a bare range in a cell intersects
+    /// (<c>ImplicitIntersection</c>), and a range operand under an operator keeps today's <c>#VALUE!</c>
+    /// (<c>CellBoundaryIntersectionTests</c>).
+    /// </summary>
+    internal static ComputedValue FirstElement(Expression expression, EvaluationContext context) =>
+        TryBuildOperand(expression, context, out var operand) && operand.IsArray
+            ? operand.At(0, operand.Rows, operand.Columns)
+            : ComputedValue.Error(Error.Value);
+
+    /// <summary>
     /// THE mini-CSE consumer gate: the three conditions every consumer that wants to STREAM a computed array
     /// applies, in the one order that is correct. Succeeds (with the lazy view in <paramref name="stream"/>)
     /// only for a non-reference argument that genuinely produces an array; otherwise the caller keeps its own
@@ -239,7 +261,10 @@ internal static class ArrayEvaluation
     // argument in the same context, and therefore agree. The oracle resolves the argument rather than
     // evaluating the ROW/COLUMN node, and the build resolves it a second time, which is what keeps a
     // reference-returning FUNCTION argument out of that arm: see ResolvePositionRange.
-    private static (bool Succeeds, bool IsArray) Probe(
+    //
+    // Internal, not private, so an IArrayProducer in another file can recurse into its own child
+    // arguments; the two are the producers' only way in, and IsArrayEligible/TryStream stay the gates.
+    internal static (bool Succeeds, bool IsArray) Probe(
         Expression expression,
         EvaluationContext context
     )
@@ -342,6 +367,15 @@ internal static class ArrayEvaluation
                 return (true, true);
             }
 
+            // A node that PRODUCES an array (Phase 7: FILTER/SORT/UNIQUE/SEQUENCE, and any later producer)
+            // answers for itself. Placed LAST before `default` and after every arm above: the open-range
+            // refusal and the name arm come first because they are different node types; the lift arm
+            // comes first because a producer is a Function too, and only its Consumes classification keeps
+            // it out of TryGetLift — see IArrayProducer's remarks. Phase 5's TableReference arm and any
+            // future reference arm land ABOVE this one.
+            case IArrayProducer producer:
+                return producer.ProbeArray(context);
+
             // Anything else is an opaque scalar: succeeds (evaluated once when actually built), not an array.
             default:
                 return (true, false);
@@ -369,7 +403,7 @@ internal static class ArrayEvaluation
             },
         };
 
-    private static bool TryBuildOperand(
+    internal static bool TryBuildOperand(
         Expression expression,
         EvaluationContext context,
         out ArrayOperand operand
@@ -456,6 +490,10 @@ internal static class ArrayEvaluation
 
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
                 return TryBuildIf(ifNode, context, out operand);
+
+            // The build twin of Probe's producer arm, in the same position for the same reasons.
+            case IArrayProducer producer:
+                return producer.TryBuildArrayOperand(context, out operand);
 
             // Anything else is an opaque scalar: evaluate ONCE and broadcast. (This is where nested scalar
             // functions — SUM(A:A), a bare cell, a literal, a volatile RAND() — enter, without recursing.)
@@ -809,10 +847,11 @@ internal static class ArrayEvaluation
     // The running result shape of an N-ary element-wise node: a scalar contributes nothing; the first array
     // sets the shape; every further array folds in per axis through Broadcasting.Axis — an extent of 1
     // defers to the other operand, two larger extents take the maximum. "No array seen yet" is an explicit
-    // flag rather than a (0, 0) sentinel, for two reasons: a 0-row array is a legitimate shape once an empty
-    // FILTER result exists (Phase 7), so (0x2, 0x1) must fold to (0, 2) and not restart at (0, 1); and
-    // Axis(0, 1) is 0, so a (0, 0) accumulator folding a 1xN first operand would yield a 0-row extent — an
-    // empty stream, SUM = 0, silently.
+    // flag rather than a (0, 0) sentinel because Axis(0, 1) is 0: a (0, 0) accumulator folding a 1xN first
+    // operand would yield a 0-row extent — an empty stream, SUM = 0, silently. (Phase 10 also assumed the
+    // flag would one day carry a legitimate 0-row array from an empty FILTER; Phase 7 forbids that shape
+    // instead — ArrayShaping's invariant makes an empty producer result a 1x1 singleton, so this fold does
+    // not expect a 0 extent from any operand; ArrayProducerContractTests shows what a 0x1 would do.)
     //
     // Which positions of the folded extent an operand covers is decided at READ time by that operand's own
     // At() through Broadcasting.TryProject: an uncovered position answers #N/A there, so the node's body
