@@ -399,6 +399,32 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Files:* none unless a decision changes behaviour; the note is the deliverable
       *Why:* It is a trap for a future implementer, not a defect of ours.
 
+## Controller additions after the Phase 3 final review (2026-09-10)
+
+- [ ] **27.** A huge column reference CRASHES instead of answering `#REF!`, and it reaches every cell. Phase 3's
+      correction M2 bounded `TryParseColumn`, but the sibling accumulators are still unbounded: `CellAddress.Parse`
+      (`CellAddress.cs:23-27`) and `CellAddress.TryGetColumnRow` (`:38-70`), the latter reached by EVERY plain cell
+      or range reference through `Parser.cs`, whose own comment calls it unguarded. Measured on both this branch and
+      `main` by two independent reviewers: `=COUNTA(FXSHRXW1:FXSHRXW1)`, `=A<24 letters>1` and
+      `=COUNTA(A<24 letters>1:A<24 letters>5)` throw `IndexOutOfRangeException` out of `GetCellValue`. Pre-existing,
+      so it blocked no merge, but an exception escaping evaluation into the host is worse than any wrong answer, and
+      this is the second item of that class in the sweep (the other is `WORKDAY`'s overflow). Bound both siblings the
+      way M2 bounded the first, answer `#REF!`, and pin the boundary on both sides through a real formula rather than
+      through the parser unit only.
+      *Files:* `Danfma.MySheet/CellAddress.cs`, `Danfma.MySheet/Parsing/Parser.cs` if the arm needs it, the nearest test file
+      *Why:* Two reviewers found it independently while checking M2's bound, and M2 shipped closing one of three
+      doors.
+
+- [ ] **28.** `COUNTIF` counts a cell holding the TEXT `"TRUE"` as the boolean TRUE. Measured on Aspose.Cells 26.6.0
+      (2026-09-10, both entry modes agreeing) while investigating a user report about `IF`:
+      `COUNTIF(A1:A2,TRUE)` and `COUNTIF(A1:A2,"TRUE")` are **0** on the oracle against **1** here, with `A1` holding
+      the text `"TRUE"`. `SUMPRODUCT(--(A1:A2=TRUE))` is 0 on both, so plain comparison already distinguishes the
+      types and only the criteria matcher conflates them. SILENT wrong number. Phase 11b fixed the `IF` and `NOT`
+      half of that report and deliberately left this one here, because it is a different rule — criteria-family type
+      equality, next to the existing criteria item.
+      *Files:* `Danfma.MySheet/Expressions/CriteriaScan.cs` or wherever criteria equality lives, the criteria test files, both docs twins
+      *Why:* A count that silently includes a row Excel excludes, in the family this sweep already has an item for.
+
 ## Implementation items
 
 - [ ] **1.** Create `tests/Danfma.MySheet.Tests/Expressions/ExcelCompatibilitySweepTests.cs` holding the acceptance pins for (a)-(f) ONLY, each carrying **Aspose's** value and each therefore failing on `1b1e2d3` with the MySheet value named in the comment. Reuse `MathAggregateTests`'s `Calc(formula, params (string Id, object Value)[] cells)` shape (it is the nearest sibling; copy the helper rather than making it public). Pins, with today's failing value in brackets: **(a)** on the (a) fixture — `AGGREGATE(9,o,C1:C3)` = 8 for o in 0..3 [today 5] and 11 for o in 4..7 [passes], `AGGREGATE(9,o,F1:F3)` = 11 for all o in 0..7 [today 8 at 0-3], `AGGREGATE(3,o,C1:C3)` = 2 for 0..3 [today 1] and 3 for 4..7, `AGGREGATE(3,o,F1:F3)` = 3 for all o [today 2 at 0-3], `AGGREGATE(9,o,D1:D3)` = 8 / 11 and `SUBTOTAL(9,C1:C3)` = 8, `SUBTOTAL(3,C1:C3)` = 2, `SUBTOTAL(9,F1:F3)` = 11 as no-regression pins [all pass today]. **(b)** `SUBTOTAL(9,7)`, `SUBTOTAL(9,A1:A3,7)`, `SUBTOTAL(2,7)`, `SUBTOTAL(3,7)`, `SUBTOTAL(9,"7")`, `SUBTOTAL(9,TRUE)`, `SUBTOTAL(9,A1:A3,"")`, `AGGREGATE(9,4,7)`, `AGGREGATE(9,6,7)`, `AGGREGATE(9,4,A1:A3,7)`, `AGGREGATE(9,0,A1:A3,7)` → `ErrorValue.NotValue` [today 7/21/1/1/0/0/14/7/7/21/21], plus the no-regression pins `AGGREGATE(9,4,A1:A3,B1)` = 15, `SUBTOTAL(9,A1)` = 5, `AGGREGATE(15,6,7,1)` = `AGGREGATE(15,4,7,1)` = `AGGREGATE(14,6,7,1)` = `AGGREGATE(16,6,7,0.5)` = 7, and `AGGREGATE(15,6,1/0,1)` → `ErrorValue.NotValue` [today `#DIV/0!`]. **(c)** `MODE.SNGL(A1:A4)` = 2 on 2,1,1,2 [today 1]; = 1 on 1,2,2,1 [today 2]; `MODE.SNGL(A1:A6)` = 3 on 3,1,2,1,2,3 [today 1]; and `MODE(...)` / `AGGREGATE(13,4,...)` equal to it on each. **(d)** the seven `#DIV/0!` rows of (d)'s table [today `#NUM!`], plus `AGGREGATE(15,0,E2:E2,1)` = `#DIV/0!`, `AGGREGATE(15,6,G1:G1,1)` = `#NUM!`, `AGGREGATE(15,6,E1:E1,1)` = 5, `AGGREGATE(15,6,E1:E2,1)` = 5, `AGGREGATE(15,6,E2:E3,1)` = 9, `AGGREGATE(9,6,E2)` = 0 as no-regression pins. **(e)** MOVED TO PHASE 11a — DELIVERED 2026-09-10 in `tests/Danfma.MySheet.Tests/Expressions/DefinedNameArrayEligibilityTests.cs` (the pins are `COUNT((Rng<>"")*1)` = 3 [was 1], `SUM((Rng<>0)*1)` = 2 [was 1], `SMALL(IF(Rng>0,Rng),1)` = 5 [was 0], each asserted EQUAL to its literal-range twin exactly as this half asked; do NOT duplicate them here). **(f)** all fifteen `IF`/`CHOOSE` rows of (f)'s table.

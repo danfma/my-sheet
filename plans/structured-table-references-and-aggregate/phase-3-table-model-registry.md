@@ -289,7 +289,7 @@ shape: header `0x02` → `0x03`, +4 bytes for the empty map, old readers throw
       `bytes.Length >= ContainerHeaderLength` (9) still holds — an empty 3-member workbook is 13 bytes
       (measured), up from 9. Verified there is exactly one hardcoded 0x02 assumption in the whole repo, this
       comment (grep over Danfma.MySheet and tests found no other).
-- [ ] **17.** In tests/Danfma.MySheet.Tests/CellStoreTests.cs: rename the frozen constant PreChangeCellsWireGolden (:20-33) to PreTablesWireGolden and KEEP its bytes; add a new `CellsWireGolden` constant holding the regenerated base64; repoint Wire_IsByteIdentical_AfterNumericKeys (:60-66) at CellsWireGolden. Regenerate mechanically, not by capture: newBytes = [0x03] + oldBytes[1..] + [0x00,0x00,0x00,0x00]. Verified values — old golden 726 bytes, first byte 0x02, last four bytes 00 00 00 00; new golden 730 bytes, first byte 0x03, base64 begins `AwIAAAD7////BAAAAERhdGE` and ends `...AQEAAAAAAAAcQAAAAAAAAAAA==`.
+- [ ] **17.** In tests/Danfma.MySheet.Tests/CellStoreTests.cs: rename the frozen constant PreChangeCellsWireGolden (:20-33) to PreTablesWireGolden and KEEP its bytes; add a new `CellsWireGolden` constant holding the regenerated base64; repoint Wire_IsByteIdentical_AfterNumericKeys (:60-66) at CellsWireGolden. Regenerate mechanically, not by capture: newBytes = [0x03] + oldBytes[1..] + [0x00,0x00,0x00,0x00]. Verified values — old golden 726 bytes, first byte 0x02, last four bytes 00 00 00 00; new golden 730 bytes, first byte 0x03, base64 begins `AwIAAAD7////BAAAAERhdGE` and ends `...NQEBAAAAAAAAHEAAAAAAAAAAAA== (CORRECTED 2026-09-10: the string this item printed before was wrong — derive the golden, never paste it)`.
       *Files:* `tests/Danfma.MySheet.Tests/CellStoreTests.cs`
       *Why:* I decoded the constant and computed the transformation: base64 chunks 11, decoded 726 bytes, head
       `02 02 00 00 00 fb ff ff`, tail `... 1c 40 00 00 00 00` where the trailing four zeros are the empty
@@ -457,7 +457,7 @@ Worst three first — each would send an implementer to the wrong place or the w
    Next free tag is **323**. Item 23's bullet (a) and the risk bullet must say 323, and the master plan's
    "next free tag is 322 as of writing" is likewise stale.
 3. **Item 17's stated ENDING of the regenerated golden is wrong.** The phase says the new constant ends
-   `...AQEAAAAAAAAcQAAAAAAAAAAA==`. Mechanically (`[0x03] + old[1..] + 4×0x00`, and 726 is a multiple of 3 so the
+   `...NQEBAAAAAAAAHEAAAAAAAAAAAA== (CORRECTED 2026-09-10: the string this item printed before was wrong — derive the golden, never paste it)`. Mechanically (`[0x03] + old[1..] + 4×0x00`, and 726 is a multiple of 3 so the
    old base64 has no padding) the new base64 is the old string with `Ag`→`Aw` plus `AAAAAA==` appended: it ends
    **`...NQEBAAAAAAAAHEAAAAAAAAAAAA==`** (old constant ends `AEFCNQEBAAAAAAAAHEAAAAAA`). Serializing
    `BuildWireFixture()` on the patched engine produced exactly that string (730 bytes). The stated BEGINNING
