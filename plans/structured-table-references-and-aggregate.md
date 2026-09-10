@@ -71,7 +71,7 @@ which is why it goes first.
 
 | # | Phase | File | Items | Blockers | Majors | Status |
 | --: | --- | --- | --: | --: | --: | --- |
-| 1 | ROW/COLUMN over any reference, Excel's implicit intersection, array-native SUMPRODUCT | [`phase-1-reference-semantics.md`](structured-table-references-and-aggregate/phase-1-reference-semantics.md) | 27 | 2 | 2 | **Complete** — `feat/reference-semantics`, `32a67f6..c04e78b`, pending merge |
+| 1 | ROW/COLUMN over any reference, Excel's implicit intersection, array-native SUMPRODUCT | [`phase-1-reference-semantics.md`](structured-table-references-and-aggregate/phase-1-reference-semantics.md) | 27 | 2 | 2 | **Complete** — `feat/reference-semantics`, `32a67f6..c04e78b`, merged ff into main (verified ancestor) |
 | 2 | AGGREGATE(function_num, options, ref1, [k]) on a shared SUBTOTAL/order-statistics core | [`phase-2-aggregate.md`](structured-table-references-and-aggregate/phase-2-aggregate.md) | 18 | 1 | 1 | **Complete** — `feat/aggregate`, `a6aba56..3d030ae`, merged ff into main |
 | 3 | Table model, Workbook.DefineTable/Tables, and the third serialized Workbook member | [`phase-3-table-model-registry.md`](structured-table-references-and-aggregate/phase-3-table-model-registry.md) | 26 | 3 | 2 | Not started |
 | 4 | Bracket lexing and the structured-reference grammar | [`phase-4-lexer-parser.md`](structured-table-references-and-aggregate/phase-4-lexer-parser.md) | 18 | 2 | 1 | Not started |
