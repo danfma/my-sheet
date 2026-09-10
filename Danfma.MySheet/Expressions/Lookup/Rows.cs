@@ -20,6 +20,16 @@ public sealed partial record Rows(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
+        // A COMPUTED array — a producer (FILTER/SORT/UNIQUE/SEQUENCE), an operator over a range, a lifted
+        // function, IF — answers its own row count through the shared consumer gate, which keeps a bare
+        // reference or name on the reference path below. This must come AFTER the syntactic guard above
+        // (a ghost source is structural #REF!, not a shape) and BEFORE TryResolve, whose failure arm would
+        // otherwise re-evaluate the array to its collapsed top-left and report 1 or that element's error.
+        if (ArrayEvaluation.TryStream(Arguments[0], context, out var array))
+        {
+            return ReferencePosition.ArrayExtent(array, array.Rows);
+        }
+
         // The fallback is 1 (Excel counts a scalar as a 1x1 array); an argument that does not resolve reports
         // its OWN error instead — see ReferencePosition.TryResolve for both failure arms.
         if (

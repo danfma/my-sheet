@@ -51,6 +51,23 @@ internal static class ReferencePosition
             }
             : failure;
 
+    /// <summary>
+    /// The mini-CSE half of <c>ROWS</c>/<c>COLUMNS</c>: the extent of a COMPUTED array on the asked axis —
+    /// <c>ROWS(FILTER(A1:A3,A1:A3&gt;0))</c> = 2, <c>ROWS(A1:A3*2)</c> = 3, <c>COLUMNS(SEQUENCE(2,3))</c> = 3
+    /// — except that a 1x1 array whose only element is an error IS that error, the way a scalar error
+    /// already reports itself on the reference path (<c>ROWS(1/0)</c> = <c>#DIV/0!</c>). A producer's own
+    /// failure — an empty <c>FILTER</c>'s <c>#CALC!</c>, a bad <c>SEQUENCE</c> size's <c>#VALUE!</c> — is
+    /// exactly such a 1x1 singleton (<see cref="ArrayShaping"/>), and the engine cannot tell it from a kept
+    /// error element, so the one rule serves both. The caller reaches this only through
+    /// <see cref="ArrayEvaluation.TryStream"/>, which keeps a bare reference or name on the reference path.
+    /// Measured on Aspose.Cells 26.6.0, 2026-09-10, plain and array-entered agreeing, and pinned with the
+    /// rows the oracle splits on in <c>DynamicArrayTests</c>.
+    /// </summary>
+    public static ComputedValue ArrayExtent(ArrayEvaluation.ArrayStream array, int extent) =>
+        array.Length == 1 && array.ElementAt(0).TryGetError(out var error)
+            ? ComputedValue.Error(error)
+            : ComputedValue.Number(extent);
+
     /// <summary>The fallback <c>ROW</c>/<c>COLUMN</c>/<c>AREAS</c> share: an argument that is not a
     /// reference at all is <c>#VALUE!</c>. <c>ROWS</c>/<c>COLUMNS</c> pass <c>1</c> instead, treating a
     /// scalar as a 1x1 array.</summary>

@@ -576,6 +576,61 @@ public class DynamicArrayTests
     }
 
     [Test]
+    public async Task RowsAndColumns_OverAnyComputedArray_AnswerItsShape()
+    {
+        // Item 14's gate is ArrayEvaluation.TryStream, so it answers for EVERY computed array, not only for
+        // the four producers: the binary, IF, lifted-function, unary and ROW forms all counted as a scalar
+        // (or reported the argument's own #VALUE!) before it. Oracle 26.6.0, 2026-09-10, plain == CSE for
+        // every row here. Observed today: #VALUE! for the first seven rows (ReferencePosition.TryResolve
+        // reports the bare array expression's own error), 3 for the two producer rows (green already —
+        // an error ELEMENT inside a 3x1 result is not the producer's own error).
+        await Assert.That(Num(Calc("=ROWS(A1:A3*2)", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=COLUMNS(A1:B3*2)", Grid))).IsEqualTo(2.0);
+        await Assert.That(Num(Calc("=ROWS(IF(A1:A3>0,A1:A3))", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=ROWS(LEN(A1:A3))", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=ROWS(-A1:A3)", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=ROWS(ROW(A1:A3))", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=ROWS(IF(A1:A3>0,1/0))", Grid))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=ROWS(FILTER(E1:E3,TRUE))", WithError))).IsEqualTo(3.0);
+        await Assert.That(Num(Calc("=ROWS(SORT(E1:E3))", WithError))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task RowsAndColumns_OverAOneByOneErrorArray_ReportThatError()
+    {
+        // The error arm of item 14, and the reason a 1x1 stream is treated as the scalar it stands for: a
+        // producer's own failure is a 1x1 singleton carrying the error (ArrayShaping), and ROWS must hand it
+        // out rather than count it as one row. The rule is "a 1x1 array whose only element is an error IS
+        // that error" — the same treatment a scalar error already gets on the reference path (ROWS(1/0) is
+        // #DIV/0! there) — because the engine cannot tell a producer's failure from a kept error element.
+        // Oracle 26.6.0, 2026-09-10, plain == CSE for every pinned row.
+        //
+        // Not pinned, because the oracle's two modes split or the oracle distinguishes by PROVENANCE, which
+        // no shape rule can follow: ROWS(FILTER(A1:A3,A1:A3>100,1/0)) is 1 CSE / #DIV/0! plain,
+        // ROWS(IF(A1:A1>0,1/0)) is 1 CSE / #DIV/0! plain, and ROWS(SEQUENCE(1)/0) is 1 in BOTH modes while
+        // ROWS(SEQUENCE(1)*E2) — the same 1x1 #DIV/0!, from a cell instead of a literal — is #DIV/0! in both.
+        // MySheet answers #DIV/0! for all four under the rule above. Also outside this item: ROWS(E2) and
+        // ROWS(E2:E2) are #DIV/0! on the oracle (both modes) and 1 here — the reference path, untouched.
+        // Observed today: #DIV/0! for the FILTER/SORT/UNIQUE/SEQUENCE rows through TryResolve reporting the
+        // producer's collapsed value, #VALUE! for the binary row — every row green or red for a reason the
+        // gate does not own, which is why the mutation in the commit body is the proof, not the colour.
+        (string, object)[] errors = [.. Grid, .. WithError];
+
+        await Assert.That(Calc("=ROWS(SEQUENCE(1,1,1/0))")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Calc("=ROWS(FILTER(E2:E2,TRUE))", errors))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert
+            .That(Calc("=ROWS(FILTER(E1:E3,E1:E3=5))", errors))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=ROWS(SORT(E2))", errors)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=ROWS(UNIQUE(E2:E2))", errors)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=ROWS(SEQUENCE(1)*E2)", errors)).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Calc("=COLUMNS(SEQUENCE(-1))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Calc("=COLUMNS(FILTER(A1:A3,A1:A3>100))", Grid)).IsEqualTo(CalcError);
+    }
+
+    [Test]
     public async Task TheCriteriaFamily_OverAProducer_IsRefError()
     {
         // Phase 11a Rule B (PositionalRange.RejectComputedArray) already answers #REF! for a range slot

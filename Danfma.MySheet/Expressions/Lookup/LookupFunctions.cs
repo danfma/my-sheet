@@ -318,6 +318,13 @@ public sealed partial record Columns(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
+        // The computed-array gate, in the same position as in ROWS (after the syntactic guard, before the
+        // resolution whose failure arm would collapse the array); see Rows.cs.
+        if (ArrayEvaluation.TryStream(Arguments[0], context, out var array))
+        {
+            return ReferencePosition.ArrayExtent(array, array.Columns);
+        }
+
         // Same shared resolution as ROWS, fallback included: the argument's own error instead of a
         // plausible 1.
         if (
