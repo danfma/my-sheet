@@ -411,24 +411,29 @@ public class ElementwiseLiftingMechanismTests
         await Assert.That(TextAt(broadcast, 0)).IsEqualTo("b");
         await Assert.That(TextAt(broadcast, 2)).IsEqualTo("nop");
 
-        // Mismatched arrays (3x1 against 2x1) take the per-axis maximum and fill with #VALUE! through the
-        // operand's own guard — BinaryOperand's rule, reused, not a second one.
+        // Mismatched arrays (3x1 against 2x1) take the LARGER extent — ShapeFold through Broadcasting.Axis,
+        // the same rule as BinaryOperand's, not a second one — and the shorter argument's own At() answers
+        // #N/A at the one position it does not cover, so MID reads a real start at rows 1-2 and the error at
+        // row 3. FLIPPED by Phase 10 (verifier correction M2) from #VALUE! at elements 0 and 2; measured on
+        // Aspose.Cells 26.6.0 (2026-09-09, CSE column, the verifier's own fixture): the third element is
+        // #N/A and the first two are the MID of their rows.
         var mismatch = Array("=MID(A1:A3,B1:B2,1)", sheet, workbook);
         await Assert.That(mismatch.Rows).IsEqualTo(3);
         await Assert.That(mismatch.Columns).IsEqualTo(1);
-        await Assert.That(ErrorAt(mismatch, 0)).IsEqualTo(Error.Value);
-        await Assert.That(ErrorAt(mismatch, 2)).IsEqualTo(Error.Value);
+        await Assert.That(TextAt(mismatch, 0)).IsEqualTo("a");
+        await Assert.That(TextAt(mismatch, 1)).IsEqualTo("h");
+        await Assert.That(ErrorAt(mismatch, 2)).IsEqualTo(Error.NA);
     }
 
     [Test]
-    public async Task ShapeMismatch_ErrorConsumingBody_SeesTheMarkerAsAValue()
+    public async Task BroadcastArgument_ErrorConsumingBody_SeesNoMarker()
     {
-        // TODAY'S behaviour, pinned as a regression guard ahead of the broadcasting phase (Phase 10), which
-        // replaces the mismatch marker with Excel's row/column broadcast. The #VALUE! of a shape mismatch is
-        // produced by the mismatched ARGUMENT operand's guard and handed to the lifted body as an ordinary
-        // value, so only an error-PROPAGATING body (LEN, LEFT, arithmetic) fills the result with #VALUE! —
-        // an error-CONSUMING body keeps going: IFERROR(A1:C3, E1:E3) sees the 3x1 side's marker in its error
-        // slot and returns the 3x3 side's element, nine numbers.
+        // IFERROR(A1:C3, E1:E3): the 3x1 column broadcasts across the 3x3 (Phase 10), so IFERROR sees no
+        // error in any slot and returns the 3x3 side's element — nine numbers. The count was 9 before Phase
+        // 10 too, by a different route (the 3x1 side answered a #VALUE! marker that IFERROR consumed), which
+        // is why the pin survived the flip unchanged; Aspose.Cells 26.6.0 answers 9 (verifier correction M3,
+        // 2026-09-09, CSE column). The uncovered-shape companion, where IFERROR DOES see a real #N/A, is
+        // VectorBroadcastingTests' SUM(IFERROR(A1:C3*H1:H2,0)) = 36.
         var (workbook, sheet) = Sheet();
         foreach (var column in new[] { "A", "B", "C", "E" })
         {
@@ -442,11 +447,13 @@ public class ElementwiseLiftingMechanismTests
     }
 
     [Test]
-    public async Task ShapeMismatch_ErrorConsumingBody_RecoversTheMarkerOneLevelDown()
+    public async Task ShapeMismatch_ErrorConsumingBody_SeesNoMarkerOnceTheColumnBroadcasts()
     {
-        // The companion of the pin above, TODAY'S behaviour ahead of Phase 10: LEFT(D7:F9,E6:E8) is nine
-        // markers (the pinned #VALUE! of ElementwiseLiftingTests.ShapeMismatch_…), IFERROR turns each into
-        // "zz", and LEN sums to 18 — the marker is recoverable exactly like any other error element.
+        // The companion of the pin above. LEFT(D7:F9,E6:E8) is a 3x3 against a 3x1 whose cells are BLANK,
+        // so with the column broadcast every element is LEFT(x, 0) = "" — there is no error left for
+        // IFERROR to recover and LEN sums to 0. FLIPPED by Phase 10 (verifier correction M2) from 18: before
+        // it, the 3x1 side answered nine #VALUE! markers that IFERROR turned into "zz". Aspose.Cells 26.6.0
+        // answers 0 (measured 2026-09-09, CSE column).
         var (textbook, textSheet) = Sheet();
         textSheet["D7"] = new StringValue("abc");
         textSheet["D8"] = new StringValue("def");
@@ -454,7 +461,7 @@ public class ElementwiseLiftingMechanismTests
 
         await Assert
             .That(Evaluate("=SUM(LEN(IFERROR(LEFT(D7:F9,E6:E8),\"zz\")))", textSheet, textbook))
-            .IsEqualTo(18.0);
+            .IsEqualTo(0.0);
     }
 
     [Test]

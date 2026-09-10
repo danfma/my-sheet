@@ -430,4 +430,80 @@ public class ArrayEvaluationTests
             )
             .IsFalse();
     }
+
+    // --- Phase 10: the broadcasting resolver itself (Broadcasting.Axis / Broadcasting.TryProject) ---
+
+    [Test]
+    public async Task BroadcastingAxis_AnExtentOfOneDefers_TwoLargerExtentsTakeTheMaximum()
+    {
+        // The build-time half of the rule, per axis: 1 defers to the other operand, otherwise the larger
+        // extent wins (and the shorter operand marks what it does not cover at read time).
+        await Assert.That(Broadcasting.Axis(1, 3)).IsEqualTo(3);
+        await Assert.That(Broadcasting.Axis(3, 1)).IsEqualTo(3);
+        await Assert.That(Broadcasting.Axis(3, 2)).IsEqualTo(3);
+        await Assert.That(Broadcasting.Axis(2, 2)).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task BroadcastingTryProject_EqualShapes_IsTheIdentity()
+    {
+        // The fast path every pre-Phase-10 formula takes: two comparisons, the index handed back unchanged.
+        await Assert.That(Broadcasting.TryProject(5, 3, 3, 3, 3, out var own)).IsTrue();
+        await Assert.That(own).IsEqualTo(5);
+        await Assert.That(Broadcasting.TryProject(0, 1, 1, 1, 1, out own)).IsTrue();
+        await Assert.That(own).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task BroadcastingTryProject_AnAxisOfOneRepeats()
+    {
+        // In a 3x3 extent, index 5 is (row 1, column 2).
+        //
+        // A 3x1 column ignores the column coordinate: own index = row = 1.
+        await Assert.That(Broadcasting.TryProject(5, 3, 3, 3, 1, out var own)).IsTrue();
+        await Assert.That(own).IsEqualTo(1);
+
+        // A 1x3 row ignores the row coordinate: own index = column = 2.
+        await Assert.That(Broadcasting.TryProject(5, 3, 3, 1, 3, out own)).IsTrue();
+        await Assert.That(own).IsEqualTo(2);
+
+        // A 1x1 ignores both: the constant element, from any position.
+        await Assert.That(Broadcasting.TryProject(8, 3, 3, 1, 1, out own)).IsTrue();
+        await Assert.That(own).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task BroadcastingTryProject_ACoordinateBeyondTheOperand_IsUncovered()
+    {
+        // ROW axis. Index 6 of a 3x3 is (2, 0): a 2x1 has no row 2, and neither has a 2x3 — while index 5
+        // (1, 2) of the same 2x3 is covered, with the same own index because the columns agree.
+        await Assert.That(Broadcasting.TryProject(6, 3, 3, 2, 1, out _)).IsFalse();
+        await Assert.That(Broadcasting.TryProject(6, 3, 3, 2, 3, out _)).IsFalse();
+        await Assert.That(Broadcasting.TryProject(5, 3, 3, 2, 3, out var own)).IsTrue();
+        await Assert.That(own).IsEqualTo(5);
+
+        // COLUMN axis — the path whose only streamed witness before this phase was SUM(E5:F5*E5:G5). A 3x2
+        // in a 3x3 extent: index 2 is (0, 2), beyond its two columns; index 4 is (1, 1), own 1*2+1 = 3;
+        // index 8 is (2, 2), uncovered again — the uncovered set is a COLUMN, not a tail of the index range.
+        await Assert.That(Broadcasting.TryProject(2, 3, 3, 3, 2, out _)).IsFalse();
+        await Assert.That(Broadcasting.TryProject(4, 3, 3, 3, 2, out own)).IsTrue();
+        await Assert.That(own).IsEqualTo(3);
+        await Assert.That(Broadcasting.TryProject(8, 3, 3, 3, 2, out _)).IsFalse();
+
+        // A 1x2 row in a 1x3 extent: index 1 covered (own 1), index 2 uncovered.
+        await Assert.That(Broadcasting.TryProject(1, 1, 3, 1, 2, out own)).IsTrue();
+        await Assert.That(own).IsEqualTo(1);
+        await Assert.That(Broadcasting.TryProject(2, 1, 3, 1, 2, out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task BroadcastingTryProject_AnOperandLargerThanTheExtent_IsCoveredWhereItOverlaps()
+    {
+        // The fold never builds an extent smaller than a child, but a directly constructed operand can be
+        // asked at one (ElementwiseLiftingMechanismTests does): index 0 of a 2x1 extent is a covered row of
+        // a 3x1 operand, and row 3 of a 4x1 extent is beyond it.
+        await Assert.That(Broadcasting.TryProject(0, 2, 1, 3, 1, out var own)).IsTrue();
+        await Assert.That(own).IsEqualTo(0);
+        await Assert.That(Broadcasting.TryProject(3, 4, 1, 3, 1, out _)).IsFalse();
+    }
 }

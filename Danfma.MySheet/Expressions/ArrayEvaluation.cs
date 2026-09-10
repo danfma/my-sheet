@@ -53,8 +53,9 @@ internal readonly struct ArrayEvaluationResult
 /// <c>ComputedValue[50k]</c>), and the eager <see cref="ArrayEvaluationResult"/> (materialized once from the
 /// same tree) that the direct unit tests drive. Because both walk the identical operand tree, the streamed
 /// element sequence is bit-for-bit the materialized vector, in the SAME row-major order — so error
-/// propagation ("first error, scan order"), broadcast, dimension-mismatch <c>#VALUE!</c> and the
-/// evaluate-scalar-operands-once rule (a volatile branch draws once and broadcasts) are preserved.</para>
+/// propagation ("first error, scan order"), broadcasting (<see cref="Broadcasting"/>: a vector repeats
+/// along its 1-long axis, an uncovered position is <c>#N/A</c>) and the evaluate-scalar-operands-once rule
+/// (a volatile branch draws once and broadcasts) are preserved.</para>
 /// </summary>
 internal static class ArrayEvaluation
 {
@@ -650,10 +651,10 @@ internal static class ArrayEvaluation
         return true;
     }
 
-    // The shape of a binary result: a scalar takes the other side's shape; two equal-shaped arrays keep it;
-    // mismatched arrays produce the per-axis maximum, in which every mismatched operand answers the #VALUE!
-    // marker from its own At() guard. Expressed as two steps of the N-ary ShapeFold so the lift and the
-    // binary operation share ONE rule.
+    // The shape of a binary result: a scalar takes the other side's shape; two arrays fold per axis by
+    // Broadcasting.Axis (an extent of 1 defers to the other side, two larger extents take the maximum), and
+    // each operand then answers #N/A at the positions of that extent it does not cover. Expressed as two
+    // steps of the N-ary ShapeFold so the lift and the binary operation share ONE rule.
     private static (int Rows, int Columns) ResultShape(ArrayOperand left, ArrayOperand right)
     {
         var shape = new ShapeFold();
@@ -664,16 +665,18 @@ internal static class ArrayEvaluation
     }
 
     // The running result shape of an N-ary element-wise node: a scalar contributes nothing; the first array
-    // sets the shape; every further array keeps it when equal and otherwise widens it to the per-axis
-    // maximum. "No array seen yet" is an explicit flag rather than a (0, 0) sentinel, because a 0-row array is
-    // a legitimate shape once an empty FILTER result exists (Phase 7): (0x2, 0x1) must fold to (0, 2), not
-    // restart at (0, 1).
+    // sets the shape; every further array folds in per axis through Broadcasting.Axis — an extent of 1
+    // defers to the other operand, two larger extents take the maximum. "No array seen yet" is an explicit
+    // flag rather than a (0, 0) sentinel, for two reasons: a 0-row array is a legitimate shape once an empty
+    // FILTER result exists (Phase 7), so (0x2, 0x1) must fold to (0, 2) and not restart at (0, 1); and
+    // Axis(0, 1) is 0, so a (0, 0) accumulator folding a 1xN first operand would yield a 0-row extent — an
+    // empty stream, SUM = 0, silently.
     //
-    // In a widened shape each mismatched operand answers the #VALUE! marker from its own At() guard, and the
-    // node's body receives that marker as an ordinary VALUE: an error-propagating body (arithmetic, LEN,
-    // ROUND, …) fills the result with #VALUE!, while an error-consuming body (IFERROR, IS*, N, T, IFS,
-    // SWITCH) keeps going — COUNT(IFERROR(A1:C3,E1:E3)) is 9, nearer to Excel's broadcasting than a wholesale
-    // #VALUE!. That is today's behaviour, pinned, ahead of the broadcasting phase that replaces the marker.
+    // Which positions of the folded extent an operand covers is decided at READ time by that operand's own
+    // At() through Broadcasting.TryProject: an uncovered position answers #N/A there, so the node's body
+    // receives a real per-element error, which an error-propagating body (arithmetic, LEN, ROUND, …) carries
+    // to that element and an error-consuming body (IFERROR, IS*, N, T, IFS, SWITCH) recovers —
+    // SUM(IFERROR(A1:C3*H1:H2,0)) is 36 (VectorBroadcastingTests, Aspose.Cells 26.6.0, 2026-09-10, CSE).
     private struct ShapeFold
     {
         private bool _seen;
@@ -696,8 +699,8 @@ internal static class ArrayEvaluation
                 return;
             }
 
-            Rows = Math.Max(Rows, operand.Rows);
-            Columns = Math.Max(Columns, operand.Columns);
+            Rows = Broadcasting.Axis(Rows, operand.Rows);
+            Columns = Broadcasting.Axis(Columns, operand.Columns);
         }
     }
 

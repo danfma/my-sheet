@@ -23,8 +23,10 @@ internal abstract class ArrayOperand
 
     /// <summary>
     /// The value at a row-major index within a target <paramref name="rows"/>×<paramref name="columns"/>
-    /// shape: a scalar broadcasts to every position; an array of the SAME shape yields its element; an
-    /// array of a DIFFERENT shape is a dimension mismatch and yields <c>#VALUE!</c> (Excel parity).
+    /// extent: a scalar broadcasts to every position; an array is read through
+    /// <see cref="Broadcasting.TryProject"/> — an axis of extent 1 repeats along the target's, and a
+    /// position the array does not cover is <c>#N/A</c> (Excel's rule, measured on Aspose.Cells 26.6.0,
+    /// 2026-09-10, CSE column — see <see cref="Broadcasting"/>).
     /// </summary>
     public abstract ComputedValue At(int index, int rows, int columns);
 }
@@ -81,13 +83,13 @@ internal sealed class RangeOperand : ArrayOperand
 
     public override ComputedValue At(int index, int rows, int columns)
     {
-        if (_rows != rows || _columns != columns)
+        if (!Broadcasting.TryProject(index, rows, columns, _rows, _columns, out var own))
         {
-            return ComputedValue.Error(Error.Value);
+            return ComputedValue.Error(Error.NA);
         }
 
-        var row = index / _columns;
-        var column = index % _columns;
+        var row = own / _columns;
+        var column = own % _columns;
 
         return _workbook.GetCellValueDense(
             _handle,
@@ -132,13 +134,13 @@ internal sealed class PositionNumbersOperand : ArrayOperand
 
     public override ComputedValue At(int index, int rows, int columns)
     {
-        if (_rows != rows || _columns != columns)
+        if (!Broadcasting.TryProject(index, rows, columns, _rows, _columns, out var own))
         {
-            return ComputedValue.Error(Error.Value);
+            return ComputedValue.Error(Error.NA);
         }
 
         return ComputedValue.Number(
-            _origin + (_axis is PositionAxis.Row ? index / _columns : index % _columns)
+            _origin + (_axis is PositionAxis.Row ? own / _columns : own % _columns)
         );
     }
 }
