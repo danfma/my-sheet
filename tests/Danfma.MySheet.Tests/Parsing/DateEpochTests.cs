@@ -125,6 +125,9 @@ public class DateEpochTests
     {
         // The Lotus weekday is ((floor(s) - 1) mod 7) + 1 with 60 collapsed onto 59, so serial 60 is the
         // same Tuesday as serial 59 — one day behind what the OA epoch answers.
+        // WEEKDAY(59) is the row the collapse is measured AGAINST, so it is asserted rather than implied: the
+        // whole claim is that 60 answers what 59 answers.
+        await Assert.That(Num("=WEEKDAY(59)")).IsEqualTo(3d);
         await Assert.That(Num("=WEEKDAY(60)")).IsEqualTo(3d);
         await Assert.That(Num("=WEEKDAY(60,2)")).IsEqualTo(2d);
         await Assert.That(Num("=WEEKDAY(60,3)")).IsEqualTo(1d);
@@ -452,6 +455,9 @@ public class DateEpochTests
         // Both ends shift by the same day, so the SPAN is unchanged — as long as the span does not straddle
         // serial 60. These are the rows a naive map change breaks by shifting only one end.
         await Assert.That(Num("=DAYS(60,59)")).IsEqualTo(1d);
+        // Straddling the phantom day is the case that fails if a count goes through a DateTime: 61 and 59 map
+        // two days apart on serials and only one day apart through the collapsed map.
+        await Assert.That(Num("=DAYS(61,59)")).IsEqualTo(2d);
         await Assert.That(Num("=DATEDIF(1,61,\"d\")")).IsEqualTo(60d);
         await Assert.That(Num("=YEARFRAC(1,61,1)")).IsEqualTo(60d / 365d).Within(RatioTolerance);
         await Assert.That(Num("=NETWORKDAYS(59,61)")).IsEqualTo(3d);
