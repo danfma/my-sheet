@@ -831,4 +831,420 @@ public class MiniCseConsumerTests
             .That(OnBroadcastGrid("=COUNTIF((A1:A3*H1:H2)*E5:G5,\">0\")"))
             .IsEqualTo(ErrorValue.Reference);
     }
+
+    // ================================================================================================
+    // Phase 7 — the PRODUCER direction. Everything above hands a consumer an array built from a RANGE
+    // (an IF, an operator, a lifted call); everything below hands it an array a FUNCTION produced, which
+    // is the direction this file had no coverage of at all. The four producers are FILTER, SORT, UNIQUE
+    // and SEQUENCE, and they reach the consumers through the same ArrayEvaluation.TryStream gate — so
+    // what these pins certify is that no consumer needed to learn anything about them.
+    //
+    // ORACLE. Aspose.Cells 26.6.0, re-measured 2026-09-10 for every value in this section, in BOTH entry
+    // modes — plain (Cell.Formula) and array-entered (Cell.SetArrayFormula(f, 1, 1)). The two agree on
+    // every row here EXCEPT the ones named in place; where they split, the ARRAY-ENTERED column is the
+    // target, because the mini-CSE implements the array-entered rule everywhere. Modes are never mixed
+    // inside one assertion, and no comment below compares one mode's number against the other's.
+    //
+    // THREE ROWS WHERE THE PIN IS NOT THE ORACLE'S NUMBER, each argued where it stands: the open-range
+    // refusal (this phase's declared deviation), AVERAGE over UNIQUE (the oracle contradicts its own SUM
+    // and COUNT, and the Microsoft AVERAGE page), and the scalar-condition IF (a MySheet defect, pinned
+    // at today's wrong number so that fixing it turns those lines RED and names itself).
+    // ================================================================================================
+
+    // A1:A5 = 5, 0, 9, 0, 5. A1:A3 (5, 0, 9) is the phase fixture the composition rows were measured on;
+    // A4/A5 repeat 0 and 5 so UNIQUE has something to remove (three distinct rows out of five cells) and
+    // SORT/FILTER over the same five cells stay distinguishable from it. No producer's output equals its
+    // source here and no two of the four produce the same array, so a pin cannot pass by streaming the
+    // wrong one:
+    //   FILTER(A1:A3,A1:A3>0) = [5, 9]        SORT(A1:A3) = [0, 5, 9]
+    //   UNIQUE(A1:A5)         = [5, 0, 9]     SEQUENCE(5) = [1, 2, 3, 4, 5]
+    private static object? OnProducerGrid(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(0);
+        sheet["A3"] = new NumberValue(9);
+        sheet["A4"] = new NumberValue(0);
+        sheet["A5"] = new NumberValue(5);
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
+    private const string Filtered = "FILTER(A1:A3,A1:A3>0)";
+    private const string Filtered5 = "FILTER(A1:A5,A1:A5>0)";
+
+    // --- Each of the four inside every numeric consumer this file covers ---
+
+    [Test]
+    public async Task Filter_StreamsIntoEveryNumericConsumer()
+    {
+        // FILTER(A1:A3,A1:A3>0) = [5, 9]: sum 14, two numbers, mean 7, and INDEX can name the second.
+        // Oracle, both modes: 14, 2, 7, 5, 9, 5, 9, 7, 9.
+        await Assert.That(Num(OnProducerGrid($"=SUM({Filtered})"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnProducerGrid($"=COUNT({Filtered})"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid($"=AVERAGE({Filtered})"))).IsEqualTo(7.0);
+        await Assert.That(Num(OnProducerGrid($"=MIN({Filtered})"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid($"=MAX({Filtered})"))).IsEqualTo(9.0);
+        await Assert.That(Num(OnProducerGrid($"=SMALL({Filtered},1)"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid($"=LARGE({Filtered},1)"))).IsEqualTo(9.0);
+        await Assert.That(Num(OnProducerGrid($"=MEDIAN({Filtered})"))).IsEqualTo(7.0);
+        await Assert.That(Num(OnProducerGrid($"=INDEX({Filtered},2)"))).IsEqualTo(9.0);
+    }
+
+    [Test]
+    public async Task Sort_StreamsIntoEveryNumericConsumer()
+    {
+        // SORT(A1:A3) = [0, 5, 9] — a PERMUTATION, so SUM/COUNT/AVERAGE cannot tell it from the source
+        // range and only the ORDER-SENSITIVE consumers prove the sort ran. INDEX(...,1) = 0 is the one
+        // that does it: the source's first cell is 5. Oracle, both modes: 14, 3, 14/3, 0, 9, 5, 5, 5, 0.
+        await Assert.That(Num(OnProducerGrid("=SUM(SORT(A1:A3))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnProducerGrid("=COUNT(SORT(A1:A3))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=AVERAGE(SORT(A1:A3))"))).IsEqualTo(14.0 / 3.0);
+        await Assert.That(Num(OnProducerGrid("=MIN(SORT(A1:A3))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnProducerGrid("=MAX(SORT(A1:A3))"))).IsEqualTo(9.0);
+        await Assert.That(Num(OnProducerGrid("=SMALL(SORT(A1:A3),2)"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=LARGE(SORT(A1:A3),2)"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=MEDIAN(SORT(A1:A3))"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=INDEX(SORT(A1:A3),1)"))).IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task Unique_StreamsIntoEveryNumericConsumer_AndTheOracleMisreadsOneOfThem()
+    {
+        // UNIQUE(A1:A5) = [5, 0, 9]: five cells in, three rows out, so SUM 14 (not 19) and COUNT 3
+        // (not 5) are what prove the duplicates were dropped. Oracle, both modes: 14, 3, 0, 9, 5, 5, 5, 9.
+        await Assert.That(Num(OnProducerGrid("=SUM(UNIQUE(A1:A5))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnProducerGrid("=COUNT(UNIQUE(A1:A5))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=MIN(UNIQUE(A1:A5))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnProducerGrid("=MAX(UNIQUE(A1:A5))"))).IsEqualTo(9.0);
+        await Assert.That(Num(OnProducerGrid("=SMALL(UNIQUE(A1:A5),2)"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=LARGE(UNIQUE(A1:A5),2)"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=MEDIAN(UNIQUE(A1:A5))"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=INDEX(UNIQUE(A1:A5),3)"))).IsEqualTo(9.0);
+
+        // AVERAGE IS THE ONE ROW IN THIS SECTION WHERE THE ORACLE IS NOT FOLLOWED, and it is not a close
+        // call — the oracle contradicts ITSELF inside one workbook and one entry mode. Measured 26.6.0,
+        // 2026-09-10, both modes: AVERAGE(UNIQUE(A1:A5)) = 3, while on the SAME array SUM = 14, COUNT = 3,
+        // COUNTA = 3, ROWS = 3, MEDIAN = 5, SUMPRODUCT = 14 and INDEX 1/2/3 = 5/0/9. A mean of 3 cannot
+        // live with a sum of 14 over three numbers, and SUM(UNIQUE(..))/COUNT(UNIQUE(..)) written out in
+        // the same sheet answers 4.666…, so the oracle disagrees with its own two halves.
+        //
+        // What the oracle actually does, isolated across six fixtures on 2026-09-10 (plain entry, one
+        // formula per workbook): AVERAGE over a UNIQUE result drops every element up to and including the
+        // last ZERO from its numerator while keeping the full count in its denominator —
+        //   5,0,9 → 3      (= 9/3,  correct 14/3)        4,0,8 → 2.666… (= 8/3, correct 4)
+        //   1,0,2 → 0.666… (= 2/3,  correct 1)           5,0   → 0      (= 0/2, correct 2.5)
+        //   5,1,9 → 5      (= 15/3, CORRECT — no zero)   1..6  → 3.5    (CORRECT — no zero)
+        // Remove the zero and the oracle is right, which is what identifies this as a defect in AVERAGE's
+        // accumulation rather than a semantic of UNIQUE: no rule about distinct rows could depend on
+        // whether one of them happens to be 0.
+        //
+        // So the page decides — P0's addendum says a measurement beats a page, but a measurement that
+        // contradicts a measurement is not one. support.microsoft.com "AVERAGE function", fetched
+        // 2026-09-10: the mean is "calculated by adding a group of numbers and then dividing by the count
+        // of those numbers", and "cells with the value zero are included". [5, 0, 9] therefore averages
+        // 14/3, which is what MySheet answers and what is pinned. Same clause the phase already used for
+        // UNIQUE's exactly_once, where the oracle also contradicted its own row count.
+        await Assert.That(Num(OnProducerGrid("=AVERAGE(UNIQUE(A1:A5))"))).IsEqualTo(14.0 / 3.0);
+
+        // The control that keeps the paragraph above honest rather than a story: with the zero replaced by
+        // a 1 the oracle agrees with MySheet at 5 (measured, both modes), so the rule is pinned on both
+        // sides of its trigger.
+        await Assert.That(Num(AverageOverUniqueWithoutAZero())).IsEqualTo(5.0);
+    }
+
+    // A1:A3 = 5, 1, 9 — the no-zero twin of the AVERAGE row above, where the oracle answers 5 as MySheet
+    // does. A helper rather than a second shared fixture, so the trigger stays beside its pin.
+    private static object? AverageOverUniqueWithoutAZero()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(1);
+        sheet["A3"] = new NumberValue(9);
+
+        return ExpressionParser
+            .Parse("=AVERAGE(UNIQUE(A1:A3))", sheet)
+            .Evaluate(workbook)
+            .AsObject();
+    }
+
+    [Test]
+    public async Task Sequence_StreamsIntoEveryNumericConsumer()
+    {
+        // SEQUENCE(5) = [1, 2, 3, 4, 5] and reads NO cell at all, so every number below comes from the
+        // producer itself — the one consumer row in this section that cannot be satisfied by leaking a
+        // range through. Oracle, both modes: 15, 5, 3, 1, 5, 2, 4, 3, 4.
+        await Assert.That(Num(OnProducerGrid("=SUM(SEQUENCE(5))"))).IsEqualTo(15.0);
+        await Assert.That(Num(OnProducerGrid("=COUNT(SEQUENCE(5))"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=AVERAGE(SEQUENCE(5))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=MIN(SEQUENCE(5))"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnProducerGrid("=MAX(SEQUENCE(5))"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=SMALL(SEQUENCE(5),2)"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid("=LARGE(SEQUENCE(5),2)"))).IsEqualTo(4.0);
+        await Assert.That(Num(OnProducerGrid("=MEDIAN(SEQUENCE(5))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=INDEX(SEQUENCE(5),4)"))).IsEqualTo(4.0);
+    }
+
+    // --- Composition: the design's main claim, that the recursive builder needed no new code ---
+
+    [Test]
+    public async Task AProducer_ComposesWithEveryOtherOperandKind()
+    {
+        // THE CHEAPEST PROOF THAT THE DESIGN'S CENTRAL CLAIM HOLDS: "a producer nested under a lifted
+        // function, a unary, a binary or an IF, or under another producer, is reached by TryBuildOperand's
+        // recursion" — no arm per combination. Ten rows, measured by this phase's first task and
+        // RE-MEASURED here on 26.6.0, 2026-09-10 in both modes; all ten agree in plain and array-entered,
+        // and all ten agree with this build, so nothing below re-pins a changed expectation.
+        //
+        //   lifted call over a producer        SUM(LEN(FILTER))                   2
+        //   unary over a producer              SUM(-FILTER)                     -14
+        //   producer in an IF condition        SUM(IF(FILTER>5,1,0))              1
+        //   producer inside a producer         SUM(SORT(FILTER))                 14
+        //   producer under an operator         SUM(FILTER*2)                     28
+        //   shape gate over a nest             ROWS(UNIQUE(FILTER))               2
+        //   INDEX over a nest with arguments   INDEX(SORT(FILTER,1,-1),1)         9
+        //   producer as another's SOURCE       SUM(FILTER(SEQUENCE(5),SEQ>2))    12
+        //   permutation then de-duplication    SUM(UNIQUE(SORT(A1:A3)))          14
+        //   two producers of DIFFERENT sizes   SUM(SEQUENCE(3)*FILTER)         #N/A
+        await Assert.That(Num(OnProducerGrid($"=SUM(LEN({Filtered}))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(-{Filtered})"))).IsEqualTo(-14.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(IF({Filtered}>5,1,0))"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(SORT({Filtered}))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM({Filtered}*2)"))).IsEqualTo(28.0);
+        await Assert.That(Num(OnProducerGrid($"=ROWS(UNIQUE({Filtered}))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid($"=INDEX(SORT({Filtered},1,-1),1)"))).IsEqualTo(9.0);
+        await Assert
+            .That(Num(OnProducerGrid("=SUM(FILTER(SEQUENCE(5),SEQUENCE(5)>2))")))
+            .IsEqualTo(12.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(UNIQUE(SORT(A1:A3)))"))).IsEqualTo(14.0);
+        await Assert
+            .That(OnProducerGrid($"=SUM(SEQUENCE(3)*{Filtered})"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // Item 18's own three strings, over the five-cell fixture where the duplicates matter:
+        // FILTER(A1:A5,A1:A5>0) = [5, 9, 5] → sorted 19, doubled 38; UNIQUE(A1:A5)'s first row is 5.
+        // Oracle, both modes: 19, 38, 5.
+        await Assert.That(Num(OnProducerGrid($"=SUM(SORT({Filtered5}))"))).IsEqualTo(19.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM({Filtered5}*2)"))).IsEqualTo(38.0);
+        await Assert.That(Num(OnProducerGrid("=INDEX(UNIQUE(A1:A5),1)"))).IsEqualTo(5.0);
+    }
+
+    [Test]
+    public async Task AProducer_InsideALiftedScalarFunction_IsLiftedPerElement()
+    {
+        // The LiftedFunctionOperand arm (Phase 8) over a producer child. LEN is the sharpest of these
+        // because its answer has nothing to do with its input's magnitude: LEN over [0,5,9] is [1,1,1] = 3,
+        // so a consumer that collapsed the producer to one element would answer 1. UNIQUE(A1:A5) is pinned
+        // beside it at 3 — three rows out of five cells — while SUM over that same array is 14.
+        // Oracle 26.6.0, 2026-09-10, both modes: 3, 6, 6, 8, 3, 2.
+        await Assert.That(Num(OnProducerGrid("=SUM(LEN(SORT(A1:A3)))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(N(SEQUENCE(3)))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(ABS(-SEQUENCE(3)))"))).IsEqualTo(6.0);
+
+        // A lift with a SECOND, scalar argument broadcast across the producer: ROUND([5,9]/2, 0) is
+        // [3, 5] (2.5 rounds away from zero, 4.5 to 5) = 8 — not 4, which is what one element would give.
+        await Assert.That(Num(OnProducerGrid($"=SUM(ROUND({Filtered}/2,0))"))).IsEqualTo(8.0);
+
+        // A lift over a de-duplicated array, and two lifts stacked over a producer.
+        await Assert.That(Num(OnProducerGrid("=SUM(LEN(UNIQUE(A1:A5)))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(LEN(TRIM({Filtered})))"))).IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task TwoProducers_UnderOneOperator_BroadcastByProjection()
+    {
+        // A producer on BOTH sides of a binary, where Phase 10's projection rule decides the answer rather
+        // than either producer. Broadcasting.TryProject repeats an axis of extent 1 and answers #N/A for a
+        // position no operand covers, so:
+        //   3x1 against 2x1 → the third position is uncovered              #N/A
+        //   2x1 against 2x1 → elementwise, 1*5 + 2*9                         23
+        //   3x1 against 3x1 → 1*5 + 2*0 + 3*9                                32
+        //   1x3 against 3x1 → a 3x3 outer product, (1+2+3)*(1+2+3)           36
+        //   1x1 against 2x1 → the singleton repeats, 1*5 + 1*9               14
+        //   2x1 against 1x2 → a 2x2, (5+9)*(1+2)                             42
+        //   two DIFFERENT producers of the same shape, [0,5,9]·[5,0,9]       81
+        //   5x1 against 3x1 → two positions uncovered                      #N/A
+        // Oracle 26.6.0, 2026-09-10, every row identical in both modes. The two #N/A rows matter most: an
+        // engine that silently recycled the shorter operand would answer a number.
+        await Assert
+            .That(OnProducerGrid($"=SUM(SEQUENCE(3)*{Filtered})"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnProducerGrid($"=SUM(SEQUENCE(2)*{Filtered})"))).IsEqualTo(23.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(SEQUENCE(3)*UNIQUE(A1:A5))"))).IsEqualTo(32.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(SEQUENCE(1,3)*SEQUENCE(3))"))).IsEqualTo(36.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(SEQUENCE(1)*{Filtered})"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM({Filtered}*SEQUENCE(1,2))"))).IsEqualTo(42.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(SORT(A1:A3)*UNIQUE(A1:A5))"))).IsEqualTo(81.0);
+        await Assert
+            .That(OnProducerGrid($"=SUM(SEQUENCE(5)*{Filtered5})"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+    }
+
+    [Test]
+    public async Task AProducer_AsAnIfBranch_IsSelectedPerElement()
+    {
+        // A producer in an IF's BRANCH slot with an ARRAY condition — the shape the phase's own
+        // re-verification names. IfOperand projects the condition and both branches together, so the
+        // condition's extent chooses per element from the producer's:
+        //   A1:A3>0 = [T,F,T] against SORT(A1:A3) = [0,5,9] → 0 + 0 + 9        9
+        //   A1:A3>5 = [F,F,T], producer in the FALSE branch → 1 + 2 + 0        3
+        //   producer in the CONDITION, [5,9]>5 = [F,T]      → 0 + 1            1
+        //   condition 3x1 against a 2x1 producer branch     → uncovered     #N/A
+        //   a producer on all three slots at once, [F,T,T]  → 0 + 2 + 3        5
+        // Oracle 26.6.0, 2026-09-10, ARRAY-ENTERED column: 9, 3, 1, #N/A, 5. The first two split by entry
+        // mode on the oracle (entered plainly they are #VALUE!, the pre-existing cell-boundary half
+        // CellBoundaryIntersectionTests owns); this engine implements the array-entered rule, so that is
+        // the column pinned, and the plain result is recorded only so nobody re-derives it and concludes a
+        // row is missing.
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(A1:A3>0,SORT(A1:A3),0))"))).IsEqualTo(9.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(A1:A3>5,0,SEQUENCE(3)))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(IF({Filtered}>5,1,0))"))).IsEqualTo(1.0);
+        await Assert
+            .That(OnProducerGrid($"=SUM(IF(A1:A3>0,{Filtered},0))"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Num(OnProducerGrid("=SUM(IF(SEQUENCE(3)>1,SEQUENCE(3),0))")))
+            .IsEqualTo(5.0);
+    }
+
+    [Test]
+    public async Task AProducer_UnderAScalarConditionIf_CollapsesToItsTopLeft_ADivergence()
+    {
+        // A DIVERGENCE PINNED AT TODAY'S WRONG NUMBER, found while extending the IF row above. It is not
+        // caused by this phase — but it is made SILENT by it, which is the part worth its own test.
+        //
+        // With a SCALAR condition, ArrayEvaluation's If arm does not build an array operand at all, so the
+        // whole IF evaluates as an ordinary scalar expression. For a RANGE or a computed array that fails
+        // LOUDLY, which is the pre-existing gap — measured on this build 2026-09-10, all three #VALUE!:
+        //     SUM(IF(TRUE,A1:A3,0))   SUM(IF(TRUE,A1:A3*2,0))   SUM(IF(TRUE,LEN(A1:A3),0))
+        // For a PRODUCER it does not fail: the producer's own scalar-context rule is "answer the top-left"
+        // (this phase's item 3, FirstElement), so the sum is taken over ONE element and a wrong number is
+        // served with no error at all:
+        //     SUM(IF(TRUE,SEQUENCE(3),0))               1   (oracle 6,  both modes)
+        //     SUM(IF(TRUE,SORT(A1:A3),0))               0   (oracle 14, both modes)
+        //     SUM(IF(TRUE,FILTER(A1:A3,A1:A3>0),0))     5   (oracle 14, both modes)
+        // The oracle is self-consistent here (6 = 1+2+3, 14 = 0+5+9) and the two entry modes agree, so
+        // there is nothing to weigh: MySheet is wrong. The fix is an arm that lets a scalar-condition IF
+        // still build its branch as an array — the same shape as correction M1's Let/Choose/unary-plus
+        // arm, and owned by NO item in this phase.
+        //
+        // Pinned at the measured wrong value on purpose, following this file's own precedent for a
+        // deviation: an expectation of 6 would sit RED with nobody assigned to it, while these three lines
+        // turn red the moment someone fixes the arm, and the failure names the reason. If you are here
+        // because they went red, that is the fix landing and the correct values are in this comment.
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SEQUENCE(3),0))"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SORT(A1:A3),0))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(IF(TRUE,{Filtered},0))"))).IsEqualTo(5.0);
+    }
+
+    [Test]
+    public async Task AProducer_ThreeAndFourLevelsDeep_StillStreams()
+    {
+        // Depth, which is the property no pair of operands can demonstrate. FILTER(A1:A5,A1:A5>0) is
+        // [5, 9, 5]; SORT makes it [5, 5, 9]; UNIQUE makes THAT [5, 9]. Every level changes the array, so
+        // each number below is only reachable by running all of them:
+        //   SUM(UNIQUE(SORT(FILTER)))               three producers        14  (19 without UNIQUE)
+        //   INDEX(SORT(UNIQUE(FILTER),1,-1),1)      three, then INDEX       9
+        //   SUM(LEN(UNIQUE(SORT(FILTER))))          three + a lift          2  (3 without UNIQUE)
+        //   SUM(-SORT(UNIQUE(FILTER))*2)            three + unary + binary -28
+        //   SUM(FILTER(SORT(A1:A5),SORT(A1:A5)>0))  a producer on BOTH of
+        //                                           FILTER's own slots     19
+        //   ROWS(UNIQUE(SORT(FILTER)))              the shape of the nest   2
+        // Oracle 26.6.0, 2026-09-10, both modes: 14, 9, 2, -28, 19, 2.
+        await Assert.That(Num(OnProducerGrid($"=SUM(UNIQUE(SORT({Filtered5})))"))).IsEqualTo(14.0);
+        await Assert
+            .That(Num(OnProducerGrid($"=INDEX(SORT(UNIQUE({Filtered5}),1,-1),1)")))
+            .IsEqualTo(9.0);
+        await Assert
+            .That(Num(OnProducerGrid($"=SUM(LEN(UNIQUE(SORT({Filtered5}))))")))
+            .IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnProducerGrid($"=SUM(-SORT(UNIQUE({Filtered5}))*2)")))
+            .IsEqualTo(-28.0);
+        await Assert
+            .That(Num(OnProducerGrid("=SUM(FILTER(SORT(A1:A5),SORT(A1:A5)>0))")))
+            .IsEqualTo(19.0);
+        await Assert.That(Num(OnProducerGrid($"=ROWS(UNIQUE(SORT({Filtered5})))"))).IsEqualTo(2.0);
+    }
+
+    // --- The gates this phase added (ROWS/COLUMNS) and the flattening family ---
+
+    [Test]
+    public async Task TheShapeAndFlatteningGates_SeeAProducersArray()
+    {
+        // ROWS/COLUMNS answer the producer's SHAPE without reading a value, and the flattening family
+        // (COUNTA/CONCAT/TEXTJOIN) walks it element by element. SEQUENCE(2,3) is the row that proves
+        // COLUMNS is not hard-wired to 1. Oracle 26.6.0, 2026-09-10, both modes for all of these.
+        await Assert.That(Num(OnProducerGrid($"=ROWS({Filtered})"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid($"=COLUMNS({Filtered})"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnProducerGrid("=ROWS(SEQUENCE(2,3))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid("=COLUMNS(SEQUENCE(2,3))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=ROWS(UNIQUE(A1:A5))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=COLUMNS(SORT(A1:A3))"))).IsEqualTo(1.0);
+
+        // COUNTA counts the produced ELEMENTS, so UNIQUE's 3 (from five cells) shows it is counting the
+        // producer's output rather than its source.
+        await Assert.That(Num(OnProducerGrid($"=COUNTA({Filtered})"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnProducerGrid("=COUNTA(SEQUENCE(5))"))).IsEqualTo(5.0);
+        await Assert.That(Num(OnProducerGrid("=COUNTA(UNIQUE(A1:A5))"))).IsEqualTo(3.0);
+
+        // CONCAT and TEXTJOIN expand every element, in order.
+        await Assert.That(OnProducerGrid($"=CONCAT({Filtered})")).IsEqualTo("59");
+        await Assert.That(OnProducerGrid($"=TEXTJOIN(\",\",TRUE,{Filtered})")).IsEqualTo("5,9");
+        await Assert.That(OnProducerGrid("=TEXTJOIN(\"-\",TRUE,SEQUENCE(3))")).IsEqualTo("1-2-3");
+    }
+
+    [Test]
+    public async Task TwoFunctionsDeliberatelyDoNotStreamAProducer()
+    {
+        // Symmetry with COUNTA/CONCAT/TEXTJOIN would be the WRONG expectation here, and this pin exists so
+        // nobody "restores" it. Measured on the oracle 26.6.0, 2026-09-10, both entry modes:
+        //   COUNTBLANK REJECTS a computed array with #REF! — the criteria family's answer, for every one
+        //   of the four producers, rather than counting blanks in it;
+        //   CONCATENATE takes the TOP-LEFT ("5", "1") where CONCAT expands ("59", "1-2-3" above).
+        // Both match this build exactly, so both are pinned as measured behaviour, not as a deviation.
+        await Assert
+            .That(OnProducerGrid($"=COUNTBLANK({Filtered})"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnProducerGrid("=COUNTBLANK(SEQUENCE(3))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(OnProducerGrid($"=CONCATENATE({Filtered})")).IsEqualTo("5");
+        await Assert.That(OnProducerGrid("=CONCATENATE(SEQUENCE(3))")).IsEqualTo("1");
+    }
+
+    // --- The open-range refusal: this phase's declared deviation, and its silent half ---
+
+    [Test]
+    public async Task AProducerOverAnOpenRange_IsRefused_AndCountSwallowsTheRefusal()
+    {
+        // THE PHASE'S DECLARED DEVIATION, and the pin item 18 asks for by name. The mini-CSE refuses an
+        // OpenRangeReference as an array operand (a cost guard, not a measurement), and a producer
+        // propagates that refusal the way a binary or an IF does, so the consumer sees #VALUE!.
+        //
+        // Re-measured on the oracle 26.6.0, 2026-09-10, one formula per workbook with A1:A3 = 5, 0, 9 and
+        // nothing else on the sheet: SUM(FILTER(A:A,A:A>0)) = 14 and ROWS(FILTER(A:A,A:A>0)) = 2 in BOTH
+        // entry modes. The phase file records #VALUE! for the plain column of that first formula; that is
+        // NOT reproducible on this version, so the deviation is a deviation in both modes and the older
+        // note should not be repeated.
+        await Assert.That(OnProducerGrid("=SUM(FILTER(A:A,A:A>0))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(OnProducerGrid("=ROWS(FILTER(A:A,A:A>0))"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnProducerGrid("=SUM(SORT(A:A))")).IsEqualTo(ErrorValue.NotValue);
+
+        // THE HALF THAT IS NOT LOUD, and the reason this pin covers more than SUM. COUNT and COUNTA
+        // DISCARD errors instead of propagating them, so the refusal reaches them as a dropped element and
+        // they answer a plausible number with no error at all: 0, 0, 0 and 1 on this build. Oracle,
+        // ARRAY-ENTERED column: 3, 2, 3 and 3 (COUNT/COUNTA over SORT(A:A) split by entry mode on the
+        // oracle; the array-entered column is the one quoted and the plain one is never compared against
+        // it). Whoever narrows the open-range refusal must come back here — these four are the rows that
+        // will not announce themselves.
+        await Assert.That(Num(OnProducerGrid("=COUNT(UNIQUE(A:A))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnProducerGrid("=COUNT(FILTER(A:A,A:A>0))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnProducerGrid("=COUNT(SORT(A:A))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnProducerGrid("=COUNTA(SORT(A:A))"))).IsEqualTo(1.0);
+    }
 }

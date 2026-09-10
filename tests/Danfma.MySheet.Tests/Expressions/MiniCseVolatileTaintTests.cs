@@ -214,4 +214,98 @@ public class MiniCseVolatileTaintTests
         workbook.Recalculate();
         await Assert.That(Cell(workbook, "B1")).IsNotEqualTo(first);
     }
+
+    // --- Phase 7: a PRODUCER's predicate vector is read at BUILD time, and the taint must still land ---
+
+    [Test]
+    public async Task Sum_OfFilter_WithAVolatileInclude_IsTaintedAndRefreshes()
+    {
+        // THE ONE PROPERTY IN THIS FILE THAT IS NOT ABOUT AN OPERAND'S VALUES. FILTER's include vector is
+        // evaluated ONCE at BUILD time (the shape has to be constant before any element is read), which is
+        // a different moment from every taint above: the volatile is drawn while the operand TREE is being
+        // assembled, not while its elements are being streamed. If that moment sat outside the enclosing
+        // cell's frame, MarkVolatileTouched would land nowhere, the cell would never enter the tainted set,
+        // and Recalculate would serve the first draw's shape forever — the exact failure this pins against.
+        //
+        // FIXTURE, and why it is not the phase's 5/0/9. RAND() draws in (0,1), so A1:A3 = 5, 0, 9 makes the
+        // include vector [TRUE, FALSE, TRUE] for EVERY possible draw and the sum a constant 14 — a value
+        // that coincides with the right answer no matter whether the volatile is re-drawn, which pins
+        // nothing at all. With A1:A3 = 0.25, 0.5, 0.75 the draw lands inside the data and decides the
+        // SHAPE, so the answer is one of exactly four things:
+        //     r <  0.25 → all three kept          1.5
+        //     r <  0.5  → [0.5, 0.75]            1.25
+        //     r <  0.75 → [0.75]                 0.75
+        //     r >= 0.75 → nothing kept, no
+        //                 if_empty              #CALC!
+        // All four are binary-exact sums, and all four were observed across 40 epochs at seeds 1, 2 and 3
+        // (measured 2026-09-10) — so "more than one distinct outcome" is a real signal here, not luck.
+        var workbook = new Workbook { RandomSeed = 1 };
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(0.25);
+        sheet["A2"] = new NumberValue(0.5);
+        sheet["A3"] = new NumberValue(0.75);
+        sheet["D1"] = ExpressionParser.Parse("=SUM(FILTER(A1:A3,A1:A3>RAND()))", sheet);
+
+        // Stable inside one epoch (cached), exactly as a scalar volatile formula is.
+        var first = workbook.GetCellValue("Sheet1", "D1").AsObject();
+        await Assert.That(workbook.GetCellValue("Sheet1", "D1").AsObject()).IsEqualTo(first);
+
+        var seen = new HashSet<object?>();
+        for (var i = 0; i < 40; i++)
+        {
+            seen.Add(workbook.GetCellValue("Sheet1", "D1").AsObject());
+            workbook.Recalculate();
+        }
+
+        // Moved across epochs ⇒ D1 was in the tainted set Recalculate dropped, so the build-time draw
+        // reached the enclosing cell frame.
+        await Assert.That(seen.Count).IsGreaterThan(1);
+
+        // And every outcome is one of the four the fixture allows — the assertion that keeps "it moved"
+        // from being satisfied by garbage.
+        var allowed = new HashSet<object?> { 1.5, 1.25, 0.75, new ErrorValue("#CALC!") };
+        await Assert.That(seen.IsSubsetOf(allowed)).IsTrue();
+    }
+
+    [Test]
+    public async Task Sum_OfNonVolatileFilter_IsStableAcrossRecalculate()
+    {
+        // The control, and the proof the producer path does not taint indiscriminately: the same shape with
+        // a CONSTANT threshold keeps [0.5, 0.75] = 1.25 across Recalculate. Without this, the test above
+        // would also pass for an engine that marked every producer-bearing cell volatile.
+        var workbook = new Workbook { RandomSeed = 1 };
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(0.25);
+        sheet["A2"] = new NumberValue(0.5);
+        sheet["A3"] = new NumberValue(0.75);
+        sheet["D1"] = ExpressionParser.Parse("=SUM(FILTER(A1:A3,A1:A3>0.4))", sheet);
+
+        var first = Cell(workbook, "D1");
+        await Assert.That(first).IsEqualTo(1.25);
+
+        workbook.Recalculate();
+        await Assert.That(Cell(workbook, "D1")).IsEqualTo(first);
+    }
+
+    [Test]
+    public async Task Sum_OfSequence_WithAVolatileArgument_RefreshesAcrossEpochs()
+    {
+        // SEQUENCE reads no cell at all, so this is the taint with NO range in the tree anywhere: the
+        // volatile is a scalar argument of the producer itself, drawn once at build time, and the three
+        // elements are start + 0*step. If the draw did not reach the cell frame the sum would be frozen.
+        var workbook = new Workbook { RandomSeed = 11 };
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["D1"] = ExpressionParser.Parse("=SUM(SEQUENCE(3,1,RAND(),0))", sheet);
+
+        var seen = new HashSet<double>();
+        for (var i = 0; i < 20; i++)
+        {
+            seen.Add(Cell(workbook, "D1"));
+            workbook.Recalculate();
+        }
+
+        await Assert.That(seen.Count).IsGreaterThan(1);
+        // Every draw is in (0,1) and repeated three times with step 0, so every sum is in (0,3).
+        await Assert.That(seen.All(value => value > 0d && value < 3d)).IsTrue();
+    }
 }
