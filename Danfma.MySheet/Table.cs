@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Danfma.MySheet.Parsing;
 using MemoryPack;
 
 namespace Danfma.MySheet;
@@ -129,5 +130,195 @@ public sealed partial record Table(
         firstRow = FirstDataRow;
         lastRow = LastDataRow;
         return true;
+    }
+
+    // === Validation (invoked by the registry, never by the constructor) ==================================
+
+    private const int MaxNameLength = 255;
+
+    /// <summary>
+    /// Validates a table name against Excel's documented rule ("Rename an Excel table"): it must start with a
+    /// letter or underscore, contain only letters, digits, '.' or '_', be at most 255 characters, and must
+    /// not be one of the reserved single letters <c>C</c>/<c>R</c> (either case), a cell reference in A1 form
+    /// (inside Excel's grid — <c>Tabela1</c> and <c>Table1</c>, Excel's own default names, are NOT cells
+    /// because their letter runs exceed three characters) or in R1C1 form, or a boolean literal. The last is
+    /// a MySheet addition: the tokenizer reads <c>TRUE</c>/<c>FALSE</c> as booleans, so such a table could
+    /// never be reached from a formula. A leading backslash, which Excel permits, is rejected for the same
+    /// reason — the tokenizer never reads one into an identifier. Throws <see cref="ArgumentException"/>.
+    /// </summary>
+    internal static void ValidateName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("A table name cannot be empty.", nameof(name));
+        }
+
+        if (name.Length > MaxNameLength)
+        {
+            throw new ArgumentException(
+                $"'{name[..16]}…' is not a valid table name: it is {name.Length} characters long and the "
+                    + $"limit is {MaxNameLength}.",
+                nameof(name)
+            );
+        }
+
+        if (!IsValidName(name))
+        {
+            throw new ArgumentException(
+                $"'{name}' is not a valid table name: it must start with a letter or underscore, contain "
+                    + "only letters, digits, '.' or '_', and must not be \"C\" or \"R\", look like a cell "
+                    + "reference (e.g. \"A1\" or \"R1C1\") or be a boolean literal.",
+                nameof(name)
+            );
+        }
+    }
+
+    private static bool IsValidName(string name)
+    {
+        if (!char.IsLetter(name[0]) && name[0] != '_')
+        {
+            return false;
+        }
+
+        foreach (var c in name)
+        {
+            if (!char.IsLetterOrDigit(c) && c is not ('_' or '.'))
+            {
+                return false;
+            }
+        }
+
+        if (name.Length == 1 && name[0] is 'C' or 'c' or 'R' or 'r')
+        {
+            return false;
+        }
+
+        return !Parser.IsExcelGridCellReference(name)
+            && !IsR1C1Shape(name)
+            && !string.Equals(name, "TRUE", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(name, "FALSE", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // R<digits>C<digits>, either case: "R1C1", "r2c3".
+    private static bool IsR1C1Shape(string name)
+    {
+        if (name.Length < 4 || name[0] is not ('R' or 'r'))
+        {
+            return false;
+        }
+
+        var i = 1;
+        var rowDigits = 0;
+        while (i < name.Length && char.IsAsciiDigit(name[i]))
+        {
+            i++;
+            rowDigits++;
+        }
+
+        if (rowDigits == 0 || i == name.Length || name[i] is not ('C' or 'c'))
+        {
+            return false;
+        }
+
+        i++;
+        var columnDigits = 0;
+        while (i < name.Length && char.IsAsciiDigit(name[i]))
+        {
+            i++;
+            columnDigits++;
+        }
+
+        return columnDigits > 0 && i == name.Length;
+    }
+
+    /// <summary>
+    /// Validates the record's members at the registration boundary — the name rule, a non-blank sheet name,
+    /// 1-based geometry, a range tall enough for the header and totals rows it claims (a range EXACTLY that
+    /// tall, i.e. zero data rows, is legal), at least one column, and column names that are non-blank and
+    /// unique ignoring case (Excel resolves <c>Table1[col]</c> to <c>Table1[Col]</c>). Column names are
+    /// human-authored and are NOT subject to the name rule. Throws <see cref="ArgumentOutOfRangeException"/>
+    /// for a row or column below 1 and <see cref="ArgumentException"/> for everything else.
+    /// </summary>
+    internal void Validate()
+    {
+        ValidateName(Name);
+
+        ArgumentNullException.ThrowIfNull(SheetName);
+
+        if (string.IsNullOrWhiteSpace(SheetName))
+        {
+            throw new ArgumentException(
+                $"Table '{Name}': the sheet name cannot be empty.",
+                nameof(SheetName)
+            );
+        }
+
+        if (FirstRow < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(FirstRow), FirstRow, "Rows are 1-based.");
+        }
+
+        if (FirstColumn < 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(FirstColumn),
+                FirstColumn,
+                "Columns are 1-based."
+            );
+        }
+
+        if (LastRow < FirstRow)
+        {
+            throw new ArgumentException(
+                $"Table '{Name}': {nameof(LastRow)} ({LastRow}) is before {nameof(FirstRow)} ({FirstRow}).",
+                nameof(LastRow)
+            );
+        }
+
+        var reservedRows = (HasHeaderRow ? 1 : 0) + (HasTotalsRow ? 1 : 0);
+        var rowSpan = LastRow - FirstRow + 1;
+        if (rowSpan < reservedRows)
+        {
+            throw new ArgumentException(
+                $"Table '{Name}': the range spans {rowSpan} row(s) but {nameof(HasHeaderRow)}={HasHeaderRow} "
+                    + $"and {nameof(HasTotalsRow)}={HasTotalsRow} need {reservedRows}.",
+                nameof(LastRow)
+            );
+        }
+
+        ArgumentNullException.ThrowIfNull(ColumnNames);
+
+        if (ColumnNames.Count == 0)
+        {
+            throw new ArgumentException(
+                $"Table '{Name}': a table needs at least one column.",
+                nameof(ColumnNames)
+            );
+        }
+
+        var seen = new Dictionary<string, int>(ColumnNames.Count, StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < ColumnNames.Count; i++)
+        {
+            var columnName = ColumnNames[i];
+
+            if (string.IsNullOrWhiteSpace(columnName))
+            {
+                throw new ArgumentException(
+                    $"Table '{Name}': the column name at index {i} is empty.",
+                    nameof(ColumnNames)
+                );
+            }
+
+            if (!seen.TryAdd(columnName, i))
+            {
+                throw new ArgumentException(
+                    $"Table '{Name}': the column name '{columnName}' at index {i} repeats the one at index "
+                        + $"{seen[columnName]} (column names are compared ignoring case).",
+                    nameof(ColumnNames)
+                );
+            }
+        }
     }
 }

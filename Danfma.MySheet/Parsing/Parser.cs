@@ -810,4 +810,54 @@ internal sealed class Parser(
 
         return true;
     }
+
+    // Excel's grid: XFD1048576 is the last cell.
+    private const int ExcelMaxColumn = 16_384;
+    private const int ExcelMaxRow = 1_048_576;
+
+    // Internal: the TABLE-name validator's "looks like a cell reference". It differs from IsCellReference
+    // on purpose. IsCellReference is UNBOUNDED — any letters-then-digits string, because MySheet's grid has
+    // no ceiling and ParseIdentifier depends on that — so it says Excel's own default table names, "Tabela1"
+    // and "Table1", are cells. Excel's rule is that a table name may not be a reference INTO ITS GRID, so
+    // this check is bounded twice: on the letter run (1-3 ASCII letters — four or more can never label a
+    // column at or below XFD) and on the grid (column <= 16,384, row 1..1,048,576, at most 7 digits so the
+    // row can never overflow). "T1" is a real cell and is rejected as a name; "Tabela1", "XFE1" and
+    // "A1048577" are not cells and are accepted. Standalone: it must not reuse CellAddress.TryGetColumnRow,
+    // which neither strips '$' nor guards its row accumulator.
+    internal static bool IsExcelGridCellReference(string text)
+    {
+        text = StripDollars(text);
+
+        var letters = 0;
+        var column = 0;
+        while (letters < text.Length && char.IsAsciiLetter(text[letters]))
+        {
+            column = column * 26 + (char.ToUpperInvariant(text[letters]) - 'A' + 1);
+            letters++;
+        }
+
+        if (letters is 0 or > 3 || column > ExcelMaxColumn)
+        {
+            return false;
+        }
+
+        var digits = text.Length - letters;
+        if (digits is 0 or > 7)
+        {
+            return false;
+        }
+
+        var row = 0;
+        for (var i = letters; i < text.Length; i++)
+        {
+            if (!char.IsAsciiDigit(text[i]))
+            {
+                return false;
+            }
+
+            row = row * 10 + (text[i] - '0');
+        }
+
+        return row >= 1 && row <= ExcelMaxRow;
+    }
 }
