@@ -320,12 +320,16 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       entry**, and the docs state only the second as "Excel's answer", which is half true. Measured by Phase 10's
       Task 4 on Aspose.Cells 26.6.0 (2026-09-10) for all six shapes (`SUMIF`, `SUMIFS`, `COUNTIF`, `COUNTIFS`,
       `AVERAGEIF`, `AVERAGEIFS`); MySheet answers 0, `#VALUE!` and 0 depending on the form, two of which are
-      SILENT. Decide the rule from the oracle and match it, and make the docs name both entry modes.
+      SILENT. Decide the rule from the oracle and match it. (The DOCS half is already done: Phase 10's a9eced2 names both
+      entry modes and both answers, so what remains here is the ENGINE — matching the oracle, and removing the
+      two silent answers.)
       *Files:* `Danfma.MySheet/Expressions/CriteriaScan.cs`, the criteria test files, both docs twins
       *Why:* Two of the three MySheet answers are silent wrong numbers, which is the worst class, and the docs
       currently give a reader a value that is right only for one way of typing the formula.
 
-- [ ] **23.** Divergences Phase 10 measured and handed on, none of them yet written down outside its brief.
+- [ ] **23.** Divergences Phase 10 measured and handed on. **Partly documented since:** Phase 10's a9eced2 wrote
+      up the `ROWS`/`COLUMNS`-over-a-computed-array row in the user docs as a measured deviation, so for that one
+      the work left is the ENGINE and a pin; the rest below are still unwritten anywhere but here.
       Measured on Aspose.Cells 26.6.0 (2026-09-10, CSE unless noted): an OPEN range in a broadcast —
       `SUM(A:A*E1:E3)` = `#N/A` and `ROWS(A:A*1)` = 1048576, where MySheet treats an open range as an opaque
       scalar; a UNION in a broadcast — 792 and 36; `COUNTA(A1:C3*H1:H2)` = 9 against 1 here, before AND after
@@ -341,6 +345,19 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Files:* to be decided per row when the item is briefed
       *Why:* Each is a real divergence that Phase 10 met and could not fix inside its scope; leaving them only in
       a task brief means they vanish when the brief does.
+
+## Controller addition after the Phase 10 final review (2026-09-10) — measured by the GLM-5.3 reviewer
+
+- [ ] **24.** `AREAS` over a computed array answers **0** on the oracle (CSE, Aspose.Cells 26.6.0, 2026-09-10)
+      against `#VALUE!` here, measured for both `AREAS(ROW(A1:C3))` and `AREAS(A1:C3*E1:E3)`. Worse than a bare
+      divergence: `docs/function-reference.md` (the `AREAS` row) documents `#VALUE!` as THE rule for those shapes,
+      so the docs assert as Excel's behaviour something the oracle contradicts. Phase 10 named `AREAS` in B1's
+      blast-radius list and nobody measured it; it fell through because `AREAS` is not a mini-CSE consumer and so
+      no pin covered it. Measure the family (`AREAS` over a reference, a union, a name, a computed array, an open
+      range), match the oracle, and correct both docs twins.
+      *Files:* the `AREAS` implementation under `Danfma.MySheet/Expressions/`, its test file, `docs/function-reference.md`, `docs/pt-BR/function-reference.md`
+      *Why:* It is a documented claim about Excel that measurement disproves, which is the exact defect class this
+      project has shipped thirteen times, and here it is in user-facing docs rather than a comment.
 
 ## Implementation items
 
