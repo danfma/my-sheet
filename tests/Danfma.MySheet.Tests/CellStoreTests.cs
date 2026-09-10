@@ -16,8 +16,12 @@ public class CellStoreTests
     // Deterministic serialization of a representative workbook (multi-sheet, cross-sheet formulas, multi-letter
     // columns AA/AB, high rows), captured from the build BEFORE _cells became numeric-keyed. The in-memory key
     // changed but the formatter re-emits the historical string→Expression map in the same order, so the bytes
-    // must be identical.
-    private const string PreChangeCellsWireGolden =
+    // must be identical. Frozen a second time here as the PRE-TABLES shape: 726 bytes, object header 0x02
+    // (Sheets + DefinedNames), last four bytes 00 00 00 00 (the empty DefinedNames map). It is no longer what
+    // the writer emits — it is the historical reference that
+    // Wire_NewGolden_IsPreTablesGoldenPlusEmptyTablesMember and PreTablesGolden_StillLoads_WithEmptyTables
+    // measure the table registry's schema addition against.
+    private const string PreTablesWireGolden =
         "AgIAAAD7////BAAAAERhdGED+////wQAAABEYXRhAAAAAAcAAAD9////AgAAAEExAQEAAAAAAAAkQP3///8CAAAARDEAAfr/"
         + "//8FAAAAYXBwbGX9////AgAAAEQyAAH5////BgAAAGJhbmFuYf3///8CAAAARDMAAfn///8GAAAAY2hlcnJ5/f///wIAAABF"
         + "MQEBAAAAAAAA8D/9////AgAAAEUyAQEAAAAAAAAAQP3///8CAAAARTMBAQAAAAAAAAhA+////wQAAABNYWluA/v///8EAAAA"
@@ -29,6 +33,23 @@ public class CellStoreTests
         + "/f///wIAAABFM/v///8EAAAARGF0YQMAAAACAAAAAQAAAAQAAAABAQAAAAAAAABAAgEA/P///wMAAABCMTEIAwIAAAAEAv3/"
         + "//8CAAAAQTH7////BAAAAERhdGEBAQAAAAAAAAhA+v///wUAAABBQTEwMAEBAAAAAAAARUD8////AwAAAEFCNQEBAAAAAAAA"
         + "HEAAAAAA";
+
+    // The CURRENT wire golden: the same workbook once the table registry became Workbook's THIRD serialized
+    // member. Derived MECHANICALLY from PreTablesWireGolden — newBytes = [0x03] + oldBytes[1..] +
+    // [0x00,0x00,0x00,0x00] — and never captured from a debug print, so the constant itself carries the evidence
+    // that nothing but the object-header member count and the four bytes an empty Dictionary costs has moved.
+    // 730 bytes, first byte 0x03, last four bytes 00 00 00 00.
+    private const string CellsWireGolden =
+        "AwIAAAD7////BAAAAERhdGED+////wQAAABEYXRhAAAAAAcAAAD9////AgAAAEExAQEAAAAAAAAkQP3///8CAAAARDEAAfr///8F"
+        + "AAAAYXBwbGX9////AgAAAEQyAAH5////BgAAAGJhbmFuYf3///8CAAAARDMAAfn///8GAAAAY2hlcnJ5/f///wIAAABFMQEBAAAA"
+        + "AAAA8D/9////AgAAAEUyAQEAAAAAAAAAQP3///8CAAAARTMBAQAAAAAAAAhA+////wQAAABNYWluA/v///8EAAAATWFpbgEAAAAK"
+        + "AAAA/f///wIAAABBMQEBAAAAAAAAJED9////AgAAAEEyAQEAAAAAAAA0QP3///8CAAAAQTMBAQAAAAAAAD5A/f///wIAAABCMQgD"
+        + "AQAAAAgDAAAAAAQC/f///wIAAABBMfv///8EAAAATWFpbggDAgAAAAQC/f///wIAAABBMvv///8EAAAATWFpbgEBAAAAAAAAAEAI"
+        + "AwQAAAABAQAAAAAAAAhAAQEAAAAAAAAAQP3///8CAAAAQjIGAQEAAAAFB/3///8CAAAAQTH9////AgAAAEEz+////wQAAABNYWlu"
+        + "AwAAAAEAAAABAAAAAQAAAP3///8CAAAAQjMKAQEAAAAFB/3///8CAAAAQTH9////AgAAAEEz+////wQAAABNYWluAwAAAAEAAAAB"
+        + "AAAAAQAAAP3///8CAAAAQjcvAQQAAAAAAfn///8GAAAAYmFuYW5hBQf9////AgAAAEQx/f///wIAAABFM/v///8EAAAARGF0YQMA"
+        + "AAACAAAAAQAAAAQAAAABAQAAAAAAAABAAgEA/P///wMAAABCMTEIAwIAAAAEAv3///8CAAAAQTH7////BAAAAERhdGEBAQAAAAAA"
+        + "AAhA+v///wUAAABBQTEwMAEBAAAAAAAARUD8////AwAAAEFCNQEBAAAAAAAAHEAAAAAAAAAAAA==";
 
     // The workbook the golden was serialized from — mirrors the exact SetCell sequence.
     private static Workbook BuildWireFixture()
@@ -62,8 +83,61 @@ public class CellStoreTests
     {
         var bytes = MemoryPackSerializer.Serialize(BuildWireFixture());
 
-        await Assert.That(Convert.ToBase64String(bytes)).IsEqualTo(PreChangeCellsWireGolden);
+        await Assert.That(Convert.ToBase64String(bytes)).IsEqualTo(CellsWireGolden);
     }
+
+    // The regeneration audit. CellsWireGolden was DERIVED from PreTablesWireGolden rather than captured, and this
+    // test is what makes that derivation checkable forever: every byte of the historical golden except the
+    // object-header member count must reappear at the SAME offset, and the only growth must be the four zero
+    // bytes of an empty Dictionary length. A formatter change, a member reorder, a CellStoreFormatter regression
+    // or an accidental fourth member all still fail here — only the one intended schema addition passes.
+    [Test]
+    public async Task Wire_NewGolden_IsPreTablesGoldenPlusEmptyTablesMember()
+    {
+        var old = Convert.FromBase64String(PreTablesWireGolden);
+        var actual = MemoryPackSerializer.Serialize(BuildWireFixture());
+
+        var middleIsByteIdentical = actual.AsSpan(1, old.Length - 1).SequenceEqual(old.AsSpan(1));
+        var tailIsFourZeroBytes = actual.AsSpan(old.Length).SequenceEqual(new byte[4]);
+
+        await Assert.That(old[0]).IsEqualTo((byte)0x02); // Sheets + DefinedNames
+        await Assert.That(actual[0]).IsEqualTo((byte)0x03); // + the table registry
+        await Assert.That(actual.Length).IsEqualTo(old.Length + 4);
+        await Assert.That(middleIsByteIdentical).IsTrue();
+        await Assert.That(tailIsFourZeroBytes).IsTrue();
+    }
+
+#if MYSHEET_TABLES
+    // The backward-compatibility leg of the one-way boundary, over bytes the repo already froze — no new binary
+    // fixture. A two-member payload read by the three-member type leaves the private _tables field null, and
+    // Workbook.RestoreComparers is what turns that into an empty registry; without this test that null branch is
+    // untested defensiveness.
+    [Test]
+    public async Task PreTablesGolden_StillLoads_WithEmptyTables()
+    {
+        var wb = BuildWireFixture();
+        var restored = MemoryPackSerializer.Deserialize<Workbook>(
+            Convert.FromBase64String(PreTablesWireGolden)
+        )!;
+
+        await Assert.That(restored.Tables.Count).IsEqualTo(0);
+        await Assert.That(restored.DefinedNames.Count).IsEqualTo(0);
+
+        var main = restored.Sheets["Main"];
+
+        // A1 addresses (including multi-letter columns and high rows) survive with their exact string ids.
+        await Assert.That(main.ContainsKey("A1")).IsTrue();
+        await Assert.That(main.ContainsKey("AA100")).IsTrue();
+        await Assert.That(main.ContainsKey("AB5")).IsTrue();
+        await Assert.That(main.Count).IsEqualTo(wb.Sheets["Main"].Count);
+
+        await Assert.That(main["B2"].Evaluate(restored).AsObject() as double?).IsEqualTo(60.0);
+        await Assert.That(main["B11"].Evaluate(restored).AsObject() as double?).IsEqualTo(30.0);
+        await Assert
+            .That(restored.GetCellValue("Main", "AA100").AsObject() as double?)
+            .IsEqualTo(42.0);
+    }
+#endif
 
     [Test]
     public async Task RoundTrip_NewToNew_IsByteStable()
