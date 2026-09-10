@@ -424,6 +424,8 @@ internal sealed class CellStoreFormatter : MemoryPackFormatter<CellStore>
                 return ErrorValue.Number;
             case "#N/A":
                 return ErrorValue.NotAvailable;
+            case "#CALC!":
+                return ErrorValue.Calculation;
         }
 
         var cache = errorCache ??= new Dictionary<string, ErrorValue>(StringComparer.Ordinal);

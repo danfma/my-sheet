@@ -196,6 +196,19 @@ public class InformationFunctionTests
     }
 
     [Test]
+    public async Task ErrorType_MapsCalcToFourteen()
+    {
+        // Excel's ERROR.TYPE table continues past the seven classics (8 #GETTING_DATA, 9 #SPILL!, …, 14
+        // #CALC!). Measured on Aspose.Cells 26.6.0, 2026-09-10, ERROR.TYPE(FILTER(A1:A3,A1:A3>100)) = 14
+        // in both entry modes (Phase 7 correction M2; the FILTER form itself is pinned in
+        // DynamicArrayTests). Only #CALC! is added: the engine has no code for 8-13, so an ERROR.TYPE
+        // over one of those cannot arise.
+        await Assert
+            .That(Calc("=ERROR.TYPE(A2)", ("A2", ErrorValue.Calculation)) as double?)
+            .IsEqualTo(14.0);
+    }
+
+    [Test]
     public async Task Sheets_CountsTheWorkbookSheets()
     {
         // support.microsoft.com SHEETS: with no reference argument, the total number of sheets in

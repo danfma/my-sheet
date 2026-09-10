@@ -217,7 +217,10 @@ public sealed partial record TypeFunction(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record ErrorType(Expression[] Arguments) : Function
 {
-    // #NULL!=1, #DIV/0!=2, #VALUE!=3, #REF!=4, #NAME?=5, #NUM!=6, #N/A=7; a non-error -> #N/A.
+    // #NULL!=1, #DIV/0!=2, #VALUE!=3, #REF!=4, #NAME?=5, #NUM!=6, #N/A=7, #CALC!=14; a non-error -> #N/A.
+    // Excel's table continues 8 #GETTING_DATA … 13 #FIELD! between the two, but the engine has no code for
+    // those, so only #CALC! is mapped (ERROR.TYPE(FILTER(A1:A3,A1:A3>100)) = 14, Aspose.Cells 26.6.0,
+    // 2026-09-10, both entry modes).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
         if (!Arguments[0].Evaluate(context).TryGetError(out var error))
@@ -255,7 +258,12 @@ public sealed partial record ErrorType(Expression[] Arguments) : Function
             return ComputedValue.Number(6);
         }
 
-        return error == Error.NA ? ComputedValue.Number(7) : ComputedValue.Error(Error.NA);
+        if (error == Error.NA)
+        {
+            return ComputedValue.Number(7);
+        }
+
+        return error == Error.Calc ? ComputedValue.Number(14) : ComputedValue.Error(Error.NA);
     }
 }
 

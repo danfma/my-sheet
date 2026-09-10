@@ -20,6 +20,7 @@ public readonly struct Error : IEquatable<Error>
         "#NAME?", // 4
         "#NUM!", // 5
         "#N/A", // 6
+        "#CALC!", // 7 — Excel's "empty array" error (Phase 7: an empty FILTER/UNIQUE result)
     ];
 
     private readonly int _code;
@@ -33,6 +34,7 @@ public readonly struct Error : IEquatable<Error>
     public static readonly Error Name = new(4);
     public static readonly Error Num = new(5);
     public static readonly Error NA = new(6);
+    public static readonly Error Calc = new(7);
 
     /// <summary>Representação Excel do erro, ex.: <c>"#VALUE!"</c>.</summary>
     public string Display => (uint)_code < (uint)Displays.Length ? Displays[_code] : "#ERR?";
@@ -66,6 +68,7 @@ public readonly struct Error : IEquatable<Error>
             "#NAME?" => Name,
             "#NUM!" => Num,
             "#N/A" => NA,
+            "#CALC!" => Calc,
             _ => Value,
         };
 
@@ -79,6 +82,7 @@ public readonly struct Error : IEquatable<Error>
             4 => ErrorValue.Name,
             5 => ErrorValue.Number,
             6 => ErrorValue.NotAvailable,
+            7 => ErrorValue.Calculation,
             _ => new ErrorValue(Display),
         };
 }

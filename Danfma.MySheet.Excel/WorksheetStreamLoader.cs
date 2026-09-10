@@ -729,6 +729,8 @@ internal static class WorksheetStreamLoader
                 return ErrorValue.Number;
             case "#N/A":
                 return ErrorValue.NotAvailable;
+            case "#CALC!":
+                return ErrorValue.Calculation;
         }
 
         if (!context.ErrorCache.TryGetValue(code, out var value))
