@@ -779,12 +779,27 @@ public class DynamicArrayTests
         // (CriteriaComputedArgumentTests:298-318: COUNTIF(LET(r,A1:A3,r*1),">0") = 0, re-measured 0 on
         // this build, against the oracle's #VALUE! plain / #REF! CSE) and handed the producer half to
         // this phase's LET routing correction (M1), which nobody else owns.
-        // Oracle 26.6.0, 2026-09-10: #REF! in BOTH modes for the COUNTIF row, and 14 / 2 in both modes
-        // for the SUM and ROWS rows — a LET-bound producer works everywhere EXCEPT the criteria slot.
-        // Observed today: 0 for the COUNTIF row and #NAME? for the other two. The COUNTIF row will stay
-        // RED after the producers land (Let.CaptureValue evaluates FILTER as a scalar before either gate
-        // can see it, so it will answer the top-left collapse, not #REF!) until M1's arm through
-        // Let/Choose/unary-plus lands. That is the intended shape of this pin, not an accident.
+        //
+        // Oracle 26.6.0, 2026-09-10: #REF! in BOTH modes for the COUNTIF row, and 14 / 2 in both modes for
+        // the SUM and ROWS rows. So on the ORACLE a LET-bound producer works everywhere except the criteria
+        // slot — but that is a statement about the oracle, and it is NOT what this engine does.
+        //
+        // OBSERVED ON THIS BUILD, all three rows, re-measured 2026-09-10 after registration (item 19's
+        // task): the COUNTIF row is 1, the SUM row is 5 and the ROWS row is 1. ALL THREE ARE RED, under
+        // ONE cause — `NamedReferences.CaptureValue`'s fall-through evaluates the binding as an ordinary
+        // scalar expression before any array gate can see it, so `FILTER(A1:A3,A1:A3>0)` collapses to its
+        // top-left 5 and every consumer of `f` then works on a single element: COUNTIF([5],">0") = 1,
+        // SUM([5]) = 5, ROWS([5]) = 1. The COUNTIF row is simply the one whose assertion runs first.
+        //
+        // An earlier version of this comment recorded "0 for the COUNTIF row and #NAME? for the other two"
+        // (the pre-registration reading) and said only the COUNTIF row would stay red, which reads as a
+        // promise that the SUM and ROWS rows go green when the producers land. They do not, and nobody had
+        // checked: those two rows are unreachable behind the first assertion's failure. Corrected here
+        // rather than left as a reassurance.
+        //
+        // The three EXPECTED values are deliberately left at the oracle's, because M1's arm through
+        // Let/Choose/unary-plus is what makes all three pass at once and it is a work item in this phase,
+        // not a documented limitation. This is the phase's ONE standing red pin.
         await Assert
             .That(Calc("=LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,\">0\"))", Grid))
             .IsEqualTo(ErrorValue.Reference);
