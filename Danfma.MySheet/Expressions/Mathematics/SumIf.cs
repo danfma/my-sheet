@@ -39,6 +39,15 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         // letting Open re-probe it: TryGetRangeSnapshot is the second-use ADMISSION check itself, so a second
         // call here (even for the same range within this same evaluation) would eagerly build the snapshot on
         // what must stay range's first, streaming read.
+        // A computed array is not a range: the criteria slot rejects it with #REF! before any cursor opens
+        // (PositionalRange.RejectComputedArray carries the rule and the oracle columns). It sits BELOW the
+        // snapshot fast path on purpose — a computed array is not a Reference, so it never has a snapshot and
+        // the fast path above cannot see one.
+        if (PositionalRange.RejectComputedArray(Arguments[0], context) is { } computedRange)
+        {
+            return ComputedValue.Error(computedRange);
+        }
+
         var range = PositionalRange.Open(Arguments[0], context, snapshot);
 
         if (Arguments.Length < 3)
@@ -56,6 +65,12 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
             }
 
             return ComputedValue.Number(singleTotal);
+        }
+
+        // The sum_range slot takes a reference too: SUMIF(A1:A3,">0",B1:B3*1) is #REF!, not a silent 0.
+        if (PositionalRange.RejectComputedArray(Arguments[2], context) is { } computedSumRange)
+        {
+            return ComputedValue.Error(computedSumRange);
         }
 
         var sumRange = PositionalRange.Open(Arguments[2], context);

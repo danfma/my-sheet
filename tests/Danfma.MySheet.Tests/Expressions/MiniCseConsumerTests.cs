@@ -650,17 +650,21 @@ public class MiniCseConsumerTests
     }
 
     [Test]
-    public async Task CriteriaFamily_StillRefusesAComputedArray()
+    public async Task CriteriaFamily_OverALiftedFunction_IsRef()
     {
-        // The sixth consumer is the ODD ONE OUT and stays that way: CriteriaScan.Open (the criteria family's
-        // entry point) is deliberately NOT CriteriaScan.OpenArrayOrRange, so SUMIFS/COUNTIFS/… never see a
-        // computed array — only a real range. Widening the eligible set does not reach them.
+        // The sixth consumer is still the ODD ONE OUT — CriteriaScan.Open is deliberately NOT
+        // CriteriaScan.OpenArrayOrRange, so SUMIFS/COUNTIFS/… never STREAM a computed array — but Phase 11a
+        // Rule B changed what they answer instead of streaming it: a lifted pure-scalar built-in in a range
+        // slot is now REJECTED with #REF! (PositionalRange.RejectComputedArray) rather than collapsed to one
+        // #VALUE! element and scanned. Widening the eligible set still does not make them read arrays.
         //
-        // Aspose.Cells 26.6.0, measured 2026-09-09: #VALUE! entered plainly (and #REF! CSE-entered, which is
-        // not the column this engine reproduces — the mini-CSE is never entered at the cell boundary).
+        // Aspose.Cells 26.6.0, re-measured 2026-09-10 on this fixture: #REF! array-entered (#VALUE! entered
+        // plainly — a different mode, never compared against this one). The pin read ErrorValue.NotValue
+        // (#VALUE!) up to 0b93d66, when the collapsed element WAS the answer's source; the mini-CSE
+        // implements the array-entered rule, so #REF! is the value this engine owes.
         await Assert
             .That(OnTextual("=SUMIFS(LEN(A1:A3),A1:A3,\">0\")"))
-            .IsEqualTo(ErrorValue.NotValue);
+            .IsEqualTo(ErrorValue.Reference);
     }
 
     // --- Phase 10: every consumer over a BROADCAST argument, leaf pair and composite ---

@@ -48,6 +48,15 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
         // snapshot returns above) through instead of letting Open re-probe it: TryGetRangeSnapshot is the
         // second-use ADMISSION check itself, so a second call here would eagerly build the snapshot on what
         // must stay this range's first, streaming read — see SUMIF's identical pattern.
+        // A computed array is not a range — rejected with #REF! before the cursor opens, the same gate the
+        // rest of the family applies (PositionalRange.RejectComputedArray carries the rule and the oracle
+        // columns). Below the snapshot branch on purpose: a computed array is not a Reference, so it never
+        // has a snapshot and that branch cannot claim it.
+        if (PositionalRange.RejectComputedArray(Arguments[0], context) is { } computedRange)
+        {
+            return ComputedValue.Error(computedRange);
+        }
+
         var count = 0;
         var cursor = RangeValueCursor.Open(Arguments[0], context, snapshot);
 

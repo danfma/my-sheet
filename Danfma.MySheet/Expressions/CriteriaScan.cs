@@ -11,7 +11,8 @@ namespace Danfma.MySheet.Expressions;
 /// <para><see cref="OpenArrayOrRange"/> adds a fourth, OPT-IN backing for SUMPRODUCT alone: the element-wise
 /// mini-CSE <see cref="ArrayEvaluation.ArrayStream"/>, so a computed array argument is a first-class vector
 /// instead of one collapsed scalar. The *IFS family keeps <see cref="Open(Expression, EvaluationContext)"/>,
-/// where Excel requires real ranges.</para>
+/// where Excel requires real ranges: a computed array in one of those slots is REJECTED up front by
+/// <see cref="RejectComputedArray"/> rather than read.</para>
 /// </summary>
 internal struct PositionalRange
 {
@@ -84,6 +85,11 @@ internal struct PositionalRange
     /// Opens a cursor over one argument, preferring the cheapest backing: the admitted per-epoch snapshot
     /// (zero-copy over <see cref="RangeSnapshot.Values"/>) → the dense positional stream for a closed
     /// rectangle (no allocation) → a materialized list for open ranges/unions/scalars.
+    ///
+    /// <para>It never reads a computed array: every caller in the criteria family runs
+    /// <see cref="RejectComputedArray"/> on the same argument first, so the materialized fallback below sees
+    /// only the shapes Excel accepts as a range (a reference, a name, a scalar, a refused open range) and the
+    /// one-element <c>#VALUE!</c> collapse of an array can no longer reach a scan.</para>
     /// </summary>
     public static PositionalRange Open(Expression argument, EvaluationContext context)
     {
@@ -166,8 +172,9 @@ internal struct PositionalRange
     ///
     /// <para>Deliberately an opt-in factory rather than a gate folded into <see cref="Open"/>: <c>Open</c> is
     /// shared with the *IFS criteria family (SUMIFS/COUNTIFS/AVERAGEIFS/MAXIFS/MINIFS), where Excel REQUIRES
-    /// real ranges — <c>SUMIFS((A1:A3)*1, …)</c> is <c>#VALUE!</c> in Excel — so accepting arrays there would
-    /// be a semantics change outside this fix's scope.</para>
+    /// real ranges — <c>SUMIFS((A1:A3)*1, …)</c> is <c>#REF!</c> array-entered and <c>#VALUE!</c> entered
+    /// plainly (Aspose.Cells 26.6.0, measured 2026-09-10) — so those slots REJECT a computed array through
+    /// <see cref="RejectComputedArray"/> instead of reading it.</para>
     /// </summary>
     public static PositionalRange OpenArrayOrRange(Expression argument, EvaluationContext context)
     {
@@ -182,6 +189,38 @@ internal struct PositionalRange
 
         return Open(argument, context);
     }
+
+    /// <summary>
+    /// The criteria family's range-slot gate: <c>#REF!</c> for an argument that is not a bare reference NODE
+    /// yet the mini-CSE would stream as an array, and <c>null</c> (open the cursor as usual) for everything
+    /// else. The predicate is exactly the first two conditions of
+    /// <see cref="ArrayEvaluation.TryStream"/> — <see cref="ArrayEvaluation.IsBareReferenceNode"/> then
+    /// <see cref="ArrayEvaluation.IsArrayEligible"/> — so a scalar-conditioned <c>IF</c>, a <c>CHOOSE</c>, an
+    /// <c>OFFSET</c>, a defined name, a single cell, a bare scalar and a cost-guard-REFUSED open-range
+    /// expression are all outside it and keep the paths they have today.
+    ///
+    /// <para>The rule: a range slot of <c>SUMIF</c>/<c>SUMIFS</c>/<c>COUNTIF</c>/<c>COUNTIFS</c>/
+    /// <c>AVERAGEIF</c>/<c>AVERAGEIFS</c>/<c>MAXIFS</c>/<c>MINIFS</c> — criteria range and
+    /// sum/average/max/min range alike — takes a reference, so a computed array there is rejected rather
+    /// than collapsed and scanned. Oracle Aspose.Cells 26.6.0, measured 2026-09-10 in both entry modes: a
+    /// COMPUTED array (<c>COUNTIF(A1:A3*1,"&gt;0")</c>, <c>COUNTIF(ROW(A1:A3),"&gt;1")</c>) is
+    /// <c>#VALUE!</c> entered plainly and <c>#REF!</c> array-entered (<c>Cell.SetArrayFormula</c>); a
+    /// dynamic-array PRODUCER (<c>COUNTIF(FILTER(A1:A3,A1:A3&gt;0),"&gt;5")</c>,
+    /// <c>COUNTIF(SEQUENCE(5),"&gt;3")</c>, <c>SUMIF(SORT(A1:A3),"&gt;0")</c>) is <c>#REF!</c> in BOTH
+    /// columns. The mini-CSE implements the array-entered rule, and <c>#REF!</c> is the one value both
+    /// producer columns agree on — which is why the answer is <c>#REF!</c> and not <c>#VALUE!</c>. Pinned by
+    /// CriteriaComputedArgumentTests.</para>
+    ///
+    /// <para><see cref="OpenArrayOrRange"/> — SUMPRODUCT's opt-in factory — is deliberately NOT gated: Excel
+    /// reads a computed array there (<c>SUMPRODUCT((A1:A3&lt;&gt;0)*1)</c> = 2 and
+    /// <c>SUMPRODUCT(A1:A3*1,B1:B3)</c> = 32, both entry modes, same measurement), so this gate guards the
+    /// eight <see cref="Open"/>/<c>RangeValueCursor.Open</c> call sites of the criteria family alone.</para>
+    /// </summary>
+    public static Error? RejectComputedArray(Expression argument, EvaluationContext context) =>
+        !ArrayEvaluation.IsBareReferenceNode(argument)
+        && ArrayEvaluation.IsArrayEligible(argument, context)
+            ? Error.Ref
+            : null;
 
     /// <summary>The next cell in position order (column-major, matching the materialized expansion exactly —
     /// the row-major array backing is transposed here to agree). Every parallel cursor is advanced once per
@@ -249,7 +288,9 @@ internal struct CriteriaScan
     /// <summary>
     /// Builds a scan whose length is the VALUE range's cell count — the SUMIFS/AVERAGEIFS/MAXIFS/MINIFS
     /// shape where <c>arguments[0]</c> is the value range and the (criteria_range, criteria) pairs follow.
-    /// Returns <c>#REF!</c> for a missing sheet and <c>#VALUE!</c> when a criteria range's length differs.
+    /// Returns <c>#REF!</c> for a missing sheet or for a computed array in ANY range slot (value range or
+    /// criteria range — <see cref="PositionalRange.RejectComputedArray"/>), and <c>#VALUE!</c> when a
+    /// criteria range's length differs.
     /// </summary>
     public static Error? CreateWithValue(
         Expression[] arguments,
@@ -264,6 +305,11 @@ internal struct CriteriaScan
             return missing;
         }
 
+        if (PositionalRange.RejectComputedArray(arguments[0], context) is { } computedValueRange)
+        {
+            return computedValueRange;
+        }
+
         var valueRange = PositionalRange.Open(arguments[0], context);
         var length = valueRange.Count;
         var pairCount = (arguments.Length - 1) / 2;
@@ -272,6 +318,14 @@ internal struct CriteriaScan
 
         for (var p = 0; p < pairCount; p++)
         {
+            if (
+                PositionalRange.RejectComputedArray(arguments[1 + (p * 2)], context) is
+                { } computedRange
+            )
+            {
+                return computedRange;
+            }
+
             var range = PositionalRange.Open(arguments[1 + (p * 2)], context);
 
             if (range.Count != length)
@@ -291,7 +345,9 @@ internal struct CriteriaScan
     /// <summary>
     /// Builds a value-less scan — the COUNTIFS shape where the (criteria_range, criteria) pairs start at
     /// <c>arguments[0]</c> and the length is the first criteria range's cell count. Returns <c>#REF!</c>
-    /// for a missing sheet and <c>#VALUE!</c> when a later criteria range's length differs.
+    /// for a missing sheet or for a computed array in any criteria range
+    /// (<see cref="PositionalRange.RejectComputedArray"/>) and <c>#VALUE!</c> when a later criteria range's
+    /// length differs.
     /// </summary>
     public static Error? CreateCountOnly(
         Expression[] arguments,
@@ -313,6 +369,11 @@ internal struct CriteriaScan
 
         for (var p = 0; p < pairCount; p++)
         {
+            if (PositionalRange.RejectComputedArray(arguments[p * 2], context) is { } computedRange)
+            {
+                return computedRange;
+            }
+
             var range = PositionalRange.Open(arguments[p * 2], context);
 
             if (p == 0)

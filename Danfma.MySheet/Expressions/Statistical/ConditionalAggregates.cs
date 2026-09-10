@@ -47,6 +47,14 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         // ALREADY-probed `snapshot` through instead of letting Open re-probe it: TryGetRangeSnapshot is the
         // second-use ADMISSION check itself, so a second call here (even for the same range within this same
         // evaluation) would eagerly build the snapshot on what must stay range's first, streaming read.
+        // A computed array is not a range — rejected with #REF! before any cursor opens, mirroring SUMIF
+        // (PositionalRange.RejectComputedArray carries the rule and the oracle columns). Below the snapshot
+        // fast path on purpose: a computed array is not a Reference and so never has a snapshot.
+        if (PositionalRange.RejectComputedArray(Arguments[0], context) is { } computedRange)
+        {
+            return ComputedValue.Error(computedRange);
+        }
+
         var range = PositionalRange.Open(Arguments[0], context, snapshot);
 
         if (Arguments.Length < 3)
@@ -68,6 +76,12 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
             return singleCount == 0
                 ? ComputedValue.Error(Error.DivZero)
                 : ComputedValue.Number(singleTotal / singleCount);
+        }
+
+        // The average_range slot takes a reference too: AVERAGEIF(A1:A3,">0",B1:B3*1) is #REF!, not #DIV/0!.
+        if (PositionalRange.RejectComputedArray(Arguments[2], context) is { } computedAverageRange)
+        {
+            return ComputedValue.Error(computedAverageRange);
         }
 
         var averageRange = PositionalRange.Open(Arguments[2], context);
