@@ -2033,4 +2033,41 @@ public class MiniCseConsumerTests
             )
             .IsEqualTo(1.0);
     }
+
+    // === Phase 5 T4's extra item: the guard's own counterfactual =========================================
+    //
+    // Mirrors DefinedNameArrayEligibilityTests.TwoDimensionalBareName_OnTheErrorFixture_KeepsTheEnginesScanOrder
+    // for a TABLE instead of a NAME. IsBareReferenceNode answers TRUE for a TableReference too (the shared
+    // `_ => expression is Reference` clause). Phase 5 item 14 gave NumericAggregation.Fold/FoldA their OWN
+    // TableReference arm, so SUM/COUNT/AVERAGE/MAX/MIN no longer consult the predicate for a table at all —
+    // but two sibling gates that share the SAME predicate, with no arm of their own, still do:
+    // PositionalRange.RejectComputedArray (CriteriaScan.cs, the criteria family's range-slot gate) and
+    // OrderSelection.KthValue (SMALL/LARGE, outside this phase's files). Narrowing IsBareReferenceNode to
+    // answer FALSE for a TableReference (measured on the mutation) would make both of them treat
+    // Mat[#Data] as a COMPUTED array — Probe answers (true, true) for a table unconditionally — so
+    // COUNTIF(Mat[#Data],">0") would turn from counting normally into #REF! (the criteria family's own
+    // rejection code for a computed array in a range slot), and SMALL(Mat[#Data],1) would stream the
+    // mini-CSE's ROW-major element order (G2, H2, G3, H3) instead of the referenced-value walk's
+    // COLUMN-major one (G2, G3, H2, H3), changing which error a low k reports on a fixture that carries one
+    // error in each column.
+    private static Workbook MatWithErrors()
+    {
+        var workbook = TableGrid();
+        var data = workbook["Data"];
+        data["G3"] = ExpressionParser.Parse("=1/0", data);
+        data["H2"] = ExpressionParser.Parse("=NA()", data);
+        return workbook;
+    }
+
+    [Test]
+    public async Task TableReference_OnTheTwoDimensionalErrorFixture_KeepsTheEnginesScanOrder()
+    {
+        var context = new EvaluationContext(MatWithErrors(), "Main");
+
+        var countIf = new CountIf([MatBody, new StringValue(">0")]).Evaluate(context).AsObject();
+        var small = new Small([MatBody, Number(1)]).Evaluate(context).AsObject();
+
+        await Assert.That(Num(countIf)).IsEqualTo(2.0);
+        await Assert.That(small).IsEqualTo(ErrorValue.DivByZero);
+    }
 }

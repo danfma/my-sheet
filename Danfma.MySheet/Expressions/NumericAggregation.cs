@@ -92,6 +92,32 @@ internal static class NumericAggregation
 
                     break;
 
+                // Phase 5 item 14: PERF/consistency only — the `default:` arm below already answers
+                // correctly for a TableReference (it evaluates the node, gets a reference VALUE back for a
+                // resolved table, and expands it through EnumerateValues' boxed iterator). This arm buys the
+                // allocation-free struct RangeValueSequence enumerator instead, mirroring the
+                // AnchoredRangeReference arm above for the identical reason.
+                case TableReference table:
+                    if (
+                        table.TryResolveRange(
+                            context.Workbook,
+                            out var tableRange,
+                            out var tableError
+                        )
+                    )
+                    {
+                        foreach (var value in tableRange!.ExpandComputedValues(context))
+                        {
+                            AddReferenced(value, ref fold, ref error);
+                        }
+                    }
+                    else
+                    {
+                        error ??= tableError;
+                    }
+
+                    break;
+
                 case UnionReference union:
                     foreach (var value in union.ExpandComputedValues(context))
                     {
@@ -125,8 +151,18 @@ internal static class NumericAggregation
                     // referenced-value path for the stream — the same column-major/row-major exposure, and
                     // the criteria family's twin of it is measured (CriteriaScan.RejectComputedArray).
                     // For a syntactic Reference the condition is moot rather than harmful: every reference
-                    // node this arm could see is peeled off above except DynamicRange, which has no Probe
-                    // arm and already takes the path below.
+                    // node this arm could see is peeled off above — TableReference joined that set only
+                    // with the arm above it (Phase 5 item 14) — except DynamicRange, which has no Probe arm
+                    // and already takes the path below. Before that arm existed, a TableReference reached
+                    // exactly this branch and DEPENDED on the condition precisely like the bare name and the
+                    // unary '+' above: narrowing IsBareReferenceNode to answer false for a TableReference
+                    // (measured on the mutation, then reverted) flips SUM over a 2-D table area with one
+                    // error in each column from #DIV/0! to #N/A, the same row-major/column-major exposure —
+                    // and that exposure is STILL live wherever a sibling gate shares the predicate with no
+                    // arm of its own: PositionalRange.RejectComputedArray (CriteriaScan.cs) turns
+                    // COUNTIF(Mat[#Data],">0") from counting normally (2) into #REF!, and
+                    // OrderSelection.KthValue (SMALL/LARGE, outside this phase's files) inherits the same
+                    // flip SUM no longer has (MiniCseConsumerTests.TableReference_OnTheTwoDimensionalErrorFixture_KeepsTheEnginesScanOrder).
                     if (ArrayEvaluation.TryStream(argument, context, out var array))
                     {
                         // Stream the element-wise vector: aggregate straight from the lazy view, allocating no
