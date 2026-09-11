@@ -1399,7 +1399,9 @@ public class MiniCseConsumerTests
     // built by hand and the comment above it is the formula it spells. Every number is Aspose.Cells 26.6.0,
     // measured 2026-09-11 on that fixture with the formula on Main!H20, PLAIN and array-entered; the mini-CSE
     // implements the ARRAY-ENTERED rule inside a function argument, so the CSE column is the one asserted and
-    // the PLAIN one is named only where it differs — never compared against it.
+    // the PLAIN one is named only where it differs — never compared against it. The exception is a row
+    // explicitly marked a RECORDED DIVERGENCE (the two CHOOSE-under-an-operator rows at the end), which
+    // asserts what THIS BUILD answers with the oracle's number beside it.
     private static Workbook TableGrid()
     {
         var workbook = new Workbook();
@@ -1429,6 +1431,14 @@ public class MiniCseConsumerTests
         data["E4"] = new NumberValue(30);
         workbook.DefineTable("Zeros", "Data", "E1:E4", ["V"]);
 
+        data["G1"] = new StringValue("X");
+        data["H1"] = new StringValue("Y");
+        data["G2"] = new NumberValue(1);
+        data["H2"] = new NumberValue(2);
+        data["G3"] = new NumberValue(3);
+        data["H3"] = new NumberValue(4);
+        workbook.DefineTable("Mat", "Data", "G1:H3", ["X", "Y"]);
+
         return workbook;
     }
 
@@ -1454,6 +1464,17 @@ public class MiniCseConsumerTests
     // Tabela1[#Totals] over a table with NO totals row: the one structured reference the oracle itself
     // accepts at entry and answers an error VALUE for (#REF!), and this suite's unresolvable-table node.
     private static TableReference NoTotalsRow => new("Tabela1", null, TableArea.Totals);
+
+    // Mat[#Data] (G2:H3 = 1, 2 / 3, 4) — the 2-D numeric area, and Tabela1[#Data] / Tabela1[#All], the
+    // multi-column areas whose first column is TEXT.
+    private static TableReference MatBody => new("Mat", null, TableArea.Data);
+
+    private static TableReference DataBody => new("Tabela1", null, TableArea.Data);
+
+    private static TableReference WholeTable => new("Tabela1", null, TableArea.All);
+
+    // A table that is not registered at all: #NAME?, where an unresolvable AREA of a registered one is #REF!.
+    private static TableReference UnknownTable => new("NoSuchTable", "V", TableArea.Data);
 
     // Main!A1:A3 = 5, 0, 9.
     private static RangeReference Literal => new("A1", "A3", "Main");
@@ -1684,9 +1705,12 @@ public class MiniCseConsumerTests
         // does with any error (ruling R2). SUM is the one that reports the code, so SUM names the test and
         // COUNT/COUNTA are pinned beside it at their own numbers.
         //
-        // Every row here answered the same BEFORE the arms, by the opaque-scalar broadcast the arms replaced.
-        // That is the point: these are the rows that say the SingletonArrayOperand path reproduces them, and
-        // they are the guard on the "1x1 broadcasts everywhere" rule the build arm relies on.
+        // Every row here answered the same BEFORE the arms, through the opaque-scalar broadcast the arms
+        // replaced, so this test pins the oracle's record for an unresolvable table and NOTHING about the
+        // arms: it is green with both arms deleted, with the build arm alone deleted, and with the failure
+        // branch spelled as a non-array ScalarOperand (all three measured). The build arm's own comment
+        // records why no assertion can tell those last two apart — a broadcast error is a broadcast error
+        // whichever operand carries it. Do not read the rows below as a guard on the operand's array-ness.
         // =SUM((Tabela1[#Totals]<>"")*1) → #REF!, =COUNT(…) → 0, =COUNTA(…) → 1
         await Assert
             .That(OnTableGrid(new Sum([Times(NotBlank(NoTotalsRow), Number(1))])))
@@ -1715,6 +1739,85 @@ public class MiniCseConsumerTests
         await Assert
             .That(OnTableGrid(new Sum([new Row([NoTotalsRow])])))
             .IsEqualTo(ErrorValue.Reference);
+
+        // The shape the build arm's comment names, asserted in full rather than described:
+        // =SUM((Tabela1[#Totals]<>"")*A1:A3) → #REF! (both modes), =COUNTA(…) → 3 array-entered (1 PLAIN),
+        // =ROWS(…) → 3 (both modes) and =COUNT(…) → 0 (both modes) — the error reaching all THREE positions
+        // of the range it is zipped with, which is the broadcast the comment claims and the oracle's own
+        // numbers for it.
+        var errorAgainstThreeRows = Times(NotBlank(NoTotalsRow), Literal);
+
+        await Assert
+            .That(OnTableGrid(new Sum([errorAgainstThreeRows])))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Num(OnTableGrid(new CountA([errorAgainstThreeRows])))).IsEqualTo(3.0);
+        await Assert.That(Num(OnTableGrid(new Rows([errorAgainstThreeRows])))).IsEqualTo(3.0);
+        await Assert.That(Num(OnTableGrid(new Count([errorAgainstThreeRows])))).IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task AnUnknownTableUnderAnOperator_IsName()
+    {
+        // The OTHER failure code the one primitive produces, and the half no other test reaches: an
+        // unresolvable AREA of a registered table is #REF! (above), a table that is not registered at all is
+        // #NAME?, and both travel the same SingletonArrayOperand. Aspose rejects an unknown table name at
+        // formula-set time, so there is no oracle column for the table itself; the measured analogue is an
+        // unknown NAME, whose numbers these match exactly (26.6.0, both modes unless marked):
+        //   SUM((NoSuch<>"")*1) #NAME?   COUNT 0   COUNTA 1
+        //   SUM(NoSuch*A1:A3)   #NAME?   COUNTA(NoSuch*A1:A3) 3 array-entered (1 PLAIN)
+        await Assert
+            .That(OnTableGrid(new Sum([Times(NotBlank(UnknownTable), Number(1))])))
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NotBlank(UnknownTable), Number(1))]))))
+            .IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnTableGrid(new CountA([Times(NotBlank(UnknownTable), Number(1))]))))
+            .IsEqualTo(1.0);
+        await Assert
+            .That(OnTableGrid(new Sum([Times(UnknownTable, Literal)])))
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Num(OnTableGrid(new CountA([Times(UnknownTable, Literal)]))))
+            .IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task AMultiColumnTableArea_StreamsItsWholeRectangle()
+    {
+        // The arms are written for a column, and five of the six TableArea forms are WIDER than one column —
+        // so the rectangle has to project like any other array, which is what "(true, true) cannot
+        // mis-broadcast" means. Mat[#Data] is the 2-D numeric area (G2:H3 = 1,2 / 3,4). Oracle 26.6.0,
+        // array-entered column: SUM(Mat[#Data]*2) 20, ROWS 2, COLUMNS 2, SUM((Mat[#Data]>1)*1) 3.
+        await Assert.That(Num(OnTableGrid(new Sum([Times(MatBody, Number(2))])))).IsEqualTo(20.0);
+        await Assert.That(Num(OnTableGrid(new Rows([Times(MatBody, Number(2))])))).IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnTableGrid(new Columns([Times(MatBody, Number(2))]))))
+            .IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnTableGrid(new Sum([Times(Above(MatBody, 1), Number(1))]))))
+            .IsEqualTo(3.0);
+
+        // A 2x2 area against a 3x1 range: the projection leaves the third row UNCOVERED, so SUM is #N/A
+        // while COUNT is 4 and COUNTA 6 — the broadcasting rule's own answer, and the oracle's array-entered
+        // one. This is the row that would move if the arm ever handed back something of the wrong extent.
+        await Assert
+            .That(OnTableGrid(new Sum([Times(MatBody, Literal)])))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Num(OnTableGrid(new Count([Times(MatBody, Literal)])))).IsEqualTo(4.0);
+        await Assert.That(Num(OnTableGrid(new CountA([Times(MatBody, Literal)])))).IsEqualTo(6.0);
+
+        // Tabela1[#Data] and Tabela1[#All] are multi-column areas whose first column is TEXT, so an operator
+        // over the whole rectangle is #VALUE! — and COUNT of Tabela1[#Data]*2 is 6, the six numeric cells of
+        // the 3x3 body, which is how one can tell the rectangle was streamed rather than short-circuited.
+        // Both modes for the two SUMs; the COUNT is the array-entered column (0 PLAIN).
+        await Assert
+            .That(OnTableGrid(new Sum([Times(DataBody, Number(2))])))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Num(OnTableGrid(new Count([Times(DataBody, Number(2))])))).IsEqualTo(6.0);
+        await Assert
+            .That(OnTableGrid(new Sum([Times(WholeTable, Number(2))])))
+            .IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]

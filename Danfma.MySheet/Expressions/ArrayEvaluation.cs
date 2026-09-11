@@ -356,10 +356,12 @@ internal static class ArrayEvaluation
                 };
 
             // A structured (table) reference (Phase 5), decided WITHOUT resolving anything, unlike the
-            // defined name above: a table's own `ref` is a bounded A1 rectangle and Table.GetRegion only
-            // ever narrows it, so a TableReference can never denote a scalar and never an open range. The
-            // open-range cost guard above therefore cannot apply to one, and (true, true) cannot
-            // mis-broadcast.
+            // defined name above: every area of a table is a rectangle of its stored bounds, GetRegion
+            // rejects an inverted one, and TryResolveRange only ever constructs a RangeReference — so a
+            // TableReference can never denote a scalar and never an open range. The open-range cost guard
+            // above therefore cannot apply to one, and (true, true) cannot mis-broadcast: a multi-column
+            // area streams its whole rectangle and projects like any other (SUM(Mat[#Data]*A1:A3) is #N/A
+            // for the positions a 2x2 does not cover, COUNT 4 — pinned in MiniCseConsumerTests).
             // A table that does NOT resolve is still an ARRAY here, because the build wraps its Error in a
             // 1x1 SingletonArrayOperand — which is what keeps the "IsArrayEligible ⇒ the build succeeds AS
             // AN ARRAY" invariant this class documents (see the remarks on IsArrayEligible) true for the
@@ -676,10 +678,22 @@ internal static class ArrayEvaluation
             // hand the concrete rectangle to BuildRange, so a table column streams its cells through exactly
             // the reading logic a literal range does — nothing duplicated.
             //
-            // A table that does not resolve becomes a 1x1 array carrying its Error. SingletonArrayOperand
-            // covers EVERY position by the broadcasting rule, so (Tabela1[#Totals]<>"")*A1:A3 reports #REF!
-            // at every element instead of the #VALUE! a dimension mismatch would give, and the operand is
-            // still IsArray, which is the promise the probe made.
+            // A table that does not resolve becomes a 1x1 array carrying its Error, which covers every
+            // position by the broadcasting rule: (Tabela1[#Totals]<>"")*A1:A3 is a 3x1 of #REF!, so SUM is
+            // #REF!, COUNTA 3 and ROWS 3, the oracle's array-entered answers (pinned in
+            // MiniCseConsumerTests.Sum_OfComparisonOverAnUnresolvableTable_IsRef).
+            //
+            // SingletonArrayOperand rather than ScalarOperand is the PROBE'S PROMISE kept, and nothing more
+            // than that: no assertion distinguishes the two spellings here, and none found so far can.
+            // Measured — replacing it with `new ScalarOperand(ComputedValue.Error(tableError))` leaves the
+            // whole suite green, because ScalarOperand broadcasts too, so every consumer reaches the same
+            // error either through the array (when something else supplies the extent) or through the scalar
+            // fall-back (when nothing does): SUM/COUNT/COUNTA/ROWS/COLUMNS/INDEX/FILTER over
+            // Tabela1[#Totals] under an operator, a lift, a unary and an IF all answer identically. What the
+            // array spelling buys is the documented lockstep (IsArrayEligible ⇒ the build yields an array)
+            // and with it the node's SINGLE resolution, and a table's resolution is pure, so even the double
+            // resolution the other spelling causes cannot be observed. Keep it because the contract says so,
+            // not because a test will catch it.
             case TableReference table:
                 operand = table.TryResolveRange(
                     context.Workbook,
