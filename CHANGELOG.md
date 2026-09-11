@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.20.0"></a>
+## [3.20.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.20.0) (2026-09-11)
+
+### Features
+
+* **arrays:** a defined name, CHOOSE and unary + carry a computed array too ([710f3c3](https://www.github.com/danfma/my-sheet/commit/710f3c35e91615e214fc256fdf4c99651c950ce4))
+* **arrays:** a LET binding carries a computed array, built once and read by every consumer ([8daaa56](https://www.github.com/danfma/my-sheet/commit/8daaa5639d22ff6aa4e9b6e78a26bfb81d8c257d))
+* **arrays:** COUNTA, CONCAT and TEXTJOIN stream a computed array element by element ([7e57071](https://www.github.com/danfma/my-sheet/commit/7e57071707922e1218cf5c6e2de20bbc7e968c04))
+* **arrays:** FILTER, SORT and UNIQUE as mini-CSE producers over one axis-selection operand ([41272eb](https://www.github.com/danfma/my-sheet/commit/41272eb31d5cd9e987c5dc14b277508269beff94))
+* **arrays:** register FILTER, SORT, UNIQUE and SEQUENCE as Consumes entries with union tags 323-326 ([96bcf3a](https://www.github.com/danfma/my-sheet/commit/96bcf3a1f4b27aed803cd1b35289b549d5fb3f69))
+* **arrays:** ROWS and COLUMNS answer the shape of a computed array through the mini-CSE gate ([ce61bce](https://www.github.com/danfma/my-sheet/commit/ce61bce1eb83c3aa52a3f6dd683b71c009a4d80c))
+* **arrays:** SEQUENCE as the first mini-CSE producer, with its operand under the shape invariant ([dc3fa4a](https://www.github.com/danfma/my-sheet/commit/dc3fa4a387bb5beb1e74c8a7256a65f48270ac3a))
+* **arrays:** the producer contract — IArrayProducer, its two arms, FirstElement and ArrayShaping ([c76acfb](https://www.github.com/danfma/my-sheet/commit/c76acfb2fb297756a76359b4f56fbccdde0051d6))
+* **errors:** #CALC! as the eighth error code, and ERROR.TYPE answers 14 for it ([380e046](https://www.github.com/danfma/my-sheet/commit/380e04659e5412f1effef1b7ed90b581b9dd6830))
+
+### Bug Fixes
+
+* **arrays:** a volatile condition could still collapse a producer under a scalar-condition IF ([1658a0a](https://www.github.com/danfma/my-sheet/commit/1658a0aef45cdae71a564bea998e54bbd025030d))
+* **arrays:** probe an IF branch by the CONDITION's kind, restoring the probe/build lockstep ([46d1a85](https://www.github.com/danfma/my-sheet/commit/46d1a855247a012228f7ec67de0e9f300a879f13))
+* **arrays:** ReferenceGuard sees a missing sheet through FILTER, SORT and UNIQUE ([cfb72cc](https://www.github.com/danfma/my-sheet/commit/cfb72cc2e71aee1bccb6d9976661e11983dac533))
+* **arrays:** stream a producer under a SCALAR-condition IF instead of collapsing it ([111dd2c](https://www.github.com/danfma/my-sheet/commit/111dd2c4d07bfa9cbb29c02bd71b257455e12bca))
+* **eval:** accept the text TRUE/FALSE in IF, NOT and IFS' condition slots ([90df14b](https://www.github.com/danfma/my-sheet/commit/90df14b4603c110757374e00f8c98e0276191516))
+
 <a name="3.19.0"></a>
 ## [3.19.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.19.0) (2026-09-10)
 
