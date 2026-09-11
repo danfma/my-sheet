@@ -9,10 +9,11 @@ namespace Danfma.MySheet.Excel.Tests;
 /// Interop with Excel <b>Tables</b> (a <c>&lt;table&gt;</c> part, a.k.a. a ListObject) and the STRUCTURED
 /// REFERENCES they enable (<c>Tabela1[Valor]</c>). The loader does not populate MySheet's table registry —
 /// <see cref="Workbook.Tables"/> exists and <c>Workbook.DefineTable</c> is its only writer, but nothing reads
-/// an xlsx <c>&lt;table&gt;</c> part into it — and the tokenizer has no <c>[</c>, so a structured reference
-/// cannot parse. What these tests pin is that such a formula degrades the AFFECTED CELL ONLY (falling back to
-/// the cached value Excel stored alongside it, reported via <see cref="ExcelLoadOptions.OnWarning"/>) instead
-/// of aborting the whole load.
+/// an xlsx <c>&lt;table&gt;</c> part into it — and the parser does not accept a structured reference yet (the
+/// tokenizer reads the whole <c>[...]</c> suffix as ONE token, and the parser is what rejects it). What these
+/// tests pin is that such a formula degrades the AFFECTED CELL ONLY (falling back to the cached value Excel
+/// stored alongside it, reported via <see cref="ExcelLoadOptions.OnWarning"/>) instead of aborting the whole
+/// load.
 ///
 /// ClosedXML writes the table (an independent implementation, like every other fixture here); the
 /// structured-reference formula cells are injected through the OpenXML SDK afterwards because ClosedXML
@@ -20,7 +21,16 @@ namespace Danfma.MySheet.Excel.Tests;
 /// </summary>
 public class TableInteropTests
 {
+    // The in-scope spelling, kept on the ONE test that is about a structured reference itself.
     private const string StructuredFormula = "SUM(Tabela1[Valor])";
+
+    // The vehicle for every test that only needs SOME formula the load rejects — the negative-parse cache,
+    // the <v>-decode fallbacks and the two shared-master paths are not about tables at all. It is the
+    // current-row item list Excel/Aspose actually STORES for a typed `SUM(Tabela1[@Valor])` (measured on
+    // Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11: the saved <f> reads
+    // `SUM(Tabela1[[#This Row],[Valor]])`), and S1 keeps the current-row forms permanently out of scope — so
+    // this vehicle cannot rot the way `Tabela1[Valor]` did.
+    private const string UnsupportedStructuredFormula = "SUM(Tabela1[[#This Row],[Valor]])";
 
     /// <summary>A "Data" sheet holding <c>Tabela1</c> over A1:B3 (header + two rows), plus whatever
     /// <paramref name="inject"/> plants into the raw sheet XML.</summary>
@@ -169,7 +179,7 @@ public class TableInteropTests
             AppendToRow(
                 sheetData,
                 4,
-                FormulaCell("B4", new CellFormula(StructuredFormula), cachedValue: null)
+                FormulaCell("B4", new CellFormula(UnsupportedStructuredFormula), cachedValue: null)
             )
         );
 
@@ -197,7 +207,11 @@ public class TableInteropTests
     public async Task Load_StructuredReferenceFormula_WithoutOptions_DoesNotThrow()
     {
         var path = WriteTableFixture(sheetData =>
-            AppendToRow(sheetData, 4, FormulaCell("B4", new CellFormula(StructuredFormula), "999"))
+            AppendToRow(
+                sheetData,
+                4,
+                FormulaCell("B4", new CellFormula(UnsupportedStructuredFormula), "999")
+            )
         );
 
         try
@@ -218,8 +232,16 @@ public class TableInteropTests
     {
         var path = WriteTableFixture(sheetData =>
         {
-            AppendToRow(sheetData, 4, FormulaCell("B4", new CellFormula(StructuredFormula), "999"));
-            AppendToRow(sheetData, 5, FormulaCell("B5", new CellFormula(StructuredFormula), "888"));
+            AppendToRow(
+                sheetData,
+                4,
+                FormulaCell("B4", new CellFormula(UnsupportedStructuredFormula), "999")
+            );
+            AppendToRow(
+                sheetData,
+                5,
+                FormulaCell("B5", new CellFormula(UnsupportedStructuredFormula), "888")
+            );
         });
 
         try
@@ -247,8 +269,10 @@ public class TableInteropTests
     public async Task Load_SharedStructuredReferenceMaster_DoesNotAbort_AndTheGroupFallsBackToCachedValues()
     {
         // A dragged structured-reference formula: the master carries the text, the slave carries only si.
-        // The master's TOKENIZATION is what fails here (before any parse), so this exercises a different
-        // code path from the plain-formula case above.
+        // The master's text is rejected at the PARSE, not by the tokenizer (which reads the whole `[...]`
+        // suffix as one token). What makes this a different code path from the plain-formula case above is
+        // the shared GROUP: the rejected master must register nothing, so its slave degrades through the
+        // missing-master fallback rather than through this cell's own catch.
         var path = WriteTableFixture(sheetData =>
         {
             AppendToRow(
@@ -256,7 +280,7 @@ public class TableInteropTests
                 4,
                 FormulaCell(
                     "B4",
-                    new CellFormula(StructuredFormula)
+                    new CellFormula(UnsupportedStructuredFormula)
                     {
                         FormulaType = CellFormulaValues.Shared,
                         SharedIndex = 0,
@@ -309,7 +333,11 @@ public class TableInteropTests
         // <f>…</f><v/> — a formula cell the producer never evaluated. Not exotic: any tool that writes
         // formulas without computing them emits this.
         var path = WriteTableFixture(sheetData =>
-            AppendToRow(sheetData, 4, FormulaCell("B4", new CellFormula(StructuredFormula), ""))
+            AppendToRow(
+                sheetData,
+                4,
+                FormulaCell("B4", new CellFormula(UnsupportedStructuredFormula), "")
+            )
         );
 
         try
@@ -341,7 +369,11 @@ public class TableInteropTests
         // No @t (so the numeric branch) but the text is not a number: a malformed cell, which must degrade
         // to text with a warning rather than throwing FormatException out of Load.
         var path = WriteTableFixture(sheetData =>
-            AppendToRow(sheetData, 4, FormulaCell("B4", new CellFormula(StructuredFormula), "abc"))
+            AppendToRow(
+                sheetData,
+                4,
+                FormulaCell("B4", new CellFormula(UnsupportedStructuredFormula), "abc")
+            )
         );
 
         try
@@ -376,7 +408,12 @@ public class TableInteropTests
             AppendToRow(
                 sheetData,
                 4,
-                FormulaCell("B4", new CellFormula(StructuredFormula), "ok", CellValues.String)
+                FormulaCell(
+                    "B4",
+                    new CellFormula(UnsupportedStructuredFormula),
+                    "ok",
+                    CellValues.String
+                )
             )
         );
 
@@ -399,7 +436,12 @@ public class TableInteropTests
             AppendToRow(
                 sheetData,
                 4,
-                FormulaCell("B4", new CellFormula(StructuredFormula), "#DIV/0!", CellValues.Error)
+                FormulaCell(
+                    "B4",
+                    new CellFormula(UnsupportedStructuredFormula),
+                    "#DIV/0!",
+                    CellValues.Error
+                )
             )
         );
 
@@ -429,7 +471,7 @@ public class TableInteropTests
                 4,
                 FormulaCell(
                     "B4",
-                    new CellFormula(StructuredFormula),
+                    new CellFormula(UnsupportedStructuredFormula),
                     "9999",
                     CellValues.SharedString
                 )
@@ -533,13 +575,13 @@ public class TableInteropTests
                     "0"
                 )
             );
-            // A second "master" reusing si=0, whose text cannot be tokenized at all.
+            // A second "master" reusing si=0, whose text the parser rejects.
             AppendToRow(
                 sheetData,
                 5,
                 FormulaCell(
                     "E5",
-                    new CellFormula(StructuredFormula)
+                    new CellFormula(UnsupportedStructuredFormula)
                     {
                         FormulaType = CellFormulaValues.Shared,
                         SharedIndex = 0,
