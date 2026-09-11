@@ -78,7 +78,7 @@ _(write when phase completes)_
 
 ## Phase C: 5 and 6 concurrently with Phase B's tail
 
-Status: Not started
+Status: Complete
 
 Plans: `phase-5-resolution-and-graph.md` (its items 1-4 are deleted by the 2026-09-10 ruling; it depends only on Phase B Task 1) and `phase-6-excel-loader.md`. Both need re-verification against `main` before briefs are generated — Phase 5's anchors are as old as Phase 4's were, and Phase 6 has never been audited.
 
@@ -86,28 +86,46 @@ Plans: `phase-5-resolution-and-graph.md` (its items 1-4 are deleted by the 2026-
 - [x] Re-verify Phase 6; nine rulings written into the phase file (`9bef4c7`); three briefs; worktree `/Volumes/Work/Develop/MySheet-p6`, branch `feat/excel-loader`.
 - [x] Phase 6 Task 1 — the `<table>` reader, nine committed Aspose fixtures, export/merge pins. `ae6d82a`, Excel 93/0 → 125/0.
 - [x] Phase 5 Task 1 — six-area geometry plus the `Empty` outcome. `5879a48`, core 1994/1 → **2092/1** (+98), Excel 93/0. `TryGetRegion` renamed to `GetRegion`, returns `TableRegionOutcome { Resolved, Empty, Absent }`.
-- [ ] Execute Phase 5 (its cadence), ff-merge. T2 `0654194` and T3 `c43799c`+`9f681f7` accepted (core 2436/0); T4 accepted 2026-09-11 session 2 (four commits, core **2451/0**, Excel 93/0, ledger has the details); T5 dispatched after Phase 4 merges — Opus-class work running on GLM-5.3-Flash instead (see Phase B note), and the p5 rebase owes the two INDIRECT canary flips (p5 ledger).
-- [ ] Execute Phase 6 (its cadence), ff-merge. Phase 6 is the release blocker: without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
+- [x] Execute Phase 5 (its cadence), ff-merge. T2 `0654194` and T3 `c43799c`+`9f681f7` accepted (core 2436/0); T4 accepted 2026-09-11 session 2 (four commits, core **2451/0**, Excel 93/0, ledger has the details); T5 accepted (`82746fc` R3 + M4 + item 24b, `544c53e` docs, core **2552/0**). Review (controller subagent: **Yes with fixes** — both mutation batteries run in full; Copilot: "Yes" zero findings, discounted for fabricating the sweep-32 seam agreement and unexecuted probes), fix wave (one docs-only Important: the Named-ranges blockquote's stale "neither the structured-reference syntax" clause, both twins), clean 13/13 rebase, **ff-merged at `313a6c8`**. The INDIRECT canaries flipped on the rebased branch before T5 (`d8048a8`), measured 60 before flipping.
+- [x] Execute Phase 6 (its cadence), ff-merge. T1 accepted earlier (`ae6d82a`); T2 accepted (`9be9703`+`2f50fcb`+`b6090ec` — the two merge-consequence flips first, then items 12-19 with three brief corrections measured; Excel **133/0**); T3 accepted (`84ea708` docs, 6 files, both twins; the handed-over SMALL row measured as ClosedXML's column — no edit). Review (controller subagent: **"Yes"**, zero Critical/Important — the full END-TO-END with an Aspose-authored file it authored itself matched every shape, containment mutation 13/29 red, streaming invariant re-measured; Copilot: "Yes", real probe artifacts this time), fix wave (two Minors: fixture-provenance sentence scoped; the export trap's `<f>` text pinned in Formulas mode), clean 6/6 rebase, **ff-merged at `b778ab7`**. **The release blocker is gone: an Aspose-authored `.xlsx` with a real table and `SUM(Tabela1[Valor])` loads and answers the oracle's number (42), verified end-to-end by the review.**
 
 ### Verification Plan
 - Both suites 0 failures on `main` after each merge.
 - An `.xlsx` produced by Aspose with a real table and `=SUM(Tabela1[Valor])` loads and answers the oracle's number (the end-to-end pin Phase 6 must add).
 
 ### Phase Summary
-_(write when phase completes)_
+
+**Complete. Phase 5 merged at `313a6c8`, Phase 6 at `b778ab7`; main verified after each merge: core 2552 / 0, Excel 133 / 0 (93 → 133 over Phase 6), csharpier clean, Release 0 warnings, no AI trailers.** All worktrees and feature branches removed.
+
+Phase 5 gave the structured reference its resolution and its consumers: one primitive (`TableReference.TryResolveRange` over `Table.GetRegion` returning `TableRegionOutcome {Resolved, Empty, Absent}`), ruling R2's error-VALUE semantics pinned against mutation, the mini-CSE CSE-column arms with the sweep-32 seam recorded, the range-value cache normalized on the resolved rectangle (DynamicRange deliberately excluded), ISFORMULA/FORMULATEXT measured off their switches' `#VALUE!`, and bare `=Tabela1` resolving through the name path at evaluation time (R3a) with the M4 cell-boundary pin and the docs of finding 8. Phase 6 closed the release blocker: the loader reads `<table>` parts in the per-sheet loop (`displayName`, `ref` geometry with `?? 1`/`?? 0` defaults, ordered raw column names + `_xHHHH_` decode), contains every malformed part behind ONE `InvalidTableDefinition` warning with the table skipped, keeps `SaveAsExcel` table-free, and pins evaluation over the nine committed Aspose-authored fixtures — ending with the review's own end-to-end: an Aspose-authored file loads, registers, and answers 42 with liveness.
+
+The reviewers who were worth their cost: the controller's GLM-5.3-Flash subagent found the `DecodeName` apostrophe divergence (Phase 4, fixed), ran both Phase 5 mutation batteries to red, and executed the Phase 6 end-to-end; Copilot produced zero actionable findings across all three phases despite real artifacts on the last one — its Phase 5 review fabricated agreement on the sweep-32 seam, and every one of its findings was discounted after verification, exactly the standing rule. The controller's own brief was measured wrong twice by implementers/reviewers (item 11's INDIRECT claim in Phase 5 T4; the `=ZZZ999` classification example) — recorded where the next reader will see it.
 
 ## Phase D: release 3.21.0
 
-Status: Not started
+Status: Ready — awaiting the user's release run
 
-- [ ] Master plan rows for 4, 5, 6 marked Complete with counts.
-- [ ] Tell the user `main` is green and 3.21.0 can be cut.
+- [x] Master plan rows for 4, 5, 6 marked Complete with counts.
+- [x] Tell the user `main` is green and 3.21.0 can be cut.
 
 ### Verification Plan
 - Both suites 0 failures; no AI trailer in `git log`; `CHANGELOG.md` untouched (versionize owns it).
 
 ### Phase Summary
-_(write when phase completes)_
+
+**`main` @ `b778ab7` is green and 37 commits ahead of `origin/main` (push first): core 2552 / 0, Excel 133 / 0, csharpier clean, Release 0 warnings, `^\[MemoryPackUnion` = 328 with 327 = `TableReference`, no AI trailer anywhere in the epic's commits, `CHANGELOG.md` untouched. The release blocker is closed: a real Aspose-authored `.xlsx` with a table and `SUM(Tabela1[Valor])` loads and answers the oracle's number.** Phases 4, 5 and 6 are Complete above; the user cuts 3.21.0 via `release.yml` `workflow_dispatch`.
+
+## Final Recap
+
+**The structured-table epic is done: a real `.xlsx` table now round-trips, loads, and answers.** Across Phases 4, 5 and 6 (eleven + twelve + six commits on top of the 3.20.0 main), MySheet gained: the bracketed-specifier token and the structured-reference grammar with a canonical writer owned by one file (Phase 4); the `TableReference` node (union tag 327) with ONE resolution primitive over a three-outcome region outcome, error-VALUE failure semantics pinned against mutation, the mini-CSE array-entered arms with two recorded seams left deliberately open (sweep items 32/33/34), the consumer/cache fast paths, bare `=Tabela1` through the name path at evaluation time, and the `<table>` reader that populates the registry at load with every malformed part contained behind one warning (Phases 5 and 6). The oracle (Aspose.Cells 26.6.0 as MEASURED) governed every number: where the engine cannot match — the empty-table `#REF!`, the consumer-error overwrites, the export trap, the `TRUE`-named-table limit — the divergence is registered beside its pins, never sold as parity.
+
+Process record, because it is part of the deliverable: every phase ran brief-driven TDD subagents, a controller review per task, a multi-part final review with every finding verified in the tree before acting, a fix wave, a clean rebase and an ff-only merge. The model plan of record (Opus-class work / mechanical work) was re-decided twice by availability — Fable out of credits, Opus and Sonnet weekly-limited from Sep 11, Kimi monthly-limited — landing on the controller's own subagent instances plus Copilot, with Copilot's findings discounted unless verified (it produced zero actionable findings across three final reviews, fabricating agreement once). Three sessions of controller work; the plan files and the gitignored ledgers carried every restart.
+
+## Deployment Plan
+
+1. `git push origin main` (37 commits ahead; the user or the controller can run it — the epic's rule was that the user cuts releases).
+2. Cut **3.21.0** via `.github/workflows/release.yml` `workflow_dispatch` (the user runs it): versionize bumps the version, tags, packs both packages and publishes to NuGet.org via Trusted Publishing; `CHANGELOG.md` is generated (never edited by hand).
+3. After the release: `git pull` on main, confirm the tag, and the structured-table work is shipped. The recorded follow-ups live in `plans/structured-table-references-and-aggregate/phase-11-excel-compatibility-sweep.md` items 32-34 (the deliberate seams), plus the deferred minors in each phase's fix-wave file.
 
 ## RESUME HERE (2026-09-11, session 3 — Phases 4 AND 5 merged)
 
