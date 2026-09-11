@@ -380,8 +380,11 @@ internal static class StructuredReferenceSyntax
             string.Equals(text, specifier, StringComparison.OrdinalIgnoreCase);
     }
 
-    // Excel's escape: a `'` makes the next character literal, so '' -> ', '] -> ], '[ -> [, '# -> # and
-    // '@ -> @. Runs AFTER classification (see Parse's remarks), never before, or a column named #OfItems
+    // Excel's escape, measured (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11, both review probes): a `'`
+    // makes the NEXT character literal ONLY when that character is one of the five specials — '' -> ',
+    // '] -> ], '[ -> [, '# -> # and '@ -> @. Before an ordinary character the apostrophe is LITERAL:
+    // `Tabela1[a'b]` resolves to the column named `a'b`, which is why the canonical writer doubles every
+    // apostrophe. Runs AFTER classification (see Parse's remarks), never before, or a column named #OfItems
     // would decode into an unknown specifier.
     private static string DecodeName(string raw, int position, string tokenText)
     {
@@ -409,7 +412,17 @@ internal static class StructuredReferenceSyntax
                 );
             }
 
-            builder.Append(raw[++i]);
+            var next = raw[i + 1];
+
+            if (next is '[' or ']' or '#' or '\'' or '@')
+            {
+                builder.Append(next);
+                i++;
+            }
+            else
+            {
+                builder.Append('\'');
+            }
         }
 
         return builder.ToString();

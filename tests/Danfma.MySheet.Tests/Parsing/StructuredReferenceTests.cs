@@ -95,6 +95,31 @@ public class StructuredReferenceTests
         await Assert.That(workbook.GetCellValue("Data", "C2").ToDouble()).IsEqualTo(10.0);
     }
 
+    // A raw apostrophe before an ORDINARY character is not an escape on the oracle: `SUM(Tabela1[a'b])` over
+    // a column literally named `a'b` resolves to that column (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11,
+    // both review probes — GLM's fixture columns `ab`=30 / `a'b`=60 / `a''b`=90 answered 60 for `[a'b]`, and
+    // the flash reviewer proved it end-to-end through a workbook). The decoder used to swallow the next
+    // character after EVERY `'`, so this formula silently summed the WRONG, existing column — the fixture
+    // carries `ab` on purpose so the old rule answers 20 here instead of an honest #REF!.
+    [Test]
+    public async Task ARawApostropheBeforeAnOrdinaryCharacter_IsALiteralApostrophe()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = new StringValue("a'b");
+        data["A2"] = new NumberValue(10);
+        data["B1"] = new StringValue("ab");
+        data["B2"] = new NumberValue(20);
+        workbook.DefineTable("Tabela1", "Data", "A1:B2", ["a'b", "ab"]);
+        data["D1"] = ExpressionParser.Parse("=SUM(Tabela1[a'b])", data);
+        // The control: the canonical doubled spelling decodes to `a'b` under the old rule too, so it cannot
+        // discriminate — its job is to prove the apostrophe column is reachable by its ESCAPED spelling.
+        data["D2"] = ExpressionParser.Parse("=SUM(Tabela1[a''b])", data);
+
+        await Assert.That(workbook.GetCellValue("Data", "D1").ToDouble()).IsEqualTo(10.0);
+        await Assert.That(workbook.GetCellValue("Data", "D2").ToDouble()).IsEqualTo(10.0);
+    }
+
     // The commonest real shape, and the one the writer renders back verbatim. `SUM(Tabela1[Valor])` = 60 on
     // the oracle, stored identically.
     [Test]
