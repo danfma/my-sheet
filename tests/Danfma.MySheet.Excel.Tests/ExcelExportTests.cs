@@ -2,6 +2,7 @@ using ClosedXML.Excel;
 using Danfma.MySheet.Excel;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
+using DocumentFormat.OpenXml.Packaging;
 using StringValue = Danfma.MySheet.Expressions.StringValue;
 
 namespace Danfma.MySheet.Excel.Tests;
@@ -267,5 +268,40 @@ public class ExcelExportTests
                 await Assert.That(reloaded["Data"]["A3"]).IsTypeOf<NumberValue>();
             }
         );
+    }
+
+    [Test]
+    [Arguments(FormulaMode.ValuesOnly)]
+    [Arguments(FormulaMode.Formulas)]
+    public async Task SaveAsExcel_WorkbookWithTables_WritesNoTablePart(FormulaMode mode)
+    {
+        // Writing <table> parts is out of scope, pinned here as a deliberate contract rather than left as
+        // an absence nobody checked: the loaded workbook HAS the table in its registry and the export
+        // drops it. In Formulas mode the file then carries structured references with no table behind
+        // them, which Excel opens as #NAME? — the documented export trap. (What the <f> text of such a
+        // cell round-trips as is pinned once the parser reads it.)
+        var workbook = ExcelFile.Load(XlsxParts.Fixture("f1-plain"));
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"mysheet-export-table-{Guid.NewGuid():N}.xlsx"
+        );
+
+        // Precondition, else the test is vacuous.
+        await Assert.That(workbook.Tables.ContainsKey("Tabela1")).IsTrue();
+
+        try
+        {
+            workbook.SaveAsExcel(path, new ExcelExportOptions { FormulaMode = mode });
+
+            using var document = SpreadsheetDocument.Open(path, isEditable: false);
+            var data = XlsxParts.WorksheetFor(document, "Data");
+
+            await Assert.That(data.TableDefinitionParts.Count()).IsEqualTo(0);
+            await Assert.That(XlsxParts.ReadXml(data)).DoesNotContain("<tableParts");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

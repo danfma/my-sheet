@@ -254,4 +254,44 @@ public class ExcelMergeTests
             File.Delete(path);
         }
     }
+
+    [Test]
+    public async Task Merge_IntoAFileWithATable_KeepsTheTablePart()
+    {
+        // The merge rewrites only the worksheet's <sheetData>; every sibling element (<tableParts>) is
+        // copied through and every other part (xl/tables/table1.xml) is never opened, so the Excel Table
+        // survives with its ref intact — the merge path needs no table writer.
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-merge-table-{Guid.NewGuid():N}.xlsx");
+        File.Copy(XlsxParts.Fixture("f1-plain"), path);
+
+        try
+        {
+            var workbook = new Workbook();
+            var data = workbook.Sheets.Add("Data");
+            data["B2"] = ExpressionParser.Parse("=8", data);
+
+            workbook.MergeIntoExcel(path);
+
+            using (
+                var merged = DocumentFormat.OpenXml.Packaging.SpreadsheetDocument.Open(path, false)
+            )
+            {
+                var sheet = XlsxParts.WorksheetFor(merged, "Data");
+                var tableParts = sheet.TableDefinitionParts.ToList();
+
+                await Assert.That(tableParts.Count).IsEqualTo(1);
+                await Assert.That(tableParts[0].Table?.Reference?.Value).IsEqualTo("A1:B3");
+                await Assert.That(XlsxParts.ReadXml(sheet)).Contains("<tableParts");
+            }
+
+            // Our value landed in the table's body, and the table's own cells are untouched.
+            using var reread = new XLWorkbook(path);
+            await Assert.That(reread.Worksheet("Data").Cell("B2").GetDouble()).IsEqualTo(8.0);
+            await Assert.That(reread.Worksheet("Data").Cell("B3").GetDouble()).IsEqualTo(32.0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

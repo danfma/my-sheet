@@ -135,9 +135,10 @@ public class TableInteropTests
             await Assert.That(workbook.GetCellValue("Data", "B2").ToDouble()).IsEqualTo(10.0);
             // Re-evaluated by MySheet, not read from the cached <v>.
             await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(42.0);
-            // The loader does not populate the table registry, and it does not turn the table's name into a
-            // defined name either — so nothing the evaluator resolves comes out of the <table> part.
-            await Assert.That(workbook.Tables.Count).IsEqualTo(0);
+            // The loader registers the <table> part in the table registry (TableDefinitionReaderTests pins
+            // the record it builds), and it does NOT turn the table's name into a defined name — the two
+            // registries stay distinct, exactly as Excel's Name Manager keeps them.
+            await Assert.That(workbook.Tables.Count).IsEqualTo(1);
             await Assert.That(workbook.DefinedNames.ContainsKey("Tabela1")).IsFalse();
         }
         finally

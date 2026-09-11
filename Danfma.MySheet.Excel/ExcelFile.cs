@@ -27,7 +27,9 @@ public sealed class ExcelLoadOptions
 /// </summary>
 /// <param name="Kind">What kind of issue this is.</param>
 /// <param name="Subject">What the warning is about: the defined name's own name for
-/// <see cref="ExcelLoadWarningKind.InvalidDefinedName"/>, or the cell id (e.g. <c>"B7"</c>) for every
+/// <see cref="ExcelLoadWarningKind.InvalidDefinedName"/>, the table's <c>displayName</c> (or the sheet
+/// name when the part could not be read that far) for
+/// <see cref="ExcelLoadWarningKind.InvalidTableDefinition"/>, or the cell id (e.g. <c>"B7"</c>) for every
 /// cell-scoped kind (<see cref="ExcelLoadWarningKind.UnparsableDateLiteral"/>,
 /// <see cref="ExcelLoadWarningKind.UnparsableFormula"/>,
 /// <see cref="ExcelLoadWarningKind.UnparsableCellLiteral"/>).</param>
@@ -57,12 +59,18 @@ public enum ExcelLoadWarningKind
     UnparsableDateLiteral,
 
     /// <summary>
-    /// A cell whose formula text failed to parse — a syntax MySheet's parser does not accept, most often a
-    /// <b>structured reference</b> into an Excel Table (<c>Tabela1[Valor]</c>), which the tokenizer has no
-    /// <c>[</c> for. The cell falls back to the cached value Excel stored alongside the formula (blank when
-    /// the file carries none), so only that cell degrades — the rest of the workbook loads normally.
+    /// A cell whose formula text failed to parse — a syntax MySheet's parser does not accept. Now that
+    /// structured references are supported, the remaining common causes are the structured-reference
+    /// shapes still out of scope (the this-row form, stored by Excel as
+    /// <c>Tabela1[[#This Row],[Valor]]</c> and typed as <c>Tabela1[@Valor]</c>, a column span
+    /// <c>Tabela1[[Q1]:[Q3]]</c>, the implicit-table form <c>[Valor]</c>), array literals
+    /// (<c>{1;2;3}</c>), and genuinely malformed or otherwise unsupported formula text. The cell falls back
+    /// to the cached value Excel stored alongside the formula (blank when the file carries none), so only
+    /// that cell degrades — the rest of the workbook loads normally.
     /// <see cref="ExcelLoadWarning.Subject"/> is the cell id; for a shared-formula group it is the MASTER's
     /// cell, reported once for the group (each slave then falls back to its own cached value).
+    /// A structured reference whose TABLE is missing or was skipped is NOT this warning — it parses fine
+    /// and evaluates to <c>#NAME?</c>; see <see cref="InvalidTableDefinition"/>.
     /// </summary>
     UnparsableFormula,
 
@@ -75,6 +83,21 @@ public enum ExcelLoadWarningKind
     /// <see cref="UnparsableDateLiteral"/>, which is specifically the <c>t="d"</c> ISO-8601 case.
     /// </summary>
     UnparsableCellLiteral,
+
+    /// <summary>
+    /// An Excel <b>Table</b> (<c>&lt;table&gt;</c> part) that could not be registered in
+    /// <see cref="Workbook.Tables"/>: a missing or malformed <c>ref</c>, a <c>headerRowCount</c> or
+    /// <c>totalsRowCount</c> other than 0 or 1, a column count that disagrees with the <c>ref</c>'s width,
+    /// an empty or duplicated column name, a name MySheet's tokenizer could never read (a backslash,
+    /// <c>TRUE</c>/<c>FALSE</c> — Excel itself accepts both), a name another table already claimed, or a
+    /// part whose XML cannot be read at all (garbage, a wrong root element). The table is skipped and the
+    /// rest of the workbook loads normally — its cells are still ordinary cells — but a structured
+    /// reference into it then evaluates to <c>#NAME?</c>, which is exactly what Excel shows for a table
+    /// that does not exist.
+    /// <see cref="ExcelLoadWarning.Subject"/> is the table's <c>displayName</c>, or the SHEET name when
+    /// the part could not be read far enough to have one.
+    /// </summary>
+    InvalidTableDefinition,
 }
 
 /// <summary>
@@ -84,6 +107,10 @@ public enum ExcelLoadWarningKind
 /// MySheet model. Formula cells are parsed into real <c>Expression</c> trees (re-evaluated by the MySheet
 /// engine); plain cells become literal values. Dates stay as serial numbers, and a shared-formula cell
 /// that carries no formula text (a "slave" of a dragged formula) is expanded from its group master.
+/// Excel <b>Tables</b> are read from each worksheet's <c>&lt;table&gt;</c> parts into
+/// <see cref="Workbook.Tables"/> (name, geometry and column names), which is what makes a structured
+/// reference such as <c>Tabela1[Valor]</c> resolve; the parts are reached through package relationships,
+/// so this does not materialize any worksheet DOM.
 /// </summary>
 public static class ExcelFile
 {
@@ -139,6 +166,12 @@ public static class ExcelFile
             var worksheetPart = (WorksheetPart)workbookPart.GetPartById(relationshipId);
 
             WorksheetStreamLoader.Load(worksheetPart, sheet, sharedStrings, options);
+
+            // Tables come from a package RELATIONSHIP (TableDefinitionParts), not from the sheet XML — the
+            // streaming loader breaks out at </sheetData> and never sees <tableParts>. Read after the cells
+            // so this sheet's warnings stay in document order; registration order does not matter because
+            // a structured reference resolves at evaluation time, exactly like a defined name.
+            TableDefinitionReader.Read(worksheetPart, workbook, sheet.Name, options);
         }
 
         // Defined names are read after the sheets so their (qualified) references resolve to real sheets.

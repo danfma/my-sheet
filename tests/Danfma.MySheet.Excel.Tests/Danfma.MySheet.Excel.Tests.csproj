@@ -17,4 +17,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Danfma.MySheet.Excel\Danfma.MySheet.Excel.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Oracle-authored (Aspose.Cells) .xlsx fixtures; see Fixtures/README.md. Copied next to the test
+         binary so a test locates one through XlsxParts.Fixture(name). -->
+    <None Include="Fixtures\*.xlsx" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
