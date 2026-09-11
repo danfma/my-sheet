@@ -7,15 +7,13 @@ namespace Danfma.MySheet.Excel.Tests;
 
 /// <summary>
 /// Interop with Excel <b>Tables</b> (a <c>&lt;table&gt;</c> part, a.k.a. a ListObject) and the STRUCTURED
-/// REFERENCES they enable (<c>Tabela1[Valor]</c>). The parser READS the in-scope forms now, but the loader
-/// does not populate MySheet's table registry — <see cref="Workbook.Tables"/> exists and
-/// <c>Workbook.DefineTable</c> is its only writer, and nothing reads an xlsx <c>&lt;table&gt;</c> part into
-/// it — so an in-scope structured reference resolves to <c>#NAME?</c> (what Excel shows for a table that does
-/// not exist) until the excel-loader phase lands, while the out-of-scope forms (the current-row
-/// <c>[@Col]</c> / <c>[[#This Row],[Col]]</c>, a column span, an implicit-table <c>[Col]</c>) still throw at
-/// the parse. What these tests pin is that a formula the load cannot represent degrades the AFFECTED CELL
-/// ONLY (falling back to the cached value Excel stored alongside it, reported via
-/// <see cref="ExcelLoadOptions.OnWarning"/>) instead of aborting the whole load.
+/// REFERENCES they enable (<c>Tabela1[Valor]</c>). The loader reads each <c>&lt;table&gt;</c> part into
+/// MySheet's table registry (<see cref="TableDefinitionReaderTests"/> pins the record it builds), so an
+/// in-scope structured reference in a loaded file now EVALUATES against the loaded geometry, while the
+/// out-of-scope forms (the current-row <c>[@Col]</c> / <c>[[#This Row],[Col]]</c>, a column span, an
+/// implicit-table <c>[Col]</c>) still throw at the parse. What these tests pin is that a formula the load
+/// cannot represent degrades the AFFECTED CELL ONLY (falling back to the cached value Excel stored
+/// alongside it, reported via <see cref="ExcelLoadOptions.OnWarning"/>) instead of aborting the whole load.
 ///
 /// ClosedXML writes the table (an independent implementation, like every other fixture here); the
 /// structured-reference formula cells are injected through the OpenXML SDK afterwards because ClosedXML
@@ -148,21 +146,17 @@ public class TableInteropTests
     }
 
     // The replacement for this class's old "reports a warning and falls back to 999" test, which asserted
-    // exactly what the parser arm inverts. It exists so the LOSS of the degradation path is pinned rather
-    // than hidden: nothing else in either suite would notice that `SUM(Tabela1[Valor])` stopped warning.
-    //
-    // The interim answer is #NAME? — the parse succeeds, and the node resolves against Workbook.Tables,
-    // which this loader still does not populate from the <table> part (asserted below, so the reason cannot
-    // be mistaken for a resolution bug). #NAME? is also what Excel itself shows for a structured reference
-    // to a table that does not exist, so the cell is not silently wrong; it is, however, worse than the
-    // cached 999 this used to show, which is why no release may ship before the loader phase. That phase
-    // rewrites this test: with the table registered the same fixture answers 42, the oracle's number
-    // (Aspose.Cells 26.6.0, PLAIN entry: `SUM(Tabela1[Valor])` over A1:B3 with 10 and 32 = 42).
+    // exactly what the parser arm inverts, and for the interim "#NAME? with nothing registered" pin that
+    // asserted what the loader reader inverted. It exists so the ARRIVAL of resolution is pinned rather
+    // than hidden: nothing else in either suite would notice that `SUM(Tabela1[Valor])` started answering
+    // the true sum.
     [Test]
-    public async Task Load_StructuredReferenceFormula_ParsesAndNoLongerDegradesToTheCachedValue()
+    public async Task Load_StructuredReference_EvaluatesAgainstTheRegisteredTable()
     {
-        // 999 is deliberately NOT the true sum of the Valor column (42), so nothing here can pass by
-        // reading the cached <v>: the old behaviour would answer 999.0 and one UnparsableFormula warning.
+        // 999 is deliberately NOT the true sum of the Valor column (42), so the assertion below can only
+        // pass on a real resolution: the pre-parser loader answered 999.0 (one UnparsableFormula warning),
+        // the parser-without-reader interim answered #NAME? (no warning), and the oracle (Aspose.Cells
+        // 26.6.0, PLAIN entry, same shape) answers 42.
         var path = WriteTableFixture(sheetData =>
             AppendToRow(sheetData, 4, FormulaCell("B4", new CellFormula(StructuredFormula), "999"))
         );
@@ -173,21 +167,16 @@ public class TableInteropTests
 
             var workbook = ExcelFile.Load(path, new ExcelLoadOptions { OnWarning = warnings.Add });
 
-            // The formula parsed: no warning at all, and the cached 999 was not used.
+            // The formula parsed AND the table registered: no warning at all, the cached 999 was not used.
             await Assert.That(warnings.Count).IsEqualTo(0);
+            await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(42.0);
 
-            var value = workbook.GetCellValue("Data", "B4");
+            // The reference reached the dirty graph rather than being frozen at load time: editing a cell
+            // under the column and recalculating moves the result.
+            workbook["Data"]["B2"] = new Danfma.MySheet.Expressions.NumberValue(8);
+            workbook.InvalidateCache();
 
-            await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Error);
-            await Assert.That(value.TryGetError(out var error)).IsTrue();
-            await Assert.That(error.Display).IsEqualTo("#NAME?");
-
-            // ...because the table itself is still not registered. This is the line the loader phase flips.
-            await Assert.That(workbook.Tables.Count).IsEqualTo(0);
-
-            // Everything else loaded normally, exactly as before.
-            await Assert.That(workbook.GetCellValue("Data", "B3").ToDouble()).IsEqualTo(32.0);
-            await Assert.That(workbook.GetCellValue("Data", "A2").ToText()).IsEqualTo("a");
+            await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(40.0);
         }
         finally
         {

@@ -343,25 +343,20 @@ public class TableDefinitionReaderTests
         }
     }
 
-    // === Names Excel accepts and MySheet's tokenizer cannot read =========================================
+    // === Names Excel accepts and MySheet cannot register =================================================
 
     [Test]
-    [Arguments("f5-name-My_Table", "My\\Table")]
-    [Arguments("f5-name-TRUE", "TRUE")]
-    public async Task Load_TableNameTheTokenizerCannotRead_WarnsSkips_AndKeepsTheCachedNumber(
-        string fixture,
-        string displayName
-    )
+    public async Task Load_TableNameTheTokenizerCannotRead_WarnsSkips_AndKeepsTheCachedNumber()
     {
-        // Excel (the oracle) accepts both names and answers 42. MySheet's tokenizer never reads `\` or
-        // TRUE into an identifier, which is why Table.ValidateName rejects them: the table is skipped with
-        // ONE InvalidTableDefinition naming it, the formula cell ALSO degrades (the same tokenizer), and
+        // `My\Table` — Excel (the oracle) accepts it and answers 42. The backslash is a character
+        // MySheet's tokenizer has no rule for, so BOTH halves fail on it: the table is skipped with ONE
+        // InvalidTableDefinition naming it, the formula cell ALSO degrades (the same tokenizer), and
         // Excel's cached 42 survives in the cell — a structural limit, documented as such.
-        var (workbook, warnings) = Load(XlsxParts.Fixture(fixture));
+        var (workbook, warnings) = Load(XlsxParts.Fixture("f5-name-My_Table"));
 
         var tableWarnings = TableWarnings(warnings);
         await Assert.That(tableWarnings.Count).IsEqualTo(1);
-        await Assert.That(tableWarnings[0].Subject).IsEqualTo(displayName);
+        await Assert.That(tableWarnings[0].Subject).IsEqualTo("My\\Table");
         await Assert.That(tableWarnings[0].Detail).Contains("is not a valid table name");
         await Assert.That(workbook.Tables.Count).IsEqualTo(0);
 
@@ -371,6 +366,34 @@ public class TableDefinitionReaderTests
         await Assert.That(formulaWarnings.Count).IsEqualTo(1);
         await Assert.That(formulaWarnings[0].Subject).IsEqualTo("D1");
         await Assert.That(workbook.GetCellValue("Data", "D1").ToDouble()).IsEqualTo(42.0);
+    }
+
+    [Test]
+    public async Task Load_TableNameThatLexesButCannotRegister_CellAnswersTheNameError()
+    {
+        // `TRUE` — Excel (the oracle) accepts it and answers 42. The name is invalid for MySheet
+        // (Table.ValidateName), so the table is skipped with ONE InvalidTableDefinition — but unlike the
+        // backslash above, TRUE lexes fine (the boolean-classification arm is ordered so `TRUE[Valor]`
+        // stays one coherent table reference), so the FORMULA half no longer degrades: it parses without
+        // a warning and resolves to #NAME? — what Excel shows for a table that does not exist — and the
+        // cached 42 is lost with it. The structural limit narrowed to the TABLE NAME only when Phase 4's
+        // parser arms landed (measured before that: one UnparsableFormula at D1 and the cached 42).
+        var (workbook, warnings) = Load(XlsxParts.Fixture("f5-name-TRUE"));
+
+        var tableWarnings = TableWarnings(warnings);
+        await Assert.That(tableWarnings.Count).IsEqualTo(1);
+        await Assert.That(tableWarnings[0].Subject).IsEqualTo("TRUE");
+        await Assert.That(tableWarnings[0].Detail).Contains("is not a valid table name");
+        await Assert.That(workbook.Tables.Count).IsEqualTo(0);
+
+        // The cell side is NOT a degradation: the only warning is the table's.
+        await Assert.That(warnings.Count).IsEqualTo(1);
+
+        var value = workbook.GetCellValue("Data", "D1");
+
+        await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Error);
+        await Assert.That(value.TryGetError(out var error)).IsTrue();
+        await Assert.That(error.Display).IsEqualTo("#NAME?");
     }
 
     // === Malformed parts (schema-valid, so the loader is the only gate) ==================================
