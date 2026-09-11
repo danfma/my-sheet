@@ -783,8 +783,12 @@ internal sealed class Parser(
         return false;
     }
 
-    // Internal: the defined-name validator reuses this as the single source of truth for "looks like a
-    // cell reference" (an A1-shaped name is reserved and cannot be a defined name).
+    // Internal: the PARSER's own "looks like a cell reference" — the predicate that decides whether a bare
+    // identifier becomes a CellReference (ParseIdentifier) or an endpoint of a qualified range. It is NO
+    // LONGER any validator's rule: the defined-name validator (NamedReferences.IsValidName) was repointed at
+    // IsExcelGridCellReference, which is the predicate the table-name validator (Table.ValidateName) already
+    // used, so both name rules are bounded to Excel's grid while this one stays unbounded on purpose — see
+    // IsExcelGridCellReference below for why the two must differ.
     internal static bool IsCellReference(string text)
     {
         text = StripDollars(text);
@@ -815,7 +819,9 @@ internal sealed class Parser(
     private const int ExcelMaxColumn = 16_384;
     private const int ExcelMaxRow = 1_048_576;
 
-    // Internal: the TABLE-name validator's "looks like a cell reference". It differs from IsCellReference
+    // Internal: BOTH name validators' "looks like a cell reference" — Table.ValidateName's and, since the
+    // defined-name repoint, NamedReferences.IsValidName's, because tables and defined names share one
+    // namespace and must reserve the same names. It differs from IsCellReference
     // on purpose. IsCellReference is UNBOUNDED — any letters-then-digits string, because MySheet's grid has
     // no ceiling and ParseIdentifier depends on that — so it says Excel's own default table names, "Tabela1"
     // and "Table1", are cells. Excel's rule is that a table name may not be a reference INTO ITS GRID, so
