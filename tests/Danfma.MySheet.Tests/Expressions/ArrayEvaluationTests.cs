@@ -418,17 +418,26 @@ public class ArrayEvaluationTests
         await Assert.That(NumberAt(result, 1)).IsEqualTo(-22.0);
         await Assert.That(NumberAt(result, 2)).IsEqualTo(-333.0);
 
-        // Unary '+' is Excel's reference-preserving no-op and is NEVER lifted — it stays the opaque scalar
-        // that carries the reference, which is what keeps SUM(+A1:A3) reading the cells.
-        await Assert
-            .That(
-                ArrayEvaluation.TryEvaluate(
-                    new UnaryOperation(UnaryOperator.Plus, Range("A1", "A3", sheet)),
-                    context,
-                    out _
-                )
-            )
-            .IsFalse();
+        // Unary '+' is Excel's reference-preserving no-op, so it is TRANSPARENT and not a LIFT (Phase 11c
+        // item 11): the build hands the operand's own array back UNWRAPPED — 1, 22, 333, the cells
+        // themselves, where a lift would have applied something to each of them. This TryEvaluate answered
+        // FALSE before Phase 11c (the '+' was opaque to the probe, and its whole subtree hidden with it,
+        // which is what made SUM(LEN(+A1:A3)) #VALUE! against the oracle's 6).
+        var plus = new UnaryOperation(UnaryOperator.Plus, Range("A1", "A3", sheet));
+
+        await Assert.That(ArrayEvaluation.TryEvaluate(plus, context, out var passed)).IsTrue();
+        await Assert.That(passed.Rows).IsEqualTo(3);
+        await Assert.That(passed.Columns).IsEqualTo(1);
+        await Assert.That(NumberAt(passed, 0)).IsEqualTo(1.0);
+        await Assert.That(NumberAt(passed, 1)).IsEqualTo(22.0);
+        await Assert.That(NumberAt(passed, 2)).IsEqualTo(333.0);
+
+        // What keeps SUM(+A1:A3) reading the cells on its REFERENCE path is the top-level gate, not the
+        // probe: a '+' over a bare reference DENOTES that reference (IsBareReferenceNode's Plus arm), so no
+        // consumer diverts it into the stream. Measured on the oracle (26.6.0, 2026-09-11, both entry modes,
+        // A1:A3 = 5, 0, 9): ISREF(+A1:A3) TRUE, COUNTIF(+A1:A3,">0") 2 and COUNTBLANK(+A1:A3) 0 — all
+        // range-path answers — while COUNTIF(+FILTER(…),">0") is #REF!.
+        await Assert.That(ArrayEvaluation.TryStream(plus, context, out _)).IsFalse();
     }
 
     // --- Phase 10: the broadcasting resolver itself (Broadcasting.Axis / Broadcasting.TryProject) ---

@@ -1196,7 +1196,7 @@ public class MiniCseConsumerTests
     public async Task ABareReferenceBranch_UnderAScalarConditionIf_IsUnmovedAndStillDiverges()
     {
         // Task 8 item 3, the guard: the fix must NOT answer the "IF returns a reference" question, which
-        // three sweep items own together. ProbeIfBranches skips a bare-reference branch outright — neither
+        // three sweep items own together. ProbeBranches skips a bare-reference branch outright — neither
         // counted as an array nor refused — so every row here answers exactly what it answered before the
         // fix, verified by running both builds side by side. The oracle disagrees with all four, and gives
         // the SAME answer in both entry modes:

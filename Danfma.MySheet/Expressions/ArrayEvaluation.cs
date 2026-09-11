@@ -257,29 +257,46 @@ internal static class ArrayEvaluation
     }
 
     /// <summary>
-    /// Whether <paramref name="expression"/> is a bare reference NODE — a syntactic <see cref="Reference"/>
-    /// or a <see cref="NameReference"/> that is NOT LET-bound to an array in <paramref name="context"/> —
-    /// which at a consumer's TOP level must take the consumer's reference path even when
-    /// <see cref="IsArrayEligible"/> would say yes for it. The one predicate every top-level gate shares
-    /// (<see cref="TryStream"/>, <c>Index.TryResolveReference</c>, <c>NumericAggregation.Fold</c>'s
-    /// <c>default:</c> arm, the criteria family's range-slot rejection, the If-branch rule of
-    /// <see cref="ProbeIfBranches"/>, and <see cref="ArrayBindings.Capture"/>), so a reference-denoting node
-    /// that is not a <see cref="Reference"/> — a name today, a structured table reference tomorrow — is
-    /// excluded in ONE place. Measured on the prototype without the name half: fifteen top-level shapes
+    /// Whether <paramref name="expression"/> DENOTES a bare reference at a consumer's TOP level — where the
+    /// consumer's reference path must be taken even though <see cref="IsArrayEligible"/> would say yes. The
+    /// one predicate every top-level gate shares (<see cref="TryStream"/>,
+    /// <c>Index.TryResolveReference</c>, <c>NumericAggregation.Fold</c>'s <c>default:</c> arm, the criteria
+    /// family's range-slot rejection, the branch rule of <see cref="ProbeBranches"/>, and
+    /// <see cref="ArrayBindings.Capture"/>), so a reference-denoting node that is not a
+    /// <see cref="Reference"/> — a name, a unary <c>+</c>, a structured table reference tomorrow — is
+    /// excluded in ONE place. Measured on the prototype without the name arm: fifteen top-level shapes
     /// regressed (see <see cref="IsArrayEligible"/>'s remarks).
     ///
-    /// <para>The context is what makes a name's answer honest (Phase 11c): a name whose nearest LET binding
-    /// is an ARRAY (<see cref="EvaluationContext.TryGetArrayBinding"/>) is not a reference — it is an array
-    /// — and answers <c>false</c>, so <c>SUM(f)</c>/<c>ROWS(f)</c> stream it and <c>COUNTIF(f,…)</c> refuses
-    /// it (ArrayBindingTests). A name bound to a scalar or a range, a defined name and an unknown name keep
-    /// the syntactic answer, <c>true</c>. There is no context-free overload: every gate runs where a
-    /// context exists, and a LET binding does not exist before evaluation, so a caller without one has no
-    /// name to ask about.</para>
+    /// <para>A NAME is a reference only while it denotes one, which is what the context decides (Phase
+    /// 11c): a name whose nearest LET binding is an ARRAY
+    /// (<see cref="EvaluationContext.TryGetArrayBinding"/>), or whose workbook definition is a computed
+    /// array (<c>ResolveNameShape</c>'s <c>Array</c> outcome), is an array and answers <c>false</c> — so
+    /// <c>SUM(f)</c>/<c>ROWS(f)</c> and <c>SUM(ProdName)</c>/<c>ROWS(ProdName)</c> stream it while
+    /// <c>COUNTIF(f,…)</c>/<c>COUNTIF(ProdName,…)</c> refuse it, the oracle's answers in both entry modes
+    /// (ArrayBindingTests). A name bound to a scalar or a range, a name whose definition is a reference or a
+    /// scalar, and an unknown name keep the syntactic answer, <c>true</c>.</para>
+    ///
+    /// <para>Unary <c>+</c> is Excel's reference-preserving no-op, so it answers for its OPERAND: measured
+    /// on the oracle (26.6.0, 2026-09-11, both entry modes, <c>A1:A3</c> = 5, 0, 9)
+    /// <c>ISREF(+A1:A3)</c> is TRUE, <c>COUNTIF(+A1:A3,"&gt;0")</c> is 2, <c>SUMIF(+A1:A3,"&gt;0")</c> is
+    /// 14, <c>AVERAGEIF</c> 7 and <c>COUNTBLANK(+A1:A3)</c> 0 — every one of them the range path's answer —
+    /// while <c>COUNTIF(+FILTER(…),"&gt;0")</c> is <c>#REF!</c>. So the <c>+</c> that is TRANSPARENT to the
+    /// probe below an operator or a lift (<c>SUM(-(+A1:A3))</c> = -14, <c>SUM(LEN(+A1:A3))</c> = 6) is still
+    /// a reference at the top, and this arm is the only thing that keeps those four numbers from becoming
+    /// four <c>#REF!</c>s.</para>
+    ///
+    /// <para>There is no context-free overload: every gate runs where a context exists, and a LET binding
+    /// does not exist before evaluation, so a caller without one has no name to ask about.</para>
     /// </summary>
     internal static bool IsBareReferenceNode(Expression expression, EvaluationContext context) =>
         expression switch
         {
-            NameReference name => !context.TryGetArrayBinding(name.Name, out _),
+            NameReference name => !context.TryGetArrayBinding(name.Name, out _)
+                && ResolveNameShape(name, context, out _) is not NameShape.Array,
+            UnaryOperation { Operator: UnaryOperator.Plus } plus => IsBareReferenceNode(
+                plus.Operand,
+                context
+            ),
             _ => expression is Reference,
         };
 
@@ -324,14 +341,15 @@ internal static class ArrayEvaluation
             case NameReference bound when context.TryGetArrayBinding(bound.Name, out _):
                 return (true, true);
 
-            // A bare defined name is whatever it is bound to (Phase 11a Rule A): the four outcomes of
-            // ResolveNameShape map onto the three answers above plus the opaque scalar of `default`. Placed
-            // with the reference arms and BEFORE the Row/Column ones (different node types, no shadowing);
-            // a name in a ROW/COLUMN argument is that arm's business, not this one's.
+            // A bare defined name is whatever it is bound to (Phase 11a Rule A, and Phase 11c's Array
+            // outcome for a definition that is a computed array): the five outcomes of ResolveNameShape map
+            // onto the three answers above plus the opaque scalar of `default`. Placed with the reference
+            // arms and BEFORE the Row/Column ones (different node types, no shadowing); a name in a
+            // ROW/COLUMN argument is that arm's business, not this one's.
             case NameReference:
                 return ResolveNameShape(expression, context, out _) switch
                 {
-                    NameShape.Range => (true, true),
+                    NameShape.Range or NameShape.Array => (true, true),
                     NameShape.Refused => (false, false),
                     _ => (true, false),
                 };
@@ -347,11 +365,15 @@ internal static class ArrayEvaluation
             case Column { Arguments: [NameReference or Reference] } column:
                 return ProbePosition(column.Arguments[0], context);
 
-            // Unary '-'/'%' is an array exactly when its operand is. Plus is excluded by PATTERN, not by an
-            // `if` inside: `+range` must reach `default` and stay the opaque scalar that carries the
-            // reference (UnaryOperation.Evaluate routes it through CaptureValue). A refused operand makes
-            // the unary an opaque scalar, not a refusal — see ProbeLift.
-            case UnaryOperation { Operator: not UnaryOperator.Plus } unary:
+            // A unary operation is an array exactly when its operand is — all three operators (Phase 11c
+            // item 11). '-' and '%' LIFT, applying themselves element by element (UnaryOperand); '+' is
+            // TRANSPARENT, contributing nothing of its own, so the build hands the operand's array back
+            // unwrapped: a '+' is not a lift, it just stops HIDING what is inside it (SUM(+FILTER(…)) = 14,
+            // SUM(-(+A1:A3)) = -14, SUM(LEN(+A1:A3)) = 6 — see TryBuildUnary). At a consumer's TOP level a
+            // '+' over a bare reference still denotes that reference and never reaches here, which is
+            // IsBareReferenceNode's Plus arm. A refused operand makes the unary an opaque scalar, not a
+            // refusal — see ProbeLift — which is what keeps SUM(+A:A) on its reference path.
+            case UnaryOperation unary:
                 return (true, ProbeLift([unary.Operand], context));
 
             // A pure-scalar built-in over its arguments — placed AFTER the Row/Column/If arms so those keep
@@ -380,7 +402,7 @@ internal static class ArrayEvaluation
             // An IF is an array when its CONDITION is one (the element-wise zip) or when a BRANCH is a
             // computed array (a scalar condition then selects that branch whole). The two halves are one
             // arm because both branches are probed either way: a refused branch refuses the IF under
-            // either kind of condition. See ProbeIfBranches for why a bare-reference branch does not count.
+            // either kind of condition. See ProbeBranches for why a bare-reference branch does not count.
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
             {
                 var condition = Probe(ifNode.Arguments[0], context);
@@ -389,7 +411,11 @@ internal static class ArrayEvaluation
                     return (false, false);
                 }
 
-                var branches = ProbeIfBranches(ifNode, context, condition.IsArray);
+                var branches = ProbeBranches(
+                    ifNode.Arguments.AsSpan(1),
+                    context,
+                    condition.IsArray
+                );
                 if (!branches.Succeeds)
                 {
                     return (false, false);
@@ -397,6 +423,16 @@ internal static class ArrayEvaluation
 
                 return (true, condition.IsArray || branches.IsArray);
             }
+
+            // CHOOSE picks ONE branch by an index that is always a scalar, so it is an array on exactly the
+            // rule a SCALAR-condition IF follows: when any BRANCH is a computed array. Hence the same
+            // ProbeBranches with conditionIsArray:false — the index is never an array, so a bare-reference
+            // branch is neither counted nor probed here (CHOOSE keeps carrying a chosen range as a
+            // reference; see TryBuildChoose). Reachable because CHOOSE is Entry<Choose> — Consumes — so the
+            // lift arm above does not take it. A malformed CHOOSE (no branch at all) falls to `default` and
+            // stays the opaque scalar its own Evaluate answers.
+            case Choose choose when choose.Arguments.Length >= 2:
+                return ProbeBranches(choose.Arguments.AsSpan(1), context, conditionIsArray: false);
 
             // A LET is an array when its BODY is one in the scope its bindings make (Phase 11c). Reachable
             // because LET is Entry<Let> — Consumes — so the lift arm above does not take it. See ProbeLet.
@@ -418,10 +454,12 @@ internal static class ArrayEvaluation
         }
     }
 
-    // The branch half of the If arm, over the COMPUTED branches only: IsArray when any of them is an array
-    // (a producer, a lifted built-in or an operator over a range or a producer), Succeeds when none is
-    // refused (the cost guard, as under an array condition). The predicate is exactly TryStream's own —
-    // IsBareReferenceNode, then the probe — so the two cannot disagree about what "a computed array" means.
+    // The branch half of the If and Choose arms, over the COMPUTED branches only: IsArray when any of them
+    // is an array (a producer, a lifted built-in or an operator over a range or a producer), Succeeds when
+    // none is refused (the cost guard, as under an array condition). The predicate is exactly TryStream's
+    // own — IsBareReferenceNode, then the probe — so the two cannot disagree about what "a computed array"
+    // means. CHOOSE passes conditionIsArray:false because its index is always a scalar; everything below
+    // that names "the condition" is IF's.
     //
     // A bare reference NODE (a range, a defined name, an open range) is skipped outright: neither counted
     // nor refused. Whether IF(TRUE,A1:A3,0) hands its consumer the RANGE is the "IF returns a reference"
@@ -433,22 +471,26 @@ internal static class ArrayEvaluation
     // costs nothing (SUM(IF(FALSE,A:A,0)*B1:B3) stays 0). TryBuildScalarConditionIf is the other half of
     // that rule: a taken bare-reference branch on the eligible path DECLINES rather than streams.
     //
+    // CHOOSE's own chosen bare-reference branch does NOT decline — it streams the cells of the range it
+    // carries (TryBuildChoose), because CHOOSE's scalar path has captured a chosen range as a reference
+    // VALUE since Onda 3 and the oracle agrees (SUM(CHOOSE(1,A1:A3,FILTER(…))) is 14, ROWS of it 3). That
+    // asymmetry with IF is a difference between the two functions' own scalar paths, not a second rule here:
+    // this method still declines to COUNT any bare-reference branch, for either node.
+    //
     // The probe cannot know which branch a scalar condition will TAKE without evaluating it, so it answers
     // for the union: IF(FALSE,SEQUENCE(3),0) is an array here, and the build keeps the promise by handing
     // back the taken scalar as a 1x1 array (the oracle reads it the same way: SUM 0, ROWS 1, COUNTIF #REF!,
     // Aspose.Cells 26.6.0, 2026-09-10, both modes).
-    private static (bool Succeeds, bool IsArray) ProbeIfBranches(
-        If ifNode,
+    private static (bool Succeeds, bool IsArray) ProbeBranches(
+        ReadOnlySpan<Expression> branches,
         EvaluationContext context,
         bool conditionIsArray
     )
     {
         var isArray = false;
 
-        for (var i = 1; i < ifNode.Arguments.Length; i++)
+        foreach (var branch in branches)
         {
-            var branch = ifNode.Arguments[i];
-
             // A bare reference is never COUNTED toward IsArray — that is the "IF returns a reference"
             // question, which this method declines to answer. Whether it is PROBED depends on the condition,
             // because that is what decides how many branches the build touches:
@@ -456,10 +498,11 @@ internal static class ArrayEvaluation
             //     refusal there must refuse the probe too, or Probe promises an array the build cannot
             //     deliver and the consumer falls back and re-evaluates the condition — a volatile drawn
             //     twice. Found by the phase's final review on IF(RAND()>A1:A3,B:B,0).
-            //   - SCALAR condition: the build touches ONE branch, and TryBuildScalarConditionIf answers an
-            //     open range with the loud 1x1 #VALUE! WrapScalar gives it rather than refusing. So a
-            //     refusable reference in the UNTAKEN branch must cost nothing, which is what the oracle says:
-            //     SUM(IF(FALSE,MyColumn,0)*B1:B3) is 0, and probing it here would make it #VALUE!.
+            //   - SCALAR condition (and every CHOOSE): the build touches ONE branch, and
+            //     TryBuildScalarConditionIf answers an open range with the loud 1x1 #VALUE! WrapScalar gives
+            //     it rather than refusing. So a refusable reference in the UNTAKEN branch must cost nothing,
+            //     which is what the oracle says: SUM(IF(FALSE,MyColumn,0)*B1:B3) is 0, and probing it here
+            //     would make it #VALUE!.
             if (IsBareReferenceNode(branch, context) && !conditionIsArray)
             {
                 continue;
@@ -485,7 +528,7 @@ internal static class ArrayEvaluation
     // The Let arm's probe half (Phase 11c): walk the bindings with ArrayBindings.Shape — each name bound
     // to the SHAPE its capture would have, an array stand-in or the reference it resolves to or an opaque
     // blank, with nothing evaluated — and probe the body in that scope. A malformed LET is the scalar
-    // path's own #VALUE!: an opaque scalar. A bare-reference BODY is not counted, on ProbeIfBranches' rule
+    // path's own #VALUE!: an opaque scalar. A bare-reference BODY is not counted, on ProbeBranches' rule
     // for a bare-reference branch: whether LET(f,A1:A3,f) hands its consumer the RANGE is the same
     // "returns a reference" question as IF's, left where it is (sweep item 32) — the body still evaluates
     // in the bound scope and the consumer keeps today's answer. The context-aware predicate is what makes
@@ -588,7 +631,7 @@ internal static class ArrayEvaluation
             // (error included); a constant, a formula name that does NOT resolve to a reference, or an
             // unknown name broadcasts the name's own value, which is where #NAME? still flows through. A
             // formula name that DOES resolve to one takes the arm its resolved reference belongs to.
-            case NameReference:
+            case NameReference name:
             {
                 switch (ResolveNameShape(expression, context, out var resolved))
                 {
@@ -599,6 +642,11 @@ internal static class ArrayEvaluation
                     case NameShape.Refused:
                         operand = null!;
                         return false;
+
+                    // The definition IS the array (Phase 11c item 9): `resolved` is that definition
+                    // expression, not a reference, and it builds inside the cycle guard the probe used.
+                    case NameShape.Array:
+                        return TryBuildDefinitionArray(name, resolved!, context, out operand);
 
                     case NameShape.Scalar:
                         operand = new ScalarOperand(resolved!.Evaluate(context));
@@ -633,7 +681,7 @@ internal static class ArrayEvaluation
                 );
 
             // The two lifted shapes, mirroring the Probe arms in the same order and on the same patterns.
-            case UnaryOperation { Operator: not UnaryOperator.Plus } unary:
+            case UnaryOperation unary:
                 return TryBuildUnary(unary, context, out operand);
 
             case Function function when TryGetLift(function, out var liftArguments):
@@ -644,6 +692,10 @@ internal static class ArrayEvaluation
 
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
                 return TryBuildIf(ifNode, context, out operand);
+
+            // The build twin of Probe's Choose arm, in the same position — see TryBuildChoose.
+            case Choose choose when choose.Arguments.Length >= 2:
+                return TryBuildChoose(choose, context, out operand);
 
             // The build twin of Probe's Let arm, in the same position — see TryBuildLet.
             case Let let:
@@ -849,6 +901,16 @@ internal static class ArrayEvaluation
         // A rectangle, on an existing sheet or not: the name streams the cells exactly like the literal.
         Range,
 
+        // Not a reference at all, but a computed ARRAY: a workbook defined name whose DEFINITION is
+        // array-eligible in the definition's own context (Phase 11c item 9) — ProdName = FILTER(…),
+        // OpName = Sheet1!$A$1:$A$3*2. The name streams that definition, built once, so SUM(ProdName) is 14,
+        // ROWS(ProdName) 2, SUM(OpName) 28 and COUNTIF(ProdName,">0") #REF! (Aspose.Cells 26.6.0,
+        // 2026-09-11, both entry modes for the first three; #VALUE! plain / #REF! CSE for COUNTIF(OpName,…),
+        // the split every computed array in a range slot shows). Its `resolved` is the DEFINITION
+        // expression, not a Reference, which is the one outcome where that out parameter is not a reference
+        // node.
+        Array,
+
         // An open/whole-column reference: the cost guard refuses the whole array evaluation.
         Refused,
 
@@ -873,30 +935,115 @@ internal static class ArrayEvaluation
     // COUNT((GhostName<>"")*1) is 0 — what the literal Ghost!A1:A3 answers and what the oracle answers in
     // both entry modes (Aspose.Cells 26.6.0, 2026-09-10). Degrading to Scalar would broadcast ONE #REF!
     // value and make the COUNT a 1.
+    //
+    // `resolved` is the node the outcome is ABOUT: the resolved Reference for Range/Refused/Scalar, and for
+    // Array (Phase 11c item 9) the DEFINITION expression the build builds — hence Expression, not Reference.
     private static NameShape ResolveNameShape(
         Expression expression,
         EvaluationContext context,
-        out Reference? resolved
+        out Expression? resolved
     )
     {
         if (
             !NamedReferences.TryResolveReference(
                 expression,
                 context,
-                out resolved,
+                out var reference,
                 boundOpenRanges: false
             )
         )
         {
+            // The fifth outcome: the name resolves to no reference, but its DEFINITION is a computed array.
+            if (
+                expression is NameReference name
+                && IsDefinitionArray(name, context, out var definition)
+            )
+            {
+                resolved = definition;
+                return NameShape.Array;
+            }
+
+            resolved = null;
             return NameShape.Opaque;
         }
 
-        return resolved switch
+        resolved = reference;
+
+        return reference switch
         {
             RangeReference => NameShape.Range,
             OpenRangeReference => NameShape.Refused,
             _ => NameShape.Scalar,
         };
+    }
+
+    // Whether `name` is a workbook defined name whose DEFINITION is a computed array — ResolveNameShape's
+    // Array outcome, and the reason IsBareReferenceNode does not admit such a name either. Asked only after
+    // NamedReferences.TryResolveReference has FAILED for the name, so every name that stands for a rectangle,
+    // an open range, a cell or a union is already answered above and never reaches here; that ordering is
+    // what keeps Phase 11a's fifteen top-level shapes on their reference path (a range name's definition is
+    // itself array-eligible, so asking this first would exclude it from IsBareReferenceNode).
+    //
+    // The definition is probed INSIDE NamedReferences' name→name cycle guard, the same one
+    // EvaluateDefinition holds, so a self-referential definition classifies as Opaque here and answers the
+    // scalar path's #REF! instead of recursing (Self = FILTER(A1:A3,Self)); TryBuildDefinitionArray re-enters
+    // it for the build, which keeps the definition's own reads of the name on that same scalar path.
+    private static bool IsDefinitionArray(
+        NameReference name,
+        EvaluationContext context,
+        out Expression definition
+    )
+    {
+        definition = null!;
+
+        // A LET binding shadows a workbook name completely — NamedReferences.TryResolveRaw's own order. A
+        // scalar or range binding is checked here; an ARRAY binding never reaches this method, because both
+        // callers of ResolveNameShape (and IsBareReferenceNode itself) answer for it first.
+        if (context.TryGetName(name.Name, out _))
+        {
+            return false;
+        }
+
+        if (!context.Workbook.DefinedNames.TryGetValue(name.Name, out var found))
+        {
+            return false;
+        }
+
+        using var guard = NamedReferences.Enter(name.Name);
+
+        if (!guard.Entered || !IsArrayEligible(found, context))
+        {
+            return false;
+        }
+
+        definition = found;
+        return true;
+    }
+
+    // The build half of the Array outcome: the definition, built inside the same cycle guard the probe
+    // classified it in, so a read of the name from WITHIN its own definition reaches NameReference.Evaluate →
+    // EvaluateDefinition → the guard's #REF! rather than re-entering this arm.
+    //
+    // `Entered` cannot be false on the way in — ResolveNameShape answers Array only from inside that guard,
+    // so the name is provably not held when the build starts — and the #REF! below is what would keep a
+    // probe/build disagreement a wrong VALUE instead of an infinite recursion. It is the same answer
+    // EvaluateDefinition gives for a cycle, so no consumer sees a shape that does not exist elsewhere.
+    private static bool TryBuildDefinitionArray(
+        NameReference name,
+        Expression definition,
+        EvaluationContext context,
+        out ArrayOperand operand
+    )
+    {
+        using var guard = NamedReferences.Enter(name.Name);
+
+        if (!guard.Entered)
+        {
+            operand = new ScalarOperand(ComputedValue.Error(Error.Ref));
+            return true;
+        }
+
+        return TryBuildOperand(definition, context, out operand);
     }
 
     // Internal, not private, for the same reason Probe and TryBuildOperand are: a producer whose SOURCE
@@ -1011,7 +1158,7 @@ internal static class ArrayEvaluation
     //
     // So every path now returns true with an operand, and the Probe's promise (IsArrayEligible == the build
     // yields an array) holds in three cases rather than two:
-    //   - NOT array-eligible (no computed-array branch — ProbeIfBranches): the taken branch is evaluated as
+    //   - NOT array-eligible (no computed-array branch — ProbeBranches): the taken branch is evaluated as
     //     the scalar If.Evaluate would have produced, unchanged from before.
     //   - Eligible, and the taken branch builds as an array: that operand IS the IF's operand.
     //   - Eligible, and the taken branch yields a SCALAR — IF(FALSE,SEQUENCE(3),0), an error condition, a
@@ -1048,7 +1195,11 @@ internal static class ArrayEvaluation
         out ArrayOperand operand
     )
     {
-        var isArray = ProbeIfBranches(ifNode, context, conditionIsArray: false).IsArray;
+        var isArray = ProbeBranches(
+            ifNode.Arguments.AsSpan(1),
+            context,
+            conditionIsArray: false
+        ).IsArray;
 
         if (conditionValue.CoerceToBoolAllowingTextWords(out var taken) is { } error)
         {
@@ -1084,20 +1235,79 @@ internal static class ArrayEvaluation
 
         operand = built.IsArray ? built : WrapScalar(built.Scalar, context);
         return true;
-
-        static ArrayOperand Wrap(ComputedValue value, bool asArray) =>
-            asArray ? new SingletonArrayOperand(value) : new ScalarOperand(value);
-
-        static ArrayOperand WrapScalar(ComputedValue value, EvaluationContext context) =>
-            value.TryGetReference(out var reference)
-                ? reference switch
-                {
-                    RangeReference range => BuildRange(range, context),
-                    CellReference cell => new SingletonArrayOperand(cell.Evaluate(context)),
-                    _ => new SingletonArrayOperand(ComputedValue.Error(Error.Value)),
-                }
-                : new SingletonArrayOperand(value);
     }
+
+    // CHOOSE on the eligible path, the branch-picking twin of TryBuildScalarConditionIf: the index is
+    // evaluated ONCE here (unlike IF's condition, which the caller has already built — CHOOSE's index is
+    // never an operand) and only the CHOSEN branch is touched, exactly as Choose.Evaluate does. The index
+    // rule itself lives in Choose.TryChoose, so the two paths cannot drift: an uncoercible index propagates
+    // its own error and an out-of-range one is #VALUE! (the CHOOSE page's rule), each handed back as a 1x1
+    // when the node is eligible so the consumer cannot fall back and draw the index a second time (Task 8's
+    // volatility lesson). Measured, both entry modes: CHOOSE(1/0,FILTER(…)) is #DIV/0! and
+    // CHOOSE(3,FILTER(…)) is #VALUE!, bare and under SUM alike.
+    //
+    // The chosen branch goes through ArrayBindings.Capture — the SAME capture Choose.Evaluate makes of it,
+    // read as the OPERAND here and as its top-left there — which is what keeps a chosen bare RANGE carrying
+    // its cells where a scalar-condition IF's branch does not: SUM(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0))) is
+    // 14 and ROWS of it is 3 (Aspose.Cells 26.6.0, 2026-09-11, H20, both modes), against the #VALUE! the IF
+    // shape answers there (sweep item 32). That is CHOOSE's own scalar path since Onda 3 — a chosen range is
+    // captured as a reference VALUE — built once instead of twice, not a new rule.
+    private static bool TryBuildChoose(
+        Choose choose,
+        EvaluationContext context,
+        out ArrayOperand operand
+    )
+    {
+        var isArray = ProbeBranches(
+            choose.Arguments.AsSpan(1),
+            context,
+            conditionIsArray: false
+        ).IsArray;
+
+        if (choose.TryChoose(context, out var chosen) is { } indexError)
+        {
+            operand = Wrap(indexError, isArray);
+            return true;
+        }
+
+        var captured = ArrayBindings.Capture(chosen, context);
+
+        // Not eligible (no branch is a computed array): the build must yield a non-array, and the scalar it
+        // yields is what Choose.Evaluate would have answered for this branch — its capture's top-left — with
+        // the index still drawn exactly once.
+        if (!isArray)
+        {
+            operand = new ScalarOperand(captured.TopLeft);
+            return true;
+        }
+
+        // Eligible: the built branch IS the CHOOSE's operand. A captured reference VALUE resolves to the
+        // cells it denotes and anything else comes back as a 1x1 — never a ScalarOperand, so a consumer that
+        // probed "array" cannot fall back into Choose.Evaluate and draw the index again.
+        operand = captured.Operand ?? WrapScalar(captured.Value, context);
+        return true;
+    }
+
+    // A value handed back where an ARRAY was promised: a 1x1, which broadcasts exactly like the scalar it
+    // holds, so no consumer reads it differently — but never a ScalarOperand, which a consumer may decline
+    // and re-evaluate. When nothing was promised (the node is not eligible) it stays the plain scalar.
+    private static ArrayOperand Wrap(ComputedValue value, bool asArray) =>
+        asArray ? new SingletonArrayOperand(value) : new ScalarOperand(value);
+
+    // The same, for a value that may be a REFERENCE: the rectangle it denotes streams its cells (the one
+    // range operand, as SelectionProducers.TryBuildSource already does for INDIRECT/OFFSET), a single cell
+    // is its own value, and anything else with no single value is the loud 1x1 #VALUE! its shape always
+    // gets. Shared by the scalar-condition IF and CHOOSE; what each one PASSES here is the difference
+    // between them (branch.Evaluate for IF, ArrayBindings.Capture for CHOOSE), not this resolution.
+    private static ArrayOperand WrapScalar(ComputedValue value, EvaluationContext context) =>
+        value.TryGetReference(out var reference)
+            ? reference switch
+            {
+                RangeReference range => BuildRange(range, context),
+                CellReference cell => new SingletonArrayOperand(cell.Evaluate(context)),
+                _ => new SingletonArrayOperand(ComputedValue.Error(Error.Value)),
+            }
+            : new SingletonArrayOperand(value);
 
     // The shape of a binary result: a scalar takes the other side's shape; two arrays fold per axis by
     // Broadcasting.Axis (an extent of 1 defers to the other side, two larger extents take the maximum), and
@@ -1226,7 +1436,18 @@ internal static class ArrayEvaluation
             return false;
         }
 
-        operand = new UnaryOperand(unary.Operator, inner, inner.Rows, inner.Columns);
+        // '+' is TRANSPARENT, not lifted (Phase 11c item 11): Excel's no-op returns its operand unchanged,
+        // TYPE included, so there is nothing to apply per element and the operand's own array IS the '+'
+        // expression's. Wrapping it in a UnaryOperand would coerce every element to a number — and
+        // UnaryOperation.Apply throws on Plus for exactly that reason. A bare range under it therefore
+        // still streams its cells through BuildRange (SUM(-(+A1:A3)) = -14 array-entered, and at a
+        // consumer's top level the '+' never reaches here at all: IsBareReferenceNode's Plus arm keeps
+        // SUM(+A1:A3) = 14 and COUNTIF(+A1:A3,">0") = 2 on the reference path).
+        operand =
+            unary.Operator is UnaryOperator.Plus
+                ? inner
+                : new UnaryOperand(unary.Operator, inner, inner.Rows, inner.Columns);
+
         return true;
     }
 

@@ -250,7 +250,7 @@ public class ElementwiseLiftingMechanismTests
     // --- The Probe arms ---
 
     [Test]
-    public async Task Probe_LiftsNegateAndPercent_AndNeverPlus()
+    public async Task Probe_LiftsNegateAndPercent_AndSeesThroughPlus()
     {
         var (workbook, sheet) = Sheet();
         var context = new EvaluationContext(workbook);
@@ -262,13 +262,27 @@ public class ElementwiseLiftingMechanismTests
             .That(ArrayEvaluation.IsArrayEligible(Parse("=A1:A3%", sheet), context))
             .IsTrue();
 
-        // A Negate over a scalar is a scalar; unary Plus is the reference-preserving no-op and stays opaque.
+        // A Negate over a scalar is a scalar.
         await Assert
             .That(ArrayEvaluation.IsArrayEligible(Parse("=-(5)", sheet), context))
             .IsFalse();
+
+        // Unary Plus is the reference-preserving no-op, and the probe now sees THROUGH it (Phase 11c item
+        // 11): `+A1:A3` is array-eligible where it answered FALSE before, which is what makes
+        // SUM(-(+A1:A3)) and SUM(LEN(+A1:A3)) lift at all. The '+' is still not a LIFT of its own — the
+        // build hands the operand's array back unwrapped (ArrayEvaluationTests
+        // .LiftedUnaryNegate_MaterializesElementByElement) — and at a consumer's TOP level it still denotes
+        // the reference, which is the gate below, not this predicate: that is what keeps SUM(+A1:A3) reading
+        // the cells.
         await Assert
             .That(ArrayEvaluation.IsArrayEligible(Parse("=+A1:A3", sheet), context))
+            .IsTrue();
+        await Assert
+            .That(ArrayEvaluation.TryStream(Parse("=+A1:A3", sheet), context, out _))
             .IsFalse();
+        await Assert
+            .That(ArrayEvaluation.IsArrayEligible(Parse("=+(A1:A3*2)", sheet), context))
+            .IsTrue();
     }
 
     [Test]

@@ -95,15 +95,18 @@ internal struct PositionalRange
     /// excludes. One such shape remains, PRE-EXISTING (measured identical on <c>main</c>) and pinned as a
     /// known divergence in <c>CriteriaComputedArgumentTests</c>: an operand the mini-CSE cost guard REFUSES,
     /// which is therefore not array-eligible, so <c>SUMIF(A:A*1,"&gt;0")</c> is <c>0</c> where the oracle
-    /// answers <c>#REF!</c> in both entry modes (Aspose.Cells 26.6.0, measured 2026-09-10). Two more did
+    /// answers <c>#REF!</c> in both entry modes (Aspose.Cells 26.6.0, measured 2026-09-10). Five more did
     /// until Phase 11c (array bindings) and are now refused: a <c>Let</c> NODE, once an opaque scalar to the
     /// shape probe and now array-eligible when its body is (<see cref="ArrayEvaluation.Probe"/>'s <c>Let</c>
-    /// arm), so <c>COUNTIF(LET(r,A1:A3,r*1),"&gt;0")</c> is <c>#REF!</c>; and a LET-BOUND NAME, once a
+    /// arm), so <c>COUNTIF(LET(r,A1:A3,r*1),"&gt;0")</c> is <c>#REF!</c>; a LET-BOUND NAME, once a
     /// reference node to the predicate while <see cref="NamedReferences.CaptureValue"/> had already collapsed
     /// its binding to one scalar, now an array binding the context-aware
     /// <see cref="ArrayEvaluation.IsBareReferenceNode(Expression, EvaluationContext)"/> does not admit, so
     /// <c>LET(r,A1:A3*1,COUNTIF(r,"&gt;0"))</c> is <c>#REF!</c> (both rows in
-    /// <c>CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsRefused</c>). So the fallback
+    /// <c>CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsRefused</c>); and the other three
+    /// binding sites, each array-eligible now that it carries its array — <c>COUNTIF(CHOOSE(1,FILTER(…)),
+    /// "&gt;0")</c>, <c>COUNTIF(+FILTER(…),"&gt;0")</c> and <c>COUNTIF(ProdName,"&gt;0")</c> for a defined
+    /// name whose definition is a computed array (ArrayBindingTests). So the fallback
     /// sees the shapes Excel accepts as a range (a reference, a name bound to one, a scalar, a refused open
     /// range) AND the collapse the refused shape still delivers; the gate removes the arrays the mini-CSE
     /// can recognise, not every array.</para>
@@ -213,11 +216,18 @@ internal struct PositionalRange
     /// else. The predicate is exactly the first two conditions of
     /// <see cref="ArrayEvaluation.TryStream"/> — the context-aware
     /// <see cref="ArrayEvaluation.IsBareReferenceNode(Expression, EvaluationContext)"/> then
-    /// <see cref="ArrayEvaluation.IsArrayEligible"/> — so a scalar-conditioned <c>IF</c>, a <c>CHOOSE</c>, an
-    /// <c>OFFSET</c>, a defined name, a single cell, a bare scalar and a cost-guard-REFUSED open-range
-    /// expression are all outside it and keep the paths they have today, while a name LET-bound to an
-    /// array is inside it (Phase 11c): <c>LET(f,FILTER(…),COUNTIF(f,"&gt;0"))</c> is <c>#REF!</c> like the
-    /// producer written in the slot (ArrayBindingTests).
+    /// <see cref="ArrayEvaluation.IsArrayEligible"/> — so an <c>OFFSET</c>, a single cell, a bare scalar, a
+    /// cost-guard-REFUSED open-range expression, and every shape whose branches or definition hold no
+    /// computed array (a scalar-conditioned <c>IF</c> over references, a <c>CHOOSE</c> between them, a name
+    /// bound to a range, a <c>+</c> over any of those) are outside it and keep the paths they have today.
+    /// What is INSIDE it, since Phase 11c, is every binding site carrying an array — a LET-bound name
+    /// (<c>LET(f,FILTER(…),COUNTIF(f,"&gt;0"))</c>), a <c>Let</c> node, a <c>CHOOSE</c> with an array branch,
+    /// a <c>+</c> over a producer, and a defined name whose definition is a computed array
+    /// (<c>COUNTIF(ProdName,"&gt;0")</c>) — each <c>#REF!</c> like the producer written in the slot, which is
+    /// the oracle's answer for all of them (ArrayBindingTests). A <c>+</c> over a bare REFERENCE stays
+    /// outside, measured: <c>COUNTIF(+A1:A3,"&gt;0")</c> is 2 and <c>SUMIF(+A1:A3,"&gt;0")</c> 14 in both
+    /// entry modes (26.6.0, 2026-09-11), which is what <see cref="ArrayEvaluation.IsBareReferenceNode"/>'s
+    /// Plus arm is for.
     ///
     /// <para>The rule: a range slot of <c>SUMIF</c>/<c>SUMIFS</c>/<c>COUNTIF</c>/<c>COUNTIFS</c>/
     /// <c>AVERAGEIF</c>/<c>AVERAGEIFS</c>/<c>MAXIFS</c>/<c>MINIFS</c> — criteria range and

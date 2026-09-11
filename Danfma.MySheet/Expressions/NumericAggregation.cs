@@ -120,6 +120,10 @@ internal static class NumericAggregation
                     // row-major where this arm's referenced-value walk is column-major, so a different
                     // first error wins; the same flip hit MAX/SMALL/SUBTOTAL/AGGREGATE over the name
                     // (DefinedNameArrayEligibilityTests.TwoDimensionalBareName_OnTheErrorFixture_…).
+                    // It is load-bearing for a unary '+' over a reference as well (Phase 11c): the '+' is
+                    // transparent to the probe now, so without the condition SUM(+A1:A3) would leave the
+                    // referenced-value path for the stream — the same column-major/row-major exposure, and
+                    // the criteria family's twin of it is measured (CriteriaScan.RejectComputedArray).
                     // For a syntactic Reference the condition is moot rather than harmful: every reference
                     // node this arm could see is peeled off above except DynamicRange, which has no Probe
                     // arm and already takes the path below.

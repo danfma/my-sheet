@@ -378,29 +378,37 @@ public class ElementwiseLiftingTests
         await Assert.That(OnBlank("=SUM(LEN(Ghost!A1:A3))")).IsEqualTo(ErrorValue.Reference);
     }
 
-    // --- The three known divergences this phase LEAVES OPEN, pinned as gaps ---
+    // --- The three divergences Phase 8 left open: two closed since, one still a gap ---
     //
     // docs/workbook-and-expressions.md's "Known divergences" list promises that every entry on it is pinned by
     // a test as a GAP rather than asserted as Excel's rule, so closing one is always a deliberate edit. These
-    // three tests are that promise for the three entries this phase added to the list. Every oracle number in
-    // them is Aspose.Cells 26.6.0, CSE-entered (SetArrayFormula), measured 2026-09-09; plain entry answers
-    // #VALUE! for all of them on both engines except where noted, so the CSE column is the one that diverges.
+    // three tests are that promise for the three entries Phase 8 added to the list, and each one now says
+    // which phase closed it or that it is still open: the lifted-call-under-'+' row was closed by Phase 11c
+    // (item 11, a transparent '+'), the defined-name rows by Phase 11a (Rule A), and a Consumes function's
+    // scalar slots remain a gap. Every oracle number here is Aspose.Cells 26.6.0, CSE-entered
+    // (SetArrayFormula), measured 2026-09-09 unless a later date is given; plain entry answers #VALUE! for
+    // all of them on both engines except where noted, so the CSE column is the one that diverged.
 
     [Test]
-    public async Task LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence()
+    public async Task LiftedCall_UnderATransparentUnaryPlus_IsLifted()
     {
-        // Unary '+' is Excel's reference-preserving no-op, and MySheet keeps the whole '+' expression opaque
-        // (UnaryOperation.Evaluate captures the operand as a reference VALUE; the mini-CSE's builder excludes
-        // Plus). That hides what is INSIDE it, so a lifted call under a '+' is not lifted. The oracle lifts
-        // it: SUM(+LEN(A1:A3)) = 6 and SUM(LEN(+A1:A3)) = 6, both against the #VALUE! pinned here. This is
-        // the sibling of the already-documented SUM(-(+A1:A3)) = -6 gap — the same opaque '+', with a lifted
-        // FUNCTION inside it instead of a unary operator.
-        await Assert.That(OnLengths("=SUM(+LEN(A1:A3))")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(OnLengths("=SUM(LEN(+A1:A3))")).IsEqualTo(ErrorValue.NotValue);
+        // CLOSED BY PHASE 11C (item 11), and the two rows below moved 2026-09-11: SUM(+LEN(A1:A3)) and
+        // SUM(LEN(+A1:A3)) were pinned at #VALUE! here with the oracle's 6 named in the comment, and both are
+        // now 6. Unary '+' is Excel's reference-preserving no-op, and the REASON it is not a lift survives
+        // untouched; what changed is the MECHANISM. Phase 8 kept the whole '+' expression opaque to the probe
+        // (its builder excluded Plus by pattern), which hid what was INSIDE it, so a lifted call under a '+'
+        // was not lifted. Phase 11c makes the '+' TRANSPARENT instead: the probe sees through it and the
+        // build hands the operand's array back UNWRAPPED, applying nothing per element. So the lift happens
+        // BELOW the '+' (the LEN in the first row) or ABOVE it (the outer '-' of the SUM(-(+A1:A3)) sibling,
+        // measured -14 on ArrayBindingTests' 5, 0, 9 grid, array-entered column, and pinned there), never AT
+        // it.
+        await Assert.That(Num(OnLengths("=SUM(+LEN(A1:A3))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnLengths("=SUM(LEN(+A1:A3))"))).IsEqualTo(6.0);
 
-        // The control, and what keeps the gap narrow: without the '+' the same shape lifts (1 + 2 + 3), and
-        // the '+' over a bare range still reads the cells on the ordinary range path (1 + 22 + 333). So the
-        // gap is exactly "a lifted shape wrapped in '+'", not "'+' loses the cells".
+        // The controls, and what keeps '+' from becoming a lift: without the '+' the same shape lifts
+        // (1 + 2 + 3), and the '+' over a bare range STILL reads the cells on the ordinary range path
+        // (1 + 22 + 333) because a '+' over a reference node denotes that reference at a consumer's top level
+        // (ArrayEvaluation.IsBareReferenceNode's Plus arm). Both oracle values, CSE-entered, 2026-09-09.
         await Assert.That(Num(OnLengths("=SUM(LEN(A1:A3))"))).IsEqualTo(6.0);
         await Assert.That(Num(OnLengths("=SUM(+A1:A3)"))).IsEqualTo(356.0);
     }

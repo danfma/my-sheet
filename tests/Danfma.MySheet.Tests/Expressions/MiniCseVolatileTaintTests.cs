@@ -402,7 +402,7 @@ public class MiniCseVolatileTaintTests
     public async Task AnArrayConditionIf_WithAnOpenRangeBranch_IsRefusedAtTheProbe()
     {
         // The SECOND probe/build lockstep break the final review found, and the mirror image of the first:
-        // ProbeIfBranches used to skip every bare reference node, so with an ARRAY condition it promised
+        // ProbeBranches used to skip every bare reference node, so with an ARRAY condition it promised
         // "array" while the build — which really does construct BOTH branches for the zip — refused the open
         // range. The consumer then fell back and re-evaluated the condition, drawing a volatile TWICE where
         // the pre-Task-8 probe drew it once. The ANSWER never changed, which is why no value pin could see

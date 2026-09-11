@@ -7,11 +7,13 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// <summary>
 /// Phase 11c (array bindings) — the acceptance pins for a computed array that crosses a BINDING site: a
 /// <c>LET</c> binding, the chosen branch of <c>CHOOSE</c>, the operand of unary <c>+</c>, and a workbook defined
-/// name whose definition is a computed-array expression. <b>Every non-guard test here is RED at the commit
-/// that adds it</b>: <c>NamedReferences.CaptureValue</c>'s fall-through evaluates a non-reference binding as an
-/// ordinary scalar, so a producer collapses to its top-left silently (5 where the answer is 14, 1 where it is
-/// 2) and an operator over a range or an array <c>IF</c> collapses to a loud <c>#VALUE!</c>. Each row's comment
-/// names today's value beside the oracle's, so a row that is green for the wrong reason is visible.
+/// name whose definition is a computed-array expression. <b>Every acceptance row here arrived RED</b>, on the
+/// commit that wrote the file for the LET/CHOOSE/<c>+</c>/name rows and on the commit that made each site carry
+/// the array for the handful added alongside it: <c>NamedReferences.CaptureValue</c>'s fall-through evaluated a
+/// non-reference binding as an ordinary scalar, so a producer collapsed to its top-left silently (5 where the
+/// answer is 14, 1 where it is 2) and an operator over a range or an array <c>IF</c> collapsed to a loud
+/// <c>#VALUE!</c>. A row's comment names the value it used to give beside the oracle's, and a row that is
+/// green for the wrong reason says so in its own comment (the GUARD rows do).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -29,10 +31,11 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// "Excel" means <b>Aspose.Cells 26.6.0 as measured</b>. Every number below was measured on that version on
 /// <b>2026-09-11</b> against this file's fixture, in BOTH entry modes — <c>plain</c> (<c>Cell.Formula</c>) and
 /// <c>CSE</c> (<c>Cell.SetArrayFormula(f, 1, 1)</c>) — one formula per workbook, in cell <c>H20</c>. The two
-/// columns agree for every row except the seven whose test names the column in its own name
-/// (<c>SUM(+(A1:A3*2))</c>, <c>SUM(+IF(A1:A3>0,A1:A3))</c>, <c>SUM(-(+A1:A3))</c> and the four Phase 11a
-/// <c>LET(r,A1:A3*1,…)</c> criteria rows), and where they split <b>the CSE column is the target</b>, because
-/// the mini-CSE implements the array-entered rule everywhere. Modes are never mixed inside one assertion.
+/// columns agree except where the test's OWN comment names the split — every test whose name ends
+/// <c>_ArrayEnteredColumn</c>, plus one row each in the two <c>AChainedRebindingOfAnIfOverARangeName…</c>
+/// tests — and where they split <b>the CSE column is the target</b>, because the mini-CSE implements the
+/// array-entered rule everywhere. Modes are never mixed inside one assertion. (A count of splitting rows is
+/// deliberately not written here: it went stale twice while the file grew.)
 /// </para>
 /// <para>
 /// Fixture: <see cref="SelectionProducerFixture.Grid"/> (<c>A1:A3</c> = 5, 0, 9, so
@@ -131,6 +134,26 @@ public class ArrayBindingTests
     }
 
     [Test]
+    [Arguments("=SUM(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0)))", "14")]
+    [Arguments("=SUM(CHOOSE(2,FILTER(A1:A3,A1:A3>0),A1:A3))", "14")]
+    [Arguments("=ROWS(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0)))", "3")]
+    public async Task AChosenBareRange_BesideAnArrayBranch_StillCarriesItsCells(
+        string formula,
+        string oracle
+    )
+    {
+        // Oracle 26.6.0, 2026-09-11 (own probe copy, H20, this file's fixture): 14 / 14 / 3 in BOTH modes.
+        // These rows are where CHOOSE and a scalar-condition IF DIVERGE, and the divergence is in each
+        // function's own scalar path, not in the mini-CSE: CHOOSE has captured a chosen range as a reference
+        // VALUE since Onda 3, so the chosen A1:A3 streams the cells it denotes even though the sibling branch
+        // is what made the node array-eligible, while SUM(IF(TRUE,A1:A3,SEQUENCE(3))) is #VALUE! because
+        // RangeReference.Evaluate is (sweep item 32, unmoved — ArrayEvaluation's WrapScalar comment carries
+        // that pair). Green before this phase too, through the collapsed reference value; the pin is here so
+        // the CHOOSE arm cannot quietly adopt IF's answer for the shape.
+        await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
+    }
+
+    [Test]
     [Arguments("=CHOOSE(1/0,FILTER(A1:A3,A1:A3>0))", "#DIV/0!")]
     [Arguments("=SUM(CHOOSE(1/0,FILTER(A1:A3,A1:A3>0)))", "#DIV/0!")]
     [Arguments("=CHOOSE(3,FILTER(A1:A3,A1:A3>0))", "#VALUE!")]
@@ -170,17 +193,47 @@ public class ArrayBindingTests
     [Arguments("=SUM(+(A1:A3*2))", "28")] // today #VALUE! — loud
     [Arguments("=SUM(+IF(A1:A3>0,A1:A3))", "14")] // today #VALUE! — loud
     [Arguments("=SUM(-(+A1:A3))", "-14")] // today #VALUE! — loud
+    [Arguments("=SUM((+A1:A3)*B1:B3)", "32")] // today #VALUE! — loud
     public async Task AUnaryPlusOverAComputedArray_StreamsWhole_ArrayEnteredColumn(
         string formula,
         string oracle
     )
     {
-        // Oracle 26.6.0, 2026-09-11: these three are the rows where the columns SPLIT — plain entry answers
-        // #VALUE! for all three (the classic implicit intersection of an operator result), CSE entry answers
-        // 28 / 14 / -14. The CSE column is the target. SUM(-(+A1:A3)) is the row Phase 8 documented as a gap
+        // Oracle 26.6.0, 2026-09-11: these four are rows where the columns SPLIT — plain entry answers
+        // #VALUE! for all of them (the classic implicit intersection of an operator result), CSE entry answers
+        // 28 / 14 / -14 / 32. The CSE column is the target. SUM(-(+A1:A3)) is the row Phase 8 documented as a gap
         // while '+' was opaque (ElementwiseLiftingTests, "SUM(-(+A1:A3)) = -6" on its 1, 2, 3 grid); on this
         // grid the oracle's CSE column is -14, the same as SUM(-A1:A3) (#VALUE! plain / -14 CSE), so a
-        // transparent '+' under a lifted '-' lifts exactly as if the '+' were not there.
+        // transparent '+' under a lifted '-' lifts exactly as if the '+' were not there. The last row is the
+        // same statement one operator over: a '+' over a bare RANGE inside an operator zips the cells
+        // (5*1 + 0*2 + 9*3), which is only visible because the '+' no longer hides the range from the probe.
+        await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
+    }
+
+    [Test]
+    [Arguments("=COUNTIF(+A1:A3,\">0\")", "2")]
+    [Arguments("=SUMIF(+A1:A3,\">0\")", "14")]
+    [Arguments("=COUNTBLANK(+A1:A3)", "0")]
+    [Arguments("=SUM(+A:A)", "28")]
+    public async Task AUnaryPlusOverABareReference_IsStillAReferenceAtTheTopLevel(
+        string formula,
+        string oracle
+    )
+    {
+        // Oracle 26.6.0, 2026-09-11 (own probe copy, H20, this file's fixture): 2 / 14 / 0 in BOTH modes for
+        // the first three, and ISREF(+A1:A3) is TRUE in both — so a '+' over a bare reference DENOTES that
+        // reference where a consumer asks for one, and the criteria family reads its cells exactly as it
+        // reads A1:A3's. GUARD, and the one that decides a design question the phase plan did not: making the
+        // '+' transparent to the probe (item 11) would have turned all three into #REF! through
+        // CriteriaScan.RejectComputedArray — three new divergences — had IsBareReferenceNode not been given
+        // its Plus arm, which answers for the OPERAND. The contrast is one row over:
+        // COUNTIF(+FILTER(…),">0") is #REF! (AnArrayBinding_InACriteriaSlot_IsRefused), because a producer
+        // under the '+' denotes no reference.
+        //
+        // The fourth row is the cost guard rather than the criteria gate: an OPEN range under '+' is REFUSED
+        // by the probe, so the '+' stays the opaque scalar that carries the reference and SUM reads the
+        // populated column — 5 + 0 + 9 + 7 + 7 = 28 on this fixture (A5 and A8 are 7, A7 is text and skipped),
+        // which is what the oracle answers in both modes, and what SUM(A:A) answers without the '+'.
         await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
     }
 
@@ -310,20 +363,62 @@ public class ArrayBindingTests
     }
 
     [Test]
+    [Arguments("=SUM(CHOOSE(IF(RAND()<0.5,1,2),FILTER(A1:A3,A1:A3>0),SEQUENCE(3)))", 14.0, 6.0)]
+    [Arguments("=SUM(-CHOOSE(IF(RAND()<0.5,1,2),FILTER(A1:A3,A1:A3>0),SEQUENCE(3)))", -14.0, -6.0)]
+    public async Task AVolatileChooseIndex_NeverCollapsesTheBranchItTakes(
+        string formula,
+        double whenFirst,
+        double whenSecond
+    )
+    {
+        // 200 fresh workbooks, each drawing its own RAND(): the index picks branch 1 (FILTER, sum 14) or
+        // branch 2 (SEQUENCE(3), sum 6), and NOTHING else may appear. 5 is FILTER's top-left and 1 is
+        // SEQUENCE's — the two silent collapses this phase removes — so either of them here would mean the
+        // chosen branch was read as a scalar, and a value belonging to the OTHER branch than the one the
+        // index took would mean the index was drawn twice (a consumer falling back into Choose.Evaluate
+        // after the probe had promised an array). Both buckets must actually occur, or the run proves
+        // nothing about the branch it never entered: that is the exact shape of Task 8's volatility defect
+        // one binding site over (lessons.md, 2026-09-11 — "a volatility test must exercise the shape that
+        // reaches the code under test"), where a mixed IF found a producer collapsing in 100 of 400 seeds.
+        // The second row wraps the same node in a lifted '-' so the taken branch is read through an operand
+        // rather than by the consumer directly. Measured buckets on this tree: 94/106 and 103/97.
+        var buckets = new Dictionary<object, int>();
+
+        for (var i = 0; i < 200; i++)
+        {
+            var value = Calc(formula) ?? "null";
+            buckets[value] = buckets.GetValueOrDefault(value) + 1;
+        }
+
+        await Assert.That(buckets.Count).IsEqualTo(2);
+        await Assert.That(buckets.GetValueOrDefault(whenFirst)).IsGreaterThan(0);
+        await Assert.That(buckets.GetValueOrDefault(whenSecond)).IsGreaterThan(0);
+    }
+
+    [Test]
     [Arguments("=LET(x,A1:A3*2,x)", "10")] // today #VALUE! — loud
     [Arguments("=LET(x,IF(A1:A3>0,A1:A3),x)", "5")] // today #VALUE! — loud
+    [Arguments("=OpName", "10")] // today #VALUE! — loud
+    [Arguments("=+(A1:A3*2)", "10")] // today #VALUE! — loud
+    [Arguments("=CHOOSE(1,A1:A3*2)", "10")] // today #VALUE! — loud
     public async Task ABareOperatorBindingInACell_ShowsItsTopLeft_ArrayEnteredColumn(
         string formula,
         string oracle
     )
     {
-        // Oracle 26.6.0, 2026-09-11 (controller's ruling after Task 1, measured in H1 and H5, both modes):
-        // CSE 10 / 5; PLAIN intersects per row (10 in H1, #VALUE! in H5), so the columns split and the CSE
-        // column is the target. The SCALAR reading of an array-eligible binding is the built operand's
-        // TOP-LEFT (ArrayBindings.Binding.TopLeft through ArrayEvaluation.FirstElement), the same rule a
-        // bare producer follows — not Evaluate's #VALUE!, which is what an operator over a range answers on
-        // the scalar path and what MySheet answered here before Task 2. Read through the cell: this is the
-        // row that proves the cell boundary needs no change for an operator binding either.
+        // Oracle 26.6.0, 2026-09-11: CSE 10 / 5 / 10 / 10 / 10; PLAIN intersects per row for the LET and
+        // operator shapes (10 in H1, #VALUE! in H20 — the controller measured the first two in H1 and H5 and
+        // this task re-measured all five in H20), so the columns split and the CSE column is the target. The
+        // exception is =OpName, which is 10 in BOTH columns.
+        //
+        // The SCALAR reading of an array-eligible binding is the built operand's TOP-LEFT
+        // (ArrayBindings.Binding.TopLeft through ArrayEvaluation.FirstElement), the same rule a bare producer
+        // follows — not Evaluate's #VALUE!, which is what an operator over a range answers on the scalar path
+        // and what MySheet answered for all five before this phase. One rule at all four binding sites: the
+        // last three rows are the defined name (NamedReferences.EvaluateDefinition), the unary '+'
+        // (UnaryOperation.Evaluate) and CHOOSE's chosen branch (Choose.Evaluate), each routed through the same
+        // ArrayBindings.Capture that Let uses. Read through the cell: these are the rows that prove the cell
+        // boundary needs no change for an operator binding at any of the four.
         await Assert.That(InCell(formula)).IsEqualTo(Oracle(oracle));
     }
 

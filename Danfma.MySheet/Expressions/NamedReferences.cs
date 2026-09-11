@@ -20,9 +20,17 @@ internal static class NamedReferences
 
     /// <summary>
     /// Evaluates a defined name's expression. A range/union stays a reference value (so range-aware
-    /// consumers like SUM expand it, exactly as OFFSET's multi-cell result does); anything else — a single
-    /// cell, a constant, another name, a formula — evaluates to its scalar value. Guarded against name
-    /// cycles; a cycle yields <c>#REF!</c>.
+    /// consumers like SUM expand it, exactly as OFFSET's multi-cell result does); a definition that is a
+    /// computed ARRAY is built once and read as its TOP-LEFT (Phase 11c — a defined name is a binding site
+    /// like any other, <see cref="ArrayBindings.Capture"/>); anything else — a single cell, a constant,
+    /// another name, a scalar formula — evaluates to its scalar value. Guarded against name cycles; a cycle
+    /// yields <c>#REF!</c>.
+    ///
+    /// <para>The top-left is the oracle's answer for a bare array definition read in a cell:
+    /// <c>=OpName</c> (defined as <c>Sheet1!$A$1:$A$3*2</c>) is <b>10</b> and <c>=ProdName</c> (a
+    /// <c>FILTER</c>) is <b>5</b> (Aspose.Cells 26.6.0, 2026-09-11, H20, array-entered column — plain entry
+    /// answers <c>#VALUE!</c> for the operator definition), where <see cref="CaptureValue"/>'s own reading
+    /// of an operator over a range is <c>#VALUE!</c>. Pinned in <c>ArrayBindingTests</c>.</para>
     /// </summary>
     public static ComputedValue EvaluateDefinition(
         Expression definition,
@@ -30,20 +38,53 @@ internal static class NamedReferences
         string name
     )
     {
-        var guard = _resolving ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var guard = Enter(name);
 
-        if (!guard.Add(name))
+        return guard.Entered
+            ? ArrayBindings.Capture(definition, context).TopLeft
+            : ComputedValue.Error(Error.Ref);
+    }
+
+    /// <summary>
+    /// Holds <paramref name="name"/> in the thread-local name→name cycle guard for the lifetime of a
+    /// <c>using</c> scope. <see cref="DefinitionGuard.Entered"/> is <c>false</c> when the name is already
+    /// being resolved on this thread — a cycle — which every caller answers as <c>#REF!</c> (or as "not an
+    /// array") instead of recursing. It is the ONE guard: the scalar reading of a defined name
+    /// (<see cref="EvaluateDefinition"/>), its reference reading (<see cref="TryResolveRaw"/>) and its ARRAY
+    /// reading (<c>ArrayEvaluation</c>'s <c>NameShape.Array</c> probe and build, Phase 11c) all hold it, so a
+    /// self-referential definition cannot reach a second reading of itself through a different role.
+    /// </summary>
+    public static DefinitionGuard Enter(string name) => new(name);
+
+    /// <summary>
+    /// The <c>using</c> scope <see cref="Enter"/> hands back. A <c>ref struct</c> so it cannot outlive the
+    /// frame that holds the name.
+    /// </summary>
+    public ref struct DefinitionGuard
+    {
+        private readonly string? _entered;
+
+        internal DefinitionGuard(string name)
         {
-            return ComputedValue.Error(Error.Ref);
+            var guard = _resolving ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            _entered = guard.Add(name) ? name : null;
         }
 
-        try
+        /// <summary>
+        /// Whether THIS scope added the name. <c>false</c> means an enclosing scope already holds it: a
+        /// cycle.
+        /// </summary>
+        public bool Entered => _entered is not null;
+
+        // Removes only what this scope added: a Dispose that removed unconditionally would release an
+        // ENCLOSING scope's hold and turn the cycle it is guarding into an infinite recursion.
+        public void Dispose()
         {
-            return CaptureValue(definition, context);
-        }
-        finally
-        {
-            guard.Remove(name);
+            if (_entered is { } name)
+            {
+                _resolving!.Remove(name);
+            }
         }
     }
 
@@ -150,22 +191,15 @@ internal static class NamedReferences
             return false;
         }
 
-        var guard = _resolving ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var guard = Enter(name.Name);
 
-        if (!guard.Add(name.Name))
+        if (!guard.Entered)
         {
             reference = null;
             return false;
         }
 
-        try
-        {
-            return TryResolveRaw(definition, context, out reference);
-        }
-        finally
-        {
-            guard.Remove(name.Name);
-        }
+        return TryResolveRaw(definition, context, out reference);
     }
 
     /// <summary>

@@ -1,22 +1,31 @@
 namespace Danfma.MySheet.Expressions;
 
 /// <summary>
-/// What a BINDING SITE captures (Phase 11c, array bindings): a <c>LET</c> binding today, and — Task 3 of the
-/// same phase — <c>CHOOSE</c>'s chosen branch, the operand of unary <c>+</c> and a defined name's definition.
-/// One rule for all of them, <see cref="Capture"/>: an expression the mini-CSE would stream as an array — not
+/// What a BINDING SITE captures (Phase 11c, array bindings). There are four, and they all come through here:
+/// a <c>LET</c> binding (<c>Let.TryBind</c>), <c>CHOOSE</c>'s chosen branch (<c>Choose.Evaluate</c>), the
+/// operand of unary <c>+</c> (<see cref="UnaryOperation.Evaluate"/>) and a workbook defined name's definition
+/// (<see cref="NamedReferences.EvaluateDefinition"/>). The cell boundary is deliberately NOT one of them:
+/// <c>Workbook</c> keeps calling <see cref="NamedReferences.CaptureValue"/>, so a bare <c>=A1:A3*2</c> in a
+/// cell stays <c>#VALUE!</c> (a separate sweep decision, pinned in <c>CellBoundaryIntersectionTests</c> and
+/// in <c>ArrayBindingTests.ABareOperatorArrayInACell_StaysTheBoundaryDecision</c>).
+///
+/// <para>One rule for all four, <see cref="Capture"/>: an expression the mini-CSE would stream as an array — not
 /// a bare reference node, array-eligible in the binding's own scope — is built ONCE, here, and the OPERAND
 /// is what gets bound; anything else goes through <see cref="NamedReferences.CaptureValue"/> exactly as
 /// before (a range node stays a reference value, a scalar evaluates). The operand lives for the scope's
 /// lifetime — one evaluation — which is what makes evaluate-once fall out by construction:
 /// <c>LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))</c> is 0 because the second read is the same operand, not
-/// a second build (<c>ArrayBindingTests</c> pins it with a counting custom function).
+/// a second build (<c>ArrayBindingTests</c> pins it with a counting custom function).</para>
 ///
 /// <para>The SCALAR reading of an array binding is the operand's top-left (<see cref="Binding.TopLeft"/>,
 /// through <see cref="ArrayEvaluation.FirstElement(ArrayOperand)"/>) — the same <c>@</c> rule a bare producer
-/// follows, and the oracle's answer for an operator binding read bare: <c>=LET(x,A1:A3*2,x)</c> is 10 and
-/// <c>=LET(x,IF(A1:A3&gt;0,A1:A3),x)</c> is 5 (Aspose.Cells 26.6.0, 2026-09-11, array-entered column; plain
-/// entry intersects per row), where the scalar path's own answer for either expression is <c>#VALUE!</c>.
-/// <see cref="NameReference.Evaluate"/> is where that reading happens for a LET name.</para>
+/// follows, and the oracle's answer for an operator binding read bare at every one of the four sites:
+/// <c>=LET(x,A1:A3*2,x)</c>, <c>=OpName</c>, <c>=+(A1:A3*2)</c> and <c>=CHOOSE(1,A1:A3*2)</c> are all 10, and
+/// <c>=LET(x,IF(A1:A3&gt;0,A1:A3),x)</c> is 5 (Aspose.Cells 26.6.0, 2026-09-11, H20, array-entered column;
+/// plain entry answers <c>#VALUE!</c> there for all but <c>=OpName</c>, which is 10 in both), where the
+/// scalar path's own answer for any of those expressions is <c>#VALUE!</c>.
+/// <see cref="NameReference.Evaluate"/> is where the reading happens for a LET name; each of the other three
+/// sites reads <see cref="Binding.TopLeft"/> itself.</para>
 /// </summary>
 internal static class ArrayBindings
 {

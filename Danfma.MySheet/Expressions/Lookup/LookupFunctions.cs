@@ -13,8 +13,30 @@ public sealed partial record Choose(Expression[] Arguments) : Function
 {
     // CHOOSE(index_num, value1, [value2], …) — lazy like IF: the index is evaluated and truncated,
     // then ONLY the chosen value argument is evaluated. Out of range -> #VALUE! (per the docs).
-    public override ComputedValue Evaluate(EvaluationContext context)
+    //
+    // The chosen argument is a BINDING SITE (Phase 11c, ArrayBindings.Capture): a chosen range stays a
+    // reference, so range-aware consumers (SUM(CHOOSE(2,A1:A10,B1:B10))) expand it — the same technique
+    // OFFSET uses for its multi-cell results — and a chosen computed ARRAY is built once and read here as
+    // its TOP-LEFT, the @ rule a bare producer follows: =CHOOSE(1,FILTER(A1:A3,A1:A3>0)) is 5 and
+    // =CHOOSE(1,A1:A3*2) is 10 (Aspose.Cells 26.6.0, 2026-09-11, H20 — the second in the array-entered
+    // column, where plain entry answers #VALUE!), against the #VALUE! CaptureValue's own reading gave the
+    // operator. A CONSUMER of the same node streams the whole array instead, through
+    // ArrayEvaluation.TryBuildChoose.
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        TryChoose(context, out var chosen) ?? ArrayBindings.Capture(chosen, context).TopLeft;
+
+    /// <summary>
+    /// The index rule, shared by <see cref="Evaluate"/> and the mini-CSE's <c>Choose</c> arm
+    /// (<c>ArrayEvaluation.TryBuildChoose</c>) so the two cannot drift: <c>index_num</c> is evaluated ONCE
+    /// and truncated; an uncoercible index propagates its own error and an index outside
+    /// <c>1..Arguments.Length - 1</c> is <c>#VALUE!</c> (the CHOOSE page's rule). Returns that error, or
+    /// <c>null</c> with <paramref name="chosen"/> set to the chosen argument — which neither this method nor
+    /// its callers' shared code evaluates, so CHOOSE stays lazy.
+    /// </summary>
+    internal ComputedValue? TryChoose(EvaluationContext context, out Expression chosen)
     {
+        chosen = null!;
+
         if (Arguments[0].Evaluate(context).CoerceToNumber(out var index) is { } error)
         {
             return ComputedValue.Error(error);
@@ -27,11 +49,8 @@ public sealed partial record Choose(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Value);
         }
 
-        var chosen = Arguments[position];
-
-        // A chosen range stays a reference, so range-aware consumers (SUM(CHOOSE(2,A1:A10,B1:B10)))
-        // expand it — the same technique OFFSET uses for its multi-cell results.
-        return NamedReferences.CaptureValue(chosen, context);
+        chosen = Arguments[position];
+        return null;
     }
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
