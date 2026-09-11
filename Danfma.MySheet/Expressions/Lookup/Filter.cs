@@ -49,11 +49,15 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// deviation from the oracle's 28 array-entered), and <c>ProbeArray</c> probes those same two arguments, so
 /// probe and build cannot drift. <c>if_empty</c> is NOT probed, because it is built lazily; a refused
 /// <c>if_empty</c> is therefore a 1x1 <c>#VALUE!</c> from the build rather than a refusal
-/// (<c>SUM(FILTER(A1:A3,A1:A3&gt;100,A:A))</c>; the oracle answers the column — the same open-range
-/// deviation, one slot over).</para>
+/// (<c>SUM(FILTER(A1:A3,A1:A3&gt;100,A:A))</c> is <c>#VALUE!</c> against the oracle's 14 — the same
+/// open-range deviation, one slot over). What justifies the refusal rather than merely recording it:
+/// <c>ROWS</c> of that same formula is <b>1048576</b> on the oracle, the whole column, so matching it would
+/// mean materializing a million-row result from a slot nobody reads.</para>
 ///
 /// <para>Every number above was measured on Aspose.Cells 26.6.0, 2026-09-10, plain and array-entered entry
-/// agreeing unless named; pinned in <c>FilterTests</c> and <c>DynamicArrayTests</c>.</para>
+/// agreeing unless named, and every one has an assertion in <c>FilterTests</c> or <c>DynamicArrayTests</c> —
+/// the open-range <c>if_empty</c> row did NOT until the phase's final review found this sentence claiming it,
+/// which is the project's most-repeated defect and the reason the claim now reads as a checkable one.</para>
 /// </remarks>
 [MemoryPackable]
 public sealed partial record Filter(Expression[] Arguments) : Function, IArrayProducer

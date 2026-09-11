@@ -89,6 +89,21 @@ public class FilterTests
             .That(Num(Eval(new Sum([F(Ref("A1:A3", sheet), some, Ref("1/0", sheet))]), workbook)))
             .IsEqualTo(14.0);
 
+        // An OPEN-RANGE if_empty is the phase's open-range deviation one slot over, and the FINAL REVIEW
+        // found it claimed as "pinned" in Filter.cs's remark while no test asserted it. Pinned here, with the
+        // number that justifies the refusal rather than merely recording it: the oracle answers
+        // SUM(FILTER(A1:A3,A1:A3>100,A:A)) = 14 in both modes — and ROWS of the same formula is **1048576**,
+        // the whole column. Matching that would mean materializing a million-row result from a slot nobody
+        // reads, so the refusal is not a shortfall, it is the cost guard doing its job. if_empty is built
+        // lazily and never probed, so this arrives as a 1x1 #VALUE! from the build, not as a refusal.
+        // A CLOSED range in the same slot works and is the contrast that stops this passing vacuously.
+        var openIfEmpty = F(Ref("A1:A3", sheet), none, Ref("A:A", sheet));
+        await Assert.That(Eval(new Sum([openIfEmpty]), workbook)).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(Eval(new Rows([openIfEmpty]), workbook)).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Num(Eval(new Sum([F(Ref("A1:A3", sheet), none, Ref("A1:A3", sheet))]), workbook)))
+            .IsEqualTo(14.0);
+
         // An EMPTY if_empty slot is a blank VALUE, not an omitted argument: FILTER(A1:A3,A1:A3>100,) is a
         // 1x1 blank (ISBLANK TRUE, COUNTA 0, ROWS 1, ERROR.TYPE #N/A), and so is a blank CELL there
         // (FILTER(…,A9): ISBLANK TRUE, COUNTA 0, SUM 0); the element is Blank-kind, which is what COUNTA

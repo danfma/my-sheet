@@ -351,7 +351,7 @@ internal static class ArrayEvaluation
                     return (false, false);
                 }
 
-                var branches = ProbeIfBranches(ifNode, context);
+                var branches = ProbeIfBranches(ifNode, context, condition.IsArray);
                 if (!branches.Succeeds)
                 {
                     return (false, false);
@@ -396,7 +396,8 @@ internal static class ArrayEvaluation
     // Aspose.Cells 26.6.0, 2026-09-10, both modes).
     private static (bool Succeeds, bool IsArray) ProbeIfBranches(
         If ifNode,
-        EvaluationContext context
+        EvaluationContext context,
+        bool conditionIsArray
     )
     {
         var isArray = false;
@@ -404,7 +405,19 @@ internal static class ArrayEvaluation
         for (var i = 1; i < ifNode.Arguments.Length; i++)
         {
             var branch = ifNode.Arguments[i];
-            if (IsBareReferenceNode(branch))
+
+            // A bare reference is never COUNTED toward IsArray — that is the "IF returns a reference"
+            // question, which this method declines to answer. Whether it is PROBED depends on the condition,
+            // because that is what decides how many branches the build touches:
+            //   - ARRAY condition: the build zips, so it builds BOTH branches through TryBuildOperand. A
+            //     refusal there must refuse the probe too, or Probe promises an array the build cannot
+            //     deliver and the consumer falls back and re-evaluates the condition — a volatile drawn
+            //     twice. Found by the phase's final review on IF(RAND()>A1:A3,B:B,0).
+            //   - SCALAR condition: the build touches ONE branch, and TryBuildScalarConditionIf answers an
+            //     open range with the loud 1x1 #VALUE! WrapScalar gives it rather than refusing. So a
+            //     refusable reference in the UNTAKEN branch must cost nothing, which is what the oracle says:
+            //     SUM(IF(FALSE,MyColumn,0)*B1:B3) is 0, and probing it here would make it #VALUE!.
+            if (IsBareReferenceNode(branch) && !conditionIsArray)
             {
                 continue;
             }
@@ -413,6 +426,11 @@ internal static class ArrayEvaluation
             if (!probe.Succeeds)
             {
                 return (false, false);
+            }
+
+            if (IsBareReferenceNode(branch))
+            {
+                continue;
             }
 
             isArray |= probe.IsArray;
@@ -929,7 +947,7 @@ internal static class ArrayEvaluation
         out ArrayOperand operand
     )
     {
-        var isArray = ProbeIfBranches(ifNode, context).IsArray;
+        var isArray = ProbeIfBranches(ifNode, context, conditionIsArray: false).IsArray;
 
         if (conditionValue.CoerceToBoolAllowingTextWords(out var taken) is { } error)
         {

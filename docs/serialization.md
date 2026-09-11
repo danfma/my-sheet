@@ -343,7 +343,8 @@ This is a **one-way** compatibility boundary:
 
 - **No new union tag.** The registry lives on `Workbook`, not in the expression union, and nothing in the
   formula language reads a table yet: a structured reference (`Tabela1[Valor]`) does not parse. The node
-  that will represent one, and the union tag it claims (the next free tag is **323** — 0-322 are taken),
+  that will represent one, and the union tag it claims (the next free tag is **327** — 0-326 are taken; count
+  `Expression.cs` with a leading-bracket anchor, because a bare `grep -c MemoryPackUnion` is one too high),
   belong to the reference-semantics work; that half of the boundary does not exist yet.
 - **The object header goes `0x02` → `0x03`, and an empty registry costs four bytes.** MEASURED 2026-09-10
   on the branch that introduces the registry (MemoryPack 1.21.4, cold uncompressed `Save`): an empty

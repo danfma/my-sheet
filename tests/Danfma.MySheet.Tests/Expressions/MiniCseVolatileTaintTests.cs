@@ -397,4 +397,46 @@ public class MiniCseVolatileTaintTests
             return seen.Count;
         }
     }
+
+    [Test]
+    public async Task AnArrayConditionIf_WithAnOpenRangeBranch_IsRefusedAtTheProbe()
+    {
+        // The SECOND probe/build lockstep break the final review found, and the mirror image of the first:
+        // ProbeIfBranches used to skip every bare reference node, so with an ARRAY condition it promised
+        // "array" while the build — which really does construct BOTH branches for the zip — refused the open
+        // range. The consumer then fell back and re-evaluated the condition, drawing a volatile TWICE where
+        // the pre-Task-8 probe drew it once. The ANSWER never changed, which is why no value pin could see
+        // it; the probe is now condition-aware instead.
+        //
+        // What makes this test able to fail is the pair: the open range must refuse and the CLOSED range
+        // beside it must not. B1:B3 = 1, 2, 3 and A1:A3 = 0.2, 0.5, 0.8, so a closed branch sums some subset.
+        await Assert.That(OnColumns("=SUM(IF(A1:A3>0,B:B,0))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnColumns("=SUM(IF(A1:A3>0,MyColumn,0))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnColumns("=SUM(IF(A1:A3>0,B1:B3,0))")).IsEqualTo(6.0);
+
+        // And the SCALAR-condition side must stay as the oracle has it, which is the reason the probe keys on
+        // the condition rather than refusing everywhere: only one branch is ever built there, so a refusable
+        // reference in the UNTAKEN branch costs nothing (measured 0 and 6 on the oracle), while a TAKEN open
+        // range is the loud 1x1 #VALUE! WrapScalar gives it.
+        await Assert.That(OnColumns("=SUM(IF(FALSE,MyColumn,0)*B1:B3)")).IsEqualTo(0.0);
+        await Assert.That(OnColumns("=SUM(IF(TRUE,SEQUENCE(3),MyColumn))")).IsEqualTo(6.0);
+        await Assert
+            .That(OnColumns("=SUM(IF(TRUE,MyColumn,SEQUENCE(3)))"))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        static object? OnColumns(string formula)
+        {
+            var workbook = new Workbook();
+            var sheet = workbook.Sheets.Add("Sheet1");
+            sheet["A1"] = new NumberValue(0.2);
+            sheet["A2"] = new NumberValue(0.5);
+            sheet["A3"] = new NumberValue(0.8);
+            sheet["B1"] = new NumberValue(1);
+            sheet["B2"] = new NumberValue(2);
+            sheet["B3"] = new NumberValue(3);
+            workbook.DefineName("MyColumn", "Sheet1!$B:$B");
+
+            return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+        }
+    }
 }
