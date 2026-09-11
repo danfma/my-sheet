@@ -468,19 +468,29 @@ oracle in both modes: `SUM(SORT(FILTER(A1:A3,A1:A3>0)))` = 14, `SUM(FILTER(A1:A3
 
 ## Standing gaps handed on
 
-- **A producer bound by `LET`, passed through `CHOOSE`, or through unary `+`, collapses to its top-left.**
-  `NamedReferences.CaptureValue`'s closed type list treats a `Function` node as a value, so
-  `SUM(LET(x,FILTER(A1:A3,A1:A3>0),x))` is 5 here against the oracle's 14 in both modes (measured
-  2026-09-10; `ROWS(LET(x,FILTER(…),x))` = 2 there, `SUM(CHOOSE(1,FILTER(…)))` and `SUM(+FILTER(…))` = 14).
-  This is correction M1 taken at option (a) — documented, pinned, not silent — and the honest scope note is
-  that option (b), a `Probe`/`TryBuildOperand` arm through `Let`/`Choose`/`UnaryOperation{Plus}`, is what
-  actually closes it. The loudest instance is the criteria slot, where a `LET` escapes Rule B's gate from
-  both sides: `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` is **1** here — `COUNTIF` over the single
-  collapsed element — against the oracle's `#REF!` in BOTH modes, with `SUM(f)` 5 against 14 and `ROWS(f)` 1
-  against 2 in the same shape. All three rows are RED under that ONE cause, and they are the phase's single
-  deliberately failing pin
-  (`DynamicArrayTests.ALetBoundProducer_InACriteriaSlot_IsAKnownLimitHandedOverByPhase11a`), red so that the
-  fix turns them green rather than being discovered.
+- **CLOSED BY PHASE 11C.** A producer bound by `LET`, passed through `CHOOSE`, or through unary `+`, used to
+  collapse to its top-left: `NamedReferences.CaptureValue`'s closed type list treated a `Function` node as a
+  value, so `SUM(LET(x,FILTER(A1:A3,A1:A3>0),x))` was 5 here against the oracle's 14 in both modes (measured
+  2026-09-10). That was correction M1 taken at option (a) — documented, pinned, not silent — and the honest
+  scope note at the time was that option (b), a `Probe`/`TryBuildOperand` arm through
+  `Let`/`Choose`/`UnaryOperation{Plus}` (plus a fifth `ResolveNameShape` outcome for a defined name), was
+  what would actually close it. **Option (b) is what shipped**, in Phase 11c: each binding site now streams
+  the whole array to its consumer, built once, instead of collapsing it to a value at capture time. Measured
+  on this tree (`A1:A3` = 5, 0, 9, so `FILTER(A1:A3,A1:A3>0)` is the two-row 5, 9, sum 14):
+
+  | formula | before Phase 11c | after |
+  | --- | --- | --- |
+  | `SUM(LET(f,FILTER(A1:A3,A1:A3>0),f))` | 5 | 14 |
+  | `ROWS(LET(f,FILTER(A1:A3,A1:A3>0),f))` | 1 | 2 |
+  | `SUM(CHOOSE(1,FILTER(A1:A3,A1:A3>0)))` | 5 | 14 |
+  | `SUM(+FILTER(A1:A3,A1:A3>0))` | 5 | 14 |
+  | `SUM(ProdName)` (a name defined as `FILTER(…)`) | 5 | 14 |
+  | `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` | 1 | `#REF!` |
+
+  The criteria-slot row was the loudest instance — a `LET` escaped Rule B's gate from both sides — and it
+  was this phase's single deliberately failing pin, pinned by
+  `DynamicArrayTests.ALetBoundProducer_StreamsWhole_AndIsRefusedInACriteriaSlot` (renamed from
+  `…IsAKnownLimitHandedOverByPhase11a` once Phase 11c closed the limit).
 - **A BARE-REFERENCE branch under a scalar-condition `IF` is deliberately left outside the array path.**
   Since `aeda1d7` a producer under a scalar-condition `IF` streams whole (`SUM(IF(TRUE,SEQUENCE(3),0))` = 6,
   where it used to collapse to 1), and so does a computed branch (`SUM(IF(TRUE,A1:A3*2,0))` = 28,
@@ -491,10 +501,12 @@ oracle in both modes: `SUM(SORT(FILTER(A1:A3,A1:A3>0)))` = 14, `SUM(FILTER(A1:A3
   `MiniCseConsumerTests.ABareReferenceBranch_UnderAScalarConditionIf_IsUnmovedAndStillDiverges`. A
   single-cell defined name in the same position (`SUM(IF(TRUE,MyCell,0))` = 0 on the oracle, `#VALUE!` here)
   is pre-existing and rides along with it.
-- **A name bound to a computed ARRAY still does not resolve inside an array position.** Phase 11a closed the
-  range-bound cases (`LET(r,A1:A3,COUNT(r*1))` = 3), but `CaptureValue` evaluates the binding as a scalar
-  before the arm can see it, so `LET(r,A1:A3*1,COUNT(r*1))` is 0. It is the same `CaptureValue` gap as the
-  first bullet.
+- **CLOSED BY PHASE 11C.** A name bound to a computed ARRAY used to not resolve inside an array position.
+  Phase 11a had closed the range-bound cases (`LET(r,A1:A3,COUNT(r*1))` = 3), but `CaptureValue` evaluated
+  the binding as a scalar before the arm could see it, so `LET(r,A1:A3*1,COUNT(r*1))` was 0 — the same
+  `CaptureValue` gap as the first bullet. Phase 11c's binding builds the operand once instead, so
+  `LET(r,A1:A3*1,COUNT(r*1))` is now 3, `LET(r,A1:A3*1,SUM(r*1))` is 14 and `LET(r,A1:A3*1,INDEX(r*2,3))` is
+  18 (all measured on `DefinedNameArrayEligibilityTests.LetBoundComputedArray_InANestedArrayPosition_StreamsAsTheBoundOperand`).
 - **An oracle crash, recorded so nobody re-measures it.** Array-entered `ROWS(IF(FALSE,SEQUENCE(3)))` throws
   `CellsException: IndexOutOfRangeException` inside `Workbook.CalculateFormula()` and takes down every other
   formula in the same workbook. Probes for these rows must evaluate ONE formula per workbook.

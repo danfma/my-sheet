@@ -586,6 +586,25 @@ extensão é menor do que aquilo com que é combinado deixa `#N/A` nas posiçõe
 `SUM(FILTER(A1:A3,A1:A3>0)*B1:B3)` é `#N/A` — uma seleção 2x1 contra um intervalo 3x1 — enquanto o `COUNT` da
 mesma expressão é 2.
 
+**Um ponto de vinculação também carrega um array, avaliado uma única vez.** O nome vinculado por `LET`, o
+ramo escolhido do `CHOOSE` e o operando de um `+` unário deixaram de ser pontos de colapso: cada um transmite
+o array computado inteiro para o seu consumidor, construído uma única vez mesmo quando o consumidor lê o nome
+mais de uma vez — `LET(f,FILTER(A1:A3,A1:A3>0),SUM(f))` é `14`, e avaliar uma única vez significa que uma
+vinculação volátil sobrevive a ser lida duas vezes: `LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))` é sempre
+`0`, nunca um valor diferente de zero vindo de um segundo sorteio. Uma vinculação lida sozinha em uma célula
+ainda mostra o elemento superior esquerdo, exatamente como um produtor sozinho —
+`=LET(f,FILTER(A1:A3,A1:A3>0),f)` é `5` — porque a fronteira da célula não é um consumidor.
+
+A metade do `+` unário dessa mudança é de MECANISMO, não de REGRA: o `+` continua sendo o no-op do Excel que
+preserva referências e continua não sendo, ele mesmo, uma elevação, e um `+` sobre um INTERVALO puro continua
+denotando essa referência no nível superior de um consumidor — `SUM(+A1:A3)` = 6 para `A1:A3` = 1, 2 e 3, sem
+mudança. O que mudou é que o mini-CSE deixou de tratar a expressão com `+` inteira como um escalar opaco,
+então uma elevação de qualquer lado dele agora alcança o que está dentro: `SUM(-(+A1:A3))` é `-6`, coincidindo
+com o Excel, onde este motor respondia `#VALUE!` (Aspose.Cells 26.6.0, `Ctrl+Shift+Enter`, medido em
+2026-09-09 e remedido neste motor em 2026-09-11); e em uma grade de 1, 22 e 333 (contagens de caracteres 1, 2
+e 3), `SUM(+LEN(A1:A3))` e `SUM(LEN(+A1:A3))` são ambos `6` agora, coincidindo com o Excel, onde o MySheet
+respondia `#VALUE!` para os dois antes desta regra (Aspose.Cells 26.6.0, medido em 2026-09-09).
+
 **Um resultado vazio é `#CALC!`, nunca um array vazio.** `SUM(FILTER(A1:A3,A1:A3>100))` e
 `ROWS(FILTER(A1:A3,A1:A3>100))` são [`#CALC!`](computed-value.md), o erro de array vazio do Excel, com
 `ERROR.TYPE` **14**; informe o terceiro argumento do `FILTER` para responder outra coisa
@@ -664,16 +683,6 @@ os dois motores divergem — então fechar um é sempre uma edição deliberada.
   MySheet responde 14/3, que é o `SUM` dele sobre o `COUNT` dele. O oráculo informa `SUM` **14**, `COUNT` **3**
   e `AVERAGE` **0** para a mesma expressão — três respostas que não podem estar todas certas — e a página do
   `AVERAGE` da Microsoft é explícita: a média é a soma sobre a contagem, com os zeros incluídos.
-- **Um produtor vinculado por `LET`, passado por `CHOOSE` ou por um `+` unário colapsa para o superior
-  esquerdo dele.** `SUM(LET(x,FILTER(A1:A3,A1:A3>0),x))` é `5` aqui, onde o Excel responde **14** nos dois
-  modos de entrada (medido em 2026-09-10; lá `ROWS(LET(x,FILTER(…),x))` = 2,
-  `SUM(CHOOSE(1,FILTER(…)))` e `SUM(+FILTER(…))` = 14). Um vínculo é capturado como *valor* antes que a
-  avaliação elemento-a-elemento possa vê-lo, então o que é vinculado é a resposta-de-célula do produtor. Use o
-  produtor diretamente no slot de argumento do consumidor. A instância mais alta é um produtor vinculado por
-  `LET` em um slot de critérios — `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` é `1` aqui, o `COUNTIF`
-  sobre o único elemento colapsado, contra o `#REF!` do Excel nos dois modos de entrada, com `SUM(f)` 5 contra
-  14 e `ROWS(f)` 1 contra 2 na mesma forma. Essa linha é o único pin deliberadamente vermelho deste motor,
-  vermelho para que a correção o torne verde em vez de ser descoberta por acidente.
 
 **Qual fábrica uma nova função nativa usa (para quem contribui).** A classificação é um sinalizador
 explícito por entrada em [`FunctionRegistry`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs):
@@ -755,12 +764,6 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   [fronteira da célula](#interseção-implícita-na-fronteira-da-célula) — o comportamento por operando acima é
   com o que a metade de array do `@` precisa ser reconciliada —, e não dos consumidores descritos aqui; o
   `#VALUE!` de hoje está fixado por `CellBoundaryIntersectionTests` para que a mudança seja deliberada.
-- **O `+` unário deliberadamente não é elevado.** Ele é o no-op do Excel que preserva referências, então
-  `+A1:A3` continua sendo uma *referência* e o consumidor a dobra pelo caminho comum de intervalo:
-  `SUM(+A1:A3)` = 6 para `A1:A3` = 1, 2 e 3, exatamente como `SUM(A1:A3)`, e sem mudança alguma com a
-  elevação. O custo de mantê-lo opaco é que um `-` sobre ele não tem o que elevar: `SUM(-(+A1:A3))` é
-  `#VALUE!` onde o Excel responde -6 (Aspose.Cells 26.6.0, `Ctrl+Shift+Enter`, medido em 2026-09-09).
-  Escreva `SUM(-A1:A3)` em vez disso.
 - Uma **função que retorna referência** como argumento de `ROW`/`COLUMN` permanece escalar:
   `SUM(ROW(INDEX(A1:A3,1,1)))` é `1`, a linha superior da referência resolvida, e não o vetor `[1,2,3]`.
   Descobrir o formato dela resolveria o argumento uma segunda vez e sortearia uma volátil duas vezes, então
@@ -902,15 +905,8 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   `A1` = 1 (medido em 2026-09-09). Com o slot totalmente ausente os dois motores concordam — `FIXED(A1)` e
   `DOLLAR(A1)` são `1.00` e `$1.00` em cada um — então a divergência é o slot *vazio*, e não o padrão, e ela
   vale igualmente para a chamada escalar e para o `FIXED(A1:A3,,TRUE)` elevado.
-- **Uma chamada elevada sob um `+` unário também não é elevada.** O `+` é o no-op do Excel que preserva
-  referências, e o MySheet mantém toda a expressão com `+` opaca, o que esconde do mini-CSE o que está
-  *dentro* dela: com `A1:A3` = 1, 22 e 333, `SUM(+LEN(A1:A3))` é `#VALUE!` aqui e **6** no Excel (medido em
-  2026-09-09). É a irmã do caso `SUM(-(+A1:A3))` = -6 acima — o mesmo `+` opaco, com uma *função* elevada
-  dentro em vez de um operador unário — e `SUM(LEN(+A1:A3))`, com o `+` do lado de dentro, é o mesmo
-  `#VALUE!` aqui contra os mesmos **6** lá. Escreva `SUM(LEN(A1:A3))`. Fixado por
-  `ElementwiseLiftingTests.LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence`.
 - **Um NOME definido em posição de array é aquilo a que ele está vinculado** — a regra em si é *concordância*,
-  e o que esta entrada registra são as três formas ainda recusadas. Um nome vinculado a um retângulo é
+  e o que esta entrada registra são as duas formas ainda recusadas. Um nome vinculado a um retângulo é
   elegível a array em uma posição de array **aninhada** e responde exatamente o que o retângulo escrito por
   extenso responde. Para um `MyName` vinculado a 1, 22 e 333 e um `Rng` vinculado a `A1:A3` = 5, 0 e 9, tudo
   medido no Aspose.Cells 26.6.0 inserido como array (2026-09-10): `SUM(LEN(MyName))` = **6**, `SUM(-MyName)` =
@@ -926,27 +922,26 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   `ISREF(INDEX(Rng,2))` = `TRUE` —, porque esse caminho carrega o que um fluxo elemento a elemento não
   carrega: o salto do `SUBTOTAL` aninhado, a varredura do primeiro erro em ordem de coluna do motor e um
   `INDEX` que retorna referência. Fixado por `DefinedNameArrayEligibilityTests` e
-  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreLifted`. Três formas continuam recusadas, cada uma
-  um desvio deliberado fixado como tal: um nome de **intervalo aberto** encontra a guarda de custo, então
+  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreLifted`. Duas formas continuam recusadas, cada
+  uma um desvio deliberado fixado como tal: um nome de **intervalo aberto** encontra a guarda de custo, então
   `SUM((MyCol<>0)*1)` com `MyCol` = `$A:$A` dá `1` aqui — o valor de referência verdadeiro — contra os **2**
-  do oráculo inserido como array (`0` digitado); um nome de **união** resolve para um escalar, o que torna a
-  expressão inteira apenas escalar, então `SUM((UnN<>0)*1)` dá `1` contra **2** inserido como array
+  do oráculo inserido como array (`0` digitado); e um nome de **união** resolve para um escalar, o que torna
+  a expressão inteira apenas escalar, então `SUM((UnN<>0)*1)` dá `1` contra **2** inserido como array
   (`#VALUE!` digitado), e o gêmeo de união *literal* é `#VALUE!` aqui, o que faz desta a única linha em que
-  um nome não coincide com seu literal; e um nó `LET` no próprio slot de argumento de um consumidor continua
-  opaco, porque a sondagem de formato não olha para dentro dele, então `SUM(LET(r,Rng,(r<>0)*1))` dá `1`
-  contra **2** nos dois modos de entrada — o mesmo limite permanente do `LET` que a
-  [seção dos produtores](#produtores-de-array-dinâmico) registra, ainda aberto. Um
-  nome vinculado por `LET` *dentro* de uma posição de array, por outro lado, resolve **quando o nome está
+  um nome não coincide com seu literal. Um nó `LET` no próprio slot de argumento de um consumidor deixou de
+  ser uma delas: o braço `Let` da Fase 11c percorre as vinculações e sonda o corpo no escopo vinculado, então
+  `SUM(LET(r,Rng,(r<>0)*1))` agora dá `2`, coincidindo com o oráculo, nos dois modos de entrada — fechado,
+  onde antes era o limite permanente do `LET` que a [seção dos produtores](#produtores-de-array-dinâmico)
+  registra. Um nome vinculado por `LET` *dentro* de uma posição de array resolve **quando o nome está
   vinculado a um intervalo**, através do escopo do `LET` que a
   [resolução de nomes](#intervalos-nomeados) consulta primeiro: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
   `LET(r,A1:A3,COUNT(r*1))` = **3** e `LET(r,A1:A3,INDEX(r*2,3))` = **18**, coincidindo com o oráculo nos
-  dois modos de entrada, onde antes desta regra eram `1`, `0` e `#REF!`. Um nome vinculado a um **array
-  computado** não resolve: a vinculação é avaliada como escalar no momento da captura, então
-  `LET(r,A1:A3*1,COUNT(r*1))` dá `0`, `LET(r,A1:A3*1,SUM(r*1))` dá `#VALUE!` e
-  `LET(r,A1:A3*1,INDEX(r*2,3))` dá `#REF!` contra os **3**, **14** e **18** do oráculo nos dois modos de
-  entrada — inalterado por esta regra (medido no Aspose.Cells 26.6.0, em 2026-09-10, e no motor antes e
-  depois da regra), e é o mesmo limite permanente do `LET` — um produtor vinculado por `LET` colapsa
-  exatamente por esse motivo.
+  dois modos de entrada desde a Fase 11a. Um nome vinculado a um **array computado** agora também resolve —
+  a vinculação é construída uma única vez como operando, em vez de ser avaliada como escalar no momento da
+  captura —, então `LET(r,A1:A3*1,COUNT(r*1))` dá `3`, `LET(r,A1:A3*1,SUM(r*1))` dá `14` e
+  `LET(r,A1:A3*1,INDEX(r*2,3))` dá `18`, coincidindo com o oráculo nos dois modos de entrada (medido no
+  Aspose.Cells 26.6.0, em 2026-09-10, e neste motor depois da Fase 11c); antes da Fase 11c eram `0`,
+  `#VALUE!` e `#REF!` — a última metade do limite permanente do `LET` que a seção dos produtores registrava.
 - **Uma função ciente de intervalos nunca é elevada sobre os slots ESCALARES dela.** O Excel também eleva
   uma função ciente de intervalos: ele consome o intervalo no slot que recebe um e repete a *chamada
   inteira* por elemento de um retângulo entregue a qualquer outro slot. A classificação do MySheet é por

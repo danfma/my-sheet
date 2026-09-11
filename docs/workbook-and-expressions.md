@@ -559,6 +559,23 @@ shorter than what it is combined with leaves `#N/A` in the positions it does not
 `SUM(FILTER(A1:A3,A1:A3>0)*B1:B3)` is `#N/A` — a 2x1 selection against a 3x1 range — while
 `COUNT` of the same expression is 2.
 
+**A binding site carries an array too, evaluated once.** `LET`'s bound name, the chosen branch of `CHOOSE`,
+and the operand of a unary `+` are no longer collapse points: each streams the whole computed array to its
+consumer, built once even when the consumer reads the name more than once —
+`LET(f,FILTER(A1:A3,A1:A3>0),SUM(f))` is `14`, and evaluate-once means a volatile binding survives being read
+twice: `LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))` is always `0`, never a stray non-zero from a second draw.
+A binding read bare in a cell still shows its top-left, exactly as a bare producer does —
+`=LET(f,FILTER(A1:A3,A1:A3>0),f)` is `5` — because the cell boundary is not a consumer.
+
+The unary `+` half of this is a change of MECHANISM, not of RULE: `+` is still Excel's reference-preserving
+no-op and is still not itself a lift, and `+` over a bare RANGE still denotes that reference at a consumer's
+top level — `SUM(+A1:A3)` = 6 for `A1:A3` = 1, 2, 3, unchanged. What changed is that the mini-CSE no longer
+treats the whole `+`-expression as an opaque scalar, so a lift on either side of it now reaches through:
+`SUM(-(+A1:A3))` is `-6`, matching Excel, where this engine used to answer `#VALUE!` (Aspose.Cells 26.6.0,
+`Ctrl+Shift+Enter`, measured 2026-09-09 and re-measured on this engine 2026-09-11); and on a grid of 1, 22,
+333 (character counts 1, 2, 3), `SUM(+LEN(A1:A3))` and `SUM(LEN(+A1:A3))` are both `6` now, matching Excel,
+where MySheet answered `#VALUE!` for both before this rule (Aspose.Cells 26.6.0, measured 2026-09-09).
+
 **An empty result is `#CALC!`, never an empty array.** `SUM(FILTER(A1:A3,A1:A3>100))` and
 `ROWS(FILTER(A1:A3,A1:A3>100))` are [`#CALC!`](computed-value.md), Excel's empty-array error, with
 `ERROR.TYPE` **14**; supply `FILTER`'s third argument to answer something else
@@ -635,16 +652,6 @@ two engines differ — so closing one is always a deliberate edit.
   answers 14/3, which is its own `SUM` over its own `COUNT`. The oracle reports `SUM` **14**, `COUNT` **3**
   and `AVERAGE` **0** for the same expression — three answers that cannot all be right — and Microsoft's
   `AVERAGE` page is explicit that the mean is the sum over the count with zeros included.
-- **A producer bound by `LET`, passed through `CHOOSE`, or through a unary `+`, collapses to its top-left.**
-  `SUM(LET(x,FILTER(A1:A3,A1:A3>0),x))` is `5` here where Excel answers **14** in both entry modes (measured
-  2026-09-10; `ROWS(LET(x,FILTER(…),x))` = 2, `SUM(CHOOSE(1,FILTER(…)))` and `SUM(+FILTER(…))` = 14 there).
-  A binding is captured as a *value* before the element-wise evaluation can see it, so the producer's own
-  cell answer is what gets bound. Use the producer directly in the consumer's argument slot. The loudest
-  instance is a `LET`-bound producer in a criteria slot —
-  `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` is `1` here — `COUNTIF` over the single collapsed element
-  — against Excel's `#REF!` in both entry modes, with `SUM(f)` 5 against 14 and `ROWS(f)` 1 against 2 in the
-  same shape. That row is this engine's one deliberately failing pin, red so that the fix turns it green
-  rather than being discovered by accident.
 
 **Which factory a new built-in uses (contributors).** The classification is one explicit flag per entry in
 [`FunctionRegistry`](../Danfma.MySheet/Parsing/FunctionRegistry.cs): `Entry<T>(…)` registers a function that
@@ -720,11 +727,6 @@ The guard tests are precise about which of those two mistakes each one catches:
   [cell boundary](#implicit-intersection-at-the-cell-boundary) rule — the per-operand behaviour above is what
   the array half of `@` has to be reconciled with — not to the consumers described here; today's `#VALUE!` is
   pinned by `CellBoundaryIntersectionTests` so the change has to be deliberate.
-- **Unary `+` is deliberately not lifted.** It is Excel's reference-preserving no-op, so `+A1:A3` stays a
-  *reference* and the consumer folds it on the ordinary range path: `SUM(+A1:A3)` = 6 for `A1:A3` = 1,2,3,
-  exactly as `SUM(A1:A3)` does, and unchanged by the lift. The cost of keeping it opaque is that a `-` over
-  it has nothing to lift: `SUM(-(+A1:A3))` is `#VALUE!` where Excel answers -6 (Aspose.Cells 26.6.0,
-  `Ctrl+Shift+Enter`, measured 2026-09-09). Write `SUM(-A1:A3)` instead.
 - A **reference-returning function** as `ROW`/`COLUMN`'s argument stays a scalar:
   `SUM(ROW(INDEX(A1:A3,1,1)))` is `1`, the top row of the resolved reference, not the vector `[1,2,3]`.
   Discovering its shape would resolve the argument a second time and draw a volatile twice, so the array
@@ -856,15 +858,8 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   `A1` = 1 (measured 2026-09-09). With the slot fully absent both engines agree — `FIXED(A1)` and
   `DOLLAR(A1)` are `1.00` and `$1.00` on each — so the divergence is the *empty* slot, not the default, and
   it applies equally to the scalar call and to the lifted `FIXED(A1:A3,,TRUE)`.
-- **A lifted call under a unary `+` is not lifted either.** `+` is Excel's reference-preserving no-op and
-  MySheet keeps the whole `+`-expression opaque, which hides what is *inside* it from the mini-CSE: over
-  `A1:A3` = 1, 22, 333, `SUM(+LEN(A1:A3))` is `#VALUE!` here and **6** in Excel (measured 2026-09-09). It is
-  the sibling of the `SUM(-(+A1:A3))` = -6 case above — the same opaque `+`, with a lifted *function* inside
-  it instead of a unary operator — and `SUM(LEN(+A1:A3))`, the `+` on the inside, is the same `#VALUE!` here
-  against the same **6** there. Write `SUM(LEN(A1:A3))`. Pinned by
-  `ElementwiseLiftingTests.LiftedCall_UnderAnOpaqueUnaryPlus_IsNotLifted_KnownDivergence`.
 - **A defined NAME in an array position is whatever it is bound to** — the rule itself is *agreement*, and
-  what this entry records are the three shapes still refused. A name bound to a rectangle is array-eligible in
+  what this entry records are the two shapes still refused. A name bound to a rectangle is array-eligible in
   a **nested** array position and answers exactly what the written-out rectangle answers. For a `MyName`
   bound to 1, 22, 333 and a `Rng` bound to `A1:A3` = 5, 0, 9, all measured on Aspose.Cells 26.6.0 array-entered
   (2026-09-10): `SUM(LEN(MyName))` = **6**, `SUM(-MyName)` = **-356**, `SUM(MyName%)` = **3.56**,
@@ -879,25 +874,25 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   `SUM(A1:INDEX(Rng,3))` = 14 and `ISREF(INDEX(Rng,2))` = `TRUE` — because that path carries what an
   element-wise stream cannot: the nested-`SUBTOTAL` skip, the engine's column-major first-error scan and a
   reference-returning `INDEX`. Pinned by `DefinedNameArrayEligibilityTests` and
-  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreLifted`. Three shapes stay refused, each a
+  `ElementwiseLiftingTests.LiftedShapes_OverADefinedName_AreLifted`. Two shapes stay refused, each a
   deliberate deviation pinned as one: an **open-range** name meets the cost guard, so `SUM((MyCol<>0)*1)`
   with `MyCol` = `$A:$A` is `1` here — the truthy reference value — against the oracle's **2**
-  array-entered (`0` typed); a **union** name resolves to a scalar, which makes the whole expression
+  array-entered (`0` typed); and a **union** name resolves to a scalar, which makes the whole expression
   scalar-only, so `SUM((UnN<>0)*1)` is `1` against **2** array-entered (`#VALUE!` typed) and the *literal*
-  union twin is `#VALUE!` here, making this the one row where a name does not match its literal; and a `LET`
-  node in a consumer's own argument slot stays opaque because the shape probe does not look inside it, so
-  `SUM(LET(r,Rng,(r<>0)*1))` is `1` against **2** in both entry modes — the same standing `LET` limit the
-  [producers section](#dynamic-array-producers) records, still open. A `LET`-bound name *inside* an array
-  position does resolve **when the name is bound to a range**,
-  through the `LET` scope that [name resolution](#named-ranges) checks first:
-  `LET(r,A1:A3,SUM((r<>0)*1))` = **2**, `LET(r,A1:A3,COUNT(r*1))` = **3** and
-  `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both entry modes where they were `1`, `0` and
-  `#REF!` before this rule. A name bound to a **computed array** does not: the binding is evaluated as a
-  scalar when it is captured, so `LET(r,A1:A3*1,COUNT(r*1))` is `0`, `LET(r,A1:A3*1,SUM(r*1))` is `#VALUE!`
-  and `LET(r,A1:A3*1,INDEX(r*2,3))` is `#REF!` against the oracle's **3**, **14** and **18** in both entry
-  modes — unchanged by this rule (measured on Aspose.Cells 26.6.0, 2026-09-10, and on the engine before and
-  after the rule), and it is the same standing `LET` limit — a producer bound by `LET` collapses for exactly
-  this reason.
+  union twin is `#VALUE!` here, making this the one row where a name does not match its literal. A `LET`
+  node in a consumer's own argument slot is no longer one of them: Phase 11c's `Let` arm walks the bindings
+  and probes the body in the bound scope, so `SUM(LET(r,Rng,(r<>0)*1))` is now `2`, matching the oracle, in
+  both entry modes — closed, where it used to be the standing `LET` limit the
+  [producers section](#dynamic-array-producers) records. A `LET`-bound name *inside* an array position
+  resolves **when the name is bound to a range**, through the `LET` scope that
+  [name resolution](#named-ranges) checks first: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
+  `LET(r,A1:A3,COUNT(r*1))` = **3** and `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both
+  entry modes since Phase 11a. A name bound to a **computed array** now resolves too — the binding is built
+  once as an operand rather than evaluated as a scalar at capture time — so `LET(r,A1:A3*1,COUNT(r*1))` is
+  `3`, `LET(r,A1:A3*1,SUM(r*1))` is `14` and `LET(r,A1:A3*1,INDEX(r*2,3))` is `18`, matching the oracle in
+  both entry modes (measured on Aspose.Cells 26.6.0, 2026-09-10, and on this engine after Phase 11c); before
+  Phase 11c they were `0`, `#VALUE!` and `#REF!` — the last half of the standing `LET` limit the producers
+  section used to record.
 - **A range-aware function is never lifted over its SCALAR slots.** Excel lifts a range-aware function too:
   it consumes the range in the slot that takes one and repeats the *whole call* per element of a rectangle
   handed to any other slot. MySheet's classification is per *function*, not per slot, so a rectangle in a
