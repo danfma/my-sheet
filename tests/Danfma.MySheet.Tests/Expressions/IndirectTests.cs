@@ -87,22 +87,15 @@ public class IndirectTests
 
     // === Phase 5 item 23: INDIRECT over a structured reference ==========================================
     //
-    // The brief's claim, on the design's own reasoning: ParseFormulaBody(refText, sheet) (Indirect.cs) would
-    // produce a TableReference and TryResolveReference would resolve it exactly as a defined name does, so
-    // SUM(INDIRECT("Tabela1[Valor]")) should be 60 (both entry modes, Aspose.Cells 26.6.0). MEASURED FALSE
-    // on this head: the parser has no rule that consumes a structured reference yet (Phase 4 T5 owns
-    // Parser.cs and has not merged here — grep over Parser.cs finds zero references to TableReference or
-    // the tokenizer's own BracketedSpecifier token). Confirmed directly:
-    // ExpressionParser.ParseFormulaBody("Tabela1[Valor]", sheet) throws
-    // ParseException("Unexpected token '[Valor]' (at position 7)"); Indirect.TryResolveReference's own
-    // `catch (ParseException)` turns that into `false`, so INDIRECT answers #REF! — the SAME code path a
-    // plain malformed ref_text takes (Indirect_InvalidText_IsRefError above), not a new one. So these two
-    // pin the CURRENT, correct behaviour rather than the brief's unreachable claim — a canary, not a
-    // regression: once Phase 4 T5 merges the grammar, both should be flipped to the oracle's 60.0/both
-    // modes, and this comment block deleted.
+    // The brief's claim, now TRUE: Phase 4's parser arms merged, so ParseFormulaBody(refText, sheet)
+    // (Indirect.cs) produces a TableReference and TryResolveReference resolves it exactly as a defined
+    // name does. These were canaries pinned at #REF! while the grammar could not be reached (the interim
+    // head threw ParseException from ParseFormulaBody, which Indirect's own catch turned into false);
+    // after the Phase 4 merge they answered 60 immediately, measured before flipping — the oracle's
+    // number, stored identically (Aspose.Cells 26.6.0, both entry modes agree on this shape).
 
     [Test]
-    public async Task StructuredReference_ThroughIndirect_IsRefUntilPhase4T5MergesTheParser()
+    public async Task StructuredReference_ThroughIndirect_Resolves()
     {
         var workbook = new Workbook();
         var data = workbook.Sheets.Add("Data");
@@ -122,16 +115,15 @@ public class IndirectTests
 
         var value = workbook.GetCellValue("Data", "H1");
 
-        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(value.AsDouble()).IsEqualTo(60.0);
     }
 
     [Test]
-    public async Task StructuredReference_ThroughIndirect_WithARuntimeColumnName_IsRefUntilPhase4T5MergesTheParser()
+    public async Task StructuredReference_ThroughIndirect_WithARuntimeColumnName_Resolves()
     {
         // The corpus shape: =SUM(INDIRECT("Tabela1["&SUBSTITUTE(D1,"'","''")&"]")) with D1 holding a column
         // name containing an apostrophe — the round trip of the lexer's escape table (item 1) against
-        // SUBSTITUTE's output, IF the parser could consume the result. It cannot (see above), so this pins
-        // the same #REF! for the concatenated-text form of the ref_text, not just the literal-string form.
+        // SUBSTITUTE's output: D1 -> O''Col inside the brackets, decoded back to O'Col at resolution.
         var workbook = new Workbook();
         var data = workbook.Sheets.Add("Data");
         data["A1"] = new Danfma.MySheet.Expressions.StringValue("Item");
@@ -152,6 +144,6 @@ public class IndirectTests
 
         var value = workbook.GetCellValue("Data", "H1");
 
-        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.Reference);
+        await Assert.That(value.AsDouble()).IsEqualTo(60.0);
     }
 }
