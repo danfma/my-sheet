@@ -50,8 +50,9 @@ internal readonly struct ArrayEvaluationResult
 /// the predicate does not admit: the same <c>f</c> then streams to <c>SUM(f)</c> and <c>ROWS(f)</c> and is
 /// refused by <c>COUNTIF(f,…)</c>, both right (ArrayBindingTests). Two shapes are LIFTED
 /// element-wise (Phase 8): a unary <c>-</c>/<c>%</c>
-/// over an array (unary <c>+</c> is Excel's reference-preserving no-op and stays opaque, so
-/// <c>SUM(+A1:A3)</c> keeps reading the cells), and any built-in the registry classifies
+/// over an array (unary <c>+</c> is Excel's reference-preserving no-op — TRANSPARENT to the probe since
+/// Phase 11c, but still a reference at a consumer's top level (<see cref="IsBareReferenceNode(Expression, EvaluationContext)"/>'s
+/// <c>Plus</c> arm), so <c>SUM(+A1:A3)</c> keeps reading the cells and <c>+</c> is still not a lift), and any built-in the registry classifies
 /// <see cref="ArrayLifting.Elementwise"/> — a pure-scalar function such as <c>LEN</c>, <c>ROUND</c> or
 /// <c>IFERROR</c> — with at least one array argument, whose scalar body is evaluated once per element over
 /// rebound argument slots (<see cref="LiftedFunctionOperand"/>) while its scalar arguments broadcast. Any

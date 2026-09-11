@@ -158,7 +158,7 @@ built once and read by every consumer`), tree clean, no AI attribution trailer. 
 the one helper; the context-free `IsBareReferenceNode` was REMOVED (zero callers after migrating the gates),
 not kept dead.
 
-**Counts.** Before: core 1978 / 38. After: core **1988 / 15**, with exactly Task 3's fifteen rows red, Excel
+**Counts.** Before: core 1978 / 38. After: core **1988 / 15**, with exactly Phase 3's fifteen rows red, Excel
 93 / 0.
 
 **Mutation.** Disabling the array branch turns 37 rows red; the `SEQUENCE(3,1,RAND(),0)` evaluate-once row
@@ -239,12 +239,14 @@ now a permanent test (`AVolatileChooseIndex_NeverCollapsesTheBranchItTakes`).
 new `Array` outcome alone cannot make `SUM(ProdName)` 14, because `TryStream`'s FIRST condition
 (`IsBareReferenceNode`) still admitted the name. Fixed by extending `IsBareReferenceNode`'s `NameReference`
 arm to also answer `false` for a name whose definition is a computed array (the oracle agrees:
-`ISREF(ProdName)` is FALSE). (2) The plan's item 11 as written would have created FOUR new divergences —
+`ISREF(ProdName)` is FALSE). (2) The plan's item 11 as written would have created **FIVE** new divergences —
 `COUNTIF(+A1:A3,">0")` is 2 on the oracle, `SUMIF` 14, `AVERAGEIF` 7, `ISREF` TRUE, `COUNTBLANK` 0 — fixed
 inside the existing predicate: `IsBareReferenceNode` answers for the OPERAND of a `+`, so `+` is transparent
-BELOW a lift or an operator and still a reference at the top. `COUNTIF`, `SUMIF` and `COUNTBLANK` are pinned
-in `AUnaryPlusOverABareReference_IsStillAReferenceAtTheTopLevel`; `AVERAGEIF` and `ISREF` were measured the
-same way but are not separately pinned. (3) Item 11 undercounted the Phase 8 pins:
+BELOW a lift or an operator and still a reference at the top. All five are pinned in
+`AUnaryPlusOverABareReference_IsStillAReferenceAtTheTopLevel` (`COUNTIF`/`SUMIF`/`AVERAGEIF`/`COUNTBLANK`) and
+its sibling `AUnaryPlusOverABareReference_IsStillAReferenceForIsref` (`ISREF`, added by the final-review fix
+wave — both were measured from the start but not separately pinned until then). (3) Item 11 undercounted the
+Phase 8 pins:
 THREE flip, not two — besides `ElementwiseLiftingTests.cs`'s `SUM(+LEN(A1:A3))`/`SUM(LEN(+A1:A3))`
 (`#VALUE!` → 6, renamed `LiftedCall_UnderATransparentUnaryPlus_IsLifted`), two mechanism pins asserted the
 opacity directly and were rewritten (`ArrayEvaluationTests`, `ElementwiseLiftingMechanismTests`).
@@ -288,7 +290,7 @@ Status: Complete
 ### Phase Summary
 
 **Complete** — docs/plans/lessons only, no engine change, tree unchanged in behaviour (core **2001 / 0**,
-Excel **93 / 0**, unchanged from Task 3's baseline). Sites changed, beyond the items' own file lists:
+Excel **93 / 0**, unchanged from Phase 3's baseline). Sites changed, beyond the items' own file lists:
 
 - `docs/workbook-and-expressions.md` / `docs/pt-BR/workbook-and-expressions.md`: item 13's bullet deleted, a
   positive paragraph added to "Dynamic array producers"; the two opaque-`+` bullets at `:723-727`/`:761` and
@@ -310,7 +312,11 @@ Excel **93 / 0**, unchanged from Task 3's baseline). Sites changed, beyond the i
   Phase 11c row itself marked **Complete** with counts.
 - `plans/structured-table-references-and-aggregate/phase-11-excel-compatibility-sweep.md`: **checked, no
   edit** — items 31/32 discuss the unrelated `IF`-returns-a-reference question, correctly left alone, and a
-  repo-wide grep for the LET/CHOOSE/`+` collapse phrase found no other sweep line to close.
+  repo-wide grep for the LET/CHOOSE/`+` collapse phrase found no other sweep line to close. **Correction
+  (final-review fix wave):** that claim was false — the grep was for a phrase, and item 15's actual
+  instruction was any sweep line that LISTS the collapse as a divergence. Two do, `:203` and `:658`, both
+  still stating the pre-11c numbers as current fact; both are now marked **CLOSED BY PHASE 11C** with the
+  measured numbers (`3`, `14`, `18` and `2`).
 - `plans/structured-table-references-and-aggregate/phase-11a-unblocking-slice.md`: three stale citations
   fixed, not two — the brief named lines 138 and 143, but line 148 (`CriteriaComputedArgumentTests`'s old
   name) cites the OTHER renamed test and was equally stale. All three paragraphs also had their substance
@@ -320,12 +326,15 @@ Excel **93 / 0**, unchanged from Task 3's baseline). Sites changed, beyond the i
   `+range` on the range path.
 - `tasks/lessons.md`: one dated section, five lessons (see the file).
 
-**Verification.** `grep -rn "collapses to its top-left" docs/ plans/` returns four hits, all legitimate:
-Phase 7's own historical plan file (unrelated, pre-existing), this phase's own item 13 quoting the OLD
-bullet as an instruction, and this phase's own Verification Plan line quoting the grep. Every anchor this
+**Verification.** `grep -rn "collapses to its top-left" docs/ plans/` returns **six** hits, not four, all
+legitimate: three in Phase 7's own historical plan file (the option (a) description in the M1 correction
+block, the same phrase reused where that correction's own text says the option was never the description
+that shipped, and the unrelated pre-existing cell-boundary paragraph at `:457`) and three in this phase's own
+file (item 13 quoting the OLD bullet as an instruction, the Verification Plan line quoting the grep, and
+this sentence quoting the grep again). Every anchor this
 task added or touched (`#dynamic-array-producers`, `#produtores-de-array-dinâmico`, `#named-ranges`,
 `#intervalos-nomeados`) resolves against an existing heading — no new heading was added, so no new anchor
-needed generating. pt-BR structural parity checked globally: headings 22/22, bullets 58/58, code fences
+needed generating. pt-BR structural parity checked globally: headings 23/23, bullets **63/63**, code fences
 38/38, table rows 49/49, all equal EN/pt-BR after the edits (the LET occurrence-count gap, 34 EN / 31 pt-BR,
 is pre-existing — 36/33 before this task's edits — and unchanged in size). Every pt-BR paragraph touched was
 diffed against its English original paragraph by paragraph; one mechanical defect was caught and fixed this
@@ -361,10 +370,12 @@ divergences (fixed by keeping the SAME predicate's answer for a `+` over a bare 
 level). The suite went from core **1927 / 1**, Excel 93 / 0 at the phase's start to core **2001 / 0**, Excel
 **93 / 0** — zero failures for the first time since Phase 7 registered its producers — across four tasks and
 three engine commits (`6ad7cea`, `1fd687d`, `ceb7539`) plus this task's docs/plans/lessons commit(s), with
-`dotnet csharpier check .` clean and a Release build carrying 0 warnings throughout. Fourteen test methods
-were renamed as their pins moved from "wrong on purpose" to "right," and every renamed test's OLD name was
-grepped out of `docs/`, `plans/` and `tasks/lessons.md` before this phase closed — three citations the
-controller's own briefs had not enumerated. One divergence outside this phase's scope is explicitly
+`dotnet csharpier check .` clean and a Release build carrying 0 warnings throughout. **Six** test methods
+were renamed as their pins moved from "wrong on purpose" to "right" (`git diff 75f5e84..HEAD -- tests/`
+confirms the count), and every renamed test's OLD name was meant to be grepped out of `docs/`, `plans/` and
+`tasks/lessons.md` before this phase closed — the final review found one surviving bare citation of a
+renamed name (`plans/…/phase-7-dynamic-arrays.md`, closed by this fix wave) alongside the three citations
+the controller's own briefs had already enumerated and fixed. One divergence outside this phase's scope is explicitly
 unmoved and named as such wherever it appears: a bare-reference branch under a scalar-condition `IF`
 (`SUM(IF(TRUE,A1:A3,0))`) is still `#VALUE!` against the oracle's 14, owned by sweep items 31/32's
 "does `IF` return a reference?" question, not by this phase.

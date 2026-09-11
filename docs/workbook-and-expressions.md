@@ -560,12 +560,17 @@ shorter than what it is combined with leaves `#N/A` in the positions it does not
 `COUNT` of the same expression is 2.
 
 **A binding site carries an array too, evaluated once.** `LET`'s bound name, the chosen branch of `CHOOSE`,
-and the operand of a unary `+` are no longer collapse points: each streams the whole computed array to its
-consumer, built once even when the consumer reads the name more than once —
-`LET(f,FILTER(A1:A3,A1:A3>0),SUM(f))` is `14`, and evaluate-once means a volatile binding survives being read
-twice: `LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))` is always `0`, never a stray non-zero from a second draw.
-A binding read bare in a cell still shows its top-left, exactly as a bare producer does —
-`=LET(f,FILTER(A1:A3,A1:A3>0),f)` is `5` — because the cell boundary is not a consumer.
+the operand of a unary `+`, and a workbook **defined name**'s own definition are no longer collapse points:
+each streams the whole computed array to its consumer, built once even when the consumer reads the name more
+than once — `LET(f,FILTER(A1:A3,A1:A3>0),SUM(f))` is `14`, and for a defined name `ProdName` bound to that
+same `FILTER`, `SUM(ProdName)` is `14`, `ROWS(ProdName)` is `2` and `COUNTIF(ProdName,">0")` is `#REF!` — the
+criteria family rejects a computed array whether it arrives through a name or written out — while a name
+bound to an operator over a range (`OpName` = `A1:A3*2`) streams the same way, so `SUM(OpName)` is `28`.
+Evaluate-once means a volatile binding survives being read twice:
+`LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))` is always `0`, never a stray non-zero from a second draw. A
+binding read bare in a cell still shows its top-left, exactly as a bare producer does —
+`=LET(f,FILTER(A1:A3,A1:A3>0),f)` is `5` and bare `=ProdName` is likewise `5` — because the cell boundary is
+not a consumer.
 
 The unary `+` half of this is a change of MECHANISM, not of RULE: `+` is still Excel's reference-preserving
 no-op and is still not itself a lift, and `+` over a bare RANGE still denotes that reference at a consumer's
@@ -756,25 +761,23 @@ The guard tests are precise about which of those two mistakes each one catches:
   `SUMIFS(LEN(A1:A3),A1:A3,">0")` is `#REF!`, with the same `#VALUE!`-plain / `#REF!`-array-entered split on
   the oracle (pinned by `MiniCseConsumerTests.CriteriaFamily_OverALiftedFunction_IsRef`). What is **not**
   rejected is whatever is already a reference or is not array-eligible: a reference-returning function
-  (`CHOOSE`, `OFFSET`, `INDEX`), a defined name, a single cell and a whole column all stay ranges, so
+  (`CHOOSE`, `OFFSET`, `INDEX`), a defined name **bound to a range**, a single cell and a whole column all
+  stay ranges (a name bound to a **computed array** is refused instead, exactly like the array it is bound
+  to — `COUNTIF(ProdName,">0")` is `#REF!`, [below](#named-ranges)), so
   `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` and `COUNTIF(OFFSET(A1,0,0,3,1),">0")` are `2`, as on the oracle in
-  both modes. Four shapes are **deliberate deviations**, each pinned as one in
-  `CriteriaComputedArgumentTests` — three left for the compatibility sweep and the fourth the standing `LET`
-  limit: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `0` here where the oracle answers `2` in *both*
-  entry modes — a scalar-conditioned `IF` is an opaque scalar here rather than its
-  branch's reference, and closing that is the sweep's own item, deliberately not part of this rule;
-  `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes (a bare
-  *scalar* in a range slot, a shape no array producer takes); and `SUMIF(A:A*1,">0")` is `0` where the oracle
-  answers `#REF!` in both modes (the cost guard refuses a whole-column operand, so the argument is never
-  array-eligible and the gate never sees it); and a `LET` is `0` from **either** side of its binding —
-  `COUNTIF(LET(r,A1:A3,r*1),">0")` and `LET(r,A1:A3*1,COUNTIF(r,">0"))`, with the `SUMIF` twins alike — where
-  the oracle answers `#REF!` array-entered (`#VALUE!` typed), because a `LET` node is an opaque scalar to the
-  shape probe while a `LET`-bound name *is* a reference node whose binding was already collapsed when it was
-  captured, so the gate's predicate sees no array either way. That last one is **pre-existing** (measured
-  identical before the rule landed) and is a standing limit rather than part of this rule:
-  `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` is exactly that shape and is the one deliberately failing
-  pin in the suite — see the `LET` entry under
-  [dynamic array producers](#dynamic-array-producers). `SUMPRODUCT` is the one member of that family that opted in to
+  both modes. Three shapes are **deliberate deviations**, each pinned as one in
+  `CriteriaComputedArgumentTests`, left for the compatibility sweep: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is
+  `0` here where the oracle answers `2` in *both* entry modes — a scalar-conditioned `IF` is an opaque scalar
+  here rather than its branch's reference, and closing that is the sweep's own item, deliberately not part of
+  this rule; `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes
+  (a bare *scalar* in a range slot, a shape no array producer takes); and `SUMIF(A:A*1,">0")` is `0` where the
+  oracle answers `#REF!` in both modes (the cost guard refuses a whole-column operand, so the argument is
+  never array-eligible and the gate never sees it). A `LET` in this slot, from either side of its binding,
+  used to be a fourth such deviation, pinned at `0`: Phase 11c made a `Let` node array-eligible and the
+  bare-reference predicate context-aware, so `COUNTIF(LET(r,A1:A3,r*1),">0")`, `LET(r,A1:A3*1,COUNTIF(r,">0"))`
+  and the `SUMIF` twins are now `#REF!`, matching the oracle array-entered (`#VALUE!` typed) in both directions
+  of the binding, pinned green by
+  `CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsRefused`. `SUMPRODUCT` is the one member of that family that opted in to
   computed arrays — `SUMPRODUCT((A1:A3<>0)*1)` = 2 and `SUMPRODUCT(A1:A3*1,B1:B3)` = 32, matching the oracle
   in both modes — and the fold-based consumers listed under **Supported** above (`SUM(IF(…))` and friends)
   have always taken them. `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a
@@ -869,8 +872,8 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   which is the rule stated as a test. A name on a **missing sheet** streams the literal's per-element `#REF!`
   the same way: `SUM((GhostName<>0)*1)` is `#REF!` and `COUNT((GhostName<>"")*1)` is `0`, both modes on the
   oracle. Reading the name itself is unaffected (`SUM(MyName)` = 356, `SUM(ROW(MyName))` = 6 on both
-  engines), and at a consumer's **top level** a bare name is still a *reference* that keeps the reference
-  path, exactly as a bare literal range does — `SUBTOTAL(9,Rng)` = 14, `AGGREGATE(9,4,Rng)` = 14,
+  engines), and at a consumer's **top level** a bare name bound to a range is still a *reference* that keeps
+  the reference path, exactly as a bare literal range does — `SUBTOTAL(9,Rng)` = 14, `AGGREGATE(9,4,Rng)` = 14,
   `SUM(A1:INDEX(Rng,3))` = 14 and `ISREF(INDEX(Rng,2))` = `TRUE` — because that path carries what an
   element-wise stream cannot: the nested-`SUBTOTAL` skip, the engine's column-major first-error scan and a
   reference-returning `INDEX`. Pinned by `DefinedNameArrayEligibilityTests` and
@@ -883,7 +886,7 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   node in a consumer's own argument slot is no longer one of them: Phase 11c's `Let` arm walks the bindings
   and probes the body in the bound scope, so `SUM(LET(r,Rng,(r<>0)*1))` is now `2`, matching the oracle, in
   both entry modes — closed, where it used to be the standing `LET` limit the
-  [producers section](#dynamic-array-producers) records. A `LET`-bound name *inside* an array position
+  [producers section](#dynamic-array-producers) used to record. A `LET`-bound name *inside* an array position
   resolves **when the name is bound to a range**, through the `LET` scope that
   [name resolution](#named-ranges) checks first: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
   `LET(r,A1:A3,COUNT(r*1))` = **3** and `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both
@@ -967,9 +970,14 @@ taken by a table, because names and tables share one namespace ([Tables](#tables
    `LET(hdr, Data!$1:$1, MATCH(x, hdr, 0))` see the cells; a single cell is bound by value.
 2. **`Workbook.DefinedNames`** — the name's expression is evaluated. A range/union stays a *reference*
    value, so range-aware functions expand it (`SUM(Sales)`); a single cell or constant evaluates to its
-   scalar. The functions that require a syntactic reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,
-   `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` — accept a name that stands for a range
-   (e.g. `VLOOKUP(2, Sales, 2)`).
+   scalar; and a definition that is itself a **computed array** (`ProdName` bound to
+   `FILTER(Sheet1!$A$1:$A$3,Sheet1!$A$1:$A$3>0)`) streams the whole array to a consumer instead — `SUM(ProdName)`
+   is `14` and `ROWS(ProdName)` is `2` — while a bare `=ProdName` still shows its top-left (`5`), and the
+   criteria family refuses it exactly as it refuses a `FILTER` written out (`COUNTIF(ProdName,">0")` is
+   `#REF!`); see [dynamic array producers](#dynamic-array-producers). The functions that require a syntactic
+   reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`, `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`,
+   `ISREF` — accept a name that stands for a range (e.g. `VLOOKUP(2, Sales, 2)`), but not one bound to a
+   computed array (`ISREF(ProdName)` is `FALSE`).
 3. Otherwise `#NAME?`.
 
 A name used **bare in a cell** (`=Sales`) is not an error either: the reference it stands for is

@@ -13,7 +13,10 @@ namespace Danfma.MySheet.Expressions;
 /// <see cref="NamedReferences.CaptureValue"/> captured for the cell's whole expression — INSIDE a formula a
 /// range keeps being a range (<c>SUM(A1:A3)</c> is untouched), because there the consumer, not the cell,
 /// decides what a multi-cell reference means. This is the RANGE half of the rule; the ARRAY half (a computed
-/// array collapses to its top-left value) has no producer in this engine yet and is deliberately absent.</para>
+/// array collapses to its top-left value) has been implemented since Phase 7, but not by this class — a
+/// producer's own <c>Evaluate</c> already returns its
+/// <see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/> unconditionally, with no row/
+/// column position to intersect against, so there is nothing left here for this rule to do for it.</para>
 ///
 /// <para>A <see cref="UnionReference"/> keeps its <c>#VALUE!</c>: a comma union of areas has no single row/
 /// column axis to intersect against, so there is nothing to reason from.</para>

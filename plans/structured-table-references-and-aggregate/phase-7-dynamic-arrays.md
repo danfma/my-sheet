@@ -97,22 +97,24 @@ exactly what Excel writes as `=@FILTER(...)`.
       through unary + collapses to its top-left; use it directly as the consumer's argument") plus a pinned
       test, or (b) route `Probe`/`TryBuildOperand` through `Let`/`Choose`/`UnaryOperation{Plus}` so the mini-
       CSE sees through them. (a) is the honest scope; either way it must not be silent.
-      *Added by Phase 11a (measured 2026-09-10, Aspose.Cells 26.6.0, both entry modes):* the CRITERIA family
-      is the loudest consumer of this gap, and it is where a user of this phase lands first. Phase 11a's Rule
-      B rejects a computed array in a `SUMIF`/`SUMIFS`/`COUNTIF`/`COUNTIFS`/`AVERAGEIF`/`AVERAGEIFS`/`MAXIFS`/
-      `MINIFS` range slot with `#REF!`, but a `LET` escapes that gate from BOTH sides:
-      `COUNTIF(LET(r,A1:A3,r*1),">0")` = 0 (a `Let` NODE is an opaque scalar to `Probe`, so it is not
-      array-eligible and `RejectComputedArray` returns null) and `LET(r,A1:A3*1,COUNTIF(r,">0"))` = 0 (a
-      LET-bound NAME *is* a reference node, which `IsBareReferenceNode` admits by design, and `CaptureValue`
-      had already collapsed the binding), with `SUMIF(LET(r,A1:A3,r*1),">0")` and
-      `LET(r,A1:A3*1,SUMIF(r,">0"))` = 0 alike — oracle `#VALUE!` typed / `#REF!` array-entered for all four.
-      Pre-existing (identical on `main` `5f9d1ac`) and pinned in
-      `CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsUnchanged_KnownDivergence`.
-      `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">5"))` is exactly that second row, so this item must cover the
-      criteria slot: option (a)'s "collapses to its top-left" does not describe it (a criteria scan reports a
-      silent **0**, not the top-left element), and option (b) must decide whether seeing through a `LET` makes
-      the argument array-eligible and therefore `#REF!` at Rule B's gate — which is the oracle's
-      array-entered answer for a producer in that slot.
+      *Added by Phase 11a (measured 2026-09-10, Aspose.Cells 26.6.0, both entry modes); CLOSED BY PHASE 11C:*
+      the CRITERIA family was the loudest consumer of this gap, and it was where a user of this phase landed
+      first. Phase 11a's Rule B rejects a computed array in a
+      `SUMIF`/`SUMIFS`/`COUNTIF`/`COUNTIFS`/`AVERAGEIF`/`AVERAGEIFS`/`MAXIFS`/`MINIFS` range slot with
+      `#REF!`, but a `LET` used to escape that gate from BOTH sides: `COUNTIF(LET(r,A1:A3,r*1),">0")` = 0 (a
+      `Let` NODE was an opaque scalar to `Probe`, so it was not array-eligible and `RejectComputedArray`
+      returned null) and `LET(r,A1:A3*1,COUNTIF(r,">0"))` = 0 (a LET-bound NAME *is* a reference node, which
+      `IsBareReferenceNode` admits by design, and `CaptureValue` had already collapsed the binding), with
+      `SUMIF(LET(r,A1:A3,r*1),">0")` and `LET(r,A1:A3*1,SUMIF(r,">0"))` = 0 alike — oracle `#VALUE!` typed /
+      `#REF!` array-entered for all four. Pre-existing (identical on `main` `5f9d1ac`); all four rows are now
+      `#REF!`, matching the oracle's array-entered column, pinned in
+      `CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsRefused` (renamed from
+      `LetBoundComputedArray_InARangeSlot_IsUnchanged_KnownDivergence` in `6ad7cea`).
+      `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">5"))` was exactly that second row, so this item had to cover the
+      criteria slot: option (a)'s "collapses to its top-left" never described it (a criteria scan reports a
+      silent **0**, not the top-left element), and option (b) is what shipped — Phase 11c's `Probe`/
+      `TryBuildOperand` arms for the `Let` node itself make the argument array-eligible and therefore `#REF!`
+      at Rule B's gate, matching the oracle's array-entered answer for a producer in that slot.
 - [ ] **M2.** Item 6 adds `#CALC!` but leaves `ERROR.TYPE` — which already exists and is documented — returning #N/A for it, where Excel returns 14.
       *Evidence:* Danfma.MySheet/Expressions/Information/InformationFunctions.cs:218-258 `ErrorType.Evaluate`
       is a closed if-chain ending `return error == Error.NA ? ComputedValue.Number(7) :

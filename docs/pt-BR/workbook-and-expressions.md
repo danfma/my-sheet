@@ -249,8 +249,8 @@ workbook.GetCellValue("Sheet1", "A4").ToText();          // ""  (resultado é te
 ```
 
 Os efeitos de paridade se propagam, todos batendo com o Excel: `ISBLANK(A1)` com `A1 = "=F10"` é
-**FALSE** (A1 agora é 0), `COUNT` conta uma célula formula-vazia (0 é um número) enquanto `COUNTBLANK`
-não conta mais, e a exportação `SaveAsExcel` `ValuesOnly` grava `0` para uma célula formula-vazia em vez
+**FALSE** (A1 agora é 0), `COUNT` conta uma célula fórmula-vazia (0 é um número) enquanto `COUNTBLANK`
+não conta mais, e a exportação `SaveAsExcel` `ValuesOnly` grava `0` para uma célula fórmula-vazia em vez
 de omiti-la.
 
 ## Operadores
@@ -587,13 +587,18 @@ extensão é menor do que aquilo com que é combinado deixa `#N/A` nas posiçõe
 mesma expressão é 2.
 
 **Um ponto de vinculação também carrega um array, avaliado uma única vez.** O nome vinculado por `LET`, o
-ramo escolhido do `CHOOSE` e o operando de um `+` unário deixaram de ser pontos de colapso: cada um transmite
-o array computado inteiro para o seu consumidor, construído uma única vez mesmo quando o consumidor lê o nome
-mais de uma vez — `LET(f,FILTER(A1:A3,A1:A3>0),SUM(f))` é `14`, e avaliar uma única vez significa que uma
-vinculação volátil sobrevive a ser lida duas vezes: `LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))` é sempre
-`0`, nunca um valor diferente de zero vindo de um segundo sorteio. Uma vinculação lida sozinha em uma célula
-ainda mostra o elemento superior esquerdo, exatamente como um produtor sozinho —
-`=LET(f,FILTER(A1:A3,A1:A3>0),f)` é `5` — porque a fronteira da célula não é um consumidor.
+ramo escolhido do `CHOOSE`, o operando de um `+` unário e a própria definição de um **nome definido** da
+pasta de trabalho deixaram de ser pontos de colapso: cada um transmite o array computado inteiro para o seu
+consumidor, construído uma única vez mesmo quando o consumidor lê o nome mais de uma vez —
+`LET(f,FILTER(A1:A3,A1:A3>0),SUM(f))` é `14`, e para um nome definido `ProdName` vinculado a esse mesmo
+`FILTER`, `SUM(ProdName)` é `14`, `ROWS(ProdName)` é `2` e `COUNTIF(ProdName,">0")` é `#REF!` — a família de
+critérios rejeita um array computado quer ele chegue por um nome quer esteja escrito por extenso —, enquanto
+um nome vinculado a um operador sobre um intervalo (`OpName` = `A1:A3*2`) transmite do mesmo jeito, então
+`SUM(OpName)` é `28`. Avaliar uma única vez significa que uma vinculação volátil sobrevive a ser lida duas
+vezes: `LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))` é sempre `0`, nunca um valor diferente de zero vindo de
+um segundo sorteio. Uma vinculação lida sozinha em uma célula ainda mostra o elemento superior esquerdo,
+exatamente como um produtor sozinho — `=LET(f,FILTER(A1:A3,A1:A3>0),f)` é `5` e `=ProdName` sozinho é
+igualmente `5` — porque a fronteira da célula não é um consumidor.
 
 A metade do `+` unário dessa mudança é de MECANISMO, não de REGRA: o `+` continua sendo o no-op do Excel que
 preserva referências e continua não sendo, ele mesmo, uma elevação, e um `+` sobre um INTERVALO puro continua
@@ -794,26 +799,25 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   `SUMIFS(LEN(A1:A3),A1:A3,">0")` é `#REF!`, com a mesma divisão `#VALUE!` na digitação normal / `#REF!` como
   array no oráculo (fixado por `MiniCseConsumerTests.CriteriaFamily_OverALiftedFunction_IsRef`). O que **não**
   é rejeitado é tudo o que já é uma referência ou não é elegível a array: uma função que retorna referência
-  (`CHOOSE`, `OFFSET`, `INDEX`), um nome definido, uma célula única e uma coluna inteira continuam sendo
-  intervalos, então `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` e `COUNTIF(OFFSET(A1,0,0,3,1),">0")` dão `2`, como
-  no oráculo nos dois modos. Quatro formas são **desvios deliberados**, cada uma fixada como tal em
-  `CriteriaComputedArgumentTests` — três deixadas para a varredura de compatibilidade e a quarta o limite
-  permanente do `LET`:
+  (`CHOOSE`, `OFFSET`, `INDEX`), um nome definido **vinculado a um intervalo**, uma célula única e uma coluna
+  inteira continuam sendo intervalos (um nome vinculado a um **array computado** é recusado em vez disso,
+  exatamente como o array a que está vinculado — `COUNTIF(ProdName,">0")` é `#REF!`,
+  [mais abaixo](#intervalos-nomeados)), então `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` e
+  `COUNTIF(OFFSET(A1,0,0,3,1),">0")` dão `2`, como
+  no oráculo nos dois modos. Três formas são **desvios deliberados**, cada uma fixada como tal em
+  `CriteriaComputedArgumentTests`, deixadas para a varredura de compatibilidade:
   `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` dá `0` aqui, onde o oráculo responde `2` nos *dois* modos de entrada —
   um `IF` de condição escalar aqui é um escalar opaco em vez da referência do seu ramo, e fechar isso é item
   da própria varredura, deliberadamente fora desta regra; `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`
   onde o oráculo responde `#REF!` nos dois modos (um *escalar* puro em slot de intervalo, forma que nenhum
   produtor de array assume); e `SUMIF(A:A*1,">0")` dá `0` onde o oráculo responde `#REF!` nos dois modos (a
   guarda de custo recusa um operando de coluna inteira, então o argumento nunca é elegível a array e a
-  comporta nunca o vê); e um `LET` dá `0` dos **dois** lados da vinculação —
-  `COUNTIF(LET(r,A1:A3,r*1),">0")` e `LET(r,A1:A3*1,COUNTIF(r,">0"))`, com os gêmeos de `SUMIF` também —
-  onde o oráculo responde `#REF!` inserido como array (`#VALUE!` digitado), porque um nó `LET` é um escalar
-  opaco para a sondagem de formato, enquanto um nome vinculado por `LET` *é* um nó de referência cuja
-  vinculação já foi reduzida a escalar na captura, então a comporta não vê array de jeito nenhum. Essa última
-  é **pré-existente** (medida idêntica antes de a regra chegar) e é um limite permanente, não parte desta
-  regra: `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` é exatamente essa forma e é o único pin
-  deliberadamente vermelho da suíte — veja o item sobre `LET` em
-  [produtores de array dinâmico](#produtores-de-array-dinâmico). O `SUMPRODUCT` é o único membro dessa família que optou
+  comporta nunca o vê). Um `LET` nesse slot, de qualquer lado da vinculação, já foi um quarto desvio desses,
+  fixado em `0`: a Fase 11c tornou um nó `Let` elegível a array e o predicado de referência-pura sensível ao
+  contexto, então `COUNTIF(LET(r,A1:A3,r*1),">0")`, `LET(r,A1:A3*1,COUNTIF(r,">0"))` e os gêmeos de `SUMIF`
+  agora dão `#REF!`, coincidindo com o oráculo inserido como array (`#VALUE!` digitado) nas duas direções da
+  vinculação, fixado como verde por
+  `CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsRefused`. O `SUMPRODUCT` é o único membro dessa família que optou
   por aceitar arrays computados — `SUMPRODUCT((A1:A3<>0)*1)` = 2 e `SUMPRODUCT(A1:A3*1,B1:B3)` = 32,
   coincidindo com o oráculo nos dois modos — e os consumidores de dobra listados em **Suportado**
   acima (`SUM(IF(…))` e companhia) sempre os aceitaram. O `SUBTOTAL` e a forma-referência do
@@ -917,8 +921,8 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   o `#REF!` por elemento do literal do mesmo modo: `SUM((GhostName<>0)*1)` é `#REF!` e
   `COUNT((GhostName<>"")*1)` é `0`, nos dois modos do oráculo. Ler o nome em si não é afetado
   (`SUM(MyName)` = 356 e `SUM(ROW(MyName))` = 6 nos dois motores) e, no **nível superior** de um consumidor,
-  um nome puro continua sendo uma *referência* que mantém o caminho de referência, exatamente como um
-  intervalo literal puro — `SUBTOTAL(9,Rng)` = 14, `AGGREGATE(9,4,Rng)` = 14, `SUM(A1:INDEX(Rng,3))` = 14 e
+  um nome puro vinculado a um intervalo continua sendo uma *referência* que mantém o caminho de referência,
+  exatamente como um intervalo literal puro — `SUBTOTAL(9,Rng)` = 14, `AGGREGATE(9,4,Rng)` = 14, `SUM(A1:INDEX(Rng,3))` = 14 e
   `ISREF(INDEX(Rng,2))` = `TRUE` —, porque esse caminho carrega o que um fluxo elemento a elemento não
   carrega: o salto do `SUBTOTAL` aninhado, a varredura do primeiro erro em ordem de coluna do motor e um
   `INDEX` que retorna referência. Fixado por `DefinedNameArrayEligibilityTests` e
@@ -932,7 +936,7 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   ser uma delas: o braço `Let` da Fase 11c percorre as vinculações e sonda o corpo no escopo vinculado, então
   `SUM(LET(r,Rng,(r<>0)*1))` agora dá `2`, coincidindo com o oráculo, nos dois modos de entrada — fechado,
   onde antes era o limite permanente do `LET` que a [seção dos produtores](#produtores-de-array-dinâmico)
-  registra. Um nome vinculado por `LET` *dentro* de uma posição de array resolve **quando o nome está
+  registrava. Um nome vinculado por `LET` *dentro* de uma posição de array resolve **quando o nome está
   vinculado a um intervalo**, através do escopo do `LET` que a
   [resolução de nomes](#intervalos-nomeados) consulta primeiro: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
   `LET(r,A1:A3,COUNT(r*1))` = **3** e `LET(r,A1:A3,INDEX(r*2,3))` = **18**, coincidindo com o oráculo nos
@@ -1019,9 +1023,15 @@ tabelas compartilham um único namespace ([Tabelas](#tabelas)).
    `LET(Sales, 5, Sales+1)` é `6`, não uma soma sobre o intervalo.
 2. **`Workbook.DefinedNames`** — a expressão do nome é avaliada. Um intervalo/união permanece um valor de
    *referência*, então funções que aceitam intervalos o expandem (`SUM(Sales)`); uma única célula ou
-   constante é avaliada para seu escalar. As funções que exigem uma referência sintática —
-   `VLOOKUP`/`HLOOKUP` (tabela), `INDEX`, `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `ISREF` —
-   aceitam um nome que representa um intervalo (por exemplo, `VLOOKUP(2, Sales, 2)`).
+   constante é avaliada para seu escalar; e uma definição que é ela mesma um **array computado**
+   (`ProdName` vinculado a `FILTER(Sheet1!$A$1:$A$3,Sheet1!$A$1:$A$3>0)`) transmite o array inteiro para um
+   consumidor em vez disso — `SUM(ProdName)` é `14` e `ROWS(ProdName)` é `2` — enquanto um `=ProdName` sozinho
+   ainda mostra o elemento superior esquerdo (`5`), e a família de critérios o recusa exatamente como recusa
+   um `FILTER` escrito por extenso (`COUNTIF(ProdName,">0")` é `#REF!`); veja
+   [produtores de array dinâmico](#produtores-de-array-dinâmico). As funções que exigem uma referência
+   sintática — `VLOOKUP`/`HLOOKUP` (tabela), `INDEX`, `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`,
+   `ISREF` — aceitam um nome que representa um intervalo (por exemplo, `VLOOKUP(2, Sales, 2)`), mas não um
+   vinculado a um array computado (`ISREF(ProdName)` é `FALSE`).
 3. Caso contrário, `#NAME?`.
 
 Um nome usado **puro em uma célula** (`=Sales`) também não é um erro: a referência que ele representa sofre
