@@ -340,9 +340,22 @@ public class CellBoundaryIntersectionTests
         // creates producers users will type bare. Pinning it here means Phase 7 must change this assertion
         // deliberately instead of discovering the behaviour by accident.
         //
-        // Aspose.Cells 26.6.0, measured 2026-09-09: =LEN(A1:A3) entered plainly is #VALUE! (CSE-entered it is
-        // 1 — the column this engine does not reproduce at the boundary), and so are =-A1:A3 and
-        // =ROUND(A1:A3,0).
+        // THE DIVERGENCE IS IN BOTH ENTRY MODES, AND AN EARLIER VERSION OF THIS COMMENT SAID OTHERWISE. It
+        // claimed "=LEN(A1:A3) entered plainly is #VALUE!", which is only true when the formula sits OUTSIDE
+        // the range's rows. Re-measured on Aspose.Cells 26.6.0 (2026-09-10), the formula in C1 / C2 / C3 —
+        // rows the range covers — and in C5, which it does not, over A1:A3 = 5, 0, 9:
+        //
+        //     formula            PLAIN C1/C2/C3/C5          ARRAY-ENTERED, every cell
+        //     =LEN(A1:A3)        1, 1, 1, #VALUE!           1
+        //     =-A1:A3            -5, 0, -9, #VALUE!         -5
+        //     =ROUND(A1:A3,0)    5, 0, 9, #VALUE!           5
+        //     =A1:A3*2           10, 0, 18, #VALUE!         10
+        //
+        // Plain entry intersects PER ROW (which is why =-A1:A3 walks -5, 0, -9 while LEN coincidentally
+        // answers 1 on all three single-digit cells), and array entry answers the top-left. MySheet answers
+        // #VALUE! in every one of those cells, so the gap is a divergence from BOTH oracle columns, not
+        // parity with the plain one. The assertions below use C2, an INSIDE row, so they pin the divergence
+        // at its widest: the oracle says 1 there.
         await Assert.That(InCell("C2", "=LEN(A1:A3)")).IsEqualTo(ErrorValue.NotValue);
         await Assert.That(InCell("C2", "=-A1:A3")).IsEqualTo(ErrorValue.NotValue);
         await Assert.That(InCell("C2", "=ROUND(A1:A3,0)")).IsEqualTo(ErrorValue.NotValue);
