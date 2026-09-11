@@ -986,8 +986,9 @@ Os nomes são de nível de workbook e **case-insensitive**, exatamente como no E
 > uma expressão; uma tabela é uma região nomeada com colunas nomeadas, linha de totais, um intervalo que
 > cresce conforme linhas são adicionadas e uma sintaxe de referência própria (`Tabela1[Valor]`, `[@Valor]`).
 > O MySheet modela os nomes *e* o modelo da tabela ([Tabelas](#tabelas) — nome, intervalo, flags de
-> cabeçalho/totais e nomes de coluna), mas nem a sintaxe de referência estruturada, nem o intervalo que
-> cresce por conta própria: um redimensionamento é uma segunda chamada de `DefineTable`. Veja
+> cabeçalho/totais e nomes de coluna), e a sintaxe de referência estruturada lê esse registro; o que ele
+> não modela é o intervalo que cresce por conta própria: um redimensionamento é uma segunda chamada de
+> `DefineTable`. Veja
 > [Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações).
 
 ```csharp

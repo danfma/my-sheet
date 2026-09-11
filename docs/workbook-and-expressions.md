@@ -932,8 +932,9 @@ but any expression (a constant, a formula, another name) is allowed. Names are w
 > A named range is **not** an Excel **Table** (a ListObject). A name is a static alias for one expression;
 > a table is a named region with named columns, a totals row, a range that grows as rows are added, and its
 > own reference syntax (`Tabela1[Valor]`, `[@Valor]`). MySheet models names *and* the table model
-> ([Tables](#tables) — name, range, header/totals flags and column names), but neither the
-> structured-reference syntax nor the self-growing range: a resize is a second `DefineTable` call. See
+> ([Tables](#tables) — name, range, header/totals flags and column names), and the structured-reference
+> syntax reads that registry; what it does not model is the self-growing range: a resize is a second
+> `DefineTable` call. See
 > [Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations).
 
 ```csharp
