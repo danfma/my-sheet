@@ -41,14 +41,14 @@ public sealed partial record TableReference(string TableName, string? ColumnName
     : Reference
 {
     /// <summary>
-    /// The ONE resolution primitive, so the <c>#NAME?</c>/<c>#REF!</c> mapping and the bounds arithmetic
-    /// exist exactly once. Takes a <see cref="Workbook"/>, not an <see cref="EvaluationContext"/>, because
-    /// table resolution is context-free — which is what lets the dependency extractor (which has only a
-    /// workbook) emit a real static dependency. An unknown table is <see cref="Error.Name"/> (Excel resolves
-    /// a table name in the same name space as a defined name); an unknown column, or a
-    /// <see cref="TableArea.Data"/> area over a table with no data rows, is <see cref="Error.Ref"/> (Excel's
-    /// own repair rewrites a deleted column's specifier to <c>Table1[#REF!]</c>; the header-only case is a
-    /// recorded divergence, see the tests).
+    /// The ONE resolution primitive, so the <c>#NAME?</c>/<c>#REF!</c> mapping lives in exactly one place and
+    /// the bounds arithmetic in exactly one other (<see cref="Table.GetRegion"/>, which owns all six areas).
+    /// Takes a <see cref="Workbook"/>, not an <see cref="EvaluationContext"/>, because table resolution is
+    /// context-free — which is what lets the dependency extractor (which has only a workbook) emit a real
+    /// static dependency. An unknown table is <see cref="Error.Name"/> (Excel resolves a table name in the
+    /// same name space as a defined name); everything the geometry cannot produce is <see cref="Error.Ref"/>,
+    /// which is Excel's own repair marker (a deleted column's specifier becomes <c>Table1[#REF!]</c>) — but
+    /// the two reasons are kept apart below, because only one of them is a recorded divergence.
     /// </summary>
     internal bool TryResolveRange(Workbook workbook, out RangeReference? range, out Error error)
     {
@@ -60,60 +60,42 @@ public sealed partial record TableReference(string TableName, string? ColumnName
             return false;
         }
 
-        // Phase 3 shipped the [#Data] geometry only (Table.TryGetColumnRange and the derived data rows).
-        // The other five areas answer #REF! until Phase 5 T1 lands Table.TryGetRegion, which owns their
-        // measured geometry (the pairs SHRINK to the data body when the row they name is absent; only the
-        // singletons error) and routes this method through it.
-        if (Area != TableArea.Data)
+        switch (
+            table.GetRegion(
+                ColumnName,
+                Area,
+                out var left,
+                out var top,
+                out var right,
+                out var bottom
+            )
+        )
         {
-            error = Error.Ref;
-            return false;
-        }
+            case TableRegionOutcome.Resolved:
+                range = new RangeReference(
+                    new CellAddress(left, top).ToId(),
+                    new CellAddress(right, bottom).ToId(),
+                    table.SheetName
+                );
+                error = default;
+                return true;
 
-        if (ColumnName is null)
-        {
-            // T[#Data] / T[]: the whole data body. Same empty-table rule as TryGetColumnRange.
-            if (table.DataRowCount == 0)
-            {
+            case TableRegionOutcome.Empty:
+                // Ruling R1's ONE arm, and the only recorded divergence in this file: the oracle answers an
+                // EMPTY reference for a band that spans zero rows (measured on a header-only table: SUM 0,
+                // ROWS 0, ISREF TRUE), and this engine has no zero-extent reference node to answer with, so
+                // it reports #REF!. Sweep item 33 reopens it; when it does, this arm is the edit.
                 error = Error.Ref;
                 return false;
-            }
 
-            range = Rectangle(
-                table,
-                table.FirstColumn,
-                table.LastColumn,
-                table.FirstDataRow,
-                table.LastDataRow
-            );
-            error = default;
-            return true;
+            default:
+                // Absent: an unknown column, or [#Headers]/[#Totals] on a table that has no such row.
+                // Measured, both entry modes: SUM(T[#Totals]) over a table with no totals row is #REF! and
+                // ISREF is FALSE.
+                error = Error.Ref;
+                return false;
         }
-
-        if (!table.TryGetColumnRange(ColumnName, out var column, out var top, out var bottom))
-        {
-            error = Error.Ref;
-            return false;
-        }
-
-        range = Rectangle(table, column, column, top, bottom);
-        error = default;
-        return true;
     }
-
-    // The same construction DynamicRange uses for its resolved rectangle.
-    private static RangeReference Rectangle(
-        Table table,
-        int left,
-        int right,
-        int top,
-        int bottom
-    ) =>
-        new(
-            new CellAddress(left, top).ToId(),
-            new CellAddress(right, bottom).ToId(),
-            table.SheetName
-        );
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {

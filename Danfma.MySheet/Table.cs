@@ -1,8 +1,45 @@
 using System.Runtime.CompilerServices;
+using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 using MemoryPack;
 
 namespace Danfma.MySheet;
+
+/// <summary>
+/// What <see cref="Table.GetRegion"/> found. Three outcomes, not two, and <see cref="Empty"/> is
+/// deliberately NOT folded into <see cref="Absent"/>: both answer <c>#REF!</c> today, but they answer it for
+/// different reasons and only one of them is a recorded DIVERGENCE from the oracle. Measured on
+/// Aspose.Cells 26.6.0 (2026-09-11), a header-only table's data band is an EMPTY reference there —
+/// <c>SUM</c> 0, <c>COUNT</c> 0, <c>COUNTA</c> 0, <c>ROWS</c> 0, <c>COLUMNS</c> 1, <c>ISREF</c> TRUE,
+/// <c>SUBTOTAL(9)</c> 0, <c>AVERAGE</c> <c>#DIV/0!</c>, <c>INDEX(…,1,1)</c> <c>#REF!</c> — and this engine
+/// has no zero-extent reference node to answer with, so the resolver maps <see cref="Empty"/> to
+/// <c>#REF!</c> in ONE arm. Keeping the outcome separate is what makes reopening that ruling a single edit
+/// per consumer instead of a re-plumbing of this primitive.
+/// </summary>
+internal enum TableRegionOutcome : byte
+{
+    /// <summary>A real rectangle: the four out parameters are 1-based sheet coordinates.</summary>
+    Resolved = 0,
+
+    /// <summary>
+    /// The area exists but spans zero rows — a header-only table's <c>[#Data]</c>, or either pair left with
+    /// neither the row it names nor a data row. The out parameters are 0, and handing back an inverted
+    /// rectangle instead is not an option, because <c>RangeReference.GetBounds</c> normalizes min/max
+    /// (measured: a range built from <c>B2</c>..<c>B1</c> reports <c>TopRow</c> 1 and <c>ROWS</c> 2, and
+    /// <c>SUM</c> over it reads both cells), so a zero-data-row table handed back as
+    /// <c>(top 2, bottom 1)</c> would silently read the HEADER row.
+    /// </summary>
+    Empty,
+
+    /// <summary>
+    /// The area or the column does not exist on this table: <c>[#Headers]</c> without a header row,
+    /// <c>[#Totals]</c> without a totals row, an unknown column name, an area value off the wire that no
+    /// member names, or a <c>ref</c> that cannot be a rectangle at all (no columns, or <c>LastRow</c> before
+    /// <c>FirstRow</c> — both rejected by <see cref="Table.Validate"/> but reachable through
+    /// deserialization). The out parameters are 0.
+    /// </summary>
+    Absent,
+}
 
 /// <summary>
 /// An Excel table (a "ListObject"): a named, sheet-anchored rectangle with named columns. The geometry
@@ -106,11 +143,18 @@ public sealed partial record Table(
     public int SheetColumnAt(int columnIndex) => FirstColumn + columnIndex;
 
     /// <summary>
-    /// The [#Data] rows of the named column as sheet coordinates — the whole surface the reference-semantics
-    /// phase needs to turn <c>Tabela1[Valor]</c> into a concrete range without re-deriving geometry. Returns
-    /// <c>false</c> (all outputs 0) when the name is unknown OR the table has no data rows: the caller owns the
-    /// <c>#REF!</c> decision and this is the one place that knows the table is empty.
+    /// The [#Data] rows of the named column as sheet coordinates: the <see cref="TableArea.Data"/> case of
+    /// <see cref="GetRegion"/>, which owns the geometry for all six areas. Returns <c>false</c> (all outputs
+    /// 0) when the name is unknown OR the table has no data rows, and the caller owns the <c>#REF!</c>
+    /// decision. Telling those two reasons apart needs <see cref="GetRegion"/> and its
+    /// <see cref="TableRegionOutcome"/>, which are internal to this assembly — outside it, <c>false</c> is
+    /// one outcome.
     /// </summary>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="columnName"/> is <c>null</c>. It always throws now; before the region primitive
+    /// existed, a table with zero data rows short-circuited on the row count and answered <c>false</c>
+    /// without looking at the name.
+    /// </exception>
     public bool TryGetColumnRange(
         string columnName,
         out int sheetColumn,
@@ -118,18 +162,130 @@ public sealed partial record Table(
         out int lastRow
     )
     {
-        if (DataRowCount == 0 || !TryGetColumnIndex(columnName, out var index))
+        // GetRegion reads a null column as "every column of the band" on purpose (that is T[#Data]), so the
+        // non-nullable contract of this overload has to be enforced here rather than inherited from it.
+        ArgumentNullException.ThrowIfNull(columnName);
+
+        var outcome = GetRegion(
+            columnName,
+            TableArea.Data,
+            out sheetColumn,
+            out firstRow,
+            out _,
+            out lastRow
+        );
+        return outcome == TableRegionOutcome.Resolved;
+    }
+
+    /// <summary>
+    /// The ONE geometry primitive: the sheet rectangle a structured reference names, as 1-based
+    /// <paramref name="left"/>/<paramref name="top"/>/<paramref name="right"/>/<paramref name="bottom"/>.
+    /// The row band is computed first and the column narrowing applied to it, which is how every specifier
+    /// form falls out of one function: <c>T[Col]</c> is <see cref="TableArea.Data"/> plus a column,
+    /// <c>T[[#Data],[Col]]</c> is the identical node, and
+    /// <c>T[[#Headers],[Col]]</c>/<c>T[[#Totals],[Col]]</c>/<c>T[[#All],[Col]]</c> come for free. (The column
+    /// NAME is checked before either, so a typo reports <see cref="TableRegionOutcome.Absent"/> rather than
+    /// hiding behind a band that happens to be empty.)
+    /// <para>
+    /// The bands, all measured on Aspose.Cells 26.6.0 (2026-09-11) over <c>Data!Tabela1</c> = <c>A1:C4</c>
+    /// with and without a totals row, PLAIN and array-entered (the two modes agreed on every row):
+    /// <see cref="TableArea.All"/> is the whole <c>ref</c> (<c>A1:C4</c> / <c>A1:C5</c>),
+    /// <see cref="TableArea.Data"/> the data rows (<c>A2:C4</c> either way),
+    /// <see cref="TableArea.Headers"/> the header row (<c>A1:C1</c>), <see cref="TableArea.Totals"/> the
+    /// totals row (<c>A5:C5</c>), <see cref="TableArea.HeadersAndData"/> <c>TopRow..LastDataRow</c>
+    /// (<c>A1:C4</c> either way) and <see cref="TableArea.DataAndTotals"/> <c>FirstDataRow..BottomRow</c>
+    /// (<c>A2:C4</c> / <c>A2:C5</c>).
+    /// </para>
+    /// <para>
+    /// Of the two areas that can be absent, only the SINGLETONS are absent because the row they name is
+    /// missing. A PAIR in that position SHRINKS to the rows it still has — measured,
+    /// <c>SUM(T[[#Data],[#Totals]])</c> over the A1:C4 fixture with no totals row is the data body, 66, not
+    /// <c>#REF!</c>, and over a header-LESS table (a different fixture: two data rows at A2:C3 summing 55)
+    /// <c>SUM(T[[#Headers],[#Data]])</c> is likewise the data, 55, while <c>SUM(T[#Headers])</c> there is
+    /// <c>#REF!</c>. Copying a singleton's absent arm into a pair by analogy is the mistake that answers
+    /// <c>#REF!</c> where Excel answers the data, in the very shape users write to mean "the table without
+    /// its header". (A pair CAN still end up <see cref="TableRegionOutcome.Empty"/>, and so <c>#REF!</c> at
+    /// the resolver, when it is left with no rows at all — a header-only table's
+    /// <c>[[#Data],[#Totals]]</c>.)
+    /// </para>
+    /// </summary>
+    internal TableRegionOutcome GetRegion(
+        string? columnName,
+        TableArea area,
+        out int left,
+        out int top,
+        out int right,
+        out int bottom
+    )
+    {
+        left = 0;
+        top = 0;
+        right = 0;
+        bottom = 0;
+
+        // A ref that cannot be a rectangle at all has no areas: no columns (ColumnNames empty, so
+        // LastColumn == FirstColumn - 1) or LastRow before FirstRow. Validate rejects both at the
+        // registration boundary, but MemoryPack materializes the record through the same constructor and
+        // never runs Validate, so a hand-corrupted file can carry one — and it MUST be caught here.
+        // Measured: over a zero-column table this method used to answer Resolved with (left 1, right 0),
+        // TryResolveRange then built CellAddress(0, 4).ToId() == "4", and SUM/ROWS/COLUMNS/Evaluate all THREW
+        // FormatException "Invalid cell reference '4'" out of RangeReference.GetBounds — the one thing
+        // Evaluate's documented contract says it never does. Absent rather than Empty: an impossible ref is
+        // the same class of input as an area byte no member names, and Empty carries a live ruling that
+        // corrupt geometry must not be dragged into.
+        if (LastRow < FirstRow || LastColumn < FirstColumn)
         {
-            sheetColumn = 0;
-            firstRow = 0;
-            lastRow = 0;
-            return false;
+            return TableRegionOutcome.Absent;
         }
 
-        sheetColumn = SheetColumnAt(index);
-        firstRow = FirstDataRow;
-        lastRow = LastDataRow;
-        return true;
+        // The column is resolved BEFORE the band: a name that does not exist is the formula's own bug and
+        // must report Absent whatever the band turns out to be, never hide behind the data-dependent Empty.
+        var index = -1;
+        if (columnName is not null && !TryGetColumnIndex(columnName, out index))
+        {
+            return TableRegionOutcome.Absent;
+        }
+
+        int bandTop;
+        int bandBottom;
+        switch (area)
+        {
+            case TableArea.All:
+                (bandTop, bandBottom) = (FirstRow, LastRow);
+                break;
+            case TableArea.Data:
+                (bandTop, bandBottom) = (FirstDataRow, LastDataRow);
+                break;
+            case TableArea.Headers when HasHeaderRow:
+                (bandTop, bandBottom) = (FirstRow, FirstRow);
+                break;
+            case TableArea.Totals when HasTotalsRow:
+                (bandTop, bandBottom) = (LastRow, LastRow);
+                break;
+            case TableArea.HeadersAndData:
+                (bandTop, bandBottom) = (FirstRow, LastDataRow);
+                break;
+            case TableArea.DataAndTotals:
+                (bandTop, bandBottom) = (FirstDataRow, LastRow);
+                break;
+            // [#Headers] with no header row, [#Totals] with no totals row, and an area value off the wire
+            // that no member names (Validate does not run on deserialization).
+            default:
+                return TableRegionOutcome.Absent;
+        }
+
+        // One check for all six bands. Together with the impossible-ref guard above it, this is what makes
+        // "no inverted rectangle leaves this method" true on BOTH axes — see TableRegionOutcome.Empty for the
+        // measurement that makes it mandatory rather than stylistic.
+        if (bandBottom < bandTop)
+        {
+            return TableRegionOutcome.Empty;
+        }
+
+        (left, right) =
+            index < 0 ? (FirstColumn, LastColumn) : (SheetColumnAt(index), SheetColumnAt(index));
+        (top, bottom) = (bandTop, bandBottom);
+        return TableRegionOutcome.Resolved;
     }
 
     // === Validation (invoked by the registry, never by the constructor) ==================================
