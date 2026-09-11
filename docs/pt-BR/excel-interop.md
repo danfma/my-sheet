@@ -65,7 +65,7 @@ Como o conteúdo do arquivo é mapeado para dentro do workbook:
 | Célula vazia / só com estilo | Nada é armazenado — é lida como em branco. |
 | "Escrava" de fórmula compartilhada (uma célula de fórmula arrastada que não carrega texto de fórmula) | Um nó leve que compartilha a árvore já interpretada da mestre (veja [Fórmulas compartilhadas](#fórmulas-compartilhadas-uma-árvore-mestre-compartilhada-com-deltas-por-escrava) abaixo) quando a forma da mestre é suportada; caso contrário, é expandida em uma fórmula independente exatamente como antes. |
 | Nome definido com escopo de workbook (`<definedName>`) | Uma entrada em [`Workbook.DefinedNames`](workbook-and-expressions.md#intervalos-nomeados): o texto `refersTo` passa pelo parse como uma fórmula. Nomes **com escopo de planilha** (aqueles com `localSheetId`) e os nomes **nativos `_xlnm.*`** do Excel (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) são ignorados. |
-| **Tabela** do Excel (uma parte `<table>`, também chamada de ListObject) | Nada — suas células carregam como um intervalo comum. Um MODELO de tabela existe (`Workbook.Tables`, desde a versão que acrescentou o registro), mas o CARREGADOR ainda não o preenche, então o nome da tabela, suas colunas e a linha de totais são descartados. Registrar a mesma tabela à mão com `Workbook.DefineTable` funciona. Uma fórmula que usa uma **referência estruturada** para ela (`Tabela1[Valor]`) faz o parse agora: com a tabela ausente do registro não preenchido, a célula responde `#NAME?` (o que o próprio Excel mostra para uma tabela que não existe — pinado), e, uma vez registrada a tabela à mão, a referência resolve para o intervalo da tabela e responde normalmente (`SUM(Tabela1[Valor])` = `42` sobre uma coluna Valor de duas linhas, o número do oráculo) — veja abaixo. |
+| **Tabela** do Excel (uma parte `<table>`, também chamada de ListObject) | Uma entrada em [`Workbook.Tables`](workbook-and-expressions.md#tabelas): o nome da tabela (`displayName`), sua geometria (linha de cabeçalho, corpo de dados, linha de totais — derivados de `ref`, `headerRowCount` e `totalsRowCount`) e seus nomes de `<tableColumn>` em ordem. As células dela continuam sendo células comuns. **Referências estruturadas** (`Tabela1[Valor]`, `Tabela1[#All]`, `Tabela1[[#Data],[Valor]]`) resolvem contra ela. Uma tabela que o MySheet não consegue registrar — um `ref` malformado, um `headerRowCount` acima de 1, uma contagem de colunas que diverge do `ref`, um nome de coluna vazio ou duplicado, um nome que o tokenizador do MySheet jamais conseguiria ler (uma barra invertida, `TRUE`/`FALSE`), um nome que outra tabela já reivindicou ou uma parte cujo XML não pode ser lido — é ignorada e reportada como `InvalidTableDefinition`; suas referências estruturadas então avaliam para `#NAME?`, como no Excel (a menos que a própria fórmula não possa ser lida, caso em que a célula degrada com `UnparsableFormula`). O `SaveAsExcel` continua sem gravar parte `<table>`. |
 | Célula cujo texto de fórmula não passa pelo parse | O valor que o Excel guardou em cache ao lado da fórmula (em branco se o arquivo não carrega nenhum), reportado como `UnparsableFormula`. Só aquela célula é degradada. |
 
 ### Fórmulas compartilhadas: uma árvore mestre compartilhada com deltas por escrava
@@ -114,7 +114,8 @@ avaliadas como `#NAME?` — a menos que você mesmo forneça o comportamento via
 [`RegisterFunction`](custom-functions.md), que é a válvula de escape pretendida.
 
 Alguns problemas de carregamento (um nome definido inválido, um literal de data que falha ao ser
-interpretado, uma fórmula cuja sintaxe o parser rejeita) são ignorados ou degradados em vez de falhar o
+interpretado, uma fórmula cuja sintaxe o parser rejeita, um literal de célula que não corresponde ao tipo
+declarado, uma Tabela do Excel que não pode ser registrada) são ignorados ou degradados em vez de falhar o
 carregamento inteiro — por padrão, silenciosamente. Passe `ExcelLoadOptions` com um callback `OnWarning`
 para `Load` para observá-los:
 
@@ -124,16 +125,22 @@ var workbook = ExcelFile.Load("model.xlsx", new ExcelLoadOptions { OnWarning = w
 ```
 
 Cada `ExcelLoadWarning` carrega um `Kind` (`InvalidDefinedName`, `UnparsableDateLiteral`,
-`UnparsableFormula` ou `UnparsableCellLiteral`), um `Subject` (o nome definido, ou o id da célula) e uma
+`UnparsableFormula`, `UnparsableCellLiteral` ou `InvalidTableDefinition`), um `Subject` (o nome definido,
+o id da célula — para `InvalidTableDefinition`, o `displayName` da tabela, ou a planilha dela quando a
+parte não pode ser lida até o ponto de ter um) e uma
 string `Detail`. O callback é um `Action<T>` simples em vez de uma lista acumulada, então quem hospeda
 decide se registra, coleta ou ignora cada aviso.
 
 `UnparsableFormula` é o aviso que vale a pena escutar em arquivos do mundo real: a célula mantém o valor
-que o Excel tinha em cache, mas **perde a fórmula**, então deixa de reagir a mudanças nas entradas. As
-referências estruturadas no escopo (`Tabela1[Valor]`, `Tabela1[[#Headers],[#Data]]`) fazem parse agora, de
-modo que este aviso vem da metade fora do escopo — as formas de linha atual que um arquivo real armazena
-(`Tabela1[[#This Row],[Valor]]`), um `[Valor]` de tabela implícita, um `[1]Sheet1!A1` de workbook externo —
-e de literais de array e de qualquer outra coisa para a qual a gramática não tem nó. Para um grupo de fórmula
+que o Excel tinha em cache, mas **perde a fórmula**, então deixa de reagir a mudanças nas entradas.
+Referências estruturadas que resolvem contra uma tabela carregada agora fazem o parse **e** avaliam, de
+modo que este aviso vem das formas ainda fora do escopo — as formas de linha atual que um arquivo real
+armazena (`Tabela1[[#This Row],[Valor]]`, digitada como `[@Valor]`), um intervalo de colunas
+(`Tabela1[[Q1]:[Q3]]`), um `[Valor]` de tabela implícita, um `[1]Sheet1!A1` de workbook externo — e de
+literais de array e de qualquer outra coisa para a qual a gramática não tem nó. (Uma referência
+estruturada cuja tabela foi *ignorada* não é este aviso: ela faz o parse e avalia para `#NAME?` — a menos
+que a fórmula não possa nem ser lida, como quando o nome da tabela ignorada carrega uma barra invertida.)
+Para um grupo de fórmula
 compartilhada, o aviso sai uma única vez, para a célula mestre — cada escrava do grupo então recai no seu
 próprio valor em cache.
 
@@ -260,17 +267,18 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   `localSheetId`) e os nomes nativos `_xlnm.*` (áreas de impressão, bancos de filtro, …) são ignorados no
   carregamento, e o MySheet só escreve nomes com escopo de workbook. Um nome definido cujo `refersTo` não
   pode ser interpretado é ignorado em vez de falhar o carregamento.
-- **O carregador ignora Tabelas do Excel, e as referências estruturadas que um arquivo carregado traz
-  respondem `#NAME?`**: uma parte `<table>` (ListObject) não é LIDA — suas células carregam como um
-  intervalo comum, o nome, as colunas e a linha de totais são descartados, e o `SaveAsExcel` nunca grava
-  uma. O modelo de tabela em si existe (`Workbook.Tables`), então a mesma tabela pode ser registrada à mão
-  com `Workbook.DefineTable`; o que falta é o carregador preenchê-lo a partir do arquivo. As grafias de
-  referência estruturada no escopo (`Tabela1[Valor]`, `Tabela1[#Headers]`, o `Tabela1` nu) fazem o parse e
-  avaliam contra o registro — vazio depois de um carregamento, então a célula responde `#NAME?` (pinado; o
-  mesmo código que o Excel mostra para uma tabela que não existe), e não o valor em cache do Excel. As
-  formas fora do escopo (`[@Valor]`, a `Tabela1[[#This Row],[Valor]]` armazenada, um `[Valor]` implícito,
-  um `[1]Sheet1!A1` externo) ainda não passam pelo parse: essas células recaem no valor que o Excel guardou
-  em cache para elas (reportado como `UnparsableFormula`) e perdem sua fórmula. O `MergeIntoExcel` é a
+- **Tabelas do Excel são carregadas, mas o MySheet nunca escreve uma**: uma parte `<table>` (ListObject) é
+  lida para dentro de `Workbook.Tables` — nome, geometria e nomes de coluna —, e as referências
+  estruturadas que resolvem contra ela (`Tabela1[Valor]`, `Tabela1[#All]`, `Tabela1[#Data]`,
+  `Tabela1[#Headers]`, `Tabela1[#Totals]`, `Tabela1[[#Data],[Valor]]`) avaliam contra a tabela carregada.
+  As formas ainda fora do escopo — `[@Valor]` (armazenada como `Tabela1[[#This Row],[Valor]]`), um
+  intervalo de colunas `[[Q1]:[Q3]]` e a forma de tabela implícita `[Valor]` — ainda degradam via
+  `UnparsableFormula` para o valor em cache da célula. A geometria da tabela é fixa no carregamento e não
+  cresce quando linhas são acrescentadas. O `SaveAsExcel` não grava parte `<table>`, então exportar em
+  `FormulaMode.Formulas` um workbook cujas fórmulas usam referências estruturadas produz um arquivo que o
+  Excel abre com `#NAME?` — exporte valores (o padrão) ou use o `MergeIntoExcel` num template que já contém
+  a tabela. Uma tabela que o MySheet não consegue registrar é ignorada com um aviso
+  `InvalidTableDefinition`, e suas referências estruturadas então respondem `#NAME?`. O `MergeIntoExcel` é a
   exceção que preserva a tabela em si — a parte `<table>` e o elemento `<tableParts>` do template são
   copiados intactos —, mas o intervalo `ref` da tabela **não** é redimensionado, então linhas escritas
   depois da sua última linha ficam fora da tabela.

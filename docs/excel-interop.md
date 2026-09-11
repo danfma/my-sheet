@@ -63,7 +63,7 @@ How file content maps into the workbook:
 | Style-only / empty cell | Nothing stored — reads as blank. |
 | Shared-formula "slave" (a dragged formula cell carrying no formula text) | A lightweight node sharing the master's parsed tree (see [Shared formulas](#shared-formulas-a-shared-master-tree-with-per-slave-deltas) below) when the master's shape is supported; otherwise expanded into an independent formula exactly as before. |
 | Workbook-scoped defined name (`<definedName>`) | An entry in [`Workbook.DefinedNames`](workbook-and-expressions.md#named-ranges): the `refersTo` text is parsed as a formula. **Sheet-scoped** names (those with a `localSheetId`) and Excel's **builtin `_xlnm.*`** names (`Print_Area`, `Print_Titles`, `_FilterDatabase`, …) are skipped. |
-| Excel **Table** (a `<table>` part, a.k.a. a ListObject) | Nothing — its cells load as an ordinary range. A table MODEL exists (`Workbook.Tables`, since the release that added the registry), but the LOADER does not populate it yet, so the table's name, columns and totals row are dropped. Registering the same table by hand with `Workbook.DefineTable` works. A formula using a **structured reference** into it (`Tabela1[Valor]`) parses now: with the table absent from the unpopulated registry the cell answers `#NAME?` (what Excel itself shows for a table that does not exist — pinned), and once the table is registered by hand the reference resolves to the table's range and answers normally (`SUM(Tabela1[Valor])` = `42` over a two-row Valor column, the oracle's number) — see below. |
+| Excel **Table** (a `<table>` part, a.k.a. a ListObject) | An entry in [`Workbook.Tables`](workbook-and-expressions.md#tables): the table's name (`displayName`), its geometry (header row, data body, totals row — derived from `ref`, `headerRowCount` and `totalsRowCount`) and its ordered `<tableColumn>` names. Its cells stay ordinary cells too. **Structured references** (`Tabela1[Valor]`, `Tabela1[#All]`, `Tabela1[[#Data],[Valor]]`) resolve against it. A table MySheet cannot register — a malformed `ref`, a `headerRowCount` above 1, a column count disagreeing with `ref`, an empty or duplicated column name, a name MySheet's tokenizer could never read (a backslash, `TRUE`/`FALSE`), a name another table already claimed, or a part whose XML cannot be read — is skipped and reported as `InvalidTableDefinition`; its structured references then evaluate to `#NAME?`, as in Excel (unless the formula itself cannot be read, which degrades the cell with `UnparsableFormula` instead). `SaveAsExcel` still writes no `<table>` part. |
 | Cell whose formula text does not parse | The cached value Excel stored next to the formula (blank if the file carries none), reported as `UnparsableFormula`. Only that cell degrades. |
 
 ### Shared formulas: a shared master tree with per-slave deltas
@@ -108,7 +108,8 @@ evaluate to `#NAME?` — unless you provide the behavior yourself via
 [`RegisterFunction`](custom-functions.md), which is the intended escape hatch.
 
 A handful of load-time issues (an invalid defined name, a date literal that fails to parse, a formula whose
-syntax the parser rejects) are skipped or degraded rather than failing the whole load — by default
+syntax the parser rejects, a cell literal that does not match its declared type, an Excel Table that cannot
+be registered) are skipped or degraded rather than failing the whole load — by default
 silently. Pass `ExcelLoadOptions` with an `OnWarning` callback to `Load` to observe them instead:
 
 ```csharp
@@ -117,16 +118,21 @@ var workbook = ExcelFile.Load("model.xlsx", new ExcelLoadOptions { OnWarning = w
 ```
 
 Each `ExcelLoadWarning` carries a `Kind` (`InvalidDefinedName`, `UnparsableDateLiteral`,
-`UnparsableFormula` or `UnparsableCellLiteral`), a `Subject` (the defined name, or the cell id) and a
+`UnparsableFormula`, `UnparsableCellLiteral` or `InvalidTableDefinition`), a `Subject` (the defined name,
+the cell id — for `InvalidTableDefinition`, the table's `displayName`, or its sheet when the part cannot
+be read far enough to have one) and a
 `Detail` string. The callback is a simple `Action<T>` rather than an accumulated list, so the host decides
 whether to log, collect, or ignore each warning.
 
 `UnparsableFormula` is the one worth wiring up on real-world files: the cell keeps the value Excel cached
-but **loses its formula**, so it no longer reacts to input changes. The in-scope structured references
-(`Tabela1[Valor]`, `Tabela1[[#Headers],[#Data]]`) parse now, so this warning comes from their out-of-scope
-half — the current-row forms a real file stores (`Tabela1[[#This Row],[Valor]]`), an implicit-table
-`[Valor]`, an external-workbook `[1]Sheet1!A1` — and from array literals and anything else the grammar has
-no node for. For a shared-formula group it is reported once, for the master's cell — every
+but **loses its formula**, so it no longer reacts to input changes. Structured references that resolve
+against a loaded table parse **and** evaluate now, so this warning comes from the shapes still out of
+scope — the current-row forms a real file stores (`Tabela1[[#This Row],[Valor]]`, typed `[@Valor]`), a
+column span (`Tabela1[[Q1]:[Q3]]`), an implicit-table `[Valor]`, an external-workbook `[1]Sheet1!A1` —
+and from array literals and anything else the grammar has
+no node for. (A structured reference whose table was *skipped* is not this warning: it parses and
+evaluates to `#NAME?` — unless the formula cannot be lexed at all, as when the skipped table's name
+carries a backslash.) For a shared-formula group it is reported once, for the master's cell — every
 slave in that group then falls back to its own cached value.
 
 `UnparsableCellLiteral` covers a cell whose `<v>` text does not match the type its `@t` declares — a
@@ -243,17 +249,17 @@ Being honest about what the interop MVP does **not** do:
   builtin `_xlnm.*` names (print areas, filter databases, …) are skipped on load, and MySheet only ever
   writes workbook-scoped names. A defined name whose `refersTo` cannot be parsed is skipped rather than
   failing the load.
-- **The loader ignores Excel Tables, and the structured references a loaded file carries answer `#NAME?`**: a
-  `<table>` part (ListObject) is
-  not READ — its cells load as an ordinary range and its name, columns and totals row are dropped, and
-  `SaveAsExcel` never writes one. A table model itself does exist (`Workbook.Tables`), so the same table can be
-  registered by hand with `Workbook.DefineTable`; what is missing is the loader populating it from the file.
-  The in-scope structured-reference spellings (`Tabela1[Valor]`, `Tabela1[#Headers]`, the bare `Tabela1`)
-  parse and evaluate against the registry — empty after a load, so the cell answers `#NAME?` (pinned; the
-  same code Excel shows for a table that does not exist), not Excel's cached value. The out-of-scope forms
-  (`[@Valor]`, the stored `Tabela1[[#This Row],[Valor]]`, an implicit `[Valor]`, an external
-  `[1]Sheet1!A1`) still do not parse: those cells fall back to the value Excel cached for them (reported as
-  `UnparsableFormula`) and lose their formula. `MergeIntoExcel` is the exception that preserves the table itself — the template's `<table>`
+- **Excel Tables load, but MySheet never writes one**: a `<table>` part (ListObject) is read into
+  `Workbook.Tables` — name, geometry and column names — and the structured references that resolve
+  against it (`Tabela1[Valor]`, `Tabela1[#All]`, `Tabela1[#Data]`, `Tabela1[#Headers]`, `Tabela1[#Totals]`,
+  `Tabela1[[#Data],[Valor]]`) evaluate against the loaded table. The forms still out of scope — `[@Valor]`
+  (stored as `Tabela1[[#This Row],[Valor]]`), a column span `[[Q1]:[Q3]]` and the implicit-table form
+  `[Valor]` — still degrade via `UnparsableFormula` to the cell's cached value. The table's geometry is
+  fixed at load time and does not grow when rows are appended. `SaveAsExcel` writes no `<table>` part, so
+  exporting in `FormulaMode.Formulas` a workbook whose formulas use structured references produces a file
+  Excel opens with `#NAME?` — export values (the default) or use `MergeIntoExcel` into a template that
+  already owns the table. A table MySheet cannot register is skipped with an `InvalidTableDefinition`
+  warning, and its structured references then answer `#NAME?`. `MergeIntoExcel` is the exception that preserves the table itself — the template's `<table>`
   part and `<tableParts>` element are copied through untouched — but the table's `ref` range is **not**
   resized, so rows written past its last row stay outside the table.
 - **A formula the parser rejects degrades one cell, not the load**: an unparsable formula text (an

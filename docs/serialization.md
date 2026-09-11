@@ -334,10 +334,10 @@ a superseded write format is dropped, not kept as a knob, while the reader keeps
 Tables](workbook-and-expressions.md#tables)). Unlike a new union tag, a new member on `Workbook` itself
 changes the shape of **every** saved file — the object header carries the member count — so this boundary
 applies whether or not the workbook holds a single table, and whether the file came from
-`Workbook.Save`/`SaveAsync` or from a save after `ExcelFile.Load`. (`ExcelFile.Load` does not populate the
-registry from an xlsx `<table>` part yet — see [Excel interop → Scope and
-limitations](excel-interop.md#scope-and-limitations) — but a workbook it produced still gets the new header
-when you save it.)
+`Workbook.Save`/`SaveAsync` or from a save after `ExcelFile.Load`. (`ExcelFile.Load` does populate the
+registry — from the xlsx `<table>` parts it reads — so a loaded file's tables ride along when you save; a
+workbook it produced gets the new header either way. See [Excel interop → Scope and
+limitations](excel-interop.md#scope-and-limitations).)
 
 This is a **one-way** compatibility boundary:
 

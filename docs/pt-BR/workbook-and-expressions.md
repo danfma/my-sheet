@@ -982,13 +982,16 @@ Um workbook pode definir **nomes** que representam uma expressão — geralmente
 qualificados por planilha, mas qualquer expressão (uma constante, uma fórmula, outro nome) é permitida.
 Os nomes são de nível de workbook e **case-insensitive**, exatamente como no Excel.
 
-> Um intervalo nomeado **não** é uma **Tabela** do Excel (um ListObject). Um nome é um apelido estático para
-> uma expressão; uma tabela é uma região nomeada com colunas nomeadas, linha de totais, um intervalo que
-> cresce conforme linhas são adicionadas e uma sintaxe de referência própria (`Tabela1[Valor]`, `[@Valor]`).
-> O MySheet modela os nomes *e* o modelo da tabela ([Tabelas](#tabelas) — nome, intervalo, flags de
-> cabeçalho/totais e nomes de coluna), e a sintaxe de referência estruturada lê esse registro; o que ele
-> não modela é o intervalo que cresce por conta própria: um redimensionamento é uma segunda chamada de
-> `DefineTable`. Veja
+> Um intervalo nomeado **não** é uma **Tabela** do Excel (um ListObject) — e o MySheet modela **ambos**.
+> Um nome é um apelido estático para uma expressão; uma tabela é uma região nomeada com colunas nomeadas,
+> uma linha de cabeçalho e uma linha de totais opcional, endereçada por sua própria sintaxe de referência
+> (`Tabela1[Valor]`, `[@Valor]`). Elas vivem em mapas separados (`Workbook.DefinedNames` e
+> [`Workbook.Tables`](#tabelas)) e gramáticas separadas — `Sales` resolve como nome, `Sales[Valor]` como
+> tabela — e a sintaxe de referência estruturada lê o registro. O carregador também preenche esse
+> registro: o `ExcelFile.Load` grava cada parte `<table>` do xlsx em `Workbook.Tables` ao carregar. O que
+> o MySheet **não** modela é uma tabela cujo intervalo CRESCE conforme linhas são acrescentadas — a
+> geometria é a que o `DefineTable` ou o carregador do `.xlsx` gravou, então um redimensionamento é uma
+> segunda chamada de `DefineTable`. Veja
 > [Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações).
 
 ```csharp
@@ -1065,10 +1068,11 @@ registro `nome → Table` somente para leitura, e `DefineTable` é seu único es
 > array; cada número pinado na suíte de testes). Uma tabela desconhecida é `#NAME?`; uma coluna
 > desconhecida, uma linha `[#Headers]`/`[#Totals]` ausente ou uma tabela com zero linhas de dados é
 > `#REF!` — a última é uma divergência registrada, porque o oráculo responde uma referência VAZIA ali. O
-> que ainda falta é o carregador: o `ExcelFile.Load` não preenche o registro a partir de uma parte
-> `<table>` do xlsx ([Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações)), de
-> modo que uma referência estruturada carregada de um arquivo responde `#NAME?` até a tabela ser
-> registrada à mão.
+> carregador também preenche o registro: o `ExcelFile.Load` grava cada parte `<table>` do xlsx nele
+> ([Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações)), de modo que uma
+> referência estruturada carregada de um arquivo avalia contra a tabela carregada. Uma tabela que o
+> carregador não consegue registrar é ignorada e reportada como `InvalidTableDefinition`, e suas
+> referências estruturadas então respondem `#NAME?`, como no Excel.
 
 ```csharp
 var workbook = new Workbook();

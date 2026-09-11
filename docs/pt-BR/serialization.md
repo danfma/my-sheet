@@ -366,9 +366,10 @@ Tabelas](workbook-and-expressions.md#tabelas)). Diferente de uma tag nova de uni
 próprio `Workbook` muda o formato de **todo** arquivo salvo — o cabeçalho do objeto carrega a contagem de
 membros —, então este limite se aplica haja ou não uma única tabela no workbook, e tanto para o arquivo
 vindo de `Workbook.Save`/`SaveAsync` quanto para um save feito depois de `ExcelFile.Load`. (O
-`ExcelFile.Load` ainda não preenche o registro a partir da parte `<table>` do xlsx — veja [Interop com Excel
-→ Escopo e limitações](excel-interop.md#escopo-e-limitações) —, mas um workbook produzido por ele também
-recebe o cabeçalho novo quando você o salva.)
+`ExcelFile.Load` preenche o registro — a partir das partes `<table>` do xlsx que ele lê —, então as
+tabelas de um arquivo carregado vão junto quando você salva; um workbook produzido por ele recebe o
+cabeçalho novo de qualquer forma. Veja [Interop com Excel → Escopo e
+limitações](excel-interop.md#escopo-e-limitações).)
 
 Este é um limite de compatibilidade em **uma única direção**:
 

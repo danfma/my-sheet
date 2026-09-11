@@ -929,12 +929,15 @@ A workbook can define **names** that stand for an expression — usually a sheet
 but any expression (a constant, a formula, another name) is allowed. Names are workbook-level and
 **case-insensitive**, exactly like Excel.
 
-> A named range is **not** an Excel **Table** (a ListObject). A name is a static alias for one expression;
-> a table is a named region with named columns, a totals row, a range that grows as rows are added, and its
-> own reference syntax (`Tabela1[Valor]`, `[@Valor]`). MySheet models names *and* the table model
-> ([Tables](#tables) — name, range, header/totals flags and column names), and the structured-reference
-> syntax reads that registry; what it does not model is the self-growing range: a resize is a second
-> `DefineTable` call. See
+> A named range is **not** an Excel **Table** (a ListObject) — and MySheet models **both**. A name is a
+> static alias for one expression; a table is a named region with named columns, a header row and an
+> optional totals row, addressed by its own reference syntax (`Tabela1[Valor]`, `[@Valor]`). They live in
+> separate maps (`Workbook.DefinedNames` and [`Workbook.Tables`](#tables)) and separate grammars — `Sales`
+> resolves as a name, `Sales[Valor]` as a table — and the structured-reference syntax reads the registry.
+> The loader fills that registry too: `ExcelFile.Load` records each xlsx `<table>` part into
+> `Workbook.Tables` at load. What MySheet does **not** model is a table whose range GROWS as rows are
+> appended — the geometry is whatever `DefineTable` or the `.xlsx` loader recorded, so a resize is a
+> second `DefineTable` call. See
 > [Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations).
 
 ```csharp
@@ -1009,10 +1012,11 @@ sheet-anchored rectangle with named columns. `Workbook.Tables` is the read-only 
 > (all Aspose.Cells 26.6.0, 2026-09-11, PLAIN and array-entered entry; every number pinned in the test
 > suite). An unknown table is `#NAME?`; an unknown column, a missing `[#Headers]`/`[#Totals]` row or a
 > table with zero data rows is `#REF!` — the last is a recorded divergence, because the oracle answers an
-> EMPTY reference there. What is still missing is the loader: `ExcelFile.Load` does not populate the
-> registry from an xlsx `<table>` part
-> ([Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations)), so a structured
-> reference loaded from a file answers `#NAME?` until the table is registered by hand.
+> EMPTY reference there. The loader fills the registry too: `ExcelFile.Load` records each xlsx `<table>`
+> part into it ([Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations)), so a
+> structured reference loaded from a file evaluates against the loaded table. A table the loader cannot
+> register is skipped and reported as `InvalidTableDefinition`, and its structured references then answer
+> `#NAME?`, as in Excel.
 
 ```csharp
 var workbook = new Workbook();
