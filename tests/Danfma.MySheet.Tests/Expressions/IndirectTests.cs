@@ -84,4 +84,74 @@ public class IndirectTests
         var back = MemoryPackSerializer.Deserialize<Expression>(bytes);
         await Assert.That(back).IsTypeOf<Indirect>();
     }
+
+    // === Phase 5 item 23: INDIRECT over a structured reference ==========================================
+    //
+    // The brief's claim, on the design's own reasoning: ParseFormulaBody(refText, sheet) (Indirect.cs) would
+    // produce a TableReference and TryResolveReference would resolve it exactly as a defined name does, so
+    // SUM(INDIRECT("Tabela1[Valor]")) should be 60 (both entry modes, Aspose.Cells 26.6.0). MEASURED FALSE
+    // on this head: the parser has no rule that consumes a structured reference yet (Phase 4 T5 owns
+    // Parser.cs and has not merged here — grep over Parser.cs finds zero references to TableReference or
+    // the tokenizer's own BracketedSpecifier token). Confirmed directly:
+    // ExpressionParser.ParseFormulaBody("Tabela1[Valor]", sheet) throws
+    // ParseException("Unexpected token '[Valor]' (at position 7)"); Indirect.TryResolveReference's own
+    // `catch (ParseException)` turns that into `false`, so INDIRECT answers #REF! — the SAME code path a
+    // plain malformed ref_text takes (Indirect_InvalidText_IsRefError above), not a new one. So these two
+    // pin the CURRENT, correct behaviour rather than the brief's unreachable claim — a canary, not a
+    // regression: once Phase 4 T5 merges the grammar, both should be flipped to the oracle's 60.0/both
+    // modes, and this comment block deleted.
+
+    [Test]
+    public async Task StructuredReference_ThroughIndirect_IsRefUntilPhase4T5MergesTheParser()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = new Danfma.MySheet.Expressions.StringValue("Item");
+        data["B1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        data["A2"] = new Danfma.MySheet.Expressions.StringValue("a");
+        data["B2"] = new NumberValue(10);
+        data["A3"] = new Danfma.MySheet.Expressions.StringValue("b");
+        data["B3"] = new NumberValue(20);
+        data["A4"] = new Danfma.MySheet.Expressions.StringValue("c");
+        data["B4"] = new NumberValue(30);
+        workbook.DefineTable("Tabela1", "Data", "A1:B4", ["Item", "Valor"]);
+
+        // Lives in a real cell, read via GetCellValue — Indirect.TryResolveReference needs a current sheet
+        // (context.SheetName), which a bare Expression.Evaluate(workbook) would not supply.
+        data["H1"] = ExpressionParser.Parse("=SUM(INDIRECT(\"Tabela1[Valor]\"))", data);
+
+        var value = workbook.GetCellValue("Data", "H1");
+
+        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task StructuredReference_ThroughIndirect_WithARuntimeColumnName_IsRefUntilPhase4T5MergesTheParser()
+    {
+        // The corpus shape: =SUM(INDIRECT("Tabela1["&SUBSTITUTE(D1,"'","''")&"]")) with D1 holding a column
+        // name containing an apostrophe — the round trip of the lexer's escape table (item 1) against
+        // SUBSTITUTE's output, IF the parser could consume the result. It cannot (see above), so this pins
+        // the same #REF! for the concatenated-text form of the ref_text, not just the literal-string form.
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = new Danfma.MySheet.Expressions.StringValue("Item");
+        data["B1"] = new Danfma.MySheet.Expressions.StringValue("O'Col");
+        data["A2"] = new Danfma.MySheet.Expressions.StringValue("a");
+        data["B2"] = new NumberValue(10);
+        data["A3"] = new Danfma.MySheet.Expressions.StringValue("b");
+        data["B3"] = new NumberValue(20);
+        data["A4"] = new Danfma.MySheet.Expressions.StringValue("c");
+        data["B4"] = new NumberValue(30);
+        workbook.DefineTable("Tabela1", "Data", "A1:B4", ["Item", "O'Col"]);
+
+        data["D1"] = new Danfma.MySheet.Expressions.StringValue("O'Col"); // the raw column name, apostrophe included
+        data["H1"] = ExpressionParser.Parse(
+            "=SUM(INDIRECT(\"Tabela1[\"&SUBSTITUTE(D1,\"'\",\"''\")&\"]\"))",
+            data
+        );
+
+        var value = workbook.GetCellValue("Data", "H1");
+
+        await Assert.That(value.AsObject()).IsEqualTo(ErrorValue.Reference);
+    }
 }
