@@ -838,4 +838,136 @@ public class TableInteropTests
             File.Delete(path);
         }
     }
+
+    // === Evaluation against the committed Aspose fixtures ================================================
+    //
+    // Every oracle number below is Aspose.Cells 26.6.0, PLAIN entry, as recorded in Fixtures/README.md —
+    // the fixtures are the oracle's own output, so the assertions compare MySheet against it directly.
+
+    private static (Workbook Workbook, List<ExcelLoadWarning> Warnings) LoadOracleFixture(
+        string name
+    )
+    {
+        var warnings = new List<ExcelLoadWarning>();
+        var workbook = ExcelFile.Load(
+            XlsxParts.Fixture(name),
+            new ExcelLoadOptions { OnWarning = warnings.Add }
+        );
+
+        return (workbook, warnings);
+    }
+
+    [Test]
+    public async Task Load_ItemSpecifiers_ResolveAgainstTheLoadedGeometry()
+    {
+        // Each specifier reads a DIFFERENT field of the geometry the loader derived from the part:
+        // [#All] the whole ref, [#Data] the data band, [#Headers] the header row, and the composite
+        // [[#Data],[Valor]] one column of that band — all four pinned from one real file.
+        // Oracle (Fixtures/README.md): 3 / 2 / 2 / 42.
+        var (workbook, warnings) = LoadOracleFixture("f1-plain");
+
+        await Assert.That(warnings.Count).IsEqualTo(0);
+        await Assert.That(workbook.GetCellValue("Data", "D2").ToDouble()).IsEqualTo(3.0);
+        await Assert.That(workbook.GetCellValue("Data", "D3").ToDouble()).IsEqualTo(2.0);
+        await Assert.That(workbook.GetCellValue("Data", "D4").ToDouble()).IsEqualTo(2.0);
+        await Assert.That(workbook.GetCellValue("Data", "D5").ToDouble()).IsEqualTo(42.0);
+    }
+
+    [Test]
+    public async Task Load_TableColumnNamesWithSpacesParenthesesAndAnApostrophe_ResolveFromFormulas()
+    {
+        // f4-names is the real-producer version of the escaping gauntlet: spaces and parentheses travel
+        // verbatim, the apostrophe is stored RAW in the part but DOUBLED inside a formula's specifier
+        // (Excel's escape — G4 was typed single and is still stored doubled), and the part's _x000a_
+        // decodes to the newline the raw-newline specifier in G5 needs. A mismatch localizes to one
+        // half: the raw registry names are pinned here, the results exercise the lexer and resolver.
+        // Oracle (Fixtures/README.md): 42 / 2 / 3 / 3 / 300 / 15.
+        var (workbook, warnings) = LoadOracleFixture("f4-names");
+
+        await Assert.That(warnings.Count).IsEqualTo(0);
+        await Assert
+            .That(string.Join("|", workbook.Tables["Tabela1"].ColumnNames))
+            .IsEqualTo(
+                "AMOUNT IN USD For Line 1|(A) NAME OF PFIC|Owner's Share|Line\nBreak| Padded "
+            );
+
+        await Assert.That(workbook.GetCellValue("Data", "G1").ToDouble()).IsEqualTo(42.0);
+        await Assert.That(workbook.GetCellValue("Data", "G2").ToDouble()).IsEqualTo(2.0);
+        await Assert.That(workbook.GetCellValue("Data", "G3").ToDouble()).IsEqualTo(3.0);
+        await Assert.That(workbook.GetCellValue("Data", "G4").ToDouble()).IsEqualTo(3.0);
+        await Assert.That(workbook.GetCellValue("Data", "G5").ToDouble()).IsEqualTo(300.0);
+        await Assert.That(workbook.GetCellValue("Data", "G6").ToDouble()).IsEqualTo(15.0);
+    }
+
+    [Test]
+    public async Task Load_HeaderlessTable_ResolvesFromTheRealColumnNames()
+    {
+        // ref="A2:B3" headerRowCount="0" with row 1 empty — and the part keeps the REAL column names, so
+        // the formulas resolve against the data band with no header row. SUM over the text column is 0,
+        // and [#Headers] has nothing to span: the oracle still counts its #REF! as one COUNTA element
+        // (measured, Fixtures/README.md) and MySheet matches. Oracle: 42 / 0 / 42 / 2 / 1 / 2.
+        var (workbook, warnings) = LoadOracleFixture("f3-noheader");
+
+        await Assert.That(warnings.Count).IsEqualTo(0);
+        await Assert.That(workbook.GetCellValue("Data", "D1").ToDouble()).IsEqualTo(42.0);
+        await Assert.That(workbook.GetCellValue("Data", "D2").ToDouble()).IsEqualTo(0.0);
+        await Assert.That(workbook.GetCellValue("Data", "D3").ToDouble()).IsEqualTo(42.0);
+        await Assert.That(workbook.GetCellValue("Data", "D4").ToDouble()).IsEqualTo(2.0);
+        await Assert.That(workbook.GetCellValue("Data", "D5").ToDouble()).IsEqualTo(1.0);
+        await Assert.That(workbook.GetCellValue("Data", "D6").ToDouble()).IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task Load_StructuredReference_FromAnotherSheet_ResolvesAgainstTheTable()
+    {
+        // The formulas sit on Report; the table lives on Data (TableDefinitionReaderTests pins the
+        // SheetName side). The qualified spelling resolves identically — Aspose stores
+        // `Data!Tabela1[Valor]` back WITHOUT the qualifier, so the unqualified form is the one the loader
+        // actually meets. Oracle (Fixtures/README.md): 42 / 42.
+        var (workbook, warnings) = LoadOracleFixture("f6-cross-sheet");
+
+        await Assert.That(warnings.Count).IsEqualTo(0);
+        await Assert.That(workbook.GetCellValue("Report", "D1").ToDouble()).IsEqualTo(42.0);
+        await Assert.That(workbook.GetCellValue("Report", "D2").ToDouble()).IsEqualTo(42.0);
+    }
+
+    [Test]
+    public async Task Load_DynamicStructuredReferenceThroughIndirect_Resolves()
+    {
+        // The runtime-constructed path: INDIRECT parses its own text with the expression parser, so the
+        // table reference resolves only if the parser AND the resolver agree — and being volatile, the
+        // recomputation must follow the text cell when it changes rather than stay frozen at the
+        // load-time answer. D10 sits OUTSIDE the table (A1 is the table's own header row).
+        // Oracle (Fixtures/README.md): 42; a text column sums to 0.
+        var (workbook, warnings) = LoadOracleFixture("f1-plain");
+
+        await Assert.That(warnings.Count).IsEqualTo(0);
+        await Assert.That(workbook.GetCellValue("Data", "D6").ToDouble()).IsEqualTo(42.0);
+
+        workbook["Data"]["D10"] = new Danfma.MySheet.Expressions.StringValue("Item");
+        workbook.InvalidateCache();
+
+        await Assert.That(workbook.GetCellValue("Data", "D6").ToDouble()).IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task Load_CurrentRowFormsFromARealFile_DegradeToTheirCachedValues()
+    {
+        // The shapes a real producer writes for typed `[@...]` input: D2 carries the item list inside
+        // SUM, I2 as the whole cell. Both degrade to the cached values Aspose computed, while the
+        // three-table sum on the same sheet evaluates — the degradation stays per-cell.
+        // Oracle (Fixtures/README.md): D1 56; D2/I2 cached 10/20, current-row forms rejected.
+        var (workbook, warnings) = LoadOracleFixture("f8-two-tables");
+
+        await Assert
+            .That(warnings.All(warning => warning.Kind == ExcelLoadWarningKind.UnparsableFormula))
+            .IsTrue();
+        await Assert
+            .That(warnings.Select(warning => warning.Subject).ToList())
+            .IsEquivalentTo(new List<string> { "D2", "I2" });
+
+        await Assert.That(workbook.GetCellValue("Data", "D1").ToDouble()).IsEqualTo(56.0);
+        await Assert.That(workbook.GetCellValue("Data", "D2").ToDouble()).IsEqualTo(10.0);
+        await Assert.That(workbook.GetCellValue("Data", "I2").ToDouble()).IsEqualTo(20.0);
+    }
 }
