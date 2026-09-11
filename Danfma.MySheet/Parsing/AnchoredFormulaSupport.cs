@@ -10,8 +10,9 @@ namespace Danfma.MySheet.Parsing;
 ///
 /// "Honest fallback" (per the spike design): the anchored/delta model only covers the minimum the shape needs
 /// to be UNAMBIGUOUSLY correct — plain cell references (<see cref="AnchoredCellReference"/>), bounded ranges
-/// (<see cref="AnchoredRangeReference"/>), arithmetic operators, defined names (position-independent, so
-/// safe unshifted), and built-in/custom function calls whose arguments are themselves supported. Anything
+/// (<see cref="AnchoredRangeReference"/>), arithmetic operators, defined names and structured table references
+/// (both position-independent, so safe unshifted), and built-in/custom function calls whose arguments are
+/// themselves supported. Anything
 /// this Parser mode could not turn into an anchored node — an <see cref="OpenRangeReference"/> (whole column/
 /// row), a <see cref="DynamicRange"/> (a reference-returning endpoint), a <see cref="UnionReference"/> (comma
 /// union of areas) — is treated as UNSUPPORTED: rather than guess at their delta semantics, the whole group
@@ -31,15 +32,26 @@ internal static class AnchoredFormulaSupport
             // A literal never depends on position.
             NumberValue or StringValue or BooleanValue or BlankValue or ErrorValue => true,
 
-            // A defined name is resolved by name against Workbook.DefinedNames, independent of the shared-
-            // formula group's per-slave position — safe to leave un-anchored (identical for every slave,
-            // exactly as it is identical for every cell of an ordinary formula referencing the same name).
+            // A defined name is resolved by name against Workbook.DefinedNames, and a structured reference by
+            // table name against Workbook.Tables — both workbook-scoped registries — independent of the shared-
+            // formula group's per-slave position, so both are safe to leave un-anchored (identical for every
+            // slave, exactly as it is identical for every cell of an ordinary formula referencing the same name
+            // or table). A TableReference carries no position component to shift: [@Col], the only position-
+            // dependent structured form, is out of scope and has no TableArea member, and the delta a slave
+            // pushes changes nothing in the node's resolution (StructuredReferenceSharedFormulaTests). For the
+            // same reason both Parser modes, anchored and legacy-delta, must build the IDENTICAL node once the
+            // arm exists (Phase 4 T5): a BracketedSpecifier token has no ($, column, row) component for either
+            // mode to treat differently. Accepting rather than rejecting keeps the commonest real shape — one
+            // table formula shared down thousands of rows — on this one-master-tree path instead of the
+            // per-slave token re-parse (ExpressionParser.ParseSharedFormulaBody).
             // "Position-independent" is about the RESOLVED REFERENCE being delta-invariant, not about the
-            // resulting VALUE: for a group of =SomeName cells where the name denotes a multi-cell range, each
-            // slave still shows a DIFFERENT value, because the cell boundary's implicit intersection runs per
-            // cell from that cell's own CellId (Workbook.EvaluateCell). That leaves this verdict correct —
-            // nothing but the parsed tree is shared across the group.
-            NameReference => true,
+            // resulting VALUE: for a group of =SomeName or =Tabela1[Valor] cells where the reference denotes a
+            // multi-cell range, each slave still shows a DIFFERENT value, because the cell boundary's implicit
+            // intersection runs per cell from that cell's own CellId (Workbook.EvaluateCell) — measured on
+            // Aspose.Cells 26.6.0 (2026-09-11, PLAIN and a SetSharedFormula group alike) as 10 / 20 / 30 down
+            // the three data rows and #VALUE! on a row outside them, which is what the test above pins. That
+            // leaves this verdict correct — nothing but the parsed tree is shared across the group.
+            NameReference or TableReference => true,
 
             BinaryOperation binary => IsFullyAnchored(binary.Left) && IsFullyAnchored(binary.Right),
 
