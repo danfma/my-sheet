@@ -59,6 +59,13 @@ internal sealed class Tokenizer(string text)
             return ReadQuotedName(start);
         }
 
+        // After the '\'' case on purpose: the quoted external form '[1]Data'!A1 must stay a quoted name,
+        // so the bracket reader only ever sees a '[' that is not inside quotes.
+        if (c == '[')
+        {
+            return ReadBracketedSpecifier(start);
+        }
+
         return ReadOperator(start);
     }
 
@@ -188,6 +195,34 @@ internal sealed class Tokenizer(string text)
             start,
             text[start..]
         );
+    }
+
+    // The whole `[...]` suffix of a structured (table) reference, e.g. the `[Valor]` of Tabela1[Valor] or
+    // the `[[#Data],[% Comissao]]` of the composite form. Unconditional and context-free like every other
+    // reader here (no "previous token" gate): a `[` anywhere becomes one token, and the parser is what
+    // rejects the out-of-scope shapes (`[Valor]` alone, `[1]Sheet1!A1`) with a message naming them.
+    //
+    // Deliberate divergence from ReadQuotedName: Text is the RAW slice, brackets included and undecoded.
+    // Decoding (the `'` escape) is per item and happens after the split in StructuredReferenceSyntax, and
+    // keeping the brackets means ParseException.Token and the parser's generic messages print `[Valor]`,
+    // the text as it appeared in the formula. The scan itself is StructuredReferenceSyntax's — the one
+    // balanced-bracket scanner shared with the item splitter — so a payload this reader accepts is one
+    // the splitter can split; a raw newline inside the brackets is payload, as Excel stores it.
+    private Token ReadBracketedSpecifier(int start)
+    {
+        if (!StructuredReferenceSyntax.TryFindClosingBracket(text, _position, out var close))
+        {
+            throw new ParseException(
+                ParseErrorKind.UnterminatedBracketedReference,
+                "Unterminated bracketed reference",
+                start,
+                text[start..]
+            );
+        }
+
+        var token = new Token(TokenType.BracketedSpecifier, text[start..(close + 1)], start);
+        _position = close + 1;
+        return token;
     }
 
     private Token ReadOperator(int start)
