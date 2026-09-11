@@ -24,15 +24,32 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return IndexIntoArray(array, context);
         }
 
-        // The array may be a literal range or a defined name that stands for one.
-        if (
-            !NamedReferences.TryResolveReference(Arguments[0], context, out var reference)
-            || reference is not RangeReference range
-        )
+        // The array may be a literal range or a defined name that stands for one. When it does not
+        // resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an unknown name, the
+        // node's #REF! for an unresolvable structured reference) — INDEX's own #REF! stays only for an
+        // argument that is merely not a range (a cell, a union).
+        if (NamedReferences.TryResolveReference(Arguments[0], context, out var reference))
         {
-            return ComputedValue.Error(Error.Ref);
+            if (reference is not RangeReference range)
+            {
+                return ComputedValue.Error(Error.Ref);
+            }
+
+            return IndexIntoRange(range, context);
         }
 
+        if (ReferencePosition.TryUnresolvedError(Arguments[0], context, out var unresolved))
+        {
+            return unresolved;
+        }
+
+        return ComputedValue.Error(Error.Ref);
+    }
+
+    // The concrete-range form, split out of Evaluate so the resolution arm above can hand the resolved
+    // rectangle over: index coercion, the 2-arg axis rule and the bounds check are unchanged.
+    private ComputedValue IndexIntoRange(RangeReference range, EvaluationContext context)
+    {
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
         {
             return ComputedValue.Error(firstError);

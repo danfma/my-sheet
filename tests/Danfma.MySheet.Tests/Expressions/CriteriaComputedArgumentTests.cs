@@ -57,6 +57,10 @@ public class CriteriaComputedArgumentTests
         sheet["F2"] = new NumberValue(2);
         sheet["F3"] = ExpressionParser.Parse("=SUBTOTAL(9,F1:F2)", sheet);
 
+        // The cell-error control for the sweep 34(a) arm: E2 holds a #DIV/0! so the range-slot rows can
+        // pin the cell-vs-argument error boundary (an error CELL is content, not the slot's own error).
+        sheet["E2"] = ExpressionParser.Parse("=1/0", sheet);
+
         workbook.DefineName("Rng", "Sheet1!$A$1:$A$3");
         workbook.DefineName("Wide", "Sheet1!$A$1:$B$3");
         workbook.DefineName("MyName", "Sheet1!$D$1:$D$3");
@@ -85,6 +89,68 @@ public class CriteriaComputedArgumentTests
     // would be silently wrong. Aspose 26.6.0: #VALUE! plain / #REF! array-entered unless a comment says
     // otherwise.
     // ================================================================================================
+
+    // ================================================================================================
+    // Sweep item 34(a) — an error-valued argument in a range slot PROPAGATES its own error: the ONE
+    // general arm in PositionalRange.Open's fallback (RangeValueCursor's mirror for COUNTIF, the
+    // COUNTBLANK slot included). Oracle Aspose.Cells 26.6.0, measured 2026-09-11, PLAIN and
+    // array-entered agreeing on every row. What each row WAS: a silent 0 (the error streamed as the one
+    // element the criteria discards), a wrong #DIV/0! where AVERAGEIF divided its empty scan, or the
+    // paired form's #VALUE! length mismatch — every bracketed number below.
+    // ================================================================================================
+
+    [Test]
+    public async Task AnErrorValuedArgument_InARangeSlot_PropagatesItsError()
+    {
+        // The two rows the sweep recorded: #NAME? [was 0] and #DIV/0! [was 0].
+        await Assert.That(OnGrid("=COUNTIF(NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=COUNTIF(1/0,\">0\")")).IsEqualTo(ErrorValue.DivByZero);
+
+        // SUMIF's range slot: #NAME? [was 0] / #DIV/0! [was 0].
+        await Assert.That(OnGrid("=SUMIF(NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=SUMIF(1/0,\">0\")")).IsEqualTo(ErrorValue.DivByZero);
+
+        // AVERAGEIF: #NAME? [was #DIV/0! — the empty scan of a single-range AVERAGEIF].
+        await Assert.That(OnGrid("=AVERAGEIF(NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+
+        // COUNTIFS: #NAME? [was 0] / #DIV/0! [was 0].
+        await Assert.That(OnGrid("=COUNTIFS(NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=COUNTIFS(1/0,\">0\")")).IsEqualTo(ErrorValue.DivByZero);
+
+        // The paired forms: the error leads the length validation — #NAME?/#DIV/0! [both were #VALUE!].
+        await Assert.That(OnGrid("=SUMIFS(B1:B3,NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=SUMIFS(B1:B3,1/0,\">0\")")).IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(OnGrid("=AVERAGEIFS(B1:B3,NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=MAXIFS(B1:B3,NoSuch,\">0\")")).IsEqualTo(ErrorValue.Name);
+
+        // The VALUE slot: #NAME? [was 0] / #DIV/0! [was 0].
+        await Assert.That(OnGrid("=SUMIF(A1:A3,\">0\",NoSuch)")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=SUMIF(A1:A3,\">0\",1/0)")).IsEqualTo(ErrorValue.DivByZero);
+
+        // COUNTBLANK, the family's third member: #NAME? [was 0] / #DIV/0! [was 0].
+        await Assert.That(OnGrid("=COUNTBLANK(NoSuch)")).IsEqualTo(ErrorValue.Name);
+        await Assert.That(OnGrid("=COUNTBLANK(1/0)")).IsEqualTo(ErrorValue.DivByZero);
+    }
+
+    [Test]
+    public async Task AScalarBoundName_InARangeSlot_StillScansAsItsValue()
+    {
+        // The arm's guard rail: only an ERROR-valued argument propagates. Threshold is bound to the
+        // constant 4, so its one element matches ">0" and COUNTIF is 1 — unchanged. (The oracle answers
+        // #REF! here, the RECORDED scalar-slot divergence this file pins below with the literal 5 — a
+        // scalar in a range slot is not this arm's; the arm must not widen it into an error.)
+        await Assert.That(Num(OnGrid("=COUNTIF(Threshold,\">0\")"))).IsEqualTo(1.0);
+    }
+
+    [Test]
+    public async Task AnErrorCell_InARangeSlot_IsContent_NotTheArgumentsOwnError()
+    {
+        // The other guard rail, the cell-vs-argument boundary (Aspose 26.6.0, 2026-09-11, both entry
+        // modes: 0): a reference whose CELL holds a #DIV/0! does not propagate it — the node's own value
+        // is the reference, the error belongs to the value walk, and the criteria simply does not match
+        // the error cell. The arm's IsOwnSlotError guard is what keeps this row at its 0.
+        await Assert.That(Num(OnGrid("=COUNTIF(E2,\">0\")"))).IsEqualTo(0.0);
+    }
 
     [Test]
     public async Task Sumif_OverAComputedCriteriaRange_IsRef()

@@ -19,13 +19,26 @@ internal struct PositionalRange
 {
     // Exactly one backing is live: a list (snapshot array or the materialized fallback), the dense rectangle
     // stream, OR the element-wise mini-CSE array — the latter discriminated by _streamRows > 0 (a live array
-    // always has at least one row), so no extra flag field is needed.
+    // always has at least one row), so no extra flag field is needed. When set, the argument's OWN value was
+    // an error (sweep item 34a) and no backing is live: the consumer surfaces <see cref="SlotError"/>.
     private readonly IReadOnlyList<ComputedValue>? _list;
     private readonly ArrayEvaluation.ArrayStream _stream;
     private readonly int _streamRows;
     private readonly int _streamColumns;
+    private readonly Error? _slotError;
     private RangeValueSequence.Enumerator _cursor;
     private int _index;
+
+    /// <summary>
+    /// The argument's own error, sweep item 34(a): an error-valued argument in a criteria range slot
+    /// PROPAGATES (the oracle answers #NAME? for an unresolved name, #DIV/0! for 1/0 and #REF! for an
+    /// unresolvable structured reference — Aspose.Cells 26.6.0, both entry modes, measured 2026-09-11)
+    /// instead of streaming it as the one element the criteria discards, which answered a silent 0 (or
+    /// AVERAGEIF's empty-scan #DIV/0!, or the paired forms' #VALUE! length mismatch). Set only by the
+    /// materialized fallback of <see cref="Open(Expression, EvaluationContext, RangeSnapshot?)"/>; every
+    /// consumer checks it right after opening and returns the error before any scan.
+    /// </summary>
+    public readonly Error? SlotError => _slotError;
 
     /// <summary>The cell count, known up front for every backing (array length, rectangle area, or list
     /// count) so the *IFS length validation never forces a materialization just to measure.</summary>
@@ -49,6 +62,7 @@ internal struct PositionalRange
         _stream = default;
         _streamRows = 0;
         _streamColumns = 0;
+        _slotError = null;
         _cursor = default;
         _index = 0;
         Count = list.Count;
@@ -62,6 +76,7 @@ internal struct PositionalRange
         _stream = default;
         _streamRows = 0;
         _streamColumns = 0;
+        _slotError = null;
         _cursor = cursor;
         _index = 0;
         Count = rows * columns;
@@ -75,11 +90,29 @@ internal struct PositionalRange
         _stream = stream;
         _streamRows = stream.Rows;
         _streamColumns = stream.Columns;
+        _slotError = null;
         _cursor = default;
         _index = 0;
         Count = stream.Length;
         Rows = stream.Rows;
         Columns = stream.Columns;
+    }
+
+    private PositionalRange(Error slotError)
+    {
+        _list = null;
+        _stream = default;
+        _streamRows = 0;
+        _streamColumns = 0;
+        _slotError = slotError;
+        _cursor = default;
+        _index = 0;
+        // ONE element, like the scalar fallback: a consumer that does not surface <see cref="SlotError"/>
+        // (SUMPRODUCT's opt-in factory shares this fallback) folds exactly what it folded before the arm
+        // existed — the error as the single element — so its answer cannot move silently.
+        Count = 1;
+        Rows = 0;
+        Columns = 0;
     }
 
     /// <summary>
@@ -151,10 +184,10 @@ internal struct PositionalRange
         // shape and same reason as the AnchoredRangeReference resolution above — runs BEFORE the snapshot
         // branch so it can read the resolved rectangle's shape too, and before the dense-rectangle fallback
         // so a first (not-yet-admitted) read also gets the allocation-free struct enumerator instead of
-        // falling to ArgumentFlattening.ExpandComputedValues' boxed default. An unresolvable table is left
-        // as-is: it falls through to that same fallback, which already answers with the node's own error
-        // VALUE as one element — unchanged, since RejectComputedArray (this file) admits it before Open is
-        // ever called.
+        // falling to the fallback's boxed default. An unresolvable table is left as-is: it falls through to
+        // the fallback below, whose sweep 34(a) arm propagates the node's own #NAME?/#REF! (its Evaluate IS
+        // that error) instead of streaming it as the one element the criteria discards — since
+        // RejectComputedArray (this file) admits it before Open is ever called.
         if (
             argument is TableReference table
             && table.TryResolveRange(context.Workbook, out var tableRange, out _)
@@ -198,7 +231,44 @@ internal struct PositionalRange
             );
         }
 
-        return new PositionalRange(ArgumentFlattening.ExpandComputedValues(argument, context));
+        // Sweep item 34(a), the ONE general arm: an argument whose OWN value is an error propagates that
+        // error (<see cref="SlotError"/>) instead of streaming it as the one element every criteria
+        // discards — COUNTIF/SUMIF/COUNTBLANK answered a silent 0, AVERAGEIF divided its empty scan and
+        // the *IFS pairs raised their length mismatch, where the oracle (Aspose.Cells 26.6.0, 2026-09-11,
+        // both entry modes) answers the node's own #NAME?/#DIV/0!/#REF!. The evaluation below IS the
+        // fallback's single evaluation, threaded into the expansion underneath, so a volatile operand
+        // still draws exactly once. What "own" means is the guard, and it is the whole content of the arm:
+        // a reference NODE (a cell, an open range, a union) streams its content, so an error CELL is
+        // content, not the argument's own error (COUNTIF(E2,">0") over a #DIV/0! cell stays 0 on the
+        // oracle); a name or structured reference that RESOLVES streams its resolved value for the same
+        // reason; what propagates is the error of a node whose evaluation IS the error — an unresolvable
+        // name's #NAME?, an unresolvable structured reference's #REF!, 1/0's #DIV/0! — and, for every
+        // other node, every code but #VALUE!, because a #VALUE! from a reference-valued computation is
+        // the COLLAPSE ARTIFACT of forcing a range into a scalar read, not the node's own error: the
+        // refused shapes (IF(TRUE,A1:A3,B1:B3), the cost-guard-refused A:A*1) stream it as the one
+        // non-matching element and answer their pinned 0.
+        var computed = argument.Evaluate(context);
+
+        if (computed.TryGetError(out var slotError) && IsOwnSlotError(argument, slotError, context))
+        {
+            return new PositionalRange(slotError);
+        }
+
+        // The materialized fallback minus the arm above, byte for byte what
+        // ArgumentFlattening.ExpandComputedValues produced for these shapes (its grid-less arms, then its
+        // `default:` arm over the already-computed value).
+        return argument switch
+        {
+            OpenRangeReference open => new PositionalRange(
+                open.ExpandComputedValues(context).ToList()
+            ),
+            UnionReference union => new PositionalRange(
+                union.ExpandComputedValues(context).ToList()
+            ),
+            _ => computed.Kind == ComputedValueKind.Reference
+                ? new PositionalRange(computed.EnumerateValues(context).ToList())
+                : new PositionalRange([computed]),
+        };
     }
 
     /// <summary>
@@ -268,11 +338,54 @@ internal struct PositionalRange
             ? Error.Ref
             : null;
 
+    /// <summary>
+    /// Whether <paramref name="computed"/>'s error is the ARGUMENT's own — the guard of the sweep 34(a)
+    /// propagation arm, shared by <see cref="Open(Expression, EvaluationContext, RangeSnapshot?)"/>'s
+    /// fallback, its <see cref="RangeValueCursor"/> mirror, and the resolving family's lookup-value slots
+    /// (MATCH/XMATCH/XLOOKUP lead the scan with the lookup's own error, guarded by the same boundary).
+    /// An error is "own" when the node's evaluation IS the error; it is content when the node merely
+    /// READS it:
+    /// <list type="bullet">
+    /// <item>a reference NODE (a cell, an open range, a union) streams its content, so an error CELL is
+    /// content, not the argument's own error — COUNTIF(E2,">0") over a #DIV/0! cell stays 0, measured on
+    /// the oracle both entry modes;</item>
+    /// <item>a name or structured reference that RESOLVES streams its resolved value for the same
+    /// reason;</item>
+    /// <item>what propagates is an unresolvable name's #NAME?, an unresolvable structured reference's
+    /// #REF!, 1/0's #DIV/0! — and, for every other node, every code but #VALUE!, because a #VALUE! from a
+    /// reference-valued computation is the COLLAPSE ARTIFACT of forcing a range into a scalar read, not
+    /// the node's own error: the refused shapes (IF(TRUE,A1:A3,B1:B3), the cost-guard-refused A:A*1)
+    /// stream it as the one non-matching element and answer their pinned 0.</item>
+    /// </list>
+    /// </summary>
+    internal static bool IsOwnSlotError(
+        Expression argument,
+        Error slotError,
+        EvaluationContext context
+    ) =>
+        argument switch
+        {
+            CellReference or AnchoredCellReference or OpenRangeReference or UnionReference => false,
+            NameReference or TableReference => !NamedReferences.TryResolveReference(
+                argument,
+                context,
+                out _
+            ),
+            _ => slotError != Error.Value,
+        };
+
     /// <summary>The next cell in position order (column-major, matching the materialized expansion exactly —
     /// the row-major array backing is transposed here to agree). Every parallel cursor is advanced once per
-    /// position so they stay aligned.</summary>
+    /// position so they stay aligned. Unreachable on the error-carrying range (its <see cref="Count"/> is 0
+    /// and every consumer surfaces <see cref="SlotError"/> first); kept total for the same one-element
+    /// semantics as <see cref="RangeValueCursor.MoveNext"/>.</summary>
     public ComputedValue Next()
     {
+        if (_slotError is { } slotError)
+        {
+            return ComputedValue.Error(slotError);
+        }
+
         if (_list is { } list)
         {
             return list[_index++];
@@ -357,6 +470,14 @@ internal struct CriteriaScan
         }
 
         var valueRange = PositionalRange.Open(arguments[0], context);
+
+        // Sweep item 34(a): the slot's own error leads the length validation — the oracle answers the
+        // error, not the paired form's #VALUE! mismatch (measured, both entry modes).
+        if (valueRange.SlotError is { } valueSlotError)
+        {
+            return valueSlotError;
+        }
+
         var length = valueRange.Count;
         var pairCount = (arguments.Length - 1) / 2;
         var ranges = new PositionalRange[pairCount];
@@ -373,6 +494,13 @@ internal struct CriteriaScan
             }
 
             var range = PositionalRange.Open(arguments[1 + (p * 2)], context);
+
+            // Sweep item 34(a) again: every criteria range slot propagates the same way, before the
+            // length comparison its Count would feed.
+            if (range.SlotError is { } pairSlotError)
+            {
+                return pairSlotError;
+            }
 
             if (range.Count != length)
             {
@@ -421,6 +549,12 @@ internal struct CriteriaScan
             }
 
             var range = PositionalRange.Open(arguments[p * 2], context);
+
+            // Sweep item 34(a): the slot's own error leads the length validation here too.
+            if (range.SlotError is { } countOnlySlotError)
+            {
+                return countOnlySlotError;
+            }
 
             if (p == 0)
             {

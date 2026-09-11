@@ -57,6 +57,14 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
 
         var range = PositionalRange.Open(Arguments[0], context, snapshot);
 
+        // Sweep item 34(a): an error-valued range argument propagates its own error (#NAME? for an
+        // unresolved name) instead of streaming it as the one element the criteria discards — which made
+        // the single-range form divide an empty scan and answer its own #DIV/0!, the wrong error.
+        if (range.SlotError is { } rangeSlotError)
+        {
+            return ComputedValue.Error(rangeSlotError);
+        }
+
         if (Arguments.Length < 3)
         {
             var singleTotal = 0.0;
@@ -85,6 +93,13 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         }
 
         var averageRange = PositionalRange.Open(Arguments[2], context);
+
+        // Sweep item 34(a): the average_range slot propagates the same way.
+        if (averageRange.SlotError is { } averageRangeSlotError)
+        {
+            return ComputedValue.Error(averageRangeSlotError);
+        }
+
         var total = 0.0;
         var count = 0;
         var length = Math.Min(range.Count, averageRange.Count);

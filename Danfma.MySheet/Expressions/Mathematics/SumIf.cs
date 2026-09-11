@@ -50,6 +50,13 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
 
         var range = PositionalRange.Open(Arguments[0], context, snapshot);
 
+        // Sweep item 34(a): an error-valued range argument propagates its own error instead of streaming
+        // it as the one element the criteria discards (a silent 0 where the oracle answers the error).
+        if (range.SlotError is { } rangeSlotError)
+        {
+            return ComputedValue.Error(rangeSlotError);
+        }
+
         if (Arguments.Length < 3)
         {
             var singleTotal = 0.0;
@@ -74,6 +81,13 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         }
 
         var sumRange = PositionalRange.Open(Arguments[2], context);
+
+        // Sweep item 34(a): the sum_range slot propagates the same way.
+        if (sumRange.SlotError is { } sumRangeSlotError)
+        {
+            return ComputedValue.Error(sumRangeSlotError);
+        }
+
         var total = 0.0;
         var length = Math.Min(range.Count, sumRange.Count);
 

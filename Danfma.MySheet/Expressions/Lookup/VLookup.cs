@@ -15,11 +15,20 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        // The table may be written directly or through a defined name that stands for a range.
-        if (
-            !NamedReferences.TryResolveReference(Arguments[1], context, out var reference)
-            || reference is not RangeReference table
-        )
+        // The table may be written directly or through a defined name that stands for a range. When it
+        // does not resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an unknown
+        // name, the node's #REF! for an unresolvable structured reference) — VLOOKUP's own #REF! stays
+        // only for an argument that is merely not a range (a cell, a union).
+        if (!NamedReferences.TryResolveReference(Arguments[1], context, out var reference))
+        {
+            return ReferencePosition.Unresolved(
+                Arguments[1],
+                context,
+                ComputedValue.Error(Error.Ref)
+            );
+        }
+
+        if (reference is not RangeReference table)
         {
             return ComputedValue.Error(Error.Ref);
         }

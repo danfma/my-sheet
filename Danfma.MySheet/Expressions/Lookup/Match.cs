@@ -34,6 +34,25 @@ public sealed partial record Match(Expression[] Arguments) : Function
             return ComputedValue.Error(typeError);
         }
 
+        // Sweep item 34(b), both slots in one place (after the match-type parse, whose own coercion error
+        // keeps its precedence): the lookup VALUE's own error leads the scan on both match-type paths —
+        // the approximate path always propagated it, the exact path now follows suit — and when the
+        // lookup ARRAY's node does not resolve, the node's OWN error leads instead of the not-found
+        // #N/A (#NAME? for an unknown name, the node's #REF! for an unresolvable structured reference;
+        // the oracle answers the error on every one of these shapes, both entry modes).
+        if (
+            lookup.TryGetError(out var lookupError)
+            && PositionalRange.IsOwnSlotError(Arguments[0], lookupError, context)
+        )
+        {
+            return lookup;
+        }
+
+        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        {
+            return unresolved;
+        }
+
         if (matchType == 0)
         {
             // Exact (type 0) → O(1) via the value→first-position hash; a blank-equivalent lookup (0/""/FALSE)
@@ -70,11 +89,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         // Approximate: matchType > 0 assumes ascending (largest value <= lookup); < 0 assumes
         // descending (smallest value >= lookup). Cross-type ordering (ValueCoercion.Compare) lets text
-        // keys sort lexicographically, exactly like the <= operator — not only numeric keys.
-        if (lookup.Kind == ComputedValueKind.Error)
-        {
-            return lookup;
-        }
+        // keys sort lexicographically, exactly the <= operator — not only numeric keys.
 
         // Approximate → O(log n) via the sorted index (correct for any input order: it returns the LAST
         // position among the qualifying values, exactly like the linear scan below).

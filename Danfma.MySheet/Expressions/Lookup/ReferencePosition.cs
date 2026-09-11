@@ -136,6 +136,51 @@ internal static class ReferencePosition
     }
 
     /// <summary>
+    /// The NAME-CLASS rule the resolving consumers share (sweep item 34(b)): when
+    /// <paramref name="argument"/> does not resolve to a reference AND its own value is an error, that
+    /// error IS the answer — <c>#NAME?</c> for an unknown name, the node's own <c>#REF!</c> for an
+    /// unresolvable structured reference, <c>#DIV/0!</c> for 1/0 — instead of the consumer's fallback
+    /// code (VLOOKUP/HLOOKUP/INDEX/OFFSET answered their <c>#REF!</c>, MATCH/XMATCH/LOOKUP their
+    /// not-found <c>#N/A</c>, FORMULATEXT its <c>#VALUE!</c>, where the oracle answers the node's error:
+    /// Aspose.Cells 26.6.0, measured 2026-09-11, both entry modes). Returns <c>false</c> when the consumer
+    /// must proceed as before — the argument RESOLVED, or is a value without an error (a scalar name
+    /// keeps the consumer's own answer, measured: VLOOKUP over <c>5</c> is the oracle's <c>#N/A</c>, a
+    /// fallback-code question this rule deliberately does not settle).
+    ///
+    /// <para>XLOOKUP's array slots are the measured exception and are NOT routed through here: the oracle
+    /// answers its own <c>#N/A</c>/<c>#VALUE!</c> for an unresolved NAME there, so no one rule could also
+    /// cover them without a per-shape arm.</para>
+    /// </summary>
+    /// <remarks>
+    /// This evaluates the argument, but only after the resolution attempt FAILED — the same failure-path
+    /// cost <see cref="Unresolved"/> already documented, where the alternative is losing the error the
+    /// user needs to see.
+    /// </remarks>
+    public static bool TryUnresolvedError(
+        Expression argument,
+        EvaluationContext context,
+        out ComputedValue error
+    )
+    {
+        error = ComputedValue.Blank;
+
+        if (NamedReferences.TryResolveReference(argument, context, out _, boundOpenRanges: false))
+        {
+            return false;
+        }
+
+        var value = argument.Evaluate(context);
+
+        if (value.TryGetError(out var nodeError))
+        {
+            error = ComputedValue.Error(nodeError);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// What a reference-requiring function returns for an argument it could NOT resolve to a reference: the
     /// argument's OWN error when it has one (<c>#NAME?</c> for an unknown name, <c>#REF!</c> for a failed
     /// <c>INDIRECT</c>/<c>OFFSET</c>), otherwise <paramref name="fallback"/>. Excel propagates the argument's
@@ -143,19 +188,9 @@ internal static class ReferencePosition
     /// an argument that is merely not a reference (<c>#VALUE!</c> for <c>ROW</c>/<c>COLUMN</c>/<c>AREAS</c>,
     /// <c>1</c> for <c>ROWS</c>/<c>COLUMNS</c>, which treat a scalar as a 1x1 array).
     /// </summary>
-    /// <remarks>
-    /// This re-evaluates the argument, which the failed resolution attempt may already have partly evaluated
-    /// (INDIRECT's <c>ref_text</c>, OFFSET's displacements). That cost is paid only on the FAILURE path,
-    /// where the alternative is losing the error the user needs to see.
-    /// </remarks>
-    private static ComputedValue Unresolved(
+    internal static ComputedValue Unresolved(
         Expression argument,
         EvaluationContext context,
         ComputedValue fallback
-    )
-    {
-        var value = argument.Evaluate(context);
-
-        return value.TryGetError(out _) ? value : fallback;
-    }
+    ) => TryUnresolvedError(argument, context, out var error) ? error : fallback;
 }

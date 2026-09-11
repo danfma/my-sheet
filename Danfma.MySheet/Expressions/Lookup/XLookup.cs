@@ -20,6 +20,19 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         var lookup = Arguments[0].Evaluate(context);
 
+        // Sweep item 34(b), the VALUE slot: the lookup's own error leads the scan (the oracle answers
+        // #NAME? for XLOOKUP(NoSuch,A1:A3,B1:B3)) instead of the not-found #N/A. The ARRAY slots are the
+        // measured exception and keep their own codes: the oracle itself answers #N/A (lookup array) and
+        // #VALUE! (return array) for an unresolved name there — see
+        // MissingSheetReferenceTests.XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo.
+        if (
+            lookup.TryGetError(out var lookupError)
+            && PositionalRange.IsOwnSlotError(Arguments[0], lookupError, context)
+        )
+        {
+            return lookup;
+        }
+
         var lookupSnapshot = Arguments[1] is Reference lookupReference
             ? context.Workbook.TryGetRangeSnapshot(lookupReference, context)
             : null;

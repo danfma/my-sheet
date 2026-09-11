@@ -85,11 +85,19 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        // The table may be written directly or through a defined name that stands for a range.
-        if (
-            !NamedReferences.TryResolveReference(Arguments[1], context, out var reference)
-            || reference is not RangeReference table
-        )
+        // The table may be written directly or through a defined name that stands for a range. When it
+        // does not resolve, the node's OWN error is the answer (sweep item 34(b), the mirror of
+        // VLookup's arm) — HLOOKUP's own #REF! stays only for an argument that is merely not a range.
+        if (!NamedReferences.TryResolveReference(Arguments[1], context, out var reference))
+        {
+            return ReferencePosition.Unresolved(
+                Arguments[1],
+                context,
+                ComputedValue.Error(Error.Ref)
+            );
+        }
+
+        if (reference is not RangeReference table)
         {
             return ComputedValue.Error(Error.Ref);
         }
@@ -265,6 +273,14 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
             return Find(lookup, keys, results);
         }
 
+        // Sweep item 34(b): the vector slot — an unresolved node reports its own error (the oracle
+        // answers #NAME? for LOOKUP(1,NoSuch)) instead of streaming it as the one key the scan discards
+        // into #N/A.
+        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        {
+            return unresolved;
+        }
+
         var lookupVector = ArgumentFlattening.ExpandCached(Arguments[1], context, out _);
         var resultVector =
             Arguments.Length == 3
@@ -386,6 +402,26 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
+
+        // Sweep item 34(b), the VALUE slot: the lookup's own error leads the scan (the oracle answers
+        // #NAME? for XMATCH(NoSuch,A1:A3)) instead of the not-found #N/A. IsOwnSlotError keeps a range
+        // lookup's collapse #VALUE! (a range has no scalar value) out of the rule — that artifact is
+        // content, and the scan answers #N/A on it exactly as before.
+        if (
+            lookup.TryGetError(out var lookupError)
+            && PositionalRange.IsOwnSlotError(Arguments[0], lookupError, context)
+        )
+        {
+            return lookup;
+        }
+
+        // ... and the ARRAY slot: an unresolved node reports its own error the same way (ReferencePosition's
+        // shared rule) instead of streaming it as the one element the scan discards.
+        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        {
+            return unresolved;
+        }
+
         var array = ArgumentFlattening.ExpandCached(Arguments[1], context, out var snapshot);
 
         var matchMode = 0.0;
@@ -582,6 +618,15 @@ public sealed partial record FormulaText(Expression[] Arguments) : Function
     // (ValueExpression) or nothing -> #N/A; a non-reference argument -> #VALUE! (per the docs).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // Sweep item 34(b): an unresolved node reports its OWN error (#NAME? for an unknown name) instead
+        // of the switch's uniform #VALUE! for a non-reference — the same rule the TableReference arm below
+        // already carries for an unresolvable structured reference (Phase 5 item 17), now shared through
+        // ReferencePosition. A resolved non-reference (a name bound to a cell) still falls through.
+        if (ReferencePosition.TryUnresolvedError(Arguments[0], context, out var unresolved))
+        {
+            return unresolved;
+        }
+
         // Phase 5 item 17. A structured reference cannot join the (sheetName, cellId) switch below as an
         // ordinary arm: an unresolvable one must report its OWN error (measured, Aspose.Cells 26.6.0,
         // 2026-09-11 — FORMULATEXT(Tabela1[#Totals]) is #REF! over a table with no totals row), never the

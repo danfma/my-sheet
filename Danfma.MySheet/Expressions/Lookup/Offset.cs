@@ -20,7 +20,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             { } error
         )
         {
-            return ComputedValue.Error(error);
+            return error;
         }
 
         // 1x1: dereference directly, no CellReference allocation (matches the original).
@@ -63,8 +63,9 @@ public sealed partial record Offset(Expression[] Arguments) : Function
 
     // Computes OFFSET's target geometry (sheet + top-left cell + height/width) without allocating a
     // reference. Returns null on success (out parameters set to the target); otherwise the exact
-    // error that should propagate to the caller.
-    private Error? TryComputeTarget(
+    // error RESULT that should propagate to the caller — as a ComputedValue so the base-reference arm
+    // can hand back the node's own error (sweep item 34(b)).
+    private ComputedValue? TryComputeTarget(
         EvaluationContext context,
         out string sheetName,
         out int startColumn,
@@ -79,23 +80,32 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         height = 1;
         width = 1;
 
-        // The base may be written directly or through a defined name that stands for a cell/range.
-        if (
-            !NamedReferences.TryResolveReference(Arguments[0], context, out var baseReference)
-            || !TryBase(baseReference, out sheetName, out var baseColumn, out var baseRow)
-        )
+        // The base may be written directly or through a defined name that stands for a cell/range. When
+        // it does not resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an
+        // unknown name, the node's #REF! for an unresolvable structured reference) — OFFSET's own #REF!
+        // stays only for a base that is merely not a cell/range, and for a target pushed off the grid.
+        if (!NamedReferences.TryResolveReference(Arguments[0], context, out var baseReference))
         {
-            return Error.Ref;
+            return ReferencePosition.Unresolved(
+                Arguments[0],
+                context,
+                ComputedValue.Error(Error.Ref)
+            );
+        }
+
+        if (!TryBase(baseReference, out sheetName, out var baseColumn, out var baseRow))
+        {
+            return ComputedValue.Error(Error.Ref);
         }
 
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var rows) is { } rowsError)
         {
-            return rowsError;
+            return ComputedValue.Error(rowsError);
         }
 
         if (Arguments[2].Evaluate(context).CoerceToNumber(out var columns) is { } columnsError)
         {
-            return columnsError;
+            return ComputedValue.Error(columnsError);
         }
 
         // Excel truncates height/width toward zero (like rows/columns), so OFFSET(A1,0,0,1.9) is a
@@ -104,7 +114,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         {
             if (Arguments[3].Evaluate(context).CoerceToNumber(out var h) is { } e1)
             {
-                return e1;
+                return ComputedValue.Error(e1);
             }
 
             height = (int)h;
@@ -114,7 +124,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         {
             if (Arguments[4].Evaluate(context).CoerceToNumber(out var w) is { } e2)
             {
-                return e2;
+                return ComputedValue.Error(e2);
             }
 
             width = (int)w;
@@ -125,7 +135,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
 
         if (startColumn < 1 || startRow < 1)
         {
-            return Error.Ref;
+            return ComputedValue.Error(Error.Ref);
         }
 
         // A non-positive size is #REF! in Excel (height/width of 0, or a fraction that truncates to 0).
@@ -134,7 +144,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         // here — a rare form left as #REF! rather than a wrong value.)
         if (height < 1 || width < 1)
         {
-            return Error.Ref;
+            return ComputedValue.Error(Error.Ref);
         }
 
         return null;

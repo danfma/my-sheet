@@ -17,17 +17,29 @@ namespace Danfma.MySheet.Expressions;
 internal struct RangeValueCursor
 {
     // Exactly one backing is live: an indexed list (admitted snapshot's array), the dense struct stream
-    // (closed rectangle) or a boxed iterator (open range / union / reference scalar).
+    // (closed rectangle) or a boxed iterator (open range / union / reference scalar). When set, the
+    // argument's OWN value was an error (sweep item 34a) and no backing is live.
     private readonly IReadOnlyList<ComputedValue>? _list;
     private readonly IEnumerator<ComputedValue>? _boxed;
+    private readonly Error? _slotError;
     private RangeValueSequence.Enumerator _dense;
     private readonly bool _isDense;
     private int _index;
+
+    /// <summary>
+    /// The argument's own error, sweep item 34(a) — the mirror of
+    /// <see cref="PositionalRange.SlotError"/>: an error-valued argument in the criteria family's range
+    /// slot (COUNTIF is this cursor's member) propagates instead of streaming as the one element the
+    /// criteria discards. Set only by the fallback of <see cref="Open(Expression, EvaluationContext,
+    /// RangeSnapshot?)"/>; the consumer checks it right after opening, before any scan.
+    /// </summary>
+    public readonly Error? SlotError => _slotError;
 
     private RangeValueCursor(IReadOnlyList<ComputedValue> list)
     {
         _list = list;
         _boxed = null;
+        _slotError = null;
         _dense = default;
         _isDense = false;
         _index = 0;
@@ -37,6 +49,7 @@ internal struct RangeValueCursor
     {
         _list = null;
         _boxed = null;
+        _slotError = null;
         _dense = dense;
         _isDense = true;
         _index = 0;
@@ -46,6 +59,17 @@ internal struct RangeValueCursor
     {
         _list = null;
         _boxed = boxed;
+        _slotError = null;
+        _dense = default;
+        _isDense = false;
+        _index = 0;
+    }
+
+    private RangeValueCursor(Error slotError)
+    {
+        _list = null;
+        _boxed = null;
+        _slotError = slotError;
         _dense = default;
         _isDense = false;
         _index = 0;
@@ -98,8 +122,9 @@ internal struct RangeValueCursor
         // Phase 5 item 16, PERF only: resolves a TableReference to its concrete rectangle UP FRONT, same
         // shape as the AnchoredRangeReference resolution above, so the switch's RangeReference fast path
         // (the allocation-free struct enumerator) serves a resolved table too. An unresolvable table is
-        // left as-is: it falls through to `default:` below, which already answers with the node's own
-        // error VALUE — unchanged, since TryStream/IsBareReferenceNode never enter this method at all.
+        // left as-is: it falls through to `default:` below, whose sweep 34(a) arm carries the node's own
+        // #NAME?/#REF! on <see cref="SlotError"/> for COUNTIF — since TryStream/IsBareReferenceNode never
+        // enter this method at all.
         if (
             argument is TableReference table
             && table.TryResolveRange(context.Workbook, out var tableRange, out _)
@@ -122,7 +147,24 @@ internal struct RangeValueCursor
                 return new RangeValueCursor(union.ExpandComputedValues(context).GetEnumerator());
 
             default:
+                // Sweep item 34(a), mirroring PositionalRange.Open's fallback arm: an argument whose OWN
+                // value is an error (PositionalRange.IsOwnSlotError carries the guard — a cell reference
+                // to an error cell is content, not the argument's error) is carried on
+                // <see cref="SlotError"/> for the criteria family's COUNTIF to surface, instead of
+                // streaming as the one element the criteria discards (a silent 0 where the oracle answers
+                // the node's #NAME?/#DIV/0!/#REF! — measured 2026-09-11, both entry modes). The scan
+                // consumers (MATCH/XLOOKUP) do not read it: they see the same single-element stream as
+                // before, and the unresolved-NAME column of the oracle keeps their own codes (see Match.cs).
                 var computed = argument.Evaluate(context);
+
+                if (
+                    computed.TryGetError(out var slotError)
+                    && PositionalRange.IsOwnSlotError(argument, slotError, context)
+                )
+                {
+                    return new RangeValueCursor(slotError);
+                }
+
                 return computed.Kind == ComputedValueKind.Reference
                     ? new RangeValueCursor(computed.EnumerateValues(context).GetEnumerator())
                     : new RangeValueCursor(Single(computed));
@@ -148,9 +190,23 @@ internal struct RangeValueCursor
     ) => new(computed.EnumerateValues(context).GetEnumerator());
 
     /// <summary>The next value in position order (column-major, matching the materialized expansion exactly),
-    /// or <c>false</c> once the range is exhausted.</summary>
+    /// or <c>false</c> once the range is exhausted. The error-carrying cursor (sweep item 34(a)) yields the
+    /// error as its ONE element, so a consumer that does not surface <see cref="SlotError"/> sees exactly the
+    /// stream this cursor produced before the arm existed.</summary>
     public bool MoveNext(out ComputedValue value)
     {
+        if (_slotError is { } slotError)
+        {
+            if (_index++ == 0)
+            {
+                value = ComputedValue.Error(slotError);
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
         if (_isDense)
         {
             if (_dense.MoveNext())

@@ -50,6 +50,82 @@ public class LookupFunctionTests
             .IsEqualTo(ErrorValue.Reference);
     }
 
+    // ================================================================================================
+    // Sweep item 34(b) — a consumer that resolves its own reference argument reports the node's OWN error
+    // when the node does not resolve (#NAME? for an unknown name, the node's #REF! for an unresolvable
+    // structured reference) instead of its fallback code. Oracle Aspose.Cells 26.6.0, measured 2026-09-11,
+    // PLAIN and array-entered agreeing on every row below. What each row WAS: the resolvers' #REF!
+    // (VLOOKUP/HLOOKUP/INDEX/OFFSET) and the scans' not-found #N/A (MATCH/XMATCH) or #VALUE!-for-a-
+    // non-reference (FORMULATEXT).
+    // ================================================================================================
+
+    [Test]
+    public async Task AnUnresolvedNode_InAReferenceSlot_ReportsItsOwnError()
+    {
+        await Assert
+            .That(Calc("=VLOOKUP(1,NoSuch,1)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=HLOOKUP(1,NoSuch,1)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=INDEX(NoSuch,1,1)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=MATCH(1,NoSuch,0)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=XMATCH(1,NoSuch)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=OFFSET(NoSuch,1,1)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=LOOKUP(1,NoSuch)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=FORMULATEXT(NoSuch)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+
+        // The measured exception that keeps the rule honest: XLOOKUP's oracle answer for an unresolved
+        // NAME in the lookup-array slot is its own #N/A (and #VALUE! for the return array), so XLOOKUP
+        // keeps its code — pinned green here, with the shape's full story in
+        // MissingSheetReferenceTests.XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo.
+        await Assert
+            .That(Calc("=XLOOKUP(1,NoSuch,B1:B3)", ("A1", 1), ("B1", 2)) as ErrorValue)
+            .IsEqualTo(ErrorValue.NotAvailable);
+
+        // A value that is merely NOT a reference keeps the consumer's own answer — the rule reports only
+        // the node's own error: VLOOKUP's table slot over 5 is #REF! (the oracle answers #N/A there, an
+        // unrecorded fallback-code divergence left as it is), MATCH's not-found stays #N/A.
+        await Assert
+            .That(Calc("=VLOOKUP(1,5,1)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Calc("=MATCH(1,5,0)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.NotAvailable);
+    }
+
+    [Test]
+    public async Task AnUnresolvedLookupValue_IsPropagated_ByTheScanFamily()
+    {
+        // The VALUE slot of the same family: the lookup's own error leads the scan. MATCH's approximate
+        // path always propagated it; the exact path, XMATCH and XLOOKUP now match it (the oracle answers
+        // #NAME? on every row here, both entry modes) — VLOOKUP/HLOOKUP/LOOKUP always did.
+        await Assert
+            .That(Calc("=MATCH(NoSuch,A1:A3,0)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=MATCH(NoSuch,A1:A3,1)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=XMATCH(NoSuch,A1:A3)", ("A1", 1)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+        await Assert
+            .That(Calc("=XLOOKUP(NoSuch,A1:A3,B1:B3)", ("A1", 1), ("B1", 2)) as ErrorValue)
+            .IsEqualTo(ErrorValue.Name);
+    }
+
     [Test]
     public async Task Rows_CountsRowsInRange()
     {

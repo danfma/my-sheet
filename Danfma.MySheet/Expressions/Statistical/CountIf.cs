@@ -60,6 +60,14 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
         var count = 0;
         var cursor = RangeValueCursor.Open(Arguments[0], context, snapshot);
 
+        // Sweep item 34(a): an error-valued range argument propagates its own error (the oracle answers
+        // #NAME? for an unresolved name, #DIV/0! for 1/0 and #REF! for an unresolvable structured
+        // reference) instead of streaming it as the one element the criteria discards — a silent 0.
+        if (cursor.SlotError is { } slotError)
+        {
+            return ComputedValue.Error(slotError);
+        }
+
         while (cursor.MoveNext(out var value))
         {
             if (criteria.Matches(value))

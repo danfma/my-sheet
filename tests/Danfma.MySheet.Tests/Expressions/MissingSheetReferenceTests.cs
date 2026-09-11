@@ -302,6 +302,16 @@ public class MissingSheetReferenceTests
                 new NumberValue(1),
                 new NumberValue(1),
             ]),
+            "HLOOKUP(1)" => new HLookup([new NumberValue(1), node, new NumberValue(1)]),
+            "XMATCH" => new XMatch([new NumberValue(1), node]),
+            "LOOKUP(1)" => new Lookup([new NumberValue(1), node]),
+            "OFFSET" => new Offset([node, new NumberValue(1), new NumberValue(1)]),
+            "FORMULATEXT" => new FormulaText([node]),
+            "XLOOKUP" => new XLookup([
+                new NumberValue(1),
+                node,
+                new RangeReference("B2", "B4", "Data"),
+            ]),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(consumer),
                 consumer,
@@ -465,39 +475,117 @@ public class MissingSheetReferenceTests
             ("ISREF", false)
         );
 
-    // The criteria family's error-valued range slot is a PRE-EXISTING divergence, ruled to the SWEEP (R4,
-    // sweep item 34) and NOT table-specific: over an error-valued range argument COUNTIF/SUMIF/COUNTBLANK
-    // answer 0 here and the error there, for a defined name exactly as for a table — re-measured on this
-    // branch, COUNTIF(UnknownName,">0") is 0 here while the oracle answers #NAME? for the same shape. Pinned
-    // with BOTH numbers so the sweep can find the rows, and so nobody reads the 0 as intended behaviour. If
-    // the sweep closes the general rule these three flip to #REF! and this test is the one to rewrite.
+    // Sweep item 34(a), CLOSED 2026-09-11: the criteria family's range slot propagates an error-valued
+    // argument. What it was: COUNTIF/SUMIF/COUNTBLANK all answered 0 here — the node's error streamed as
+    // the one element the criteria discards — where the oracle (Aspose.Cells 26.6.0, both entry modes)
+    // answers #REF! over Tabela1[#Totals]. The fix is the one general arm in PositionalRange.Open's
+    // fallback (RangeValueCursor's mirror and COUNTBLANK's slot included); the sweep reference is
+    // phase-11-excel-compatibility-sweep.md item 34, and the pre-fix zeros lived in
+    // TheCriteriaFamily_OverAnUnresolvableStructuredReference_IsZero_ADivergence.
     [Test]
-    public async Task TheCriteriaFamily_OverAnUnresolvableStructuredReference_IsZero_ADivergence() =>
+    public async Task TheCriteriaFamily_OverAnUnresolvableStructuredReference_PropagatesTheNodesError() =>
         await AssertConsumers(
             removeTheSheet: false,
             TableColumn(area: TableArea.Totals, column: null),
-            // Oracle (both entry modes): #REF! on all three. Here: 0.
-            ("COUNTIF", 0.0),
-            ("SUMIF", 0.0),
-            ("COUNTBLANK", 0.0)
+            // Oracle (both entry modes): #REF! on all three. Was: 0 on all three.
+            ("COUNTIF", ErrorValue.Reference),
+            ("SUMIF", ErrorValue.Reference),
+            ("COUNTBLANK", ErrorValue.Reference)
         );
 
-    // The OTHER pre-existing divergence class the unresolvable table exposes, also not table-specific and also
-    // the sweep's: a function that resolves its reference argument itself and answers its OWN code when the
-    // resolution fails, instead of propagating the argument's error. Measured on this branch for a defined
-    // name too (VLOOKUP(1,UnknownName,1) = #REF! while SUM(UnknownName) = #NAME?), and the oracle wants #NAME?
-    // for the analogous unknown-name shape (measured 2026-09-11, both modes: INDEX(NoSuch,1,1), VLOOKUP and
-    // MATCH over NoSuch are all #NAME?) — which is why M1's "add the guard to INDEX/OFFSET" was rejected in
-    // favour of one general rule in the sweep. The node's error here is #NAME?; all three overwrite it.
+    // Sweep item 34(b), CLOSED 2026-09-11: a consumer that resolves its own reference argument reports the
+    // node's OWN error when the node does not resolve — the #NAME? an unknown table's structured reference
+    // carries (the design's mapping, a table name living in the same namespace as a defined name) —
+    // instead of its fallback code. What it was: VLOOKUP/INDEX answered their own #REF! and MATCH its
+    // not-found #N/A here, where the oracle's unknown-NAME column (the directly measurable twin, both
+    // entry modes) answers #NAME? for all three. The rule is one for the whole NAME CLASS — see
+    // TheResolvingFamily_OverAnUnresolvedName_ReportsTheNodesError below — landed through
+    // ReferencePosition's shared unresolved arm; the sweep reference is phase-11 item 34 and the pre-fix
+    // codes lived in AResolvingConsumer_OverAnUnknownTable_ReportsItsOwnCode_ADivergence.
     [Test]
-    public async Task AResolvingConsumer_OverAnUnknownTable_ReportsItsOwnCode_ADivergence() =>
+    public async Task AResolvingConsumer_OverAnUnknownTable_ReportsTheNodesError() =>
         await AssertConsumers(
             removeTheSheet: false,
             new TableReference("NoSuch", "Valor", TableArea.Data),
-            // Oracle: #NAME? on all three. Here:
+            // Oracle (the unknown-name column, both entry modes): #NAME? on all three.
+            // Was: #REF! / #REF! / #N/A.
+            ("VLOOKUP(1)", ErrorValue.Name),
+            ("INDEX", ErrorValue.Name),
+            ("MATCH", ErrorValue.Name)
+        );
+
+    // The one rule of the closing tests above, over the whole resolving family the sweep had me measure
+    // first (VLOOKUP, HLOOKUP, INDEX, MATCH, XMATCH, OFFSET, LOOKUP, FORMULATEXT — every consumer that
+    // resolves its own reference argument), over an unknown DEFINED name (Aspose.Cells 26.6.0, 2026-09-11,
+    // PLAIN and array-entered agreeing on every row: #NAME? on all eight). Before the rule the resolvers
+    // answered their own #REF! (VLOOKUP/HLOOKUP/INDEX/OFFSET) and the scans their not-found #N/A (MATCH/
+    // XMATCH/LOOKUP/FORMULATEXT's uniform #VALUE! for a non-reference).
+    [Test]
+    public async Task TheResolvingFamily_OverAnUnresolvedName_ReportsTheNodesError() =>
+        await AssertConsumers(
+            removeTheSheet: false,
+            new NameReference("NoSuch"),
+            ("VLOOKUP(1)", ErrorValue.Name),
+            ("HLOOKUP(1)", ErrorValue.Name),
+            ("INDEX", ErrorValue.Name),
+            ("MATCH", ErrorValue.Name),
+            ("XMATCH", ErrorValue.Name),
+            ("OFFSET", ErrorValue.Name),
+            ("LOOKUP(1)", ErrorValue.Name),
+            ("FORMULATEXT", ErrorValue.Name)
+        );
+
+    // The same family over the same shape's unknown-TABLE twin (not directly measurable on the oracle:
+    // Aspose rejects an unknown-table specifier at formula-set time, so the design's #NAME? — the node's
+    // own error, the same value an unknown defined name carries — governs, exactly as it does for SUM and
+    // ROWS in StructuredReference_WithAnUnknownTable_IsTheNameErrorValue above).
+    [Test]
+    public async Task TheResolvingFamily_OverAnUnknownTable_ReportsTheNodesError() =>
+        await AssertConsumers(
+            removeTheSheet: false,
+            new TableReference("NoSuch", "Valor", TableArea.Data),
+            ("VLOOKUP(1)", ErrorValue.Name),
+            ("HLOOKUP(1)", ErrorValue.Name),
+            ("INDEX", ErrorValue.Name),
+            ("MATCH", ErrorValue.Name),
+            ("XMATCH", ErrorValue.Name),
+            ("OFFSET", ErrorValue.Name),
+            ("LOOKUP(1)", ErrorValue.Name),
+            ("FORMULATEXT", ErrorValue.Name)
+        );
+
+    // And over the one unresolvable structured reference the oracle itself accepts at formula-set time:
+    // every member reports the node's own #REF! (Aspose.Cells 26.6.0, 2026-09-11, both entry modes).
+    // MATCH/XMATCH/LOOKUP answered #N/A here before the rule; VLOOKUP/HLOOKUP/INDEX/OFFSET answered
+    // #REF! — their own code, which only coincided with the node's error on this shape.
+    [Test]
+    public async Task TheResolvingFamily_OverAnUnresolvableStructuredReference_ReportsTheNodesError() =>
+        await AssertConsumers(
+            removeTheSheet: false,
+            TableColumn(area: TableArea.Totals, column: null),
             ("VLOOKUP(1)", ErrorValue.Reference),
+            ("HLOOKUP(1)", ErrorValue.Reference),
             ("INDEX", ErrorValue.Reference),
-            ("MATCH", ErrorValue.NotAvailable)
+            ("MATCH", ErrorValue.Reference),
+            ("XMATCH", ErrorValue.Reference),
+            ("OFFSET", ErrorValue.Reference),
+            ("LOOKUP(1)", ErrorValue.Reference),
+            ("FORMULATEXT", ErrorValue.Reference)
+        );
+
+    // The measured exception that keeps the rule honest (Aspose.Cells 26.6.0, 2026-09-11, both entry
+    // modes): XLOOKUP does NOT report an unresolved name's #NAME? in its array slots — the oracle answers
+    // its own #N/A for the lookup array (and #VALUE! for the return array) where every sibling reports the
+    // node's error. Reproducing both XLOOKUP rows would need exactly the per-shape arms the sweep forbids,
+    // so MySheet keeps the agreeing #N/A for the name shape. The [#Totals] shape stays a RECORDED
+    // divergence for the same reason: the oracle answers the node's #REF! there (but not the #NAME? in the
+    // name shape — its own inconsistency), MySheet answers #N/A, and no one rule produces both.
+    [Test]
+    public async Task XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo() =>
+        await AssertConsumers(
+            removeTheSheet: false,
+            new NameReference("NoSuch"),
+            ("XLOOKUP", ErrorValue.NotAvailable)
         );
 
     // Unknown TABLE. Aspose rejects Tabela1x[Valor] at formula-set time ("Invalid table reference"), so this
