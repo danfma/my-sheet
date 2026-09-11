@@ -137,6 +137,15 @@ public static class FormulaWriter
                 builder.Append(name.Name);
                 break;
 
+            // A structured (table) reference. Its whole spelling — the escape set, which parts get their
+            // own brackets, which specifier is implicit — lives next to the grammar that reads it back, in
+            // StructuredReferenceSyntax, so the two cannot drift. The ambient deltaRow/deltaColumn are
+            // ignored on purpose: the node has no position component, which is why a shared formula whose
+            // master holds one stays on the shared-master fast path.
+            case TableReference table:
+                StructuredReferenceSyntax.Write(builder, table);
+                break;
+
             case DynamicRange dyn:
                 Write(
                     builder,

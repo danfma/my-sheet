@@ -83,6 +83,107 @@ public class FormulaWriterTests
         await Assert.That(Structure(Parse(written)).SequenceEqual(Structure(expression))).IsTrue();
     }
 
+    // === Fase 4: o arm do TableReference (item 12) =======================================================
+
+    // Sem este arm o `default:` do FormulaWriter estoura NotSupportedException, ou seja FORMULATEXT e toda
+    // exportação em modo Formulas morrem em qualquer célula com referência estruturada.
+    //
+    // As grafias abaixo são as quinze linhas canônicas do item 16, com as quatro que a Ruling 2 inverteu já
+    // corrigidas (`Tabela1[Sales Amount]`, `Tabela1[Total (USD)]`, `Tabela1['#OfItems]` em colchete SIMPLES;
+    // `'My Table'[Valor]` removida porque o oráculo REJEITA a forma com o nome da tabela entre apóstrofos).
+    // Medido em Aspose.Cells 26.6.0, entrada PLAIN, 2026-09-11, por um probe FORA da suíte: as 102 grafias
+    // que este writer consegue emitir (17 nomes de coluna, o nulo incluído, x 6 áreas, todas distintas)
+    // voltam do oráculo byte a byte iguais. O número 102 é dessa medição, não da contagem de nenhum teste.
+    //
+    // Elas entram por uma ÁRVORE montada à mão, e não por RoundTrips_CanonicalText, porque aquele harness
+    // chama ExpressionParser e o arm de ParseIdentifier que reconhece o token BracketedSpecifier é da
+    // tarefa T5 (item 8). Quando T5 aterrissar, estas linhas viram [Arguments] de RoundTrips_CanonicalText
+    // e de NormalizesEquivalentText sem mudar um único valor esperado — a metade do parse já está pinada em
+    // StructuredReferenceSyntaxTests.Write_ThenParse_IsTheSameNode.
+    [Test]
+    [Arguments("Valor", TableArea.Data, "Tabela1[Valor]")]
+    [Arguments(null, TableArea.All, "Tabela1[#All]")]
+    [Arguments(null, TableArea.Data, "Tabela1[#Data]")]
+    [Arguments(null, TableArea.Headers, "Tabela1[#Headers]")]
+    [Arguments(null, TableArea.Totals, "Tabela1[#Totals]")]
+    [Arguments("Valor", TableArea.All, "Tabela1[[#All],[Valor]]")]
+    [Arguments(null, TableArea.HeadersAndData, "Tabela1[[#Headers],[#Data]]")]
+    [Arguments(null, TableArea.DataAndTotals, "Tabela1[[#Data],[#Totals]]")]
+    [Arguments("% Comissao", TableArea.HeadersAndData, "Tabela1[[#Headers],[#Data],[% Comissao]]")]
+    [Arguments("Valor", TableArea.DataAndTotals, "Tabela1[[#Data],[#Totals],[Valor]]")]
+    [Arguments("Sales Amount", TableArea.Data, "Tabela1[Sales Amount]")]
+    [Arguments("Total (USD)", TableArea.Data, "Tabela1[Total (USD)]")]
+    [Arguments("#OfItems", TableArea.Data, "Tabela1['#OfItems]")]
+    [Arguments(" Col ", TableArea.Data, "Tabela1[[ Col ]]")]
+    [Arguments("Rev#1", TableArea.Data, "Tabela1[Rev'#1]")]
+    public async Task TableReference_RendersItsCanonicalSpelling(
+        string? column,
+        TableArea area,
+        string expected
+    )
+    {
+        Expression reference = new TableReference("Tabela1", column, area);
+
+        await Assert.That(reference.ToFormula(ContextSheet)).IsEqualTo(expected);
+    }
+
+    // O átomo nunca é parentizado: Precedence devolve AtomPrecedence pelo `_ =>`, então o nó entra cru em
+    // qualquer slot de operando. `SUM(Tabela1[Valor])` é a linha canônica do item 16 que envolve o nó numa
+    // chamada de função.
+    [Test]
+    public async Task TableReference_IsAnAtom_InEveryOperandSlot()
+    {
+        Expression reference = new TableReference("Tabela1", "Valor", TableArea.Data);
+
+        await Assert
+            .That(new Sum([reference]).ToFormula(ContextSheet))
+            .IsEqualTo("SUM(Tabela1[Valor])");
+        await Assert
+            .That(
+                new BinaryOperation(
+                    BinaryOperator.Multiply,
+                    reference,
+                    new NumberValue(2)
+                ).ToFormula(ContextSheet)
+            )
+            .IsEqualTo("Tabela1[Valor]*2");
+        await Assert
+            .That(new UnaryOperation(UnaryOperator.Negate, reference).ToFormula(ContextSheet))
+            .IsEqualTo("-Tabela1[Valor]");
+    }
+
+    // Uma referência estruturada não tem componente de posição, então o deltaRow/deltaColumn ambiente de uma
+    // fórmula compartilhada é ignorado — é por isso que ela continua no caminho rápido do master
+    // compartilhado (AnchoredFormulaSupport).
+    [Test]
+    public async Task TableReference_IgnoresTheSharedFormulaDelta()
+    {
+        Expression reference = new TableReference("Tabela1", "Valor", TableArea.Data);
+        Expression slave = new SharedFormulaSlave(reference, 1000, 7);
+
+        await Assert.That(slave.ToFormula(ContextSheet)).IsEqualTo("Tabela1[Valor]");
+    }
+
+    // O nó atravessa MemoryPack (tag de união 327, a primeira livre depois da Fase 7) e o clone re-renderiza
+    // igual, que é a metade da invariante que NormalizesEquivalentText prova para os outros nós.
+    [Test]
+    [Arguments(null, TableArea.Data)]
+    [Arguments(null, TableArea.HeadersAndData)]
+    [Arguments("Valor", TableArea.Data)]
+    [Arguments("#OfItems", TableArea.All)]
+    [Arguments(" Col ", TableArea.DataAndTotals)]
+    public async Task TableReference_SurvivesMemoryPack(string? column, TableArea area)
+    {
+        Expression reference = new TableReference("Tabela1", column, area);
+
+        var clone = MemoryPackSerializer.Deserialize<Expression>(Structure(reference));
+
+        await Assert.That(clone).IsEqualTo(reference);
+        await Assert
+            .That(clone!.ToFormula(ContextSheet))
+            .IsEqualTo(reference.ToFormula(ContextSheet));
+    }
+
     // Uma chamada mínima válida por função built-in do Parser: o texto re-parseado tem que produzir
     // exatamente a mesma árvore (garante que o mapa nó→nome cobre todas as funções).
     [Test]
