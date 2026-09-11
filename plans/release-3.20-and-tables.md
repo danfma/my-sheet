@@ -56,10 +56,10 @@ Plan: `structured-table-references-and-aggregate/phase-4-lexer-parser.md` (re-ve
 - [x] Task 3 — lexer. `ed336c5`, `TokenizerTests` 9 → 17 cases, core → 1981/1.
 - [x] Task 7 — name-validator repoint. `eaaa36d`, core → 1993/1.
 - [x] Task 4 — anchored support. `e2761c2`, core → 2008/1.
-- [ ] Task 2 — grammar + writer (running).
-- [ ] Task 5 — parser arms (after 2 and 3).
-- [ ] Task 6 — loader vehicle and every doc the phase falsifies (after 5).
-- [ ] Two-part final review, fix wave, ff-merge.
+- [x] Task 2 — grammar + writer. `fd5fe81` + `40bcc93` + `f4217ed` + `f12e1c1` + `eefd87d` + `f53e367` (six commits, TDD red-first, both suites green at every boundary). core → 2369/0 on the final branch head.
+- [x] Task 5 — parser arms (MERGED with T6, the reason is measured: the arms re-arm eleven `Load_*` tests, so both halves landed together). `621e11a` + `d224b80` (core 2369/0, Excel 93/11 → 93/0).
+- [x] Task 6 — folded into T5 (loader vehicle + the eleven `Load_*` tests) and `a26cdbd` (the serialization.md tag sentences, fixed after the two reviews of the partial edit).
+- [ ] Final review, fix wave, ff-merge. Part 1 (GLM-5.3 via z.ai, launched before the user's ruling) returned Yes-with-fixes, all registration-only; the controller verified all nine findings against the tree. Part 2 running on the controller's own subagent; part 3 running on Copilot. Kimi 403 (monthly). Reviewer lineup and the no-more-Claude rule recorded in RESUME HERE.
 
 ### Verification Plan
 - After Task 1's merge: core and Excel suites `failed: 0`; `grep -c '^\[MemoryPackUnion' Danfma.MySheet/Expressions/Expression.cs` = 328.
@@ -77,8 +77,8 @@ Plans: `phase-5-resolution-and-graph.md` (its items 1-4 are deleted by the 2026-
 - [x] Re-verify Phase 5 against `main`; rulings R1-R4 written into the phase file (`53010e4`); five briefs; worktree `/Volumes/Work/Develop/MySheet-p5`, branch `feat/resolution-and-graph` off `feat/lexer-parser`.
 - [x] Re-verify Phase 6; nine rulings written into the phase file (`9bef4c7`); three briefs; worktree `/Volumes/Work/Develop/MySheet-p6`, branch `feat/excel-loader`.
 - [x] Phase 6 Task 1 — the `<table>` reader, nine committed Aspose fixtures, export/merge pins. `ae6d82a`, Excel 93/0 → 125/0.
-- [ ] Phase 5 Task 1 — six-area geometry plus the `Empty` outcome (running).
-- [ ] Execute Phase 5 (its cadence), ff-merge.
+- [x] Phase 5 Task 1 — six-area geometry plus the `Empty` outcome. `5879a48`, core 1994/1 → **2092/1** (+98), Excel 93/0. `TryGetRegion` renamed to `GetRegion`, returns `TableRegionOutcome { Resolved, Empty, Absent }`.
+- [ ] Execute Phase 5 (its cadence), ff-merge. T2 `0654194` and T3 `c43799c`+`9f681f7` accepted (core 2436/0); T4 accepted 2026-09-11 session 2 (four commits, core **2451/0**, Excel 93/0, ledger has the details); T5 dispatched after Phase 4 merges — Opus-class work running on GLM-5.3-Flash instead (see Phase B note), and the p5 rebase owes the two INDIRECT canary flips (p5 ledger).
 - [ ] Execute Phase 6 (its cadence), ff-merge. Phase 6 is the release blocker: without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
 
 ### Verification Plan
@@ -101,20 +101,19 @@ Status: Not started
 ### Phase Summary
 _(write when phase completes)_
 
-## RESUME HERE (2026-09-11, end of session)
+## RESUME HERE (2026-09-11, session 3 — 3.20.0 shipped)
 
-Four branches, none merged, every one clean at its last accepted commit. Merge order is fixed: **11c → main → cut 3.20.0 → p4 rebases onto main → p5 rebases onto p4 → p6 rebases last**.
+**3.20.0 shipped** (tag `v3.20.0` + `chore(release): 3.20.0` on `origin/main`). Remaining: Phases 4, 5 and 6 for 3.21.0. Merge order fixed: **p4 → main, p5 rebases onto main, p6 rebases last**. No release before Phase 6 — without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
 
-| branch | worktree | head | suite there |
-| --- | --- | --- | --- |
-| `feat/array-bindings` | `MySheet-11c` | `1fd687d` | core 1988 / 15 — the 15 are Task 3's rows |
-| `feat/lexer-parser` | `MySheet-p4` | `e2761c2` | core 2008 / 1 (11c's pin) |
-| `feat/resolution-and-graph` | `MySheet-p5` | `eaaa36d` | core 1993 / 1 |
-| `feat/excel-loader` | `MySheet-p6` | `ae6d82a` | Excel 125 / 0 |
+| branch | worktree | head | suite there | state |
+| --- | --- | --- | --- | --- |
+| `feat/lexer-parser` | `MySheet-p4` | `a26cdbd` | core 2369 / 0, Excel 93 / 0 | six tasks landed, clean. GLM-5.3 review complete (Yes with fixes, all registration; findings verified by the controller); second review running on a GLM-5.3-Flash subagent |
+| `feat/resolution-and-graph` | `MySheet-p5` | `2b6536b` | core 2451 / 0, Excel 93 / 0 | T1-T4 accepted, clean, off p4's pre-parser-arms history. T5 waits on the p4 merge; the rebase owes two INDIRECT canary flips (p5 ledger) |
+| `feat/excel-loader` | `MySheet-p6` | `ae6d82a` | Excel 125 / 0 | T1 landed, clean. T2 unblocked only after Phases 4+5 merge |
 
-Three tasks were in flight when the session ended — 11c T3, Phase 4 T2, Phase 5 T1. Check each worktree's `git status --short` first: if one is dirty, an agent died mid-edit and its brief plus the ledger say what it owed. Then dispatch what is missing, per-phase ledgers under `.superpowers/sdd/<phase>/progress.md`.
+**Reviewer lineup (user, 2026-09-11 session 3): every final review = one instance of the controller's own subagent + Copilot. Kimi is out (403, monthly limit). Claude/z.ai dispatches are OFF until Monday Sep 14** (Opus+sonnet weekly limit; Fable credits; glm-5.3 was used for Phase 4's first part before the ruling and its findings stay as verified inputs, but no new z.ai/claude-CLI launches). Copilot is back by user decision after four phases of fabrication — every Copilot finding is verified against the tree before it enters a fix wave. Implementation tasks that were Opus-class run on the controller's own subagent instance.
 
-Next actions in order: finish 11c T3 (core to 0 failures), 11c T4 (docs, Sonnet), 11c's two-part review, ff-merge, **stop and tell the user 3.20.0 can be cut**. Then Phase 4 T2 → T5 → T6, Phase 5 T1 → T2/T3/T4 → T5, Phase 6 T2 → T3.
+Next actions in order: (1) de-dup the P4 reviews (GLM-5.3's completed part + the controller-subagent part + Copilot's part) into `phase-4-lexer-parser/fix-wave.md` (11c's file is the format), verify every new finding against the tree, execute the fixes as controller, `git rebase main` (conflicts expected: sweep file — main's `e7b50f0` item-34 edit vs the wave's new sweep item; master plan phase table — keep both sides' rows), `git merge --ff-only`; (2) rebase p5, flip the two INDIRECT canaries to 60.0 (or hand them to T5's brief — decided at the time), dispatch T5 on the controller's subagent instance (brief `task-5-brief.md`, "no numbered items by design" — scope is R3 + M4 pin + finding 8's docs); (3) Phase 5 review (controller subagent + Copilot), fix wave, ff-merge; (4) Phase 6 T2 then T3 (T3 re-measures every anchor — several are 3-8 lines off), review, fix wave, ff-merge; (5) master plan rows Complete, tell the user 3.21.0 can be cut.
 
 ## Final Recap
 _(write when all phases complete)_
