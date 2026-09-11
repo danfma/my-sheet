@@ -482,6 +482,13 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* Task 8 fixed the SILENT half of the scalar-condition `IF` defect (a producer collapsing to its
       top-left) and left the LOUD half, which is a deliberate, reviewable boundary rather than an oversight.
 
+- [ ] **33.** A structured reference over a table with ZERO data rows (header-only, `ref="A1:C1"`) is an EMPTY reference on the oracle — `SUM(Tabela1[Valor])` 0, `ROWS` 0, `COUNT` 0, `ISREF` TRUE, `AVERAGE` `#DIV/0!`, `INDEX(…,1,1)` `#REF!`, `FILTER(…)` `#CALC!` (Aspose.Cells 26.6.0, 2026-09-11, both modes) — and MySheet answers `#REF!` by Phase 5's ruling R1, because the engine has no zero-extent reference node and Excel's UI cannot create the shape. Reopening it means an empty-reference representation touching every consumer that pattern-matches `RangeReference`; `Table.TryGetRegion` already carries the `Empty` outcome so the switch is one arm per consumer.
+      *Files:* `Table.cs`, `TableReference.cs`, every `RangeReference` consumer, both docs twins
+      *Why:* A deliberate structural divergence, recorded so it is a decision and not a drift.
+- [ ] **34.** The criteria family's RANGE slot silently accepts an error-valued argument: `COUNTIF(NoSuch,">0")` is 0 here and `#NAME?` on the oracle, `COUNTIF(1/0,">0")` is `#DIV/0!` there, and with Phase 5 `COUNTIF(Tabela1[#Totals],">0")` is 0 here against `#REF!` (both modes). One general arm in `PositionalRange.Open`'s fallback: an error-valued argument in the range slot propagates. Phase 5 pins the table instance with both numbers and hands the rule here.
+      *Files:* `Danfma.MySheet/Expressions/PositionalRange.cs`, `CriteriaComputedArgumentTests.cs`
+      *Why:* Pre-existing for every defined name; not table-specific.
+
 **An oracle limitation found while measuring the above, recorded so nobody re-measures it:** array-entered
 `ROWS(IF(FALSE,SEQUENCE(3)))` makes `Workbook.CalculateFormula()` throw
 `CellsException: IndexOutOfRangeException` inside Aspose itself, and the throw takes down every other formula in
