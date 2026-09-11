@@ -298,8 +298,10 @@ array](workbook-and-expressions.md#produtores-de-array-dinâmico) para o que ela
 | 325 | `Lookup.Unique` |
 | 326 | `Mathematics.Sequence` |
 
-Uma célula cuja fórmula chama uma delas é serializada sob a tag correspondente. A próxima tag livre é a
-**327**.
+Uma célula cuja fórmula chama uma delas é serializada sob a tag correspondente. **A tag 327 é o
+`TableReference`** (a fase de referências estruturadas), então a próxima tag livre é a **328** — conte o
+`Expression.cs` com uma âncora de início de linha antes de confiar nisso, porque um `grep -c MemoryPackUnion`
+puro devolve um a mais (o comentário da política append-only contém a palavra).
 
 Este é um limite de compatibilidade em **uma única direção**, como qualquer adição de tag append-only:
 
@@ -372,8 +374,9 @@ Este é um limite de compatibilidade em **uma única direção**:
 
 - **Nenhuma tag nova de union.** O registro vive no `Workbook`, não na union de expressões, e nada na
   linguagem de fórmulas lê uma tabela ainda: uma referência estruturada (`Tabela1[Valor]`) não passa pelo
-  parser. O nó que representará uma delas, e a tag de union que ele tomará (a próxima tag livre é a **327** —
-  as de 0 a 326 estão ocupadas; conte o `Expression.cs` com uma âncora de início de linha, porque um
+  parser. O nó que representará uma delas, e a tag de union que ele tomará (**a 327 agora está tomada pelo
+  `TableReference`; a próxima tag livre é a 328** — as de 0 a 327 estão ocupadas; conte o `Expression.cs` com
+  uma âncora de início de linha, porque um
   `grep -c MemoryPackUnion` puro devolve um a mais), pertencem ao trabalho de semântica de referências; essa
   metade do limite ainda não existe.
 - **O cabeçalho do objeto vai de `0x02` para `0x03`, e um registro vazio custa quatro bytes.** MEDIDO em

@@ -276,7 +276,7 @@ arguments](workbook-and-expressions.md#dynamic-array-producers) for what they do
 | 325 | `Lookup.Unique` |
 | 326 | `Mathematics.Sequence` |
 
-A cell whose formula calls one of them is serialized under that tag. The next free tag is **327**.
+A cell whose formula calls one of them is serialized under that tag. **Tag 327 is `TableReference`** (the structured-reference phase), so the next free tag is **328** — count `Expression.cs` with a leading-bracket anchor before trusting that, because a bare `grep -c MemoryPackUnion` is one too high (the append-only policy comment contains the word).
 
 This is a **one-way** compatibility boundary, same as any append-only tag addition:
 
@@ -343,7 +343,7 @@ This is a **one-way** compatibility boundary:
 
 - **No new union tag.** The registry lives on `Workbook`, not in the expression union, and nothing in the
   formula language reads a table yet: a structured reference (`Tabela1[Valor]`) does not parse. The node
-  that will represent one, and the union tag it claims (the next free tag is **327** — 0-326 are taken; count
+  that will represent one, and the union tag it claims (**327 is now taken by `TableReference`; the next free tag is 328** — 0-327 are taken; count
   `Expression.cs` with a leading-bracket anchor, because a bare `grep -c MemoryPackUnion` is one too high),
   belong to the reference-semantics work; that half of the boundary does not exist yet.
 - **The object header goes `0x02` → `0x03`, and an empty registry costs four bytes.** MEASURED 2026-09-10
