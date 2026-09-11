@@ -140,6 +140,7 @@ public class UnaryOperationTests
     [Arguments("=MATCH(20,+A1:C1,0)", 3.0)] // lookup array
     [Arguments("=ROWS(+A1:A3)", 3.0)] // syntactic consumer (TryResolveReference)
     [Arguments("=INDEX(+A1:A3,2)", 2.0)]
+    [Arguments("=SUM(-(+A1:A3))", -6.0)] // Phase 11c item 11/2: '+' transparent to the probe, '-' lifts through it
     public async Task Plus_OnRangeNode_IsStillARange(string formula, double expected)
     {
         var (workbook, sheet) = Grid();

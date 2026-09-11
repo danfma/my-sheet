@@ -34,7 +34,11 @@ public class DefinedNameArrayEligibilityTests
     // "one reference value, truthy" and "three elements" visible as a NUMBER rather than an error.
     // Names are workbook-level, so every one is sheet-qualified (Workbook.DefineName rejects the bare form);
     // GhostName points at a sheet that does not exist, MyCol is the open-range (cost-guard) twin of Rng,
-    // MyCell the single-cell one, UnN the union one and Threshold a constant.
+    // MyCell the single-cell one, UnN the union one and Threshold a constant. ProdName
+    // (FILTER(Sheet1!$A$1:$A$3,Sheet1!$A$1:$A$3>0)) and OpName (Sheet1!$A$1:$A$3*2) are Phase 11c's
+    // array-bound and operator-bound name shapes — added by the final-review fix wave so THIS file's own
+    // must-not-move guard, not only ArrayBindingTests, stands between a later "simplification" of the
+    // NameReference arm and a silent loss (final review finding 5).
     private static (Workbook Workbook, Sheet Sheet) Grid()
     {
         var workbook = new Workbook();
@@ -64,6 +68,8 @@ public class DefinedNameArrayEligibilityTests
         workbook.DefineName("GhostName", "Ghost!$A$1:$A$3");
         workbook.DefineName("UnN", "(Sheet1!$A$1:$A$2,Sheet1!$A$3:$A$3)");
         workbook.DefineName("Threshold", new NumberValue(4));
+        workbook.DefineName("ProdName", "FILTER(Sheet1!$A$1:$A$3,Sheet1!$A$1:$A$3>0)");
+        workbook.DefineName("OpName", "Sheet1!$A$1:$A$3*2");
 
         return (workbook, sheet);
     }
@@ -419,6 +425,61 @@ public class DefinedNameArrayEligibilityTests
             await Assert.That(value).IsEqualTo(OnErrors(literal));
             await Assert.That(value).IsEqualTo(ErrorValue.DivByZero);
         }
+    }
+
+    [Test]
+    public async Task ADefinedNameBoundToAComputedArray_IsNotABareReference_AndBuildsAsTheArray()
+    {
+        // LOAD-BEARING (final-review fix wave, finding 5): this file's stated job is "a defined name in an
+        // array position", but until now every name here was bound to a range, a cell, a union, an
+        // open range or a constant — never to a COMPUTED ARRAY. A contributor who simplifies
+        // ArrayEvaluation.IsBareReferenceNode's NameReference arm from
+        // `!context.TryGetArrayBinding(name.Name, out _) && ResolveNameShape(name, context, out _) is not
+        // NameShape.Array` down to just `!context.TryGetArrayBinding(name.Name, out _)` — dropping the
+        // ResolveNameShape half, which reads like a tidy-up since ProdName/OpName have no LET array binding
+        // — ships a fully GREEN suite while SUM(ProdName) silently returns to 5, ROWS(ProdName) to 1,
+        // COUNTIF(ProdName,">0") to 1 and SUM(OpName) to #VALUE!. ArrayBindingTests pins those four VALUES;
+        // this test pins the MECHANISM two other files' pins already protect for the unary-'+' half of the
+        // same predicate (ArrayEvaluationTests, ElementwiseLiftingMechanismTests), so the defined-name half
+        // is no longer the one with nothing standing in front of it.
+        var (workbook, _) = Grid();
+        var context = new EvaluationContext(workbook, "Sheet1", "H20");
+
+        // ProdName is bound to FILTER(...) — a producer, ResolveNameShape's Array outcome — and must NOT
+        // read as a bare reference at a consumer's top level; Rng is bound to a plain range — the Range
+        // outcome — and must.
+        await Assert
+            .That(ArrayEvaluation.IsBareReferenceNode(new NameReference("ProdName"), context))
+            .IsFalse();
+        await Assert
+            .That(ArrayEvaluation.IsBareReferenceNode(new NameReference("Rng"), context))
+            .IsTrue();
+
+        // The BUILD side agrees, through the operand's own concrete type rather than a value that could
+        // coincide by accident: ResolveNameShape's Range outcome builds through BuildRange (a RangeOperand);
+        // its Array outcome recurses into the definition's OWN producer build — FILTER's is an
+        // AxisSelectionOperand, never a RangeOperand.
+        await Assert
+            .That(
+                ArrayEvaluation.TryBuildOperand(
+                    new NameReference("Rng"),
+                    context,
+                    out var rngOperand
+                )
+            )
+            .IsTrue();
+        await Assert.That(rngOperand).IsTypeOf<RangeOperand>();
+
+        await Assert
+            .That(
+                ArrayEvaluation.TryBuildOperand(
+                    new NameReference("ProdName"),
+                    context,
+                    out var prodOperand
+                )
+            )
+            .IsTrue();
+        await Assert.That(prodOperand).IsTypeOf<AxisSelectionOperand>();
     }
 
     [Test]

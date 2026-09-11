@@ -96,12 +96,19 @@ public class ArrayBindingTests
     [Arguments("=LET(x,A1:A3*2,SUM(x))", "28")] // today #VALUE! — loud
     [Arguments("=LET(x,IF(A1:A3>0,A1:A3),SUM(x))", "14")] // today #VALUE! — loud
     [Arguments("=SUM(LET(f,FILTER(A1:A3,A1:A3>0),f))", "14")] // today 5 — silent
+    [Arguments("=LET(x,LEN(A1:A3),SUM(x))", "3")] // today 1 — silent (a LIFTED CALL binding, function-reference.md's LET row)
+    [Arguments("=LET(x,ABS(A1:A3),SUM(x))", "14")] // today 5 — silent (same lifted-call shape, non-discriminating values)
     public async Task ALetBoundArray_StreamsWholeToItsConsumer(string formula, string oracle)
     {
         // Oracle 26.6.0, 2026-09-11: the value named, in BOTH entry modes, for every row. The two loud rows
         // are the binding shapes CaptureValue cannot even collapse — an operator over a range and an array IF
         // evaluate to #VALUE! on the scalar path — and the silent rows are a producer's FirstElement rule
-        // applied one site too early: SUM([5]) = 5, ROWS([5]) = 1, SUM([5]*2) = 10.
+        // applied one site too early: SUM([5]) = 5, ROWS([5]) = 1, SUM([5]*2) = 10. The last two rows pin
+        // function-reference.md's "a lifted call" binding clause (GLM measured 2026-09-11, own probe copy):
+        // LEN lifted over 5, 0, 9 is 1, 1, 1 (character counts of the digits), so SUM is 3, not 14 — the row
+        // that actually discriminates a lift from a bare range passthrough; ABS is a lift too, but over
+        // already-non-negative values so its own SUM cannot tell a lift from Rule A's range path, and is
+        // pinned anyway because it is the literal example the doc's own comment names.
         await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
     }
 
@@ -137,19 +144,22 @@ public class ArrayBindingTests
     [Arguments("=SUM(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0)))", "14")]
     [Arguments("=SUM(CHOOSE(2,FILTER(A1:A3,A1:A3>0),A1:A3))", "14")]
     [Arguments("=ROWS(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0)))", "3")]
+    [Arguments("=ROWS(CHOOSE(2,FILTER(A1:A3,A1:A3>0),A1:A3))", "3")]
     public async Task AChosenBareRange_BesideAnArrayBranch_StillCarriesItsCells(
         string formula,
         string oracle
     )
     {
-        // Oracle 26.6.0, 2026-09-11 (own probe copy, H20, this file's fixture): 14 / 14 / 3 in BOTH modes.
+        // Oracle 26.6.0, 2026-09-11 (own probe copy, H20, this file's fixture): 14 / 14 / 3 / 3 in BOTH modes.
         // These rows are where CHOOSE and a scalar-condition IF DIVERGE, and the divergence is in each
         // function's own scalar path, not in the mini-CSE: CHOOSE has captured a chosen range as a reference
         // VALUE since Onda 3, so the chosen A1:A3 streams the cells it denotes even though the sibling branch
         // is what made the node array-eligible, while SUM(IF(TRUE,A1:A3,SEQUENCE(3))) is #VALUE! because
         // RangeReference.Evaluate is (sweep item 32, unmoved — ArrayEvaluation's WrapScalar comment carries
         // that pair). Green before this phase too, through the collapsed reference value; the pin is here so
-        // the CHOOSE arm cannot quietly adopt IF's answer for the shape.
+        // the CHOOSE arm cannot quietly adopt IF's answer for the shape. The index-2 ROWS row (final-review
+        // fix wave) exists because SUM alone cannot discriminate: FILTER(...) sums to 14 and the sibling A1:A3
+        // also sums to 14, so only ROWS(...) = 3, A1:A3's own row count, proves CHOOSE took the range branch.
         await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
     }
 
@@ -184,8 +194,9 @@ public class ArrayBindingTests
         string oracle
     )
     {
-        // Oracle 26.6.0, 2026-09-11: 14 / 2 / -14 in BOTH modes. Today UnaryOperation.Evaluate captures the
-        // operand as a value, which for a producer is its FirstElement, and the '+' is opaque to the probe.
+        // Oracle 26.6.0, 2026-09-11: 14 / 2 / -14 in BOTH modes. Today (before this phase) UnaryOperation.Evaluate
+        // captures the operand as a value, which for a producer is its FirstElement, and the '+' was opaque to
+        // the probe; Phase 11c makes '+' transparent to the probe (ArrayEvaluation.cs), not lifted.
         await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
     }
 
@@ -202,8 +213,10 @@ public class ArrayBindingTests
         // Oracle 26.6.0, 2026-09-11: these four are rows where the columns SPLIT — plain entry answers
         // #VALUE! for all of them (the classic implicit intersection of an operator result), CSE entry answers
         // 28 / 14 / -14 / 32. The CSE column is the target. SUM(-(+A1:A3)) is the row Phase 8 documented as a gap
-        // while '+' was opaque (ElementwiseLiftingTests, "SUM(-(+A1:A3)) = -6" on its 1, 2, 3 grid); on this
-        // grid the oracle's CSE column is -14, the same as SUM(-A1:A3) (#VALUE! plain / -14 CSE), so a
+        // while '+' was opaque (docs/workbook-and-expressions.md's "SUM(-(+A1:A3)) is -6" sentence, pinned by
+        // UnaryOperationTests.Plus_OnRangeNode_IsStillARange's "=SUM(-(+A1:A3))" row on its own 1, 2, 3 grid);
+        // on THIS file's fixture the oracle's CSE column is -14, the same as SUM(-A1:A3) (#VALUE! plain / -14
+        // CSE), so a
         // transparent '+' under a lifted '-' lifts exactly as if the '+' were not there. The last row is the
         // same statement one operator over: a '+' over a bare RANGE inside an operator zips the cells
         // (5*1 + 0*2 + 9*3), which is only visible because the '+' no longer hides the range from the probe.
@@ -213,6 +226,7 @@ public class ArrayBindingTests
     [Test]
     [Arguments("=COUNTIF(+A1:A3,\">0\")", "2")]
     [Arguments("=SUMIF(+A1:A3,\">0\")", "14")]
+    [Arguments("=AVERAGEIF(+A1:A3,\">0\")", "7")]
     [Arguments("=COUNTBLANK(+A1:A3)", "0")]
     [Arguments("=SUM(+A:A)", "28")]
     public async Task AUnaryPlusOverABareReference_IsStillAReferenceAtTheTopLevel(
@@ -220,21 +234,30 @@ public class ArrayBindingTests
         string oracle
     )
     {
-        // Oracle 26.6.0, 2026-09-11 (own probe copy, H20, this file's fixture): 2 / 14 / 0 in BOTH modes for
-        // the first three, and ISREF(+A1:A3) is TRUE in both — so a '+' over a bare reference DENOTES that
-        // reference where a consumer asks for one, and the criteria family reads its cells exactly as it
-        // reads A1:A3's. GUARD, and the one that decides a design question the phase plan did not: making the
-        // '+' transparent to the probe (item 11) would have turned all three into #REF! through
-        // CriteriaScan.RejectComputedArray — three new divergences — had IsBareReferenceNode not been given
-        // its Plus arm, which answers for the OPERAND. The contrast is one row over:
-        // COUNTIF(+FILTER(…),">0") is #REF! (AnArrayBinding_InACriteriaSlot_IsRefused), because a producer
-        // under the '+' denotes no reference.
+        // Oracle 26.6.0, 2026-09-11 (own probe copy, H20, this file's fixture): 2 / 14 / 7 / 0 in BOTH modes
+        // for the first four, and ISREF(+A1:A3) is TRUE in both (pinned by the sibling test below) — so a '+'
+        // over a bare reference DENOTES that reference where a consumer asks for one, and the criteria family
+        // reads its cells exactly as it reads A1:A3's. GUARD, and the one that decides a design question the
+        // phase plan did not: making the '+' transparent to the probe (item 11) would have turned all FIVE of
+        // these shapes — COUNTIF/SUMIF/AVERAGEIF/COUNTBLANK to #REF! through CriteriaScan.RejectComputedArray
+        // and ISREF to FALSE — five new divergences — had IsBareReferenceNode not been given its Plus arm,
+        // which answers for the OPERAND. The contrast is one row over: COUNTIF(+FILTER(…),">0") is #REF!
+        // (AnArrayBinding_InACriteriaSlot_IsRefused), because a producer under the '+' denotes no reference.
         //
-        // The fourth row is the cost guard rather than the criteria gate: an OPEN range under '+' is REFUSED
+        // The fifth row is the cost guard rather than the criteria gate: an OPEN range under '+' is REFUSED
         // by the probe, so the '+' stays the opaque scalar that carries the reference and SUM reads the
         // populated column — 5 + 0 + 9 + 7 + 7 = 28 on this fixture (A5 and A8 are 7, A7 is text and skipped),
         // which is what the oracle answers in both modes, and what SUM(A:A) answers without the '+'.
         await Assert.That(Calc(formula)).IsEqualTo(Oracle(oracle));
+    }
+
+    [Test]
+    public async Task AUnaryPlusOverABareReference_IsStillAReferenceForIsref()
+    {
+        // Oracle 26.6.0, 2026-09-11: ISREF(+A1:A3) is TRUE in both modes — the fifth of the five shapes named
+        // in the sibling test's comment above, pinned separately because a boolean result does not fit that
+        // method's shared numeric/error Oracle() helper.
+        await Assert.That(Calc("=ISREF(+A1:A3)") as bool?).IsTrue();
     }
 
     // ================================================================================================
@@ -291,7 +314,8 @@ public class ArrayBindingTests
     }
 
     // ================================================================================================
-    // Guards — GREEN today and must stay green
+    // Guards — protect a shape that must not move; not every row below was green on ARRIVAL (four
+    // weren't — each says so in its own comment), but every one must stay green from here on
     // ================================================================================================
 
     [Test]
