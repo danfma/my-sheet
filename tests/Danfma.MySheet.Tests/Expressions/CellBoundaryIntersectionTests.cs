@@ -426,4 +426,77 @@ public class CellBoundaryIntersectionTests
         // 26.6.0, 2026-09-10, CSE column; VectorBroadcastingTests owns the family of that number).
         await Assert.That(InGridCell("L4", "=SUM(A1:C3*E1:E3)")).IsEqualTo(108.0);
     }
+
+    // === Structured references at the boundary (Phase 5 T5, the M4 pin) ==================================
+
+    // The oracle's own fixture, cell for cell, plus the empty Main sheet the out-of-table row lives on:
+    // Data!Tabela1 = A1:C4, header Item/Valor/Qtd, data rows a,10,1 / b,20,2 / c,30,3.
+    private static Workbook TableFixture()
+    {
+        var workbook = new Workbook();
+        workbook.Sheets.Add("Main");
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = String("Item");
+        data["B1"] = String("Valor");
+        data["C1"] = String("Qtd");
+        data["A2"] = String("a");
+        data["B2"] = Number(10);
+        data["C2"] = Number(1);
+        data["A3"] = String("b");
+        data["B3"] = Number(20);
+        data["C3"] = Number(2);
+        data["A4"] = String("c");
+        data["B4"] = Number(30);
+        data["C4"] = Number(3);
+        workbook.DefineTable("Tabela1", "Data", "A1:C4", ["Item", "Valor", "Qtd"]);
+        return workbook;
+    }
+
+    // The bare 2-D name through the cell: the PLAIN rule has no single row/column to intersect, so #VALUE!.
+    // Aspose.Cells 26.6.0, 2026-09-11, PLAIN entry, formula on Main!H20. Before the bare name left the cell
+    // classification this answered 0 — the blank cell the token was mistaken for.
+    [Test]
+    public async Task ABareTableName_AtTheCellBoundary_IsValueError()
+    {
+        var workbook = TableFixture();
+        var main = workbook.Sheets["Main"];
+        main["H20"] = ExpressionParser.Parse("=Tabela1", main);
+
+        await Assert
+            .That(workbook.GetCellValue("Main", "H20").AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    // =Tabela1[Valor] typed INTO the table's own rows: the PLAIN boundary intersects the column vector on
+    // the formula cell's row, so E2/E3/E4 answer the row's Valor. Oracle, PLAIN entry: 10 / 20 / 30.
+    [Test]
+    public async Task AStructuredReference_InTheTablesRows_IntersectsTheFormulaRow()
+    {
+        var workbook = TableFixture();
+        var data = workbook.Sheets["Data"];
+
+        foreach (var id in new[] { "E2", "E3", "E4" })
+        {
+            data[id] = ExpressionParser.Parse("=Tabela1[Valor]", data);
+        }
+
+        await Assert.That(workbook.GetCellValue("Data", "E2").AsObject()).IsEqualTo(10.0);
+        await Assert.That(workbook.GetCellValue("Data", "E3").AsObject()).IsEqualTo(20.0);
+        await Assert.That(workbook.GetCellValue("Data", "E4").AsObject()).IsEqualTo(30.0);
+    }
+
+    // ...and the same formula in a cell OUTSIDE the table's rows: #VALUE!, the PLAIN rule failing to
+    // intersect, not a silently wrong number. Oracle: Main!H20 → #VALUE! (Aspose.Cells 26.6.0, 2026-09-11,
+    // PLAIN entry).
+    [Test]
+    public async Task AStructuredReference_OutsideTheTablesRows_IsValueError()
+    {
+        var workbook = TableFixture();
+        var main = workbook.Sheets["Main"];
+        main["H20"] = ExpressionParser.Parse("=Tabela1[Valor]", main);
+
+        await Assert
+            .That(workbook.GetCellValue("Main", "H20").AsObject())
+            .IsEqualTo(ErrorValue.NotValue);
+    }
 }

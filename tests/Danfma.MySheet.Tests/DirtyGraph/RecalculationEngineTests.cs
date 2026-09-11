@@ -480,5 +480,86 @@ public class RecalculationEngineTests
         await Assert.That(result.StructureRebuilt).IsTrue();
         await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0);
     }
+
+    // Item 24's second half, unblocked when Phase 4 T5's parse arms merged: the name is defined through the
+    // STRING overload, so the definition goes through the real parser — which now emits a TableReference —
+    // and through HasUnqualifiedReference, whose `_ => false` arm is what admits a structured reference in
+    // a definition (a table name is workbook-scoped; there is no sheet to qualify). The Expression overload
+    // the twin above used bypasses both halves, which is why this shape was unreachable before the parser:
+    // the definition below is a STRING, and the formula that reads the name is a PARSED formula.
+    [Test]
+    public async Task ADefinedNameOverAStructuredReference_Rebuilds_AfterDefineTable()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        data["A2"] = new NumberValue(1);
+        data["A3"] = new NumberValue(2);
+        data["A4"] = new NumberValue(4);
+        data["A5"] = new NumberValue(8);
+        wb.DefineTable("Tabela1", "Data", "A1:A3", ["Valor"]);
+        wb.DefineName("Nome", "SUM(Tabela1[Valor])");
+        main["B1"] = ExpressionParser.Parse("=Nome", main);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece: A2:A3
+
+        // O mesmo controle do gêmeo de cima: A4 está FORA da geometria antiga, então editá-lo (e reportar)
+        // não pode mover B1 — senão o 15 abaixo não provaria nada sobre a redefinição.
+        data["A4"] = new NumberValue(1000);
+        engine.Recalculate([new CellRef("Data", "A4")]);
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0);
+        data["A4"] = new NumberValue(4);
+        engine.Recalculate([new CellRef("Data", "A4")]);
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0);
+
+        // Alarga a tabela: a DEFINIÇÃO do nome passa a denotar A2:A5. Nenhuma célula mudou — só a definição.
+        wb.DefineTable("Tabela1", "Data", "A1:A5", ["Valor"]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0); // 1+2+4+8
+
+        // E o grafo RECONSTRUÍDO aponta para o retângulo novo, através da definição do nome: A5 agora é
+        // dependência de verdade, e segui-la é uma edição de VALOR (não reconstrói).
+        data["A5"] = new NumberValue(90);
+        var afterValueEdit = engine.Recalculate([new CellRef("Data", "A5")]);
+
+        await Assert.That(afterValueEdit.StructureRebuilt).IsFalse();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(97.0); // 1+2+4+90
+    }
+
+    // O gêmeo do NOME NU da tabela (`=SUM(Tabela1)`): o parser o entrega como NameReference, o extractor o
+    // marca conservadoramente AlwaysDirty (pinado em DependencyExtractorTests) — então não há retângulo
+    // estático a aprender, e o valor segue a redefinição pela recomputação de toda passada. O par abaixo é
+    // o que prova que a marca conservadora faz o trabalho dela: 3 antes, 15 depois do alargamento.
+    [Test]
+    public async Task ABareTableName_FollowsALaterDefineTable()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        data["A2"] = new NumberValue(1);
+        data["A3"] = new NumberValue(2);
+        data["A4"] = new NumberValue(4);
+        data["A5"] = new NumberValue(8);
+        wb.DefineTable("Tabela1", "Data", "A1:A3", ["Valor"]);
+        main["B1"] = ExpressionParser.Parse("=SUM(Tabela1)", main);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece: A2:A3
+
+        wb.DefineTable("Tabela1", "Data", "A1:A5", ["Valor"]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0); // 1+2+4+8
+    }
 #endif
 }

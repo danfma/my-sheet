@@ -449,4 +449,24 @@ public class DependencyExtractorTests
         await Assert.That(slave.Ranges).IsEquivalentTo(direct.Ranges);
         await Assert.That(slave.Ranges).Contains(new RangeDep("Data", 2, 2, 2, 4));
     }
+
+    // ------------------------------------------------------------------------------------------------
+    // Fase 5 T5 (R3): o NOME nu da tabela. O parser não tem workbook, então `=SUM(Tabela1)` entra aqui
+    // como um NameReference, e o extractor o vê pelo braço que já existe: ResolveName resolve só
+    // DefinedNames, não acha o nome, e marca AlwaysDirty — a MESMA super-aproximação conservadora de um
+    // nome irresolúvel (doc da classe: "um NameReference que não resolve"). Segura por construção (a
+    // fórmula recomputa em toda passada, então o valor segue qualquer DefineTable; pinado em
+    // RecalculationEngineTests), e deliberadamente NÃO um RangeDep estático como o do nó acima: dá-lo
+    // exigiria o workbook E a checagem de Tables dentro do ResolveName, outro braço para manter em
+    // sincronia com TryResolveRaw. Se algum dia esse braço existir, o pin abaixo muda COM ele.
+    // ------------------------------------------------------------------------------------------------
+    [Test]
+    public async Task ABareTableName_IsAlwaysDirty_TheConservativeNamePath()
+    {
+        var scan = Scan("=SUM(Tabela1)", TableWorkbook());
+
+        await Assert.That(scan.AlwaysDirty).IsTrue();
+        await Assert.That(scan.Ranges.Count).IsEqualTo(0);
+        await Assert.That(scan.Cells.Count).IsEqualTo(0);
+    }
 }

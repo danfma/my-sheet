@@ -402,6 +402,40 @@ public class MissingSheetReferenceTests
             ("ISREF", true)
         );
 
+    // Phase 5 T5 (R3): the BARE table name reaches this file's guard through the NameReference arm, which
+    // resolves it (NamedReferences.TryResolveRaw -> the Tables arm -> the concrete data-body rectangle) and
+    // re-checks the RESOLVED range's sheet. So a name whose table lives on a REMOVED sheet is the same
+    // structural #REF! as the spelled node — the same MySheet convention as the matrix above (unmeasurable
+    // on the oracle: deleting the sheet deletes the table), and this is the row that verifies the arm "sees
+    // the node for free": no new guard code, only the resolution underneath it.
+    [Test]
+    [Arguments("SUM")]
+    [Arguments("COUNTA")]
+    [Arguments("ROWS")]
+    [Arguments("COLUMNS")]
+    [Arguments("SUBTOTAL(9)")]
+    public async Task ABareTableName_OnARemovedSheet_IsRefThroughTheNameArm(string consumer) =>
+        await AssertConsumers(
+            removeTheSheet: true,
+            new NameReference("Tabela1"),
+            (consumer, ErrorValue.Reference)
+        );
+
+    // The live-sheet control for the rows above, with the oracle's own bare-name numbers (Aspose.Cells
+    // 26.6.0, 2026-09-11, PLAIN and array-entered agreeing on every row here): the name answers 66 through
+    // the guard's resolution, not the 0 of the blank cell the token used to be mistaken for.
+    [Test]
+    public async Task ABareTableName_OnALiveSheet_AnswersTheOraclesNumbers() =>
+        await AssertConsumers(
+            removeTheSheet: false,
+            new NameReference("Tabela1"),
+            ("SUM", 66.0),
+            ("COUNTA", 9.0),
+            ("ROWS", 3.0),
+            ("COLUMNS", 3.0),
+            ("ISREF", true)
+        );
+
     // Ruling R2, and the reason the guard arm must return null rather than the table's error: an unresolvable
     // structured reference is an error VALUE. Measured on Aspose.Cells 26.6.0 (2026-09-11) over
     // Tabela1[#Totals] on a table with NO totals row - the one unresolvable structured reference Aspose

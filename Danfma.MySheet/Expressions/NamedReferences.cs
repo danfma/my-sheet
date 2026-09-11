@@ -153,7 +153,8 @@ internal static class NamedReferences
     }
 
     // The raw resolution (no open-range bounding): a reference node resolves to itself; a NameReference
-    // through the LET scope then the workbook's defined names, recursively, with the cycle guard.
+    // through the LET scope, then the workbook's defined names (recursively, with the cycle guard), then —
+    // Phase 5 ruling R3 — the workbook's TABLES, whose bare name resolves to the data-body rectangle.
     private static bool TryResolveRaw(
         Expression expression,
         EvaluationContext context,
@@ -187,6 +188,23 @@ internal static class NamedReferences
 
         if (!context.Workbook.DefinedNames.TryGetValue(name.Name, out var definition))
         {
+            // Phase 5 ruling R3: a bare TABLE name (<c>=Tabela1</c>, the spelling Excel itself stores after
+            // normalizing <c>Tabela1[]</c>) resolves here, at EVALUATION time — the parser has no workbook
+            // and cannot have done it. Delegating to the TableReference keeps ONE resolution primitive: the
+            // answer is the table's CONCRETE data-body <see cref="RangeReference"/>, exactly what
+            // <see cref="TableReference.TryResolveReference"/> returns, so every consumer (SUM, ROWS, ISREF,
+            // the criteria family, ReferenceGuard's re-check) sees a plain rectangle — or, for a table that
+            // does not resolve, the node's own #NAME?/#REF! error value. Tables and defined names share one
+            // namespace (Workbook.DefineName/DefineTable throw on a taken name), so the order above is only
+            // about preserving the existing lookup order.
+            if (context.Workbook.Tables.ContainsKey(name.Name))
+            {
+                return new TableReference(name.Name, null, TableArea.Data).TryResolveReference(
+                    context,
+                    out reference
+                );
+            }
+
             reference = null;
             return false;
         }

@@ -408,12 +408,27 @@ internal sealed class Parser(
             return new BooleanValue(boolean);
         }
 
-        if (IsCellReference(token.Text))
+        // A cell-shaped token becomes a cell ONLY when it names something in Excel's grid. IsCellReference
+        // above is unbounded on purpose (see its doc), so without the grid check "Tabela1" — Excel's own
+        // default pt-BR table name — would parse as the always-blank cell TABELA1 and every formula using a
+        // bare table name would answer a silent 0 (measured on the oracle, Aspose.Cells 26.6.0, 2026-09-11,
+        // PLAIN entry: SUM(Tabela1) 66, ROWS 3, COUNTA 9, ISREF TRUE — and 0/1/0/FALSE from the blank cell).
+        // Phase 5 ruling R3, mechanism (a): route the identifier that is cell-SHAPED but NOT grid-bounded to
+        // a NameReference instead — the same set both name validators (Table.ValidateName,
+        // NamedReferences.IsValidName via IsExcelGridCellReference) reserve — and let the NAME path resolve
+        // a registered table at EVALUATION time (NamedReferences.TryResolveRaw / NameReference.Evaluate).
+        // The parser holds a sheet, no workbook, so it cannot know that "Tabela1" IS a table; what it can
+        // know is that it is not a cell. The helper itself stays untouched, and so does its unbounded pin
+        // (ExcelGridCellReferenceTests.IsCellReference_StaysUnbounded): the tightening lives here, at the
+        // one classification that feeds BuildCellReference.
+        if (IsCellReference(token.Text) && IsExcelGridCellReference(token.Text))
         {
             return BuildCellReference(token.Text, sheetName);
         }
 
-        // A bare name: a LET-bound name resolved at evaluation time (#NAME? if unbound).
+        // A bare name: a LET-bound name resolved at evaluation time (#NAME? if unbound). Since R3 this is
+        // also where a cell-shaped token outside Excel's grid lands — including a bare table name, which
+        // name resolution answers with the table's data body when one is registered.
         return new NameReference(token.Text);
     }
 
