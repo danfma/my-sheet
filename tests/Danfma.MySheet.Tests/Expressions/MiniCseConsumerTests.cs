@@ -1110,33 +1110,126 @@ public class MiniCseConsumerTests
     }
 
     [Test]
-    public async Task AProducer_UnderAScalarConditionIf_CollapsesToItsTopLeft_ADivergence()
+    public async Task AProducer_UnderAScalarConditionIf_StreamsWhole()
     {
-        // A DIVERGENCE PINNED AT TODAY'S WRONG NUMBER, found while extending the IF row above. It is not
-        // caused by this phase — but it is made SILENT by it, which is the part worth its own test.
+        // These three rows were PINNED AT THEIR WRONG VALUES by Task 6 (1, 0 and 5) as a divergence with
+        // nobody assigned to it. Task 8 assigned it: ArrayEvaluation's If arm now builds an array operand
+        // when a BRANCH is a computed array, not only when the CONDITION is one, so a scalar condition
+        // selects the branch whole instead of collapsing it. The wrong numbers came from the producer's own
+        // scalar-context rule (FirstElement, this phase's item 3): SUM ran over ONE element and served a
+        // plausible number with no error at all.
         //
-        // With a SCALAR condition, ArrayEvaluation's If arm does not build an array operand at all, so the
-        // whole IF evaluates as an ordinary scalar expression. For a RANGE or a computed array that fails
-        // LOUDLY, which is the pre-existing gap — measured on this build 2026-09-10, all three #VALUE!:
-        //     SUM(IF(TRUE,A1:A3,0))   SUM(IF(TRUE,A1:A3*2,0))   SUM(IF(TRUE,LEN(A1:A3),0))
-        // For a PRODUCER it does not fail: the producer's own scalar-context rule is "answer the top-left"
-        // (this phase's item 3, FirstElement), so the sum is taken over ONE element and a wrong number is
-        // served with no error at all:
-        //     SUM(IF(TRUE,SEQUENCE(3),0))               1   (oracle 6,  both modes)
-        //     SUM(IF(TRUE,SORT(A1:A3),0))               0   (oracle 14, both modes)
-        //     SUM(IF(TRUE,FILTER(A1:A3,A1:A3>0),0))     5   (oracle 14, both modes)
-        // The oracle is self-consistent here (6 = 1+2+3, 14 = 0+5+9) and the two entry modes agree, so
-        // there is nothing to weigh: MySheet is wrong. The fix is an arm that lets a scalar-condition IF
-        // still build its branch as an array — the same shape as correction M1's Let/Choose/unary-plus
-        // arm, and owned by NO item in this phase.
+        // Oracle column: Aspose.Cells 26.6.0, 2026-09-10, ARRAY-ENTERED (SetArrayFormula) — the mode this
+        // engine implements. It agrees with PLAIN on every row here except the two operator/lift rows, where
+        // PLAIN answers #VALUE! because a bare range is implicitly intersected per operand; that is the
+        // entry-mode rule, not a different IF rule.
+        //     SUM(IF(TRUE,SEQUENCE(3),0))               was 1, now 6    oracle 6
+        //     SUM(IF(TRUE,SORT(A1:A3),0))               was 0, now 14   oracle 14
+        //     SUM(IF(TRUE,FILTER(A1:A3,A1:A3>0),0))     was 5, now 14   oracle 14
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SEQUENCE(3),0))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SORT(A1:A3),0))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnProducerGrid($"=SUM(IF(TRUE,{Filtered},0))"))).IsEqualTo(14.0);
+
+        // The fix is not producer-shaped, so it also moved two rows Task 6's comment recorded as #VALUE!:
+        // ANY computed array in the branch now streams. Both measured 28 and 3 on the oracle. A1:A3 is
+        // 5/0/9, so doubling sums 28 and LEN over three single digits sums 3 — neither number is reachable
+        // from a top-left element alone (which would give 10 and 1).
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,A1:A3*2,0))"))).IsEqualTo(28.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,LEN(A1:A3),0))"))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task AProducer_UnderEveryOtherScalarConditionShape_StreamsWhole()
+    {
+        // Task 8 item 2: the defect was a CLASS, and the pins above only cover a producer in the TRUE branch
+        // of a two-branch IF. Every row here was measured on Aspose.Cells 26.6.0, 2026-09-10, in BOTH entry
+        // modes, and the modes AGREE on all of them, so no mode choice is being made here.
         //
-        // Pinned at the measured wrong value on purpose, following this file's own precedent for a
-        // deviation: an expectation of 6 would sit RED with nobody assigned to it, while these three lines
-        // turn red the moment someone fixes the arm, and the failure names the reason. If you are here
-        // because they went red, that is the fix landing and the correct values are in this comment.
-        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SEQUENCE(3),0))"))).IsEqualTo(1.0);
-        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SORT(A1:A3),0))"))).IsEqualTo(0.0);
-        await Assert.That(Num(OnProducerGrid($"=SUM(IF(TRUE,{Filtered},0))"))).IsEqualTo(5.0);
+        // The false branch, and a producer in both branches at once. The condition still short-circuits: the
+        // 5-element producer in the untaken branch is never built, which is what makes 6 and 15 differ.
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(FALSE,0,SEQUENCE(3)))"))).IsEqualTo(6.0);
+        await Assert
+            .That(Num(OnProducerGrid("=SUM(IF(TRUE,SEQUENCE(3),SEQUENCE(5)))")))
+            .IsEqualTo(6.0);
+        await Assert
+            .That(Num(OnProducerGrid("=SUM(IF(FALSE,SEQUENCE(3),SEQUENCE(5)))")))
+            .IsEqualTo(15.0);
+
+        // The other two scalar-condition selectors do NOT reach that arm: IFS and SWITCH are registry
+        // Elementwise, so a producer argument lifts through LiftedFunctionOperand instead. Both already
+        // answered 6 before the fix, so these two rows are a guard against the fix disturbing them.
+        await Assert.That(Num(OnProducerGrid("=SUM(IFS(TRUE,SEQUENCE(3)))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(SWITCH(1,1,SEQUENCE(3),0))"))).IsEqualTo(6.0);
+
+        // A branch-less IF: the missing FALSE arm is the boolean FALSE, handed back as a 1x1 array so the
+        // consumer that probed "array" never re-enters its scalar path.
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(TRUE,SEQUENCE(3)))"))).IsEqualTo(6.0);
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(FALSE,SEQUENCE(3)))"))).IsEqualTo(0.0);
+
+        // The condition is coerced exactly as If.Evaluate coerces it, Phase 11b's text words included (this
+        // row answered 1 before the fix), and an error condition wins without the branch being built.
+        await Assert.That(Num(OnProducerGrid("=SUM(IF(\"TRUE\",SEQUENCE(3),0))"))).IsEqualTo(6.0);
+        await Assert
+            .That(OnProducerGrid("=SUM(IF(1/0,SEQUENCE(3),0))"))
+            .IsEqualTo(ErrorValue.DivByZero);
+
+        // SHAPE, not only the sum. A taken producer keeps its extent (ROWS 1 before the fix, 3 now), and a
+        // taken SCALAR is handed back as 1x1 so ROWS answers 1 rather than falling through to a second
+        // evaluation of the condition. Both numbers measured on the oracle.
+        await Assert.That(Num(OnProducerGrid("=ROWS(IF(TRUE,SEQUENCE(3),0))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnProducerGrid("=ROWS(IF(FALSE,SEQUENCE(3),0))"))).IsEqualTo(1.0);
+
+        // COUNTIF's range slot MOVED with the fix, and moved the right way: it answered 1 and 0 before —
+        // counting the collapsed top-left as if it were a range — and now refuses the computed array
+        // outright, which is what the oracle answers on BOTH branches (#REF!, both modes). The false branch
+        // refuses too because eligibility is decided over the union of the branches, before the condition
+        // picks one; the criteria gate is upstream of this arm.
+        await Assert
+            .That(OnProducerGrid("=COUNTIF(IF(TRUE,SEQUENCE(3),0),1)"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnProducerGrid("=COUNTIF(IF(FALSE,SEQUENCE(3),0),1)"))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task ABareReferenceBranch_UnderAScalarConditionIf_IsUnmovedAndStillDiverges()
+    {
+        // Task 8 item 3, the guard: the fix must NOT answer the "IF returns a reference" question, which
+        // three sweep items own together. ProbeIfBranches skips a bare-reference branch outright — neither
+        // counted as an array nor refused — so every row here answers exactly what it answered before the
+        // fix, verified by running both builds side by side. The oracle disagrees with all four, and gives
+        // the SAME answer in both entry modes:
+        //     SUM(IF(TRUE,A1:A3,0))                MySheet #VALUE!   oracle 14
+        //     SUM(IF(TRUE,A1:A3,SEQUENCE(3)))      MySheet #VALUE!   oracle 14
+        //     ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))     MySheet #VALUE!   oracle 3
+        //     SUM(IF(TRUE,MyCell,0))               MySheet #VALUE!   oracle 0   (A2 holds text)
+        // The MIXED shape is the one that would have leaked. If a bare-reference branch counted as an array
+        // whenever its SIBLING is a producer, the reference question would be answered for that shape only
+        // (14) and left open for the plain one (#VALUE!) — a half-decision. So the build DECLINES instead,
+        // and the consumer's scalar path answers what it answers with a scalar sibling.
+        await Assert.That(OnPositionGrid("=SUM(IF(TRUE,A1:A3,0))")).IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(OnPositionGrid("=SUM(IF(TRUE,A1:A3,SEQUENCE(3)))"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(OnPositionGrid("=ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert.That(OnPositionGrid("=SUM(IF(TRUE,MyCell,0))")).IsEqualTo(ErrorValue.NotValue);
+
+        // A defined NAME over a range is a bare reference node too, and it is the row proving the decline is
+        // not a regression: If.Evaluate's own reference value already answered 14, and it still does, with
+        // and without a producer sibling. A2 holds text, so 14 is 5 + 9. Both 14 on the oracle.
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyName,0))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyName,SEQUENCE(3)))"))).IsEqualTo(14.0);
+
+        // The cost guard survives in both directions: an OPEN range in the UNTAKEN branch is never resolved,
+        // whether the taken side is a scalar or a producer. Measured 0 and 6 on the oracle (ARRAY-ENTERED;
+        // PLAIN says #VALUE! for the first, the bare-range intersection again).
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(FALSE,MyColumn,0)*B1:B3)"))).IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnPositionGrid("=SUM(IF(TRUE,SEQUENCE(3),MyColumn))")))
+            .IsEqualTo(6.0);
     }
 
     [Test]

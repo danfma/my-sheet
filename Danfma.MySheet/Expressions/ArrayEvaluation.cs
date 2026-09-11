@@ -339,6 +339,10 @@ internal static class ArrayEvaluation
                 return (true, left.IsArray || right.IsArray);
             }
 
+            // An IF is an array when its CONDITION is one (the element-wise zip) or when a BRANCH is a
+            // computed array (a scalar condition then selects that branch whole). The two halves are one
+            // arm because both branches are probed either way: a refused branch refuses the IF under
+            // either kind of condition. See ProbeIfBranches for why a bare-reference branch does not count.
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
             {
                 var condition = Probe(ifNode.Arguments[0], context);
@@ -347,24 +351,13 @@ internal static class ArrayEvaluation
                     return (false, false);
                 }
 
-                // A scalar condition makes the IF an opaque scalar (its native short-circuit applies): it
-                // succeeds but is not an array, so the branches are never probed.
-                if (!condition.IsArray)
-                {
-                    return (true, false);
-                }
-
-                if (!Probe(ifNode.Arguments[1], context).Succeeds)
+                var branches = ProbeIfBranches(ifNode, context);
+                if (!branches.Succeeds)
                 {
                     return (false, false);
                 }
 
-                if (ifNode.Arguments.Length == 3 && !Probe(ifNode.Arguments[2], context).Succeeds)
-                {
-                    return (false, false);
-                }
-
-                return (true, true);
+                return (true, condition.IsArray || branches.IsArray);
             }
 
             // A node that PRODUCES an array (Phase 7: FILTER/SORT/UNIQUE/SEQUENCE, and any later producer)
@@ -380,6 +373,52 @@ internal static class ArrayEvaluation
             default:
                 return (true, false);
         }
+    }
+
+    // The branch half of the If arm, over the COMPUTED branches only: IsArray when any of them is an array
+    // (a producer, a lifted built-in or an operator over a range or a producer), Succeeds when none is
+    // refused (the cost guard, as under an array condition). The predicate is exactly TryStream's own —
+    // IsBareReferenceNode, then the probe — so the two cannot disagree about what "a computed array" means.
+    //
+    // A bare reference NODE (a range, a defined name, an open range) is skipped outright: neither counted
+    // nor refused. Whether IF(TRUE,A1:A3,0) hands its consumer the RANGE is the "IF returns a reference"
+    // question, which the criteria family's gate (CriteriaScan.RejectComputedArray) and the cell-boundary
+    // rule both pin at today's answers; keeping every bare-reference branch outside the array path keeps
+    // that answer independent of what the OTHER branch holds — SUM(IF(TRUE,A1:A3,0)) and
+    // SUM(IF(TRUE,A1:A3,SEQUENCE(3))) are both #VALUE! (the oracle says 14 for both), SUM(IF(TRUE,Rng,…))
+    // is 14 through the reference value If.Evaluate carries, and an open range in the UNTAKEN branch
+    // costs nothing (SUM(IF(FALSE,A:A,0)*B1:B3) stays 0). TryBuildScalarConditionIf is the other half of
+    // that rule: a taken bare-reference branch on the eligible path DECLINES rather than streams.
+    //
+    // The probe cannot know which branch a scalar condition will TAKE without evaluating it, so it answers
+    // for the union: IF(FALSE,SEQUENCE(3),0) is an array here, and the build keeps the promise by handing
+    // back the taken scalar as a 1x1 array (the oracle reads it the same way: SUM 0, ROWS 1, COUNTIF #REF!,
+    // Aspose.Cells 26.6.0, 2026-09-10, both modes).
+    private static (bool Succeeds, bool IsArray) ProbeIfBranches(
+        If ifNode,
+        EvaluationContext context
+    )
+    {
+        var isArray = false;
+
+        for (var i = 1; i < ifNode.Arguments.Length; i++)
+        {
+            var branch = ifNode.Arguments[i];
+            if (IsBareReferenceNode(branch))
+            {
+                continue;
+            }
+
+            var probe = Probe(branch, context);
+            if (!probe.Succeeds)
+            {
+                return (false, false);
+            }
+
+            isArray |= probe.IsArray;
+        }
+
+        return (true, isArray);
     }
 
     // The shape twin of TryBuildPositionOperand — same argument order, same three outcomes, so ROW/COLUMN
@@ -799,12 +838,11 @@ internal static class ArrayEvaluation
             return false;
         }
 
-        // A scalar condition is not an array selection: treat the whole IF as an opaque scalar (its native
-        // short-circuit Evaluate applies, evaluated once). Only an ARRAY condition drives the element-wise zip.
+        // A scalar condition is not an element-wise selection: it picks ONE branch, which is then the IF's
+        // whole operand. Only an ARRAY condition drives the zip below.
         if (!condition.IsArray)
         {
-            operand = new ScalarOperand(ifNode.Evaluate(context));
-            return true;
+            return TryBuildScalarConditionIf(ifNode, condition.Scalar, context, out operand);
         }
 
         if (!TryBuildOperand(ifNode.Arguments[1], context, out var whenTrue))
@@ -833,6 +871,72 @@ internal static class ArrayEvaluation
 
         operand = new IfOperand(condition, whenTrue, whenFalse, shape.Rows, shape.Columns);
         return true;
+    }
+
+    // IF under a SCALAR condition: the condition is coerced exactly as If.Evaluate coerces it (the text
+    // "TRUE"/"FALSE" included), only the taken branch is touched (short-circuit), and that branch's operand
+    // IS the IF's operand — so a producer or any other computed array in the branch streams whole, where
+    // the former "opaque scalar" answer (ScalarOperand(ifNode.Evaluate)) collapsed it to its top-left
+    // element: SUM(IF(TRUE,SEQUENCE(3),0)) answered 1 for the oracle's 6, silently, because a producer's
+    // scalar rule is FirstElement. `conditionValue` is the value the caller already built, so the condition
+    // is evaluated once (the former path evaluated it a second time inside If.Evaluate).
+    //
+    // Two shapes keep the Probe's promise (IsArrayEligible == the build yields an array):
+    //   - When the IF is NOT array-eligible (no computed-array branch — ProbeIfBranches), the taken branch
+    //     is evaluated as the scalar If.Evaluate would have produced: a bare range is #VALUE! and a name
+    //     carries its reference value, both unchanged from before (the "IF returns a reference" question
+    //     is not decided here).
+    //   - When it IS eligible but the TAKEN branch turns out scalar (IF(FALSE,SEQUENCE(3),0), an error
+    //     condition, a branch-less IF's FALSE), the scalar is handed back as a 1x1 array rather than a
+    //     ScalarOperand, so a consumer that probed "array" never falls back to its scalar path and
+    //     re-evaluates the condition (a volatile condition would draw twice). A 1x1 broadcasts like the
+    //     scalar it holds, so no consumer reads it differently.
+    // One shape breaks it, knowingly: a bare-reference branch TAKEN on the eligible path
+    // (IF(TRUE,A1:A3,SEQUENCE(3)), IF(TRUE,Rng,SEQUENCE(3))) declines — the build returns false — and the
+    // consumer's scalar path then answers exactly what it answers with a scalar sibling (#VALUE! for the
+    // range, 14 for the name), at the cost of evaluating the condition a second time. Streaming the range
+    // instead would answer the reference question for the mixed shape only (14 here, #VALUE! for
+    // IF(TRUE,A1:A3,0)), which is the half-decision ProbeIfBranches exists to avoid.
+    private static bool TryBuildScalarConditionIf(
+        If ifNode,
+        ComputedValue conditionValue,
+        EvaluationContext context,
+        out ArrayOperand operand
+    )
+    {
+        var isArray = ProbeIfBranches(ifNode, context).IsArray;
+
+        if (conditionValue.CoerceToBoolAllowingTextWords(out var taken) is { } error)
+        {
+            operand = Wrap(ComputedValue.Error(error), isArray);
+            return true;
+        }
+
+        if (!taken && ifNode.Arguments.Length == 2)
+        {
+            operand = Wrap(ComputedValue.Boolean(false), isArray);
+            return true;
+        }
+
+        var branch = ifNode.Arguments[taken ? 1 : 2];
+
+        if (!isArray)
+        {
+            operand = new ScalarOperand(branch.Evaluate(context));
+            return true;
+        }
+
+        if (IsBareReferenceNode(branch) || !TryBuildOperand(branch, context, out var built))
+        {
+            operand = null!;
+            return false;
+        }
+
+        operand = built.IsArray ? built : new SingletonArrayOperand(built.Scalar);
+        return true;
+
+        static ArrayOperand Wrap(ComputedValue value, bool asArray) =>
+            asArray ? new SingletonArrayOperand(value) : new ScalarOperand(value);
     }
 
     // The shape of a binary result: a scalar takes the other side's shape; two arrays fold per axis by
