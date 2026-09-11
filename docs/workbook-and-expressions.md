@@ -978,7 +978,12 @@ taken by a table, because names and tables share one namespace ([Tables](#tables
    reference — `VLOOKUP`/`HLOOKUP` (table), `INDEX`, `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`,
    `ISREF` — accept a name that stands for a range (e.g. `VLOOKUP(2, Sales, 2)`), but not one bound to a
    computed array (`ISREF(ProdName)` is `FALSE`).
-3. Otherwise `#NAME?`.
+3. **`Workbook.Tables`** — a bare table name (`=Tabela1`) answers its data body as a reference value, the
+   same rectangle the structured reference `Tabela1[#Data]` denotes: range-aware consumers expand it
+   (`SUM(Tabela1)` is `66`, `ROWS(Tabela1)` is `3`, `ISREF(Tabela1)` is `TRUE` over the fixture in
+   [Tables](#tables)), and a bare `=Tabela1` in a cell is implicitly intersected like any range — a 2-D
+   body matches no single row/column, so it is `#VALUE!`.
+4. Otherwise `#NAME?`.
 
 A name used **bare in a cell** (`=Sales`) is not an error either: the reference it stands for is
 [implicitly intersected](#implicit-intersection-at-the-cell-boundary) with the formula cell's row and
@@ -995,12 +1000,18 @@ sheet-anchored rectangle with named columns. `Workbook.Tables` is the read-only 
 
 > **What is modelled, and what is not.** The registry holds the table *model* — the name, the range, the
 > header/totals flags and the column names — and it survives `Save`/`Load`. The structured-reference
-> **syntax** is not implemented yet: `=SUM(Tabela1[Valor])` raises `ParseException: Unexpected character '['
-> (at position 11).` (measured 2026-09-10 on the release that introduces the registry — the trailing period is
-> part of the message), and `ExcelFile.Load` does not populate the registry from an xlsx `<table>` part either
-> ([Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations)). So nothing in the
-> evaluator reads a table yet: you register one to keep the model through a round trip, and to give the
-> reference syntax something to resolve against when it lands.
+> **syntax** is implemented and reads this registry at evaluation time: `=SUM(Tabela1[Valor])` resolves
+> against `Workbook.Tables` and answers the column's data rows (`60` over the test suite's three-row
+> column), the bare table name resolves through the name path like a defined name (`SUM(Tabela1)` is `66`,
+> `ROWS(Tabela1)` is `3`, `ISREF(Tabela1)` is `TRUE`), and in the table's own rows a bare `=Tabela1[Valor]`
+> is implicitly intersected to the row's value (`10`/`20`/`30` on `E2`/`E3`/`E4`), `#VALUE!` outside them
+> (all Aspose.Cells 26.6.0, 2026-09-11, PLAIN and array-entered entry; every number pinned in the test
+> suite). An unknown table is `#NAME?`; an unknown column, a missing `[#Headers]`/`[#Totals]` row or a
+> table with zero data rows is `#REF!` — the last is a recorded divergence, because the oracle answers an
+> EMPTY reference there. What is still missing is the loader: `ExcelFile.Load` does not populate the
+> registry from an xlsx `<table>` part
+> ([Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations)), so a structured
+> reference loaded from a file answers `#NAME?` until the table is registered by hand.
 
 ```csharp
 var workbook = new Workbook();

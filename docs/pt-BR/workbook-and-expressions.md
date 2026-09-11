@@ -1032,7 +1032,13 @@ tabelas compartilham um único namespace ([Tabelas](#tabelas)).
    sintática — `VLOOKUP`/`HLOOKUP` (tabela), `INDEX`, `OFFSET`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`,
    `ISREF` — aceitam um nome que representa um intervalo (por exemplo, `VLOOKUP(2, Sales, 2)`), mas não um
    vinculado a um array computado (`ISREF(ProdName)` é `FALSE`).
-3. Caso contrário, `#NAME?`.
+3. **`Workbook.Tables`** — o nome nu de uma tabela (`=Tabela1`) responde o corpo de dados dela como um valor
+   de *referência*, o mesmo retângulo que a referência estruturada `Tabela1[#Data]` denota: consumidores
+   que aceitam intervalos o expandem (`SUM(Tabela1)` é `66`, `ROWS(Tabela1)` é `3`, `ISREF(Tabela1)` é
+   `TRUE` sobre o fixture em [Tabelas](#tabelas)), e um `=Tabela1` puro numa célula sofre interseção
+   implícita como qualquer intervalo — um corpo 2-D não coincide com nenhuma linha/coluna única, então é
+   `#VALUE!`.
+4. Caso contrário, `#NAME?`.
 
 Um nome usado **puro em uma célula** (`=Sales`) também não é um erro: a referência que ele representa sofre
 [interseção implícita](#interseção-implícita-na-fronteira-da-célula) com a linha e a coluna da célula da
@@ -1049,12 +1055,19 @@ registro `nome → Table` somente para leitura, e `DefineTable` é seu único es
 
 > **O que é modelado, e o que não é.** O registro guarda o *modelo* da tabela — o nome, o intervalo, as flags
 > de cabeçalho/totais e os nomes das colunas — e ele sobrevive ao `Save`/`Load`. A **sintaxe** de referência
-> estruturada ainda não está implementada: `=SUM(Tabela1[Valor])` lança `ParseException: Unexpected character
-> '[' (at position 11).` (medido em 2026-09-10 na versão que introduz o registro — o ponto final faz parte da
-> mensagem), e o `ExcelFile.Load` também não preenche o registro a partir de uma parte `<table>` do xlsx
-> ([Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações)). Ou seja, nada no avaliador
-> lê uma tabela ainda: você registra uma para preservar o modelo num round-trip e para dar à sintaxe de
-> referência algo contra o que resolver quando ela chegar.
+> estruturada está implementada e lê este registro em tempo de avaliação: `=SUM(Tabela1[Valor])` resolve
+> contra `Workbook.Tables` e responde as linhas de dados da coluna (`60` sobre a coluna de três linhas da
+> suíte de testes), o nome nu da tabela resolve pelo caminho de nomes como um nome definido (`SUM(Tabela1)`
+> é `66`, `ROWS(Tabela1)` é `3`, `ISREF(Tabela1)` é `TRUE`), e, nas próprias linhas da tabela, um
+> `=Tabela1[Valor]` puro sofre interseção implícita para o valor da linha (`10`/`20`/`30` em
+> `E2`/`E3`/`E4`), `#VALUE!` fora delas (tudo em Aspose.Cells 26.6.0, 2026-09-11, entrada PLAIN e como
+> array; cada número pinado na suíte de testes). Uma tabela desconhecida é `#NAME?`; uma coluna
+> desconhecida, uma linha `[#Headers]`/`[#Totals]` ausente ou uma tabela com zero linhas de dados é
+> `#REF!` — a última é uma divergência registrada, porque o oráculo responde uma referência VAZIA ali. O
+> que ainda falta é o carregador: o `ExcelFile.Load` não preenche o registro a partir de uma parte
+> `<table>` do xlsx ([Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações)), de
+> modo que uma referência estruturada carregada de um arquivo responde `#NAME?` até a tabela ser
+> registrada à mão.
 
 ```csharp
 var workbook = new Workbook();
