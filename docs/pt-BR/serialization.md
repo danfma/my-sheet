@@ -229,9 +229,10 @@ na 2.0 sem alteração, garantido por uma fixture binária pré-2.0 congelada na
 
 Versões que mudaram como um valor salvo é *interpretado* sem tocar no formato:
 
-- **3.17.0** — nenhuma mudança de formato e nenhuma tag nova. Os seriais de data do início de 1900
-  (`[0, 61)`) mudam de SIGNIFICADO em um dia de calendário; resultados em cache sobre essa janela precisam de
-  um `InvalidateCache()`.
+- **3.17.0, a época de datas** — nenhuma mudança de formato e nenhuma tag nova *para essa parte da versão*.
+  Os seriais de data do início de 1900 (`[0, 61)`) mudam de SIGNIFICADO em um dia de calendário; resultados em
+  cache sobre essa janela precisam de um `InvalidateCache()`. Outras partes da 3.17.0 *adicionam* tags de
+  union e um membro de `Workbook` — veja as subseções de compatibilidade futura abaixo.
 
 ### Compatibilidade futura: nós de delta de fórmula compartilhada (tags 319-321)
 
@@ -283,6 +284,60 @@ o `AGGREGATE` é serializado exatamente nos mesmos bytes de antes: as goldens bi
 de testes — o snapshot em base64 do formato de fio do armazenamento de células e a fixture pré-2.0
 `.msgpack.bin` — continuam válidas e não precisam ser regeneradas. Só um novo **membro no próprio
 `Workbook`** mudaria o formato de todo arquivo salvo e obrigaria a isso.
+
+### Compatibilidade futura: os nós produtores de array dinâmico (tags 323-326)
+
+`FILTER`, `SORT`, `UNIQUE` e `SEQUENCE` são quatro novos tipos de nó de expressão e tomam as quatro próximas
+tags append-only da union, em uma única edição coordenada (veja [argumentos implícitos de
+array](workbook-and-expressions.md#produtores-de-array-dinâmico) para o que elas fazem):
+
+| Tag | Nó |
+| --: | --- |
+| 323 | `Lookup.Filter` |
+| 324 | `Lookup.Sort` |
+| 325 | `Lookup.Unique` |
+| 326 | `Mathematics.Sequence` |
+
+Uma célula cuja fórmula chama uma delas é serializada sob a tag correspondente. A próxima tag livre é a
+**327**.
+
+Este é um limite de compatibilidade em **uma única direção**, como qualquer adição de tag append-only:
+
+- Um arquivo salvo por esta versão da biblioteca **ou por uma posterior** — seja produzido por
+  `Workbook.Save` ou por `ExcelFile.Load` seguido de um save — pode conter células usando as tags 323-326
+  sempre que a fórmula de uma célula chamar uma das quatro. Esse arquivo **não pode ser aberto por uma versão
+  da biblioteca anterior à que introduziu essas tags**: a union do MemoryPack mais antiga não as reconhece e a
+  desserialização falha.
+- Um arquivo salvo por uma versão **mais antiga** da biblioteca nunca contém essas tags e continua carregando
+  sem alteração nesta e em toda versão posterior, exatamente como garante a política append-only acima.
+- Como no `AGGREGATE`, as tags são escritas por nó, então um workbook que não usa nenhuma das quatro é
+  serializado exatamente nos mesmos bytes de antes e as goldens binárias congeladas não precisam ser
+  regeneradas.
+
+**Um snapshot de warm-start agora pode carregar o código de erro 7, `#CALC!`.** Essas quatro funções
+introduzem o erro de array vazio do Excel como o oitavo código de [`Error`](computed-value.md), então o bloco
+de valores de um warm-start pode guardar um `CachedCellValue` cujo `ErrorCode` é `7` — por exemplo o resultado
+em cache de `=SUM(FILTER(A1:A3,A1:A3>100))`. Isso é um **valor**, não uma mudança de formato: o formato do
+bloco de valores não muda e nenhuma tag está envolvida.
+
+A degradação é graciosa nas duas direções. O que está *fixado por testes* é o mecanismo, nesta versão:
+
+- Um código além do fim da tabela de erros é exibido como o marcador de desconhecido **`#ERR?`** em vez de
+  lançar exceção — `Error.FromCode(8).Display` é `#ERR?` —, que é a regra que uma versão **anterior à 3.17**
+  aplica ao código 7, cuja tabela parava no `#N/A`. Então uma versão mais antiga lendo esse snapshot mostra um
+  texto de erro errado; ela não quebra e não deixa de carregar. (A versão antiga em si não é exercitada pela
+  suíte; o que a suíte fixa é que a regra do marcador existe e que o 7 já não está além da tabela.)
+- Um texto de erro que o motor não conhece é dobrado para `#VALUE!` em vez de lançar exceção —
+  `Error.FromDisplay("#SPILL!")` é `#VALUE!` —, que é também o que torna o `#CALC!` demonstravelmente um
+  código *real* agora, em vez de um que a dobra conjura.
+- O surrogate de warm-start faz o round-trip exato do código 7: `CachedCellValue.ErrorCode` é `7` na ida e
+  `Error.Calc` na volta.
+
+Esses três estão fixados por `ErrorTests.Calc_IsTheEighthError_AndRoundTripsExactly` e por
+`ErrorTests.AnUnknownDisplay_StillFoldsOntoValue_AndCalcIsNoLongerUnknown`. O round-trip de `.xlsx` também
+fecha — o exportador escreve `#CALC!` como uma célula `t="e"` comum e o carregador o reconhece ao lado dos
+outros códigos com singleton —, mas isso é sustentado pelo código (os dois switches espelhados de
+canonicalização), e não por uma fixture dedicada na suíte do Excel.
 
 ### Compatibilidade futura: container v3 (Brotli em chunks)
 

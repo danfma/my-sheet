@@ -118,6 +118,7 @@ ComputedValue i = Error.Value;
 | `Error.Name` | `#NAME?` |
 | `Error.Num` | `#NUM!` |
 | `Error.NA` | `#N/A` |
+| `Error.Calc` | `#CALC!` |
 
 `ToString()` prints the display text, and equality is by code:
 
@@ -142,6 +143,19 @@ Notes:
 - `Error` is distinct from `ErrorValue`, which is the serializable AST *node* for a literal error stored
   in a cell (e.g. loaded from an `.xlsx` file). `AsObject()` maps an `Error` back to the corresponding
   `ErrorValue` singleton; evaluating an `ErrorValue` produces the corresponding `Error`.
+- `Error.Calc` (`#CALC!`) is Excel's **empty-array** error and the eighth code (7). It is what a
+  [dynamic-array producer](workbook-and-expressions.md#dynamic-array-producers) answers when its result
+  would be empty — nothing kept by `FILTER`, nothing left by `UNIQUE(…, exactly_once)` — because the
+  engine, like Excel, has no empty array: `SUM(FILTER(A1:A3,A1:A3>100))` and
+  `ROWS(FILTER(A1:A3,A1:A3>100))` are `#CALC!`, `ISERROR` of either is `TRUE` and `ERROR.TYPE` is **14**
+  (`#CALC!`'s Excel code, the one entry past `#N/A`=7 the engine maps; measured on Aspose.Cells 26.6.0,
+  2026-09-10, both entry modes, pinned by `ErrorTests.Calc_IsTheEighthError_AndRoundTripsExactly` and
+  `DynamicArrayTests`). Note that `COUNT` and `COUNTA` *discard* errors rather than propagating them, so
+  `COUNT(FILTER(A1:A3,A1:A3>100))` is `0` — Excel answers 0 there too.
+- An error display the engine does not know **folds onto `Error.Value`** — `Error.FromDisplay("#SPILL!")`
+  is `#VALUE!` — while a *code* past the table displays as `#ERR?` (`Error.FromCode(8).Display`), so a
+  value written by a newer build degrades instead of crashing. Both pinned by
+  `ErrorTests.AnUnknownDisplay_StillFoldsOntoValue_AndCalcIsNoLongerUnknown`.
 - Registering custom error codes is deliberately out of scope for now.
 
 ## References and `EnumerateValues`

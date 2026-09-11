@@ -2,7 +2,7 @@
 
 *Tradução do documento canônico em inglês ([function-reference.md](../function-reference.md)). Em caso de divergência, o inglês prevalece.*
 
-O MySheet implementa **306 funções nativas (built-in)**. A lista registrada oficial é o mapa `ByName`
+O MySheet implementa **310 funções nativas (built-in)**. A lista registrada oficial é o mapa `ByName`
 em [`Danfma.MySheet/Parsing/FunctionRegistry.cs`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs) —
 esta página é derivada dele. A quantidade de argumentos é validada **em tempo de parse**: chamar uma função nativa com um número
 de argumentos não suportado lança uma `ParseException`, assim como o Excel rejeita a fórmula na
@@ -11,7 +11,7 @@ digitação.
 As linhas abaixo descrevem o comportamento próprio de cada função e não mudam em contexto de array. Além
 delas, uma função **puramente escalar** que recebe um intervalo em uma posição que consome arrays é aplicada
 **elemento a elemento** — `SUM(LEN(A1:A3))` soma três comprimentos — enquanto uma função ciente de intervalos
-continua consumindo o intervalo inteiro, como documentado na linha dela. 180 das 306 entradas podem ser
+continua consumindo o intervalo inteiro, como documentado na linha dela. 180 das 310 entradas podem ser
 elevadas assim; veja
 [argumentos implícitos de array](workbook-and-expressions.md#argumentos-implícitos-de-array) para saber quais
 consumidores pedem um array, quais funções são elevadas e onde a elevação para.
@@ -40,7 +40,7 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `TRUE` | `TRUE()` | O valor lógico `TRUE` (forma de função do literal). |
 | `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` quando a quantidade de entradas `TRUE` é ímpar; operandos de texto e em branco são ignorados (seja um literal ou alcançado por meio de uma referência); nenhum valor avaliável → `#VALUE!`. Um operando de texto é IGNORADO aqui, e **não** convertido — este é o único lugar em que o texto `"TRUE"`/`"FALSE"` NÃO se torna um booleano como acontece na condição do [`IF`](#lógicas-12), no `NOT` e no `IFS`: `AND("FALSE",TRUE)` é `TRUE` (a conversão daria `FALSE`), `OR("TRUE",FALSE)` é `FALSE`, `AND("yes",TRUE)` é `TRUE` em vez de erro, e `XOR("TRUE","FALSE")` é `#VALUE!` porque nada avaliável sobra. Medido no Aspose.Cells 26.6.0 (2026-09-10), com a entrada normal e a entrada em array concordando. |
 
-## Matemática e trigonometria (75)
+## Matemática e trigonometria (76)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -101,6 +101,7 @@ de referência como o de `OFFSET`) são expandidos célula a célula.
 | `ROUNDUP` | `ROUNDUP(number, num_digits)` | Arredonda para longe de zero. |
 | `SEC` | `SEC(number)` | Secante. |
 | `SECH` | `SECH(number)` | Secante hiperbólica. |
+| `SEQUENCE` | `SEQUENCE(rows, [columns], [start], [step])` | Um array `rows`x`columns` preenchido em ordem de linha com `start + i * step`, e um [produtor de array dinâmico](workbook-and-expressions.md#produtores-de-array-dinâmico): ele não derrama (spill), então sozinho em uma célula mostra o elemento superior esquerdo (`=SEQUENCE(2,3,7,1)` é 7), enquanto um consumidor lê o array inteiro (`SUM(SEQUENCE(5))` = 15, `INDEX(SEQUENCE(2,3),2,2)` = 5, `ROWS(SEQUENCE(5))` = 5). Cada argumento é lido uma única vez; um opcional omitido (ausente, ou um espaço vazio) é 1, enquanto uma CÉLULA em branco é um valor que é convertido para 0. `rows`/`columns` são truncados (`SUM(SEQUENCE(2.7))` = 3); `start`/`step` ficam como foram dados, inclusive um passo zero ou negativo. Um tamanho abaixo de 1 após o truncamento é `#VALUE!` (`SEQUENCE(0)`, `SEQUENCE(-1)`, `SEQUENCE(0,0)`), e um erro de conversão passa adiante (`SEQUENCE("x")` → `#VALUE!`, `SEQUENCE(1/0)` → `#DIV/0!`). **Desvio exclusivo do MySheet:** `rows > 1048576`, `columns > 16384` ou `rows * columns > 1048576` é `#NUM!` — todo consumidor itera todos os elementos, então o limite substitui um travamento; o Excel não tem limite algum em uma posição consumida (medido no Aspose.Cells 26.6.0, 2026-09-10, nos dois modos de entrada). |
 | `SERIESSUM` | `SERIESSUM(x, n, m, coefficients)` | Soma de série de potências; coeficientes via intervalo/valores. |
 | `SIGN` | `SIGN(number)` | -1, 0 ou 1. |
 | `SIN` | `SIN(number)` | Seno (radianos). |
@@ -242,7 +243,7 @@ defensivo de correspondência de 1 segundo.
 | `VALUE` | `VALUE(text)` | Converte texto em número. |
 | `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Valor como texto — formato 0 conciso (padrão), 1 estrito (texto entre aspas); erros viram seu texto de exibição. |
 
-## Pesquisa e referência (17)
+## Pesquisa e referência (20)
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
@@ -250,7 +251,8 @@ defensivo de correspondência de 1 segundo.
 | `AREAS` | `AREAS(reference)` | Número de áreas (intervalos contíguos ou células individuais) na referência — uma verificação sintática, como `ISREF`; não referência → `#VALUE!`, e um argumento que não consegue ser resolvido informa o próprio erro (`AREAS(NoSuchName)` → `#NAME?`). |
 | `CHOOSE` | `CHOOSE(index_num, value1, [value2], …)` | O valor na posição `index_num` (truncado); avaliação preguiçosa — apenas o argumento escolhido é avaliado; um intervalo escolhido permanece *range-aware* (`SUM(CHOOSE(…))`); fora do intervalo → `#VALUE!`. |
 | `COLUMN` | `COLUMN([reference])` | Número da coluna da referência (a coluna mais à esquerda para um intervalo) — ou da célula atual, quando chamada sem argumento. Aceita QUALQUER expressão que produza uma referência, não apenas uma referência literal: um nome definido, `INDEX`/`OFFSET`/`INDIRECT`/`CHOOSE`, um intervalo `:` com extremidades que retornam referências (`COLUMN(INDEX(A1:C1,1,2))` = 2). Uma referência de coluna/linha inteira usa o limite DECLARADO (`COLUMN(A:A)` = 1, `COLUMN(1:1)` = 1) — enquanto o `COLUMNS` da linha ao lado usa a extensão POPULADA em um eixo aberto; um argumento que não é referência (ou uma união) → `#VALUE!`, e um argumento que não consegue ser resolvido informa o próprio erro (`#NAME?`, `#REF!`). Em [posição de array](workbook-and-expressions.md#argumentos-implícitos-de-array) produz o vetor inteiro de números de coluna — um número por coluna, uma linha 1xM, e não um por célula —, sobre um intervalo literal *e* sobre um nome ou um intervalo `:` que denote um (`SUM(COLUMN(A1:C3))` = 6 e `COUNT(COLUMN(A1:C3))` = 3 para a linha 1x3 `[1,2,3]`, `SUM(COLUMN(MyName))` = 1 para um nome de coluna única sobre três linhas); ali um intervalo aberto é recusado e um argumento que é uma *função* retornando referência permanece escalar. Essas são as respostas com entrada como array, que é o modo que o MySheet implementa em todo lugar; digitado no Excel, o `COLUMN` de um retângulo é o único número da coluna mais à esquerda, então `SUM(COLUMN(A1:C3))` é 1 ali (medido no Aspose.Cells 26.6.0, em 2026-09-10). |
-| `COLUMNS` | `COLUMNS(range)` | Número de colunas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de coluna limitado é exato (`COLUMNS(A:C)` = 3), um aberto usa a extensão populada. Um argumento que não consegue ser resolvido para uma referência informa o próprio erro (`#NAME?`, `#REF!`); um valor escalar simples conta como 1 (um array 1x1). Um **array computado** é recusado exatamente como no `ROWS` — `COLUMNS(A1:C3*2)` é `#VALUE!` aqui contra o 3 do Excel — a mesma divergência registrada. |
+| `COLUMNS` | `COLUMNS(range)` | Número de colunas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de coluna limitado é exato (`COLUMNS(A:C)` = 3), um aberto usa a extensão populada. Um argumento que não consegue ser resolvido para uma referência informa o próprio erro (`#NAME?`, `#REF!`); um valor escalar simples conta como 1 (um array 1x1). Um **array computado** informa a extensão real dele exatamente como no `ROWS` — `COLUMNS(A1:B3*2)` = 2, `COLUMNS(SEQUENCE(2,3))` = 3, `COLUMNS(FILTER(A1:C1,A1:C1>0))` = 3. |
+| `FILTER` | `FILTER(array, include, [if_empty])` | As linhas de `array` cujo elemento de `include` é TRUE — ou as colunas dele, quando `include` é uma única LINHA que casa com a largura — e um [produtor de array dinâmico](workbook-and-expressions.md#produtores-de-array-dinâmico): ele não derrama (spill), então sozinho em uma célula mostra o elemento superior esquerdo do resultado, enquanto um consumidor lê o array inteiro (`SUM(FILTER(A1:A3,A1:A3>0))` = 14 sobre 5, 0, 9; `INDEX(...,2)` = 9; `ROWS(...)` = 2). O `include` precisa casar com a ALTURA do array como uma única coluna ou com a LARGURA dele como uma única linha; um escalar ou um 1x1 conta como qualquer das duas, então `FILTER(A1:A3,TRUE)` mantém as três linhas enquanto `FILTER(A1:B3,TRUE)` é `#VALUE!`, como é qualquer outra forma. Um elemento de `include` que não pode ser convertido para lógico simplesmente não é mantido, exceto em um `include` de UM elemento, onde ele é `#VALUE!`; um elemento de erro é a resposta inteira. Nada mantido é `#CALC!`, a menos que `if_empty` seja informado — e um espaço de `if_empty` VAZIO é um VALOR em branco, não um argumento omitido (`FILTER(A1:A3,A1:A3>100,)` é um branco 1x1), o único espaço entre as quatro funções que não segue a regra do omitido. Brancos na origem sobrevivem à seleção como brancos. Um `array` de intervalo aberto é recusado com `#VALUE!` — um desvio documentado, veja [argumentos implícitos de array](workbook-and-expressions.md#argumentos-implícitos-de-array). |
 | `FORMULATEXT` | `FORMULATEXT(reference)` | A fórmula da célula referenciada como TEXTO, com o `=` incluído (reescrita — *unparse* — no contexto de planilha da célula referenciada); uma célula literal ou vazia → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Pesquisa horizontal na primeira linha de uma tabela; exata ou aproximada; `row_index_num` < 1 → `#VALUE!`, além da tabela → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | O valor em uma posição (base 1) dentro de um intervalo. Aceita um [primeiro argumento implícito de array](workbook-and-expressions.md#argumentos-implícitos-de-array) (`INDEX(ROW(B2:B5),1)` = 2), incluindo a identidade `INDEX(ROW($A:$A), n)` que retorna `n` sem materializar a coluna; fora do intervalo → `#REF!`. |
@@ -259,7 +261,9 @@ defensivo de correspondência de 1 segundo.
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | Posição (base 1) de um valor em um intervalo (`match_type`: 1 aproximado crescente — padrão, 0 exato, -1 aproximado decrescente). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | Uma referência deslocada (e opcionalmente redimensionada) a partir de uma referência inicial; pode retornar uma referência multicélula para consumidores que aceitam intervalos. |
 | `ROW` | `ROW([reference])` | Número da linha da referência (a linha superior para um intervalo) — ou da célula atual, quando chamada sem argumento. Aceita QUALQUER expressão que produza uma referência, não apenas uma referência literal: um nome definido, `INDEX`/`OFFSET`/`INDIRECT`/`CHOOSE`, um intervalo `:` com extremidades que retornam referências (`ROW(INDEX(A1:A3,2,1))` = 2). Uma referência de coluna/linha inteira usa o limite DECLARADO (`ROW(A:A)` = 1, `ROW(A2:A)` = 2) — enquanto o `ROWS` da linha ao lado usa a extensão POPULADA em um eixo aberto; um argumento que não é referência (ou uma união) → `#VALUE!`, e um argumento que não consegue ser resolvido informa o próprio erro (`#NAME?`, `#REF!`). Em [posição de array](workbook-and-expressions.md#argumentos-implícitos-de-array) produz o vetor inteiro de números de linha — um número por linha, uma coluna Nx1, e não um por célula —, sobre um intervalo literal *e* sobre um nome ou um intervalo `:` que denote um (`SUM(ROW(A1:C3))` = 6 e `COUNT(ROW(A1:C3))` = 3 para a coluna 3x1 `[1,2,3]`, `SUM(ROW(MyName))` = 6 para um nome sobre três linhas); ali um intervalo aberto é recusado e um argumento que é uma *função* retornando referência permanece escalar. Essas são as respostas com entrada como array, que é o modo que o MySheet implementa em todo lugar; digitado no Excel, o `ROW` de um retângulo é o único número da linha superior, então `SUM(ROW(A1:C3))` é 1 ali (medido no Aspose.Cells 26.6.0, em 2026-09-10). |
-| `ROWS` | `ROWS(range)` | Número de linhas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de linha aberto usa a extensão populada (`ROWS(A:A)` = linha populada máxima − linha populada mínima + 1, 0 se vazia — uma divergência documentada em relação à grade fixa do Excel), um limitado é exato (`ROWS(1:5)` = 5). Um argumento que não consegue ser resolvido para uma referência informa o próprio erro (`ROWS(NoSuchName)` → `#NAME?`, `ROWS(INDIRECT("zz"))` → `#REF!`); um valor escalar simples conta como 1 (um array 1x1). Um **array computado** não é uma referência e não é aceito: `ROWS(A1:C3*2)` e `ROWS(LEN(A1:A3))` são `#VALUE!`, onde o Excel informa a extensão real do array — `ROWS(A1:C3*2)` é 3 ali, tanto digitado quanto inserido como array — uma divergência registrada para a varredura de compatibilidade com o Excel já planejada, medida nos dois motores em 2026-09-10 e descrita em [argumentos implícitos de array](workbook-and-expressions.md#argumentos-implícitos-de-array). |
+| `ROWS` | `ROWS(range)` | Número de linhas do intervalo. Sobre uma [referência de coluna/linha inteira](workbook-and-expressions.md#referências-de-coluna-e-linha-inteira), um eixo de linha aberto usa a extensão populada (`ROWS(A:A)` = linha populada máxima − linha populada mínima + 1, 0 se vazia — uma divergência documentada em relação à grade fixa do Excel), um limitado é exato (`ROWS(1:5)` = 5). Um argumento que não consegue ser resolvido para uma referência informa o próprio erro (`ROWS(NoSuchName)` → `#NAME?`, `ROWS(INDIRECT("zz"))` → `#REF!`); um valor escalar simples conta como 1 (um array 1x1). Um **array computado** informa a extensão real dele, pelo mesmo portão que os consumidores de dobra usam: `ROWS(A1:C3*2)` = 3, `ROWS(LEN(A1:A3))` = 3, `ROWS(IF(A1:A3>0,A1:A3))` = 3, `ROWS(ROW(A1:A3))` = 3 e, sobre um [produtor de array dinâmico](workbook-and-expressions.md#produtores-de-array-dinâmico), `ROWS(FILTER(A1:A3,A1:A3>0))` = 2 e `ROWS(SEQUENCE(5))` = 5 — igual ao Excel, tanto digitado quanto inserido como array (medido no Aspose.Cells 26.6.0, 2026-09-10). O erro 1x1 próprio de um produtor é informado como ele mesmo, e não como referência ausente (`ROWS(FILTER(A1:A3,A1:A3>100))` = `#CALC!`, `ROWS(SEQUENCE(-1))` = `#VALUE!`), enquanto um ELEMENTO de erro dentro de um retângulo não esconde a forma (`ROWS(SORT(E1:E3))` = 3). |
+| `SORT` | `SORT(array, [sort_index], [sort_order], [by_col])` | As linhas de `array` (ou, com `by_col`, as colunas dele) permutadas por uma coluna (ou linha) de chave, e um [produtor de array dinâmico](workbook-and-expressions.md#produtores-de-array-dinâmico): sozinho em uma célula mostra o elemento superior esquerdo, enquanto um consumidor lê o array inteiro (`INDEX(SORT(A1:A3),1)` = 0 sobre 5, 0, 9; `INDEX(SORT(A1:A3,1,-1),1)` = 9; `SUM(SORT(A1:A3))` = 14). `sort_index` tem 1 como padrão, é truncado e precisa cair dentro da extensão ATRAVÉS do eixo ordenado (`SORT(A1:A3,0)` e `SORT(A1:A3,2)` são `#VALUE!`); `sort_order` tem 1 como padrão e precisa então ser 1 ou -1 (`0` e `2` são `#VALUE!`); `by_col` tem FALSE como padrão. Os valores são ordenados como no resto do motor — número < texto < FALSE < TRUE, texto sem diferenciar MAIÚSCULAS de minúsculas — e empates preservam a ordem da ORIGEM nas DUAS direções, então a ordenação é estável em cada sentido, e não uma inversão. Duas regras vêm do oráculo medido, e não do comparador: BRANCOS vão para o fim nas duas direções, em vez de ordenarem como 0, e ERROS são ORDENADOS — depois de todo valor na ordem ascendente, antes de todo valor na descendente — em vez de propagados (`INDEX(SORT(E1:E3),1)` = 5 e `INDEX(SORT(E1:E3),3)` = `#DIV/0!` sobre 5, `#DIV/0!`, 9). Um `array` de intervalo aberto é recusado com `#VALUE!`. |
+| `UNIQUE` | `UNIQUE(array, [by_col], [exactly_once])` | As linhas distintas de `array` (ou, com `by_col`, as colunas distintas dele) na ordem da PRIMEIRA aparição, e um [produtor de array dinâmico](workbook-and-expressions.md#produtores-de-array-dinâmico): sozinho em uma célula mostra o elemento superior esquerdo, enquanto um consumidor lê o array inteiro (sobre 9, 5, 9, 0: `SUM` 14, `COUNTA` 3, `ROWS` 3). Dois candidatos casam quando cada par de células tem o mesmo TIPO e o mesmo valor: números numericamente, lógicos por valor, texto ORDINALMENTE — **DIFERENCIANDO maiúsculas de minúsculas**, então "a", "A", "b" mantém as três, enquanto `COUNTIF` e `MATCH` ao lado continuam sem diferenciar (medido; a página da Microsoft não diz nada sobre caixa, em nenhum sentido). Tipos nunca se cruzam (`1`, `"1"`, `TRUE` são três linhas), um BRANCO é chave própria — igual a nem 0, nem `""`, nem FALSE — e um ERRO é chave como qualquer outra, igual ao mesmo código de erro. `exactly_once` mantém os candidatos que ocorrem UMA vez, seguindo a página da Microsoft em vez do oráculo medido, que preserva a forma da contagem de distintos e a completa repetindo o último valor mantido — um resultado de UNIQUE contendo uma duplicata, contradito pela própria contagem de linhas dele. Nada restante é `#CALC!`. Um `array` de intervalo aberto é recusado com `#VALUE!`. |
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Pesquisa vertical na primeira coluna de uma tabela; exata ou aproximada. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Pesquisa moderna, com contingência para "não encontrado" e modos de correspondência/busca. |
 | `XMATCH` | `XMATCH(lookup_value, lookup_range, [match_mode], [search_mode])` | Posição (base 1) com os modos do `XLOOKUP` (0 exato — padrão, -1 exato-ou-menor, 1 exato-ou-maior, 2 curinga; busca 1/-1). |
@@ -271,7 +275,7 @@ erros — elas os relatam.
 
 | Função | Argumentos | Descrição |
 | --- | --- | --- |
-| `ERROR.TYPE` | `ERROR.TYPE(error_val)` | `#NULL!`=1, `#DIV/0!`=2, `#VALUE!`=3, `#REF!`=4, `#NAME?`=5, `#NUM!`=6, `#N/A`=7; não erro → `#N/A`. |
+| `ERROR.TYPE` | `ERROR.TYPE(error_val)` | `#NULL!`=1, `#DIV/0!`=2, `#VALUE!`=3, `#REF!`=4, `#NAME?`=5, `#NUM!`=6, `#N/A`=7, `#CALC!`=14; não erro → `#N/A`. A tabela do Excel continua com 8 `#GETTING_DATA` … 13 `#FIELD!` entre os dois, mas o motor não tem código para esses, então `#CALC!` — o erro de array vazio que um [`FILTER`](#pesquisa-e-referência-20)/`UNIQUE` vazio responde — é o único mapeado depois do 7 (`ERROR.TYPE(FILTER(A1:A3,A1:A3>100))` = 14, medido no Aspose.Cells 26.6.0, 2026-09-10, nos dois modos de entrada). |
 | `ISBLANK` | `ISBLANK(value)` | `TRUE` para um valor em branco. |
 | `ISERR` | `ISERR(value)` | `TRUE` para qualquer erro, exceto `#N/A`. |
 | `ISERROR` | `ISERROR(value)` | `TRUE` para qualquer valor de erro. |
@@ -514,7 +518,7 @@ Texto/Matemática.)
 
 ## Cobertura de funções do Excel
 
-O MySheet implementa 306 das ~520 funções do [catálogo oficial de funções do Excel da
+O MySheet implementa 310 das ~520 funções do [catálogo oficial de funções do Excel da
 Microsoft](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 agrupadas abaixo pelas próprias categorias da Microsoft (✅ implementada, ⬜ ainda não, ✖ fora de escopo
 por design). **35 funções estão permanentemente fora de escopo** — elas dependem de serviços externos, do
@@ -548,22 +552,22 @@ oficial.
 </details>
 
 <details open>
-<summary><strong>Pesquisa e referência</strong> — 17/40</summary>
+<summary><strong>Pesquisa e referência</strong> — 20/40</summary>
 
-✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `INDIRECT` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
+✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FILTER` `FORMULATEXT` `HLOOKUP` `INDEX` `INDIRECT` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `SORT` `UNIQUE` `VLOOKUP` `XLOOKUP` `XMATCH`
 
-⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
+⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `HSTACK` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `VSTACK` `WRAPCOLS` `WRAPROWS`
 
 ✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 
 </details>
 
 <details open>
-<summary><strong>Matemática e trigonometria</strong> — 75/82</summary>
+<summary><strong>Matemática e trigonometria</strong> — 76/82</summary>
 
-✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SEQUENCE` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
 
-⬜ `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY` `SEQUENCE`
+⬜ `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY`
 
 </details>
 

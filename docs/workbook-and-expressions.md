@@ -411,16 +411,19 @@ line says *typed* (all measured on Aspose.Cells 26.6.0, 2026-09-10). If you type
 real Excel and compare, expect the typed answer rather than ours; the one place where MySheet's own answer
 follows neither is [the cell boundary](#implicit-intersection-at-the-cell-boundary), below.
 
-**Supported.** The consumers are the numeric aggregators (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, and —
-through the same fold — `SMALL`, `LARGE`, the percentiles), `INDEX`, `SUMPRODUCT`, and the **array form** of
+**Supported.** The consumers are the numeric aggregators (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, `PRODUCT`
+and — through the same fold — `MEDIAN`, the `STDEV`/`VAR` family, `SMALL`, `LARGE`, the percentiles and
+quartiles), `INDEX`, `ROWS`/`COLUMNS` (which report the array's *extent* rather than its values),
+`COUNTA`/`CONCAT`/`TEXTJOIN` (which stream its elements), `SUMPRODUCT`, and the **array form** of
 [`AGGREGATE`](function-reference.md) (`function_num` 14-19), where option 6 drops the `#DIV/0!` elements that
 make a plain `SMALL` over the same vector fail. `SUBTOTAL` and AGGREGATE's *reference* form (1-13) are
 deliberately **not** consumers: their arguments are `ref`s, and Excel rejects a computed array in one —
 `SUBTOTAL(9,ROW(A1:A3))` and `AGGREGATE(9,4,ROW(A1:A3))` are `#VALUE!` there, measured on Aspose.Cells
 26.6.0, which is exactly why AGGREGATE documents a second syntax for arrays. An argument is evaluated as an
 array when it is a **closed-range** comparison (`B2:B5="Show"`), an `IF` whose condition is such an array
-(with or without an else branch), `ROW`/`COLUMN` over a rectangle, or one of the two **lifted** shapes
-described further down. That rectangle may be written literally — `ROW(A1:C3)` is the 3x1 column `[1,2,3]`
+(with or without an else branch), `ROW`/`COLUMN` over a rectangle, one of the two **lifted** shapes
+described further down, or one of the four [dynamic-array producers](#dynamic-array-producers)
+(`FILTER`/`SORT`/`UNIQUE`/`SEQUENCE`). That rectangle may be written literally — `ROW(A1:C3)` is the 3x1 column `[1,2,3]`
 and `COLUMN(A1:C3)` the 1x3 row `[1,2,3]`, one number per rank rather than one per cell, so
 `SUM(ROW(A1:C3))` and `SUM(COLUMN(A1:C3))` are both 6 and `COUNT` of either is 3 (array-entered; typed, both
 sums are 1) — or merely *denoted* by the argument — a
@@ -460,11 +463,13 @@ consumers above asks for one, by applying a scalar body element by element:
   `SUM(ISNUMBER(A1:A3)*1)` = 3, `SUM(IFERROR(A1:A3,0))` = 6, and the whole worksheet idiom
   `IF(SUMPRODUCT(--(LEN(TRIM($D$7:$F$9))>0))>0,"Show","Hide")`.
 
-**180 of the 306 registered built-ins** are liftable: the pure-scalar ones (text, mathematics, financial,
+**180 of the 310 registered built-ins** are liftable: the pure-scalar ones (text, mathematics, financial,
 date, information, the scalar statistics helpers (`FISHER`, `PERMUT`, `PHI`, `STANDARDIZE`, …),
 `IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). The
-other 126 are **range-aware** and MySheet never lifts them, because they consume ranges or arrays themselves —
+other 130 are **range-aware** and MySheet never lifts them, because they consume ranges or arrays themselves —
+or, for the four [dynamic-array producers](#dynamic-array-producers), because they *produce* one —
 `SUM`, `COUNT`, `INDEX`, `ROW`, `COLUMN`, `ROWS`, `COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`,
+`FILTER`, `SORT`, `UNIQUE`, `SEQUENCE`,
 `VLOOKUP`, `MATCH`, `OFFSET`, `INDIRECT`, `IF`, `LET`, `RANDBETWEEN`, `AND`/`OR`/`XOR`, the cash-flow series
 (`NPV`, `IRR`, …), the whole-population and paired-array statistics (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …)
 and the criteria family. That is MySheet's rule and **not** Excel's: Excel lifts a range-aware function too,
@@ -496,6 +501,149 @@ Inside a lifted call:
   element `#VALUE!` (`SUM(ABS(B1:B3))` with `B2` = `"x"`), and a blank element coerces to `0`, so
   `SUM(LEN(A1:A3))` over three empty cells is `0` while `COUNT(LEN(A1:A3))` is `3`.
 
+### Dynamic array producers
+
+`FILTER`, `SORT`, `UNIQUE` and `SEQUENCE` are the other direction of the same machinery: instead of turning a
+range into an array, they **produce** one. Anywhere a consumer above accepts an array, one of these four can
+stand in its place, and they compose with each other and with every shape described above.
+
+```csharp
+// A1:A3 = 5, 0, 9;  B1:B3 = 1, 2, 3;  Q1:Q4 = 9, 5, 9, 0
+ExpressionParser.Parse("=SUM(FILTER(A1:A3,A1:A3>0))", sheet);   // → 14  (0 fails the predicate)
+ExpressionParser.Parse("=ROWS(FILTER(A1:A3,A1:A3>0))", sheet);  // → 2   (how many rows matched)
+ExpressionParser.Parse("=INDEX(SORT(A1:A3,1,-1),1)", sheet);    // → 9   (the largest)
+ExpressionParser.Parse("=COUNTA(UNIQUE(Q1:Q4))", sheet);        // → 3   (distinct count)
+ExpressionParser.Parse("=SUM(SEQUENCE(5))", sheet);             // → 15  (1+2+3+4+5)
+ExpressionParser.Parse("=INDEX(SEQUENCE(2,3),2,2)", sheet);     // → 5   (row-major fill)
+```
+
+Each function's own arguments, defaults, coercions and error rules are in the function reference —
+`FILTER`/`SORT`/`UNIQUE` under [Lookup and reference](function-reference.md#lookup-and-reference-20),
+`SEQUENCE` under [Math and trigonometry](function-reference.md#math-and-trigonometry-76). What this section
+covers is how they behave *as arrays*.
+
+**Every consumer reads them, with no per-function special case.** They are operands in the same lazy tree, so
+the whole **Supported** list above applies unchanged. Measured on this engine over `A1:A3` = 5, 0, 9:
+`SUM(FILTER(A1:A3,A1:A3>0))` = 14, `COUNT` 2, `AVERAGE` 7, `MIN` 5, `MAX` 9, `PRODUCT` 45,
+`SMALL(…,1)` 5, `LARGE(…,1)` 9, `MEDIAN(SEQUENCE(5))` = 3, `PERCENTILE(SEQUENCE(5),0.5)` = 3,
+`INDEX(SORT(A1:A3),1)` = 0, `ROWS(FILTER(A1:A3,A1:A3>0))` = 2, `COLUMNS(SEQUENCE(2,3))` = 3,
+`COUNTA(UNIQUE(Q1:Q4))` = 3, `CONCAT(SEQUENCE(3))` = `"123"`,
+`TEXTJOIN(",",TRUE,FILTER(A1:A3,A1:A3>0))` = `"5,9"`, `SUMPRODUCT(SEQUENCE(3))` = 6 and
+`AGGREGATE(15,6,FILTER(A1:A3,A1:A3>0),1)` = 5.
+
+Two of those consumers are new arrivals, and they now answer for **every** computed array rather than only for
+a producer: `ROWS`/`COLUMNS` report the extent of an operator's result or a lifted call too — `ROWS(A1:C3*2)`,
+`ROWS(A1:C3*H1:H2)` (the *broadcast* extent), `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` and `ROWS(ROW(A1:C3))` are all
+3, where they used to be `#VALUE!` or `1` — and `COUNTA`/`CONCAT`/`TEXTJOIN` stream the elements of one
+(`COUNTA(IF(A1:A3>0,A1:A3))` = 3, `CONCAT(A1:A3*2)` = `"10018"`). A producer's own 1x1 **error** is reported
+as itself rather than as a shape of 1 (`ROWS(FILTER(A1:A3,A1:A3>100))` = `#CALC!`,
+`ROWS(SEQUENCE(-1))` = `#VALUE!`), while an error *element* inside a rectangle does not hide the shape
+(`ROWS(SORT(E1:E3))` = 3).
+
+**Two members of the flattening family are exceptions, for two different reasons**, and it matters which:
+
+- **`CONCATENATE` takes the top-left, it does not expand.** It joins scalars, so a producer argument reaches
+  the producer's own cell answer: `CONCATENATE(SEQUENCE(3))` is `"1"` where `CONCAT(SEQUENCE(3))` is `"123"`.
+  That is Excel's answer too, in both entry modes (measured on Aspose.Cells 26.6.0, 2026-09-10).
+- **`COUNTBLANK` refuses a computed array outright**, with `#REF!`, before any streaming can happen:
+  `COUNTBLANK(SEQUENCE(3))` is `#REF!` — the same rule and the same error the criteria family applies (the
+  bullet under **Not supported** below), and the same answer Excel gives in both modes.
+
+**They compose, and the composition needed no code of its own** — a producer under an operator, a lifted
+function, an `IF`, or under another producer, is reached by the same recursive builder. All measured on this
+engine and equal to Excel array-entered: `SUM(SORT(FILTER(A1:A3,A1:A3>0)))` = 14,
+`SUM(FILTER(A1:A3,A1:A3>0)*2)` = 28, `SUM(LEN(FILTER(A1:A3,A1:A3>0)))` = 2,
+`SUM(FILTER(SEQUENCE(5),SEQUENCE(5)>2))` = 12, `ROWS(UNIQUE(FILTER(A1:A3,A1:A3>0)))` = 2 and
+`SUM(IF(TRUE,SEQUENCE(3),0))` = 6. Broadcasting applies as everywhere else, so a producer whose extent is
+shorter than what it is combined with leaves `#N/A` in the positions it does not cover:
+`SUM(FILTER(A1:A3,A1:A3>0)*B1:B3)` is `#N/A` — a 2x1 selection against a 3x1 range — while
+`COUNT` of the same expression is 2.
+
+**An empty result is `#CALC!`, never an empty array.** `SUM(FILTER(A1:A3,A1:A3>100))` and
+`ROWS(FILTER(A1:A3,A1:A3>100))` are [`#CALC!`](computed-value.md), Excel's empty-array error, with
+`ERROR.TYPE` **14**; supply `FILTER`'s third argument to answer something else
+(`SUM(FILTER(A1:A3,A1:A3>100,0))` = 0). A 1x1 result — an empty one included — broadcasts like a scalar, so
+`SUM(FILTER(A1:A3,A1:A3>100,7)*A1:A3)` is 98, the 7 against every cell. As always, `COUNT` and `COUNTA`
+*discard* errors rather than propagating them, so `COUNT(FILTER(A1:A3,A1:A3>100))` is `0` — which is Excel's
+answer there too.
+
+**Blanks survive the selection as blanks; nothing is normalized to zero.** A blank source cell stays blank
+through all three selectors, so `COUNTA(FILTER(A5:A8,A5:A8<>"zzz"))` = `COUNTA(A5:A8)` = 3 over
+7, blank, `"t"`, 7, `ISBLANK` of a kept blank is `TRUE`, `UNIQUE` treats a blank as its **own** key (equal to
+neither `0` nor `""` nor `FALSE`, so `ROWS(UNIQUE(A5:A8))` = 3) and `SORT` puts blanks **last** in both
+directions. Every one of those matches Excel in both entry modes, measured 2026-09-10 — a RANGE argument and
+a PRODUCER result agree, and there is no seam between them.
+
+**Bare in a cell: the `@` rule — and MySheet does not spill.**
+
+A cell holds one scalar value, so a producer written as a cell's whole formula shows the array's **top-left
+element** and nothing is written to the cells around it. That is Excel's `@`-on-an-array rule (Microsoft,
+"Implicit intersection operator: @": for an array Excel "picks the top-left value"), and it is exactly what
+Excel itself writes when it upgrades a legacy formula to `=@FILTER(...)`. Measured on Aspose.Cells 26.6.0,
+2026-09-10, one formula per workbook, in a cell whose row is *inside* the source range (`D2`) and in one
+*outside* it (`D5`), plain and array-entered agreeing on every row — and MySheet answers the same in both
+cells:
+
+| In a cell | Excel and MySheet |
+| --- | --- |
+| `=SEQUENCE(5)` | `1` |
+| `=SEQUENCE(2,3,7,1)` | `7` |
+| `=FILTER(A1:A3,A1:A3>0)` | `5` |
+| `=SORT(A1:A3)` | `0` (the sorted top-left) |
+| `=UNIQUE(A1:A3)` | `5` |
+| `=SEQUENCE(2,3)*10` | `10` |
+| `=FILTER(A1:A3,A1:A3>100)` | `#CALC!` |
+
+Unlike a bare range, the answer does **not** depend on where the formula sits: a producer has no worksheet
+position to intersect with, which is what distinguishes the array half of the rule from
+[the range half](#implicit-intersection-at-the-cell-boundary).
+
+**So `=SEQUENCE(5)` shows `1` rather than filling five cells with 1..5, and `=FILTER(A:A,B:B>0)` shows one
+value rather than a list.** That is the single most surprising consequence of this feature and it is worth
+stating plainly rather than discovering: MySheet has **no spill model** — there is no way for one formula to
+write into cells it does not own — so the top-left is the whole answer. If you want the list, consume it:
+`ROWS(FILTER(...))` for the count, `INDEX(FILTER(...),k)` for the *k*th match,
+`TEXTJOIN(",",TRUE,FILTER(...))` for all of them in one cell.
+
+**The other deviations, in full.** Each is pinned by a test — with Excel's own number in the test wherever the
+two engines differ — so closing one is always a deliberate edit.
+
+- **No spill**, as above. It is the one deviation that is structural rather than a choice: a cell is one
+  scalar. Note that the *value shown* agrees with Excel in both entry modes — what differs is that modern
+  Excel would also fill the neighbouring cells.
+- **An open or whole-column argument is refused.** The cost guard that refuses an open range in an array
+  position applies to a producer's own arguments too, so `SUM(FILTER(A:A,A:A>0))` is `#VALUE!` here where
+  Excel answers 14 (measured 2026-09-10, both entry modes, over a column A holding only `A1:A3` = 5, 0, 9).
+  The refusal has a **silent half** worth knowing: `COUNT` discards the error channel, so
+  `COUNT(FILTER(A:A,A:A>0))` is `0` here against Excel's 2 on that fixture — a wrong number rather than an
+  error. Bound the range (`A1:A100000`) and it works. Making the open form work needs a shared-bounds rule,
+  because `array` and `include` would otherwise be bounded independently and could disagree on row count.
+- **`SEQUENCE` has a size cap that Excel does not.** `rows > 1048576`, `columns > 16384` or
+  `rows * columns > 1048576` answers `#NUM!`; exactly at the cap is allowed. Excel has no cap in a consumed
+  position — `ROWS(SEQUENCE(1048577))` is 1048577 and `COLUMNS(SEQUENCE(1,16385))` is 16385 there (measured
+  2026-09-10, both modes) — but the element stream is lazy while every consumer walks every element, so
+  without the cap `SUM(SEQUENCE(1000000,10000))` would hang instead of answering.
+- **`UNIQUE(…, exactly_once)` follows Microsoft's page, not the measured oracle.** Over `Q1:Q4` = 9, 5, 9, 0
+  the rows occurring exactly once are 5 and 0, and that is what MySheet returns (`ROWS` 2, `SUM` 5). The
+  oracle keeps the *distinct*-count shape and pads it by repeating the last kept value — `ROWS` **3** with
+  `SUM` **5**, i.e. rows 5, 0, 0 — so its `UNIQUE` result contains a duplicate, which its own row count
+  contradicts. Where the oracle contradicts itself the documented rule wins; the measurement is recorded
+  beside the test so the decision can be revisited.
+- **`AVERAGE` over `UNIQUE` follows the page too, for the same reason.** Over that same `Q1:Q4` MySheet
+  answers 14/3, which is its own `SUM` over its own `COUNT`. The oracle reports `SUM` **14**, `COUNT` **3**
+  and `AVERAGE` **0** for the same expression — three answers that cannot all be right — and Microsoft's
+  `AVERAGE` page is explicit that the mean is the sum over the count with zeros included.
+- **A producer bound by `LET`, passed through `CHOOSE`, or through a unary `+`, collapses to its top-left.**
+  `SUM(LET(x,FILTER(A1:A3,A1:A3>0),x))` is `5` here where Excel answers **14** in both entry modes (measured
+  2026-09-10; `ROWS(LET(x,FILTER(…),x))` = 2, `SUM(CHOOSE(1,FILTER(…)))` and `SUM(+FILTER(…))` = 14 there).
+  A binding is captured as a *value* before the element-wise evaluation can see it, so the producer's own
+  cell answer is what gets bound. Use the producer directly in the consumer's argument slot. The loudest
+  instance is a `LET`-bound producer in a criteria slot —
+  `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` is `1` here — `COUNTIF` over the single collapsed element
+  — against Excel's `#REF!` in both entry modes, with `SUM(f)` 5 against 14 and `ROWS(f)` 1 against 2 in the
+  same shape. That row is this engine's one deliberately failing pin, red so that the fix turns it green
+  rather than being discovered by accident.
+
 **Which factory a new built-in uses (contributors).** The classification is one explicit flag per entry in
 [`FunctionRegistry`](../Danfma.MySheet/Parsing/FunctionRegistry.cs): `Entry<T>(…)` registers a function that
 consumes ranges/arrays itself and is never lifted, `Elementwise<T>(…)` a pure-scalar one the mini-CSE may
@@ -523,28 +671,41 @@ The guard tests are precise about which of those two mistakes each one catches:
   `MinArgs+3`, filling the remaining slots with a number, a text, a logical and a three-cell range in turn,
   and hands the entry three rectangles differing in position, shape and contents. A pure-scalar body answers
   identically for all three; a range-aware one does not, and the failure names the discriminating call. The
-  sweep is still blind to **21** of the 126 range-aware entries — the ones that answer the same thing for
+  sweep is still blind to **22** of the 130 range-aware entries — the ones that answer the same thing for
   every rectangle: the shape and reference tests (`AREAS`, `ISREF`, `ISFORMULA`, `FORMULATEXT`, `SHEET`,
   `TYPE`), `OFFSET`/`INDIRECT`, the design exclusions (`IF`, `LET`, `RANDBETWEEN`), and the folds that error
   identically on all three (`AND`, `OR`, `IRR`, `MIRR`, `XNPV`, `PROB`, `FORECAST`, `FORECAST.LINEAR`,
-  `PERCENTILE.EXC`, `TRIMMEAN`). Those 21 have the roster and the by-hand list as their only defence, so the
+  `PERCENTILE.EXC`, `TRIMMEAN`), and `SEQUENCE`, which takes no range at all — its arguments are a size, a
+  start and a step, so there is no rectangle to hand it and the sweep is blind to it for good.
+  Those 22 have the roster and the by-hand list as their only defence, so the
   blind set is itself pinned by name and gaining a member fails the suite too.
 
 **Not supported (by design).**
 
-- A **dry cell** whose whole formula is the array keeps `#VALUE!` — `=IF(B2:B5="Show",1,0)` on its own is
-  still an error, and so is a bare lifted call: **`=LEN(A1:A3)` in a cell is `#VALUE!`**, as are
-  `=ROUND(A1:A3,0)` and `=-A1:A3`. The lift happens inside the *consumers*, and the cell boundary is not one
-  of them: it never enters the element-wise evaluation, so the cell sees `LEN`'s ordinary scalar body handed a
-  range. Wrap it in a consumer and it works — `=SUM(LEN(A1:A3))` in that same cell is `3` for `A1:A3` = 5, 0,
-  9 (one character each). Arrays exist only as *arguments* inside the consumers above, never as a cell's
-  value (the per-cell cache stays strictly scalar). This does **not** contradict
+- A **dry cell** whose whole formula is an array is `#VALUE!` **unless the array came from one of the four
+  [producers](#dynamic-array-producers)**, which answer their top-left element instead. The boundary rule is
+  therefore per node kind, and there are three cases. (1) A **producer** — `=FILTER(...)`, `=SORT(...)`,
+  `=UNIQUE(...)`, `=SEQUENCE(...)`, and any expression built over one — yields the array's top-left value,
+  Excel's `@`-on-an-array rule, the same answer in every cell and in both of Excel's entry modes: see the
+  table in that section. (2) A **range operand under an operator or a lifted function** keeps `#VALUE!` here —
+  `=A1:A3*2`, `=LEN(A1:A3)`, `=ROUND(A1:A3,0)`, `=-A1:A3` — because the lift happens inside the *consumers*
+  and the cell boundary is not one of them: the cell sees `LEN`'s ordinary scalar body handed a range. Excel
+  does something different from either engine there, and it is a genuine gap rather than a rule: typed, Excel
+  applies implicit intersection to each range operand *before* the operator, using the formula cell's own row,
+  so with `A1:A3` = 5, 0, 9 a bare `=-A1:A3` is `-5` in `C1`, `0` in `C2`, `-9` in `C3` and `#VALUE!` in `C5`,
+  and `=ROUND(A1:A3,0)` is 5, 0, 9 and `#VALUE!` in those same cells; array-entered it takes the top-left in
+  every cell (`-5`, `5`). Both columns measured on Aspose.Cells 26.6.0, 2026-09-10. Today's `#VALUE!` is
+  pinned so closing that gap has to be deliberate — and note that the pinning test's own comment still says
+  the plain form is `#VALUE!` everywhere, which the measurement above contradicts for a formula row *inside*
+  the range. (3) A bare `IF(range…)` or range comparison is `#VALUE!` for the same reason as (2) —
+  `=IF(B2:B5="Show",1,0)` and `=IF(TRUE,A1:A3,B1)` on their own are errors — a known inconsistency with case
+  (1) beside it. In every case, wrapping the expression in a consumer works: `=SUM(LEN(A1:A3))` in that same
+  cell is `3` for `A1:A3` = 5, 0, 9 (one character each). Arrays still exist only as *arguments* and as a
+  producer's collapsed top-left, never as a multi-cell cell value: the per-cell cache stays strictly scalar
+  and there is no spill. This does **not** contradict
   [implicit intersection at the cell boundary](#implicit-intersection-at-the-cell-boundary): that rule
-  intersects a *reference*, and a computed array is not one — so `=IF(TRUE,A1:A3,B1)` in a cell is still
-  `#VALUE!`, while the bare `=A1:A3` beside it is `A3`. Excel answers `#VALUE!` for a plainly entered
-  `=LEN(A1:A3)` too; only its legacy `Ctrl+Shift+Enter` form gives the top-left `LEN(A1)` (measured on
-  Aspose.Cells 26.6.0, 2026-09-09). Giving the boundary that array half is future work, and the current
-  answer is pinned so the change has to be deliberate.
+  intersects a *reference* — the bare `=A1:A3` beside these is `A3` in `C3` — while a computed array has no
+  worksheet position, which is why the producer's answer is position-independent.
 - **A broadcast product in a bare cell is `#VALUE!` too**, and the boundary is where that gap lives rather
   than in the broadcasting rule: `=A1:C3*E1:E3` typed into a cell never enters the element-wise evaluation,
   so it is the multiplication operator's own `#VALUE!`, while `=SUM(A1:C3*E1:E3)` in that same cell is 108.
@@ -580,8 +741,8 @@ The guard tests are precise about which of those two mistakes each one catches:
   `#VALUE!` on plain entry and `#REF!` array-entered, and for a dynamic-array **producer** in the slot it
   answers `#REF!` in *both* entry modes — `COUNTIF(FILTER(A1:A3,A1:A3>0),">5")`,
   `COUNTIF(SEQUENCE(5),">3")`, `SUMIF(SORT(A1:A3),">0")` and `COUNTIF(UNIQUE(A1:A3),">0")`, all measured on
-  Aspose.Cells 26.6.0, 2026-09-10 (those four functions are not implemented here yet; they are quoted because
-  they are the shape that fixes the rule). `#REF!` is therefore both the array-entered answer this section
+  Aspose.Cells 26.6.0, 2026-09-10, and answered the same way here now that
+  [the four exist](#dynamic-array-producers). `#REF!` is therefore both the array-entered answer this section
   reproduces and the one answer the two producer columns agree on, which is why the rule is `#REF!` and not
   `#VALUE!`. Pinned by `CriteriaComputedArgumentTests` and
   `MathAggregateTests.CriteriaFamily_RejectsAComputedArrayWithRef`. A **broadcast** or composite argument is
@@ -595,8 +756,8 @@ The guard tests are precise about which of those two mistakes each one catches:
   (`CHOOSE`, `OFFSET`, `INDEX`), a defined name, a single cell and a whole column all stay ranges, so
   `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` and `COUNTIF(OFFSET(A1,0,0,3,1),">0")` are `2`, as on the oracle in
   both modes. Four shapes are **deliberate deviations**, each pinned as one in
-  `CriteriaComputedArgumentTests` — three left for the compatibility sweep and the fourth for Phase 7's
-  `LET` routing: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `0` here where the oracle answers `2` in *both*
+  `CriteriaComputedArgumentTests` — three left for the compatibility sweep and the fourth the standing `LET`
+  limit: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `0` here where the oracle answers `2` in *both*
   entry modes — a scalar-conditioned `IF` is an opaque scalar here rather than its
   branch's reference, and closing that is the sweep's own item, deliberately not part of this rule;
   `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes (a bare
@@ -607,8 +768,10 @@ The guard tests are precise about which of those two mistakes each one catches:
   the oracle answers `#REF!` array-entered (`#VALUE!` typed), because a `LET` node is an opaque scalar to the
   shape probe while a `LET`-bound name *is* a reference node whose binding was already collapsed when it was
   captured, so the gate's predicate sees no array either way. That last one is **pre-existing** (measured
-  identical before this rule) and belongs to Phase 7's `LET` routing, which is also where
-  `LET(f,FILTER(…),COUNTIF(f,…))` lands. `SUMPRODUCT` is the one member of that family that opted in to
+  identical before the rule landed) and is a standing limit rather than part of this rule:
+  `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` is exactly that shape and is the one deliberately failing
+  pin in the suite — see the `LET` entry under
+  [dynamic array producers](#dynamic-array-producers). `SUMPRODUCT` is the one member of that family that opted in to
   computed arrays — `SUMPRODUCT((A1:A3<>0)*1)` = 2 and `SUMPRODUCT(A1:A3*1,B1:B3)` = 32, matching the oracle
   in both modes — and the fold-based consumers listed under **Supported** above (`SUM(IF(…))` and friends)
   have always taken them. `SUBTOTAL` and AGGREGATE's reference form take neither path — they reject a
@@ -624,7 +787,15 @@ The guard tests are precise about which of those two mistakes each one catches:
   `SUM(IF(A1:A3>0,1,LEN(B:B)))` is still 3. Excel folds the open column instead (`SUM(LEN(A:A))` = 3 over
   three one-character cells, Aspose.Cells 26.6.0 array-entered, 2026-09-09); a formula that works over
   `A1:A3` and is then dragged to a whole column gets the old `#VALUE!` back, with no other warning.
-- A **scalar** condition keeps `IF`'s native short-circuit — only an array condition drives the zip.
+- A **scalar** condition keeps `IF`'s native short-circuit: only the taken branch is evaluated, and only an
+  array *condition* drives the zip. The taken branch is still read as an array when it *is* one, though — a
+  producer, a lifted call or an operator result — so `SUM(IF(TRUE,SEQUENCE(3),0))` is 6 and
+  `ROWS(IF(TRUE,SEQUENCE(3),0))` is 3, matching Excel in *both* entry modes, and
+  `SUM(IF(TRUE,A1:C3*2,0))` is 90 over `A1:C3` = 1…9, matching its array-entered column (`#VALUE!` typed).
+  The exception is a branch that is a **bare range**: `SUM(IF(TRUE,A1:C3,0))` is `#VALUE!` here where Excel
+  answers 45 in both modes, deliberately left alone because moving it would answer "does `IF` return a
+  reference?" for that one shape while its siblings stay unanswered. It is recorded for the compatibility
+  sweep and pinned as a gap. All measured on Aspose.Cells 26.6.0, 2026-09-10.
 
 **Known divergences.** Each of these is pinned by a test as a *gap*, not asserted as Excel's rule, so closing
 one is always a deliberate edit; the single entry with no pin says so in its own words. Excel here means
@@ -667,17 +838,6 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   against `E5:G5` (`#N/A`, `COUNT` 2, on both). Recorded for the planned Excel-compatibility sweep. Pinned
   by `VectorBroadcastingTests.RectangleShorterThanARowVector_StaysNotAvailable_WhereTheOracleFillsWithZero`,
   whose comment carries every number above.
-- **`ROWS`/`COLUMNS` over a computed array is `#VALUE!` here**, where Excel reports the array's real extent.
-  For an operator's result or a lifted call — `ROWS(A1:C3*2)`, `COLUMNS(A1:C3*2)`, `ROWS(A1:C3*H1:H2)`,
-  `COLUMNS(E1:E3*E5:G5)`, `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` — MySheet answers `#VALUE!` and Excel answers the
-  extent (**3**, **3**, **3**, **3** for the four broadcast forms, the *broadcast* extent rather than either
-  operand's), typed and array-entered alike; over `ROW`/`COLUMN`'s own vector MySheet answers 1 where Excel
-  answers 3 (`ROWS(ROW(A1:C3))`). Both sides measured on 2026-09-10, Excel on Aspose.Cells 26.6.0. The reason
-  is the consumer list rather than the broadcasting rule: `ROWS` and `COLUMNS` want a *reference* and were
-  never taught to enter the element-wise evaluation, so they see the operator's ordinary `#VALUE!`. `INDEX`
-  *is* a consumer, so the extent is observable through it — `INDEX(A1:C3*H1:H2,3,1)` is the `#N/A` of an
-  uncovered position, not the `#REF!` of an out-of-bounds one. Recorded for the planned Excel-compatibility
-  sweep. This is the one entry in this list with **no test pinning it**: nothing fails if the `#VALUE!` moves.
 - **`SUM(ROW(Ghost!A1:A3))`** — a rectangle written *literally* on a sheet that does not exist, in an array
   position — answers `6`, the row numbers `1+2+3`, where Excel answers `#REF!`. The scalar
   `ROW(Ghost!A1:A3)` in the same workbook is already `#REF!`, and so is the array path over a name that
@@ -725,8 +885,9 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   scalar-only, so `SUM((UnN<>0)*1)` is `1` against **2** array-entered (`#VALUE!` typed) and the *literal*
   union twin is `#VALUE!` here, making this the one row where a name does not match its literal; and a `LET`
   node in a consumer's own argument slot stays opaque because the shape probe does not look inside it, so
-  `SUM(LET(r,Rng,(r<>0)*1))` is `1` against **2** in both entry modes — Phase 7's `LET` routing owns that
-  one. A `LET`-bound name *inside* an array position does resolve **when the name is bound to a range**,
+  `SUM(LET(r,Rng,(r<>0)*1))` is `1` against **2** in both entry modes — the same standing `LET` limit the
+  [producers section](#dynamic-array-producers) records, still open. A `LET`-bound name *inside* an array
+  position does resolve **when the name is bound to a range**,
   through the `LET` scope that [name resolution](#named-ranges) checks first:
   `LET(r,A1:A3,SUM((r<>0)*1))` = **2**, `LET(r,A1:A3,COUNT(r*1))` = **3** and
   `LET(r,A1:A3,INDEX(r*2,3))` = **18**, matching the oracle in both entry modes where they were `1`, `0` and
@@ -734,7 +895,8 @@ keystroke — and any figure taken from the typed form is labelled *typed* where
   scalar when it is captured, so `LET(r,A1:A3*1,COUNT(r*1))` is `0`, `LET(r,A1:A3*1,SUM(r*1))` is `#VALUE!`
   and `LET(r,A1:A3*1,INDEX(r*2,3))` is `#REF!` against the oracle's **3**, **14** and **18** in both entry
   modes — unchanged by this rule (measured on Aspose.Cells 26.6.0, 2026-09-10, and on the engine before and
-  after the rule), and Phase 7's `LET` routing owns that half too.
+  after the rule), and it is the same standing `LET` limit — a producer bound by `LET` collapses for exactly
+  this reason.
 - **A range-aware function is never lifted over its SCALAR slots.** Excel lifts a range-aware function too:
   it consumes the range in the slot that takes one and repeats the *whole call* per element of a rectangle
   handed to any other slot. MySheet's classification is per *function*, not per slot, so a rectangle in a

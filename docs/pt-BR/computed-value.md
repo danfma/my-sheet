@@ -121,6 +121,7 @@ nomeadas:
 | `Error.Name` | `#NAME?` |
 | `Error.Num` | `#NUM!` |
 | `Error.NA` | `#N/A` |
+| `Error.Calc` | `#CALC!` |
 
 `ToString()` imprime o texto de exibição, e a igualdade é por código:
 
@@ -145,6 +146,20 @@ Observações:
 - `Error` é diferente de `ErrorValue`, que é o *nó* serializável de AST para um erro literal armazenado
   em uma célula (por exemplo, carregado de um arquivo `.xlsx`). `AsObject()` mapeia um `Error` de volta
   para o singleton `ErrorValue` correspondente; avaliar um `ErrorValue` produz o `Error` correspondente.
+- `Error.Calc` (`#CALC!`) é o erro de **array vazio** do Excel e o oitavo código (7). É o que um
+  [produtor de array dinâmico](workbook-and-expressions.md#produtores-de-array-dinâmico) responde quando o
+  resultado dele seria vazio — nada mantido pelo `FILTER`, nada restante no `UNIQUE(…, exactly_once)` —
+  porque o motor, como o Excel, não tem array vazio: `SUM(FILTER(A1:A3,A1:A3>100))` e
+  `ROWS(FILTER(A1:A3,A1:A3>100))` são `#CALC!`, `ISERROR` de qualquer dos dois é `TRUE` e `ERROR.TYPE` é
+  **14** (o código do `#CALC!` no Excel, a única entrada depois de `#N/A`=7 que o motor mapeia; medido no
+  Aspose.Cells 26.6.0, 2026-09-10, nos dois modos de entrada, fixado por
+  `ErrorTests.Calc_IsTheEighthError_AndRoundTripsExactly` e por `DynamicArrayTests`). Note que `COUNT` e
+  `COUNTA` *descartam* erros em vez de propagá-los, então `COUNT(FILTER(A1:A3,A1:A3>100))` é `0` — o Excel
+  também responde 0 ali.
+- Um texto de erro que o motor não conhece **é dobrado para `Error.Value`** — `Error.FromDisplay("#SPILL!")`
+  é `#VALUE!` — enquanto um *código* além da tabela é exibido como `#ERR?` (`Error.FromCode(8).Display`),
+  então um valor escrito por uma versão mais nova degrada em vez de quebrar. Ambos fixados por
+  `ErrorTests.AnUnknownDisplay_StillFoldsOntoValue_AndCalcIsNoLongerUnknown`.
 - O registro de códigos de erro personalizados está deliberadamente fora de escopo por enquanto.
 
 ## Referências e `EnumerateValues`

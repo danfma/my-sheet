@@ -1,6 +1,6 @@
 # Function reference
 
-MySheet implements **306 built-in functions**. The authoritative registered list is the `ByName` map
+MySheet implements **310 built-in functions**. The authoritative registered list is the `ByName` map
 in [`Danfma.MySheet/Parsing/FunctionRegistry.cs`](../Danfma.MySheet/Parsing/FunctionRegistry.cs) — this
 page is derived from it. Argument counts are validated **at parse time**: calling a built-in with an unsupported number of
 arguments throws a `ParseException`, just as Excel rejects the formula at entry.
@@ -8,7 +8,7 @@ arguments throws a `ParseException`, just as Excel rejects the formula at entry.
 The rows below describe each function's own behaviour and are unchanged by array context. On top of them, a
 **pure-scalar** function handed a range in an array-consuming position is applied **element by element** —
 `SUM(LEN(A1:A3))` sums three lengths — while a range-aware one keeps consuming the whole range as documented
-in its row. 180 of the 306 entries can be lifted that way; see
+in its row. 180 of the 310 entries can be lifted that way; see
 [implicit array arguments](workbook-and-expressions.md#implicit-array-arguments) for which consumers ask for
 an array, which functions are lifted, and where the lift stops.
 
@@ -35,7 +35,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `TRUE` | `TRUE()` | The logical value `TRUE` (function form of the literal). |
 | `XOR` | `XOR(logical1, [logical2], …)` | `TRUE` when the number of `TRUE` inputs is odd; text and blank operands are ignored (whether a literal or reached through a reference); no evaluable value → `#VALUE!`. A text operand is IGNORED here, **not** coerced — this is the one place where the text `"TRUE"`/`"FALSE"` does NOT become a boolean the way it does in [`IF`](#logical-12)'s condition, `NOT` and `IFS`: `AND("FALSE",TRUE)` is `TRUE` (coercion would give `FALSE`), `OR("TRUE",FALSE)` is `FALSE`, `AND("yes",TRUE)` is `TRUE` rather than an error, and `XOR("TRUE","FALSE")` is `#VALUE!` because nothing evaluable survives. Measured on Aspose.Cells 26.6.0 (2026-09-10), plain and array-entered entry agreeing. |
 
-## Math and trigonometry (75)
+## Math and trigonometry (76)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
@@ -96,6 +96,7 @@ range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are
 | `ROUNDUP` | `ROUNDUP(number, num_digits)` | Rounds away from zero. |
 | `SEC` | `SEC(number)` | Secant. |
 | `SECH` | `SECH(number)` | Hyperbolic secant. |
+| `SEQUENCE` | `SEQUENCE(rows, [columns], [start], [step])` | A `rows`x`columns` array filled row-major with `start + i * step`, and a [dynamic-array producer](workbook-and-expressions.md#dynamic-array-producers): it does not spill, so bare in a cell it shows the top-left element (`=SEQUENCE(2,3,7,1)` is 7) while a consumer reads the whole array (`SUM(SEQUENCE(5))` = 15, `INDEX(SEQUENCE(2,3),2,2)` = 5, `ROWS(SEQUENCE(5))` = 5). Every argument is read once; an omitted optional (absent, or an empty slot) is 1 while a blank CELL is a value that coerces to 0. `rows`/`columns` truncate (`SUM(SEQUENCE(2.7))` = 3); `start`/`step` are kept as given, a zero or negative step included. A size below 1 after truncation is `#VALUE!` (`SEQUENCE(0)`, `SEQUENCE(-1)`, `SEQUENCE(0,0)`), and a coercion error passes through (`SEQUENCE("x")` → `#VALUE!`, `SEQUENCE(1/0)` → `#DIV/0!`). **MySheet-only deviation:** `rows > 1048576`, `columns > 16384` or `rows * columns > 1048576` is `#NUM!` — every consumer iterates every element, so the cap replaces a hang; Excel has no such cap in a consumed position (measured on Aspose.Cells 26.6.0, 2026-09-10, both entry modes). |
 | `SERIESSUM` | `SERIESSUM(x, n, m, coefficients)` | Power series sum; coefficients via range/values. |
 | `SIGN` | `SIGN(number)` | -1, 0 or 1. |
 | `SIN` | `SIN(number)` | Sine (radians). |
@@ -235,7 +236,7 @@ defensive 1-second match timeout.
 | `VALUE` | `VALUE(text)` | Converts text to a number. |
 | `VALUETOTEXT` | `VALUETOTEXT(value, [format])` | Value as text — format 0 concise (default), 1 strict (text quoted); errors become their display text. |
 
-## Lookup and reference (17)
+## Lookup and reference (20)
 
 | Function | Arguments | Description |
 | --- | --- | --- |
@@ -243,7 +244,8 @@ defensive 1-second match timeout.
 | `AREAS` | `AREAS(reference)` | Number of areas (contiguous ranges or single cells) in the reference — a syntactic check, like `ISREF`; non-reference → `#VALUE!`, and an argument that fails to resolve reports its own error (`AREAS(NoSuchName)` → `#NAME?`). |
 | `CHOOSE` | `CHOOSE(index_num, value1, [value2], …)` | The value at `index_num` (truncated); lazy — only the chosen argument is evaluated; a chosen range stays range-aware (`SUM(CHOOSE(…))`); out of range → `#VALUE!`. |
 | `COLUMN` | `COLUMN([reference])` | Column number of the reference (leftmost column for a range) — or of the current cell when called with no argument. Accepts ANY reference-producing expression, not only a literal reference: a defined name, `INDEX`/`OFFSET`/`INDIRECT`/`CHOOSE`, a `:` range with reference-returning endpoints (`COLUMN(INDEX(A1:C1,1,2))` = 2). A whole-column/row reference uses its DECLARED bound (`COLUMN(A:A)` = 1, `COLUMN(1:1)` = 1) — where the adjacent `COLUMNS` uses the POPULATED extent on an open axis; a non-reference (or a union) → `#VALUE!`, and an argument that fails to resolve reports its own error (`#NAME?`, `#REF!`). In an [array position](workbook-and-expressions.md#implicit-array-arguments) it yields the whole column-number vector — one number per column, a 1xM row, not one per cell — over a literal range *and* over a name or a `:` range that denotes one (`SUM(COLUMN(A1:C3))` = 6 and `COUNT(COLUMN(A1:C3))` = 3 for the 1x3 `[1,2,3]`, `SUM(COLUMN(MyName))` = 1 for a single-column name over three rows); an open range is refused there and a reference-returning *function* argument stays scalar. Those are the array-entered answers, which is the mode MySheet implements everywhere; typed into Excel, `COLUMN` of a rectangle is the single leftmost column number, so `SUM(COLUMN(A1:C3))` is 1 there (measured on Aspose.Cells 26.6.0, 2026-09-10). |
-| `COLUMNS` | `COLUMNS(range)` | Number of columns in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) a bounded column axis is exact (`COLUMNS(A:C)` = 3), an open one uses the populated extent. An argument that fails to resolve to a reference reports its own error (`#NAME?`, `#REF!`); a plain scalar value counts as 1 (a 1x1 array). A **computed array** is refused exactly as in `ROWS` — `COLUMNS(A1:C3*2)` is `#VALUE!` here against Excel's 3 — the same recorded divergence. |
+| `COLUMNS` | `COLUMNS(range)` | Number of columns in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) a bounded column axis is exact (`COLUMNS(A:C)` = 3), an open one uses the populated extent. An argument that fails to resolve to a reference reports its own error (`#NAME?`, `#REF!`); a plain scalar value counts as 1 (a 1x1 array). A **computed array** answers its real extent exactly as in `ROWS` — `COLUMNS(A1:B3*2)` = 2, `COLUMNS(SEQUENCE(2,3))` = 3, `COLUMNS(FILTER(A1:C1,A1:C1>0))` = 3. |
+| `FILTER` | `FILTER(array, include, [if_empty])` | The rows of `array` whose `include` element is TRUE — or its columns, when `include` is one ROW matching the width — and a [dynamic-array producer](workbook-and-expressions.md#dynamic-array-producers): it does not spill, so bare in a cell it shows the result's top-left element while a consumer reads the whole array (`SUM(FILTER(A1:A3,A1:A3>0))` = 14 over 5, 0, 9; `INDEX(...,2)` = 9; `ROWS(...)` = 2). `include` must match the array's HEIGHT as one column or its WIDTH as one row; a scalar or 1x1 counts as either, so `FILTER(A1:A3,TRUE)` keeps all three rows while `FILTER(A1:B3,TRUE)` is `#VALUE!`, as is any other shape. An include element that cannot be converted to a logical is simply not kept, except in a ONE-element include, where it is `#VALUE!`; an error element is the whole answer. Nothing kept is `#CALC!` unless `if_empty` is supplied — and an EMPTY `if_empty` slot is a blank VALUE, not an omitted argument (`FILTER(A1:A3,A1:A3>100,)` is a 1x1 blank), the one slot in the four that does not follow the omitted rule. Blanks in the source survive the selection as blanks. An open-range `array` is refused with `#VALUE!` — a documented deviation, see [implicit array arguments](workbook-and-expressions.md#implicit-array-arguments). |
 | `FORMULATEXT` | `FORMULATEXT(reference)` | The referenced cell's formula as TEXT, `=` included (un-parsed in the referenced cell's sheet context); a literal or empty cell → `#N/A`. |
 | `HLOOKUP` | `HLOOKUP(lookup_value, table_range, row_index_num, [range_lookup])` | Horizontal lookup in the first row of a table; exact or approximate; `row_index_num` < 1 → `#VALUE!`, beyond the table → `#REF!`. |
 | `INDEX` | `INDEX(range, row_num, [column_num])` | The value at a 1-based position inside a range. Accepts an [implicit array first argument](workbook-and-expressions.md#implicit-array-arguments) (`INDEX(ROW(B2:B5),1)` = 2), including the `INDEX(ROW($A:$A), n)` identity that returns `n` without materializing the column; out of range → `#REF!`. |
@@ -252,7 +254,9 @@ defensive 1-second match timeout.
 | `MATCH` | `MATCH(lookup_value, lookup_range, [match_type])` | 1-based position of a value in a range (`match_type`: 1 approximate ascending — default, 0 exact, -1 approximate descending). |
 | `OFFSET` | `OFFSET(reference, rows, cols, [height], [width])` | A reference displaced (and optionally resized) from a starting reference; may return a multi-cell reference for range-aware consumers. |
 | `ROW` | `ROW([reference])` | Row number of the reference (top row for a range) — or of the current cell when called with no argument. Accepts ANY reference-producing expression, not only a literal reference: a defined name, `INDEX`/`OFFSET`/`INDIRECT`/`CHOOSE`, a `:` range with reference-returning endpoints (`ROW(INDEX(A1:A3,2,1))` = 2). A whole-column/row reference uses its DECLARED bound (`ROW(A:A)` = 1, `ROW(A2:A)` = 2) — where the adjacent `ROWS` uses the POPULATED extent on an open axis; a non-reference (or a union) → `#VALUE!`, and an argument that fails to resolve reports its own error (`#NAME?`, `#REF!`). In an [array position](workbook-and-expressions.md#implicit-array-arguments) it yields the whole row-number vector — one number per row, an Nx1 column, not one per cell — over a literal range *and* over a name or a `:` range that denotes one (`SUM(ROW(A1:C3))` = 6 and `COUNT(ROW(A1:C3))` = 3 for the 3x1 `[1,2,3]`, `SUM(ROW(MyName))` = 6 for a name over three rows); an open range is refused there and a reference-returning *function* argument stays scalar. Those are the array-entered answers, which is the mode MySheet implements everywhere; typed into Excel, `ROW` of a rectangle is the single top row number, so `SUM(ROW(A1:C3))` is 1 there (measured on Aspose.Cells 26.6.0, 2026-09-10). |
-| `ROWS` | `ROWS(range)` | Number of rows in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) an open row axis uses the populated extent (`ROWS(A:A)` = max − min populated row + 1, 0 if empty — a documented divergence from Excel's fixed grid), a bounded one is exact (`ROWS(1:5)` = 5). An argument that fails to resolve to a reference reports its own error (`ROWS(NoSuchName)` → `#NAME?`, `ROWS(INDIRECT("zz"))` → `#REF!`); a plain scalar value counts as 1 (a 1x1 array). A **computed array** is not a reference and is not accepted: `ROWS(A1:C3*2)` and `ROWS(LEN(A1:A3))` are `#VALUE!`, where Excel reports the array's real extent — `ROWS(A1:C3*2)` is 3 there, typed and array-entered alike — a divergence recorded for the planned Excel-compatibility sweep, measured on both engines 2026-09-10 and described under [implicit array arguments](workbook-and-expressions.md#implicit-array-arguments). |
+| `ROWS` | `ROWS(range)` | Number of rows in the range. Over a [whole-column/row reference](workbook-and-expressions.md#whole-column-and-whole-row-references) an open row axis uses the populated extent (`ROWS(A:A)` = max − min populated row + 1, 0 if empty — a documented divergence from Excel's fixed grid), a bounded one is exact (`ROWS(1:5)` = 5). An argument that fails to resolve to a reference reports its own error (`ROWS(NoSuchName)` → `#NAME?`, `ROWS(INDIRECT("zz"))` → `#REF!`); a plain scalar value counts as 1 (a 1x1 array). A **computed array** answers its real extent, through the same gate the folding consumers use: `ROWS(A1:C3*2)` = 3, `ROWS(LEN(A1:A3))` = 3, `ROWS(IF(A1:A3>0,A1:A3))` = 3, `ROWS(ROW(A1:A3))` = 3, and over a [dynamic-array producer](workbook-and-expressions.md#dynamic-array-producers) `ROWS(FILTER(A1:A3,A1:A3>0))` = 2 and `ROWS(SEQUENCE(5))` = 5 — matching Excel typed and array-entered alike (measured on Aspose.Cells 26.6.0, 2026-09-10). A producer's own 1x1 error is reported as itself rather than as a missing reference (`ROWS(FILTER(A1:A3,A1:A3>100))` = `#CALC!`, `ROWS(SEQUENCE(-1))` = `#VALUE!`), while an error ELEMENT inside a rectangle does not hide the shape (`ROWS(SORT(E1:E3))` = 3). |
+| `SORT` | `SORT(array, [sort_index], [sort_order], [by_col])` | The rows of `array` (or, with `by_col`, its columns) permuted by one key column (or row), and a [dynamic-array producer](workbook-and-expressions.md#dynamic-array-producers): bare in a cell it shows the top-left, while a consumer reads the whole array (`INDEX(SORT(A1:A3),1)` = 0 over 5, 0, 9; `INDEX(SORT(A1:A3,1,-1),1)` = 9; `SUM(SORT(A1:A3))` = 14). `sort_index` defaults to 1, truncates and must fall within the extent ACROSS the sorted axis (`SORT(A1:A3,0)` and `SORT(A1:A3,2)` are `#VALUE!`); `sort_order` defaults to 1 and must then be 1 or -1 (`0` and `2` are `#VALUE!`); `by_col` defaults to FALSE. Values order as elsewhere in the engine — number < text < FALSE < TRUE, text case-INSENSITIVELY — and ties keep the SOURCE order in BOTH directions, so the sort is stable each way rather than a reversal. Two rules are the measured oracle's rather than the comparer's: BLANKS go last in both directions instead of sorting as 0, and ERRORS are SORTED — after every value ascending, before every value descending — rather than propagated (`INDEX(SORT(E1:E3),1)` = 5 and `INDEX(SORT(E1:E3),3)` = `#DIV/0!` over 5, `#DIV/0!`, 9). An open-range `array` is refused with `#VALUE!`. |
+| `UNIQUE` | `UNIQUE(array, [by_col], [exactly_once])` | The distinct rows of `array` (or, with `by_col`, its distinct columns) in order of FIRST appearance, and a [dynamic-array producer](workbook-and-expressions.md#dynamic-array-producers): bare in a cell it shows the top-left, while a consumer reads the whole array (over 9, 5, 9, 0: `SUM` 14, `COUNTA` 3, `ROWS` 3). Two candidates match when every cell pair is the same KIND and the same value: numbers numerically, booleans by value, text ORDINALLY — **case-SENSITIVE**, so "a", "A", "b" keeps all three, while `COUNTIF` and `MATCH` beside it stay case-insensitive (measured; Microsoft's page says nothing about case either way). Kinds never cross (`1`, `"1"`, `TRUE` are three rows), a BLANK is its own key — equal to neither 0 nor `""` nor FALSE — and an ERROR is a key like any other, equal to the same error code. `exactly_once` keeps the candidates occurring ONCE, following Microsoft's page rather than the measured oracle, which keeps the distinct-count shape and pads it by repeating the last kept value — a UNIQUE result holding a duplicate, contradicted by its own row count. Nothing left is `#CALC!`. An open-range `array` is refused with `#VALUE!`. |
 | `VLOOKUP` | `VLOOKUP(lookup_value, table_range, col_index_num, [range_lookup])` | Vertical lookup in the first column of a table; exact or approximate. |
 | `XLOOKUP` | `XLOOKUP(lookup_value, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])` | Modern lookup with not-found fallback and match/search modes. |
 | `XMATCH` | `XMATCH(lookup_value, lookup_range, [match_mode], [search_mode])` | 1-based position with `XLOOKUP`'s modes (0 exact — default, -1 exact-or-smaller, 1 exact-or-larger, 2 wildcard; search 1/-1). |
@@ -264,7 +268,7 @@ never propagate errors — they report on them.
 
 | Function | Arguments | Description |
 | --- | --- | --- |
-| `ERROR.TYPE` | `ERROR.TYPE(error_val)` | `#NULL!`=1, `#DIV/0!`=2, `#VALUE!`=3, `#REF!`=4, `#NAME?`=5, `#NUM!`=6, `#N/A`=7; non-error → `#N/A`. |
+| `ERROR.TYPE` | `ERROR.TYPE(error_val)` | `#NULL!`=1, `#DIV/0!`=2, `#VALUE!`=3, `#REF!`=4, `#NAME?`=5, `#NUM!`=6, `#N/A`=7, `#CALC!`=14; non-error → `#N/A`. Excel's table continues 8 `#GETTING_DATA` … 13 `#FIELD!` between the two, but the engine has no code for those, so `#CALC!` — the empty-array error an empty [`FILTER`](#lookup-and-reference-20)/`UNIQUE` answers — is the only one mapped past 7 (`ERROR.TYPE(FILTER(A1:A3,A1:A3>100))` = 14, measured on Aspose.Cells 26.6.0, 2026-09-10, both entry modes). |
 | `ISBLANK` | `ISBLANK(value)` | `TRUE` for a blank value. |
 | `ISERR` | `ISERR(value)` | `TRUE` for any error except `#N/A`. |
 | `ISERROR` | `ISERROR(value)` | `TRUE` for any error value. |
@@ -499,7 +503,7 @@ category, are documented in their Text/Math sections.)
 
 ## Excel function coverage
 
-MySheet implements 306 of the ~520 functions in [Microsoft's official Excel function
+MySheet implements 310 of the ~520 functions in [Microsoft's official Excel function
 catalog](https://support.microsoft.com/en-us/office/excel-functions-by-category-5f91f4e9-7b42-46d2-9bd1-63f26a86c0eb),
 grouped below by Microsoft's own categories (✅ implemented, ⬜ not yet, ✖ out of scope by design).
 **35 functions are permanently out of scope** — they depend on external services, UI environment, or
@@ -531,22 +535,22 @@ authoritative registered list.
 </details>
 
 <details open>
-<summary><strong>Lookup and Reference</strong> — 17/40</summary>
+<summary><strong>Lookup and Reference</strong> — 20/40</summary>
 
-✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FORMULATEXT` `HLOOKUP` `INDEX` `INDIRECT` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `VLOOKUP` `XLOOKUP` `XMATCH`
+✅ `ADDRESS` `AREAS` `CHOOSE` `COLUMN` `COLUMNS` `FILTER` `FORMULATEXT` `HLOOKUP` `INDEX` `INDIRECT` `LOOKUP` `MATCH` `OFFSET` `ROW` `ROWS` `SORT` `UNIQUE` `VLOOKUP` `XLOOKUP` `XMATCH`
 
-⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `FILTER` `HSTACK` `SORT` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `UNIQUE` `VSTACK` `WRAPCOLS` `WRAPROWS`
+⬜ `CHOOSECOLS` `CHOOSEROWS` `DROP` `EXPAND` `HSTACK` `SORTBY` `TAKE` `TOCOL` `TOROW` `TRANSPOSE` `TRIMRANGE` `VSTACK` `WRAPCOLS` `WRAPROWS`
 
 ✖ `GETPIVOTDATA` `GROUPBY` `HYPERLINK` `IMAGE` `PIVOTBY` `RTD`
 
 </details>
 
 <details open>
-<summary><strong>Math and Trigonometry</strong> — 75/82</summary>
+<summary><strong>Math and Trigonometry</strong> — 76/82</summary>
 
-✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
+✅ `ABS` `ACOS` `ACOSH` `ACOT` `ACOTH` `AGGREGATE` `ARABIC` `ASIN` `ASINH` `ATAN` `ATAN2` `ATANH` `BASE` `CEILING` `CEILING.MATH` `CEILING.PRECISE` `COMBIN` `COMBINA` `COS` `COSH` `COT` `COTH` `CSC` `CSCH` `DECIMAL` `DEGREES` `EVEN` `EXP` `FACT` `FACTDOUBLE` `FLOOR` `FLOOR.MATH` `FLOOR.PRECISE` `GCD` `INT` `ISO.CEILING` `LCM` `LN` `LOG` `LOG10` `MOD` `MROUND` `MULTINOMIAL` `ODD` `PI` `POWER` `PRODUCT` `QUOTIENT` `RADIANS` `RAND` `RANDBETWEEN` `ROMAN` `ROUND` `ROUNDDOWN` `ROUNDUP` `SEC` `SECH` `SEQUENCE` `SERIESSUM` `SIGN` `SIN` `SINH` `SQRT` `SQRTPI` `SUBTOTAL` `SUM` `SUMIF` `SUMIFS` `SUMPRODUCT` `SUMSQ` `SUMX2MY2` `SUMX2PY2` `SUMXMY2` `TAN` `TANH` `TRUNC`
 
-⬜ `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY` `SEQUENCE`
+⬜ `MDETERM` `MINVERSE` `MMULT` `MUNIT` `PERCENTOF` `RANDARRAY`
 
 </details>
 

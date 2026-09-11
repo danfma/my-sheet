@@ -429,8 +429,10 @@ uma destas fórmulas em um Excel de verdade e comparar, espere a resposta da for
 único ponto em que a resposta do próprio MySheet não segue nenhuma das duas é
 [a fronteira da célula](#interseção-implícita-na-fronteira-da-célula), abaixo.
 
-**Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX` e —
-através da mesma dobra — `SMALL`, `LARGE`, os percentis), `INDEX`, `SUMPRODUCT` e a **forma-array** do
+**Suportado.** Os consumidores são os agregadores numéricos (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`,
+`PRODUCT` e — através da mesma dobra — `MEDIAN`, a família `STDEV`/`VAR`, `SMALL`, `LARGE`, os percentis e
+quartis), `INDEX`, `ROWS`/`COLUMNS` (que informam a *extensão* do array, e não os valores dele),
+`COUNTA`/`CONCAT`/`TEXTJOIN` (que transmitem os elementos dele), `SUMPRODUCT` e a **forma-array** do
 [`AGGREGATE`](function-reference.md) (`function_num` 14-19), onde a opção 6 descarta os elementos
 `#DIV/0!` que fazem um `SMALL` simples sobre o mesmo vetor falhar. O `SUBTOTAL` e a forma-*referência* do
 `AGGREGATE` (1-13) deliberadamente **não** são consumidores: os argumentos deles são `ref`, e o Excel
@@ -438,7 +440,9 @@ rejeita um array computado em um deles — `SUBTOTAL(9,ROW(A1:A3))` e `AGGREGATE
 `#VALUE!` ali, medido no Aspose.Cells 26.6.0, e é exatamente por isso que o AGGREGATE documenta uma
 segunda sintaxe para arrays. Um argumento é avaliado como um array quando é uma comparação de **intervalo
 fechado** (`B2:B5="Show"`), um `IF` cuja condição é um array assim (com ou sem ramo `else`),
-`ROW`/`COLUMN` sobre um retângulo, ou uma das duas formas **elevadas** (*lifted*) descritas mais abaixo.
+`ROW`/`COLUMN` sobre um retângulo, uma das duas formas **elevadas** (*lifted*) descritas mais abaixo, ou um
+dos quatro [produtores de array dinâmico](#produtores-de-array-dinâmico)
+(`FILTER`/`SORT`/`UNIQUE`/`SEQUENCE`).
 Esse retângulo pode estar escrito literalmente — `ROW(A1:C3)` é a coluna 3x1 `[1,2,3]` e `COLUMN(A1:C3)` a
 linha 1x3 `[1,2,3]`, um número por posição de linha ou coluna e não um por célula, de modo que
 `SUM(ROW(A1:C3))` e `SUM(COLUMN(A1:C3))` são ambos 6 e o `COUNT` de qualquer um deles é 3 (inseridos como
@@ -483,11 +487,14 @@ array onde qualquer um dos consumidores acima pede um, aplicando um corpo escala
   `SUM(IFERROR(A1:A3,0))` = 6 e o idioma completo de planilha
   `IF(SUMPRODUCT(--(LEN(TRIM($D$7:$F$9))>0))>0,"Show","Hide")`.
 
-**180 das 306 funções nativas registradas** podem ser elevadas: as puramente escalares (texto, matemática,
+**180 das 310 funções nativas registradas** podem ser elevadas: as puramente escalares (texto, matemática,
 financeiras, datas, informação, as auxiliares estatísticas escalares (`FISHER`, `PERMUT`, `PHI`, `STANDARDIZE`, …),
-`IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). As outras 126 são **cientes de intervalos** e o MySheet nunca as
-eleva, porque já consomem intervalos ou arrays por conta própria — `SUM`, `COUNT`, `INDEX`, `ROW`, `COLUMN`, `ROWS`,
-`COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`, `VLOOKUP`, `MATCH`, `OFFSET`, `INDIRECT`, `IF`, `LET`,
+`IFERROR`/`IFNA`/`IFS`/`NOT`/`SWITCH`, `ADDRESS`). As outras 130 são **cientes de intervalos** e o MySheet nunca as
+eleva, porque já consomem intervalos ou arrays por conta própria — ou, no caso dos quatro
+[produtores de array dinâmico](#produtores-de-array-dinâmico), porque *produzem* um — `SUM`, `COUNT`, `INDEX`,
+`ROW`, `COLUMN`, `ROWS`,
+`COLUMNS`, `AREAS`, `SUMPRODUCT`, `SUBTOTAL`, `AGGREGATE`, `FILTER`, `SORT`, `UNIQUE`, `SEQUENCE`,
+`VLOOKUP`, `MATCH`, `OFFSET`, `INDIRECT`, `IF`, `LET`,
 `RANDBETWEEN`, `AND`/`OR`/`XOR`, as séries de fluxo de caixa (`NPV`, `IRR`, …), as estatísticas de população inteira e
 de arrays pareados (`RANK`, `MODE`, `CORREL`, `SUMXMY2`, …) e a família de critérios. Essa é a regra do MySheet,
 **não** a do Excel: o Excel também eleva uma função ciente de intervalos, sobre os slots que recebem um *escalar*,
@@ -520,6 +527,151 @@ Dentro de uma chamada elevada:
   `B2` = `"x"`), e um elemento em branco é convertido para `0`, então `SUM(LEN(A1:A3))` sobre três células
   vazias é `0` enquanto `COUNT(LEN(A1:A3))` é `3`.
 
+### Produtores de array dinâmico
+
+`FILTER`, `SORT`, `UNIQUE` e `SEQUENCE` são a outra direção da mesma maquinaria: em vez de transformar um
+intervalo em array, eles **produzem** um. Em qualquer lugar onde um dos consumidores acima aceita um array,
+uma dessas quatro pode ficar no lugar dele, e elas compõem entre si e com todas as formas descritas acima.
+
+```csharp
+// A1:A3 = 5, 0, 9;  B1:B3 = 1, 2, 3;  Q1:Q4 = 9, 5, 9, 0
+ExpressionParser.Parse("=SUM(FILTER(A1:A3,A1:A3>0))", sheet);   // → 14  (o 0 não passa no predicado)
+ExpressionParser.Parse("=ROWS(FILTER(A1:A3,A1:A3>0))", sheet);  // → 2   (quantas linhas casaram)
+ExpressionParser.Parse("=INDEX(SORT(A1:A3,1,-1),1)", sheet);    // → 9   (o maior)
+ExpressionParser.Parse("=COUNTA(UNIQUE(Q1:Q4))", sheet);        // → 3   (contagem de distintos)
+ExpressionParser.Parse("=SUM(SEQUENCE(5))", sheet);             // → 15  (1+2+3+4+5)
+ExpressionParser.Parse("=INDEX(SEQUENCE(2,3),2,2)", sheet);     // → 5   (preenchimento por linha)
+```
+
+Os argumentos, padrões, conversões e regras de erro de cada função estão na referência de funções —
+`FILTER`/`SORT`/`UNIQUE` em [Pesquisa e referência](function-reference.md#pesquisa-e-referência-20),
+`SEQUENCE` em [Matemática e trigonometria](function-reference.md#matemática-e-trigonometria-76). O que esta
+seção cobre é como elas se comportam *como arrays*.
+
+**Todo consumidor as lê, sem nenhum caso especial por função.** Elas são operandos na mesma árvore preguiçosa,
+então toda a lista de **Suportado** acima se aplica sem alteração. Medido neste motor sobre `A1:A3` = 5, 0, 9:
+`SUM(FILTER(A1:A3,A1:A3>0))` = 14, `COUNT` 2, `AVERAGE` 7, `MIN` 5, `MAX` 9, `PRODUCT` 45,
+`SMALL(…,1)` 5, `LARGE(…,1)` 9, `MEDIAN(SEQUENCE(5))` = 3, `PERCENTILE(SEQUENCE(5),0.5)` = 3,
+`INDEX(SORT(A1:A3),1)` = 0, `ROWS(FILTER(A1:A3,A1:A3>0))` = 2, `COLUMNS(SEQUENCE(2,3))` = 3,
+`COUNTA(UNIQUE(Q1:Q4))` = 3, `CONCAT(SEQUENCE(3))` = `"123"`,
+`TEXTJOIN(",",TRUE,FILTER(A1:A3,A1:A3>0))` = `"5,9"`, `SUMPRODUCT(SEQUENCE(3))` = 6 e
+`AGGREGATE(15,6,FILTER(A1:A3,A1:A3>0),1)` = 5.
+
+Dois desses consumidores são recém-chegados, e agora respondem para **todo** array computado, e não apenas
+para um produtor: `ROWS`/`COLUMNS` informam a extensão do resultado de um operador ou de uma chamada elevada
+também — `ROWS(A1:C3*2)`, `ROWS(A1:C3*H1:H2)` (a extensão do *broadcast*), `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)`
+e `ROWS(ROW(A1:C3))` são todos 3, onde antes eram `#VALUE!` ou `1` — e `COUNTA`/`CONCAT`/`TEXTJOIN`
+transmitem os elementos de um (`COUNTA(IF(A1:A3>0,A1:A3))` = 3, `CONCAT(A1:A3*2)` = `"10018"`). O **erro**
+1x1 próprio de um produtor é informado como ele mesmo, e não como uma forma de 1
+(`ROWS(FILTER(A1:A3,A1:A3>100))` = `#CALC!`, `ROWS(SEQUENCE(-1))` = `#VALUE!`), enquanto um *elemento* de erro
+dentro de um retângulo não esconde a forma (`ROWS(SORT(E1:E3))` = 3).
+
+**Dois membros da família de achatamento são exceções, por dois motivos diferentes**, e importa qual é qual:
+
+- **O `CONCATENATE` toma o elemento superior esquerdo, ele não expande.** Ele junta escalares, então um
+  argumento produtor chega à resposta-de-célula do próprio produtor: `CONCATENATE(SEQUENCE(3))` é `"1"`,
+  enquanto `CONCAT(SEQUENCE(3))` é `"123"`. Essa é a resposta do Excel também, nos dois modos de entrada
+  (medido no Aspose.Cells 26.6.0, 2026-09-10).
+- **O `COUNTBLANK` recusa um array computado de saída**, com `#REF!`, antes de qualquer transmissão:
+  `COUNTBLANK(SEQUENCE(3))` é `#REF!` — a mesma regra e o mesmo erro que a família de critérios aplica (o item
+  em **Não suportado** abaixo), e a mesma resposta que o Excel dá nos dois modos.
+
+**Elas compõem, e a composição não precisou de código próprio** — um produtor sob um operador, uma função
+elevada, um `IF`, ou sob outro produtor, é alcançado pelo mesmo construtor recursivo. Todos medidos neste
+motor e iguais ao Excel inserido como array: `SUM(SORT(FILTER(A1:A3,A1:A3>0)))` = 14,
+`SUM(FILTER(A1:A3,A1:A3>0)*2)` = 28, `SUM(LEN(FILTER(A1:A3,A1:A3>0)))` = 2,
+`SUM(FILTER(SEQUENCE(5),SEQUENCE(5)>2))` = 12, `ROWS(UNIQUE(FILTER(A1:A3,A1:A3>0)))` = 2 e
+`SUM(IF(TRUE,SEQUENCE(3),0))` = 6. O broadcast se aplica como em qualquer outro lugar, então um produtor cuja
+extensão é menor do que aquilo com que é combinado deixa `#N/A` nas posições que não cobre:
+`SUM(FILTER(A1:A3,A1:A3>0)*B1:B3)` é `#N/A` — uma seleção 2x1 contra um intervalo 3x1 — enquanto o `COUNT` da
+mesma expressão é 2.
+
+**Um resultado vazio é `#CALC!`, nunca um array vazio.** `SUM(FILTER(A1:A3,A1:A3>100))` e
+`ROWS(FILTER(A1:A3,A1:A3>100))` são [`#CALC!`](computed-value.md), o erro de array vazio do Excel, com
+`ERROR.TYPE` **14**; informe o terceiro argumento do `FILTER` para responder outra coisa
+(`SUM(FILTER(A1:A3,A1:A3>100,0))` = 0). Um resultado 1x1 — inclusive um vazio — faz broadcast como um escalar,
+então `SUM(FILTER(A1:A3,A1:A3>100,7)*A1:A3)` é 98, o 7 contra cada célula. Como sempre, `COUNT` e `COUNTA`
+*descartam* erros em vez de propagá-los, então `COUNT(FILTER(A1:A3,A1:A3>100))` é `0` — que é a resposta do
+Excel ali também.
+
+**Brancos sobrevivem à seleção como brancos; nada é normalizado para zero.** Uma célula de origem em branco
+continua em branco através dos três seletores, então `COUNTA(FILTER(A5:A8,A5:A8<>"zzz"))` = `COUNTA(A5:A8)` = 3
+sobre 7, branco, `"t"`, 7, o `ISBLANK` de um branco mantido é `TRUE`, o `UNIQUE` trata um branco como chave
+**própria** (igual a nem `0`, nem `""`, nem `FALSE`, então `ROWS(UNIQUE(A5:A8))` = 3) e o `SORT` põe os brancos
+**por último** nas duas direções. Cada um desses casos bate com o Excel nos dois modos de entrada, medido em
+2026-09-10 — um argumento de INTERVALO e um resultado de PRODUTOR concordam, e não há costura entre eles.
+
+**Sozinho em uma célula: a regra do `@` — e o MySheet não derrama (*spill*).**
+
+Uma célula guarda um único valor escalar, então um produtor escrito como a fórmula inteira de uma célula mostra
+o **elemento superior esquerdo** do array e nada é escrito nas células ao redor. Essa é a regra `@`-sobre-array
+do Excel (Microsoft, "Implicit intersection operator: @": para um array o Excel "picks the top-left value"), e é
+exatamente o que o próprio Excel escreve quando converte uma fórmula legada em `=@FILTER(...)`. Medido no
+Aspose.Cells 26.6.0, 2026-09-10, uma fórmula por pasta de trabalho, em uma célula cuja linha está *dentro* do
+intervalo de origem (`D2`) e em outra *fora* dele (`D5`), com entrada digitada e inserida como array
+concordando em todas as linhas — e o MySheet responde o mesmo nas duas células:
+
+| Em uma célula | Excel e MySheet |
+| --- | --- |
+| `=SEQUENCE(5)` | `1` |
+| `=SEQUENCE(2,3,7,1)` | `7` |
+| `=FILTER(A1:A3,A1:A3>0)` | `5` |
+| `=SORT(A1:A3)` | `0` (o superior esquerdo já ordenado) |
+| `=UNIQUE(A1:A3)` | `5` |
+| `=SEQUENCE(2,3)*10` | `10` |
+| `=FILTER(A1:A3,A1:A3>100)` | `#CALC!` |
+
+Ao contrário de um intervalo sozinho, a resposta **não** depende de onde a fórmula está: um produtor não tem
+posição na planilha com que se interseccionar, e é isso que distingue a metade-array da regra da
+[metade-intervalo](#interseção-implícita-na-fronteira-da-célula).
+
+**Portanto `=SEQUENCE(5)` mostra `1` em vez de preencher cinco células com 1..5, e `=FILTER(A:A,B:B>0)` mostra
+um único valor em vez de uma lista.** Essa é a consequência mais surpreendente deste recurso e vale dizê-la
+claramente em vez de deixá-la ser descoberta: o MySheet **não tem modelo de spill** — não há como uma fórmula
+escrever em células que não são dela — então o superior esquerdo é a resposta inteira. Se você quer a lista,
+consuma-a: `ROWS(FILTER(...))` para a contagem, `INDEX(FILTER(...),k)` para a *k*-ésima correspondência,
+`TEXTJOIN(",",TRUE,FILTER(...))` para todas elas em uma célula.
+
+**Os outros desvios, na íntegra.** Cada um é fixado por um teste — com o número do próprio Excel no teste onde
+os dois motores divergem — então fechar um é sempre uma edição deliberada.
+
+- **Sem spill**, como acima. É o único desvio estrutural, e não uma escolha: uma célula é um escalar. Note que
+  o *valor exibido* concorda com o Excel nos dois modos de entrada — o que difere é que o Excel moderno também
+  preencheria as células vizinhas.
+- **Um argumento de intervalo aberto ou de coluna inteira é recusado.** A guarda de custo que recusa um
+  intervalo aberto em posição de array vale também para os argumentos de um produtor, então
+  `SUM(FILTER(A:A,A:A>0))` é `#VALUE!` aqui, onde o Excel responde 14 (medido em 2026-09-10, nos dois modos de
+  entrada, sobre uma coluna A contendo apenas `A1:A3` = 5, 0, 9). A recusa tem uma **metade silenciosa** que
+  vale conhecer: o `COUNT` descarta o canal de erro, então `COUNT(FILTER(A:A,A:A>0))` é `0` aqui, contra o 2 do
+  Excel nessa mesma configuração — um número errado em vez de um erro. Limite o intervalo (`A1:A100000`) e
+  funciona. Fazer a forma aberta funcionar exige uma regra de limites compartilhados, porque `array` e
+  `include` seriam limitados de forma independente e poderiam discordar na contagem de linhas.
+- **O `SEQUENCE` tem um limite de tamanho que o Excel não tem.** `rows > 1048576`, `columns > 16384` ou
+  `rows * columns > 1048576` responde `#NUM!`; exatamente no limite é permitido. O Excel não tem limite algum
+  em posição consumida — `ROWS(SEQUENCE(1048577))` é 1048577 e `COLUMNS(SEQUENCE(1,16385))` é 16385 lá (medido
+  em 2026-09-10, nos dois modos) — mas o fluxo de elementos é preguiçoso enquanto todo consumidor percorre
+  todos os elementos, então sem o limite `SUM(SEQUENCE(1000000,10000))` travaria em vez de responder.
+- **`UNIQUE(…, exactly_once)` segue a página da Microsoft, e não o oráculo medido.** Sobre `Q1:Q4` = 9, 5, 9, 0
+  as linhas que ocorrem exatamente uma vez são 5 e 0, e é isso que o MySheet devolve (`ROWS` 2, `SUM` 5). O
+  oráculo preserva a forma da contagem de *distintos* e a completa repetindo o último valor mantido — `ROWS`
+  **3** com `SUM` **5**, isto é, as linhas 5, 0, 0 — de modo que o resultado de `UNIQUE` dele contém uma
+  duplicata, o que a própria contagem de linhas dele contradiz. Onde o oráculo se contradiz, a regra
+  documentada vence; a medição fica registrada ao lado do teste para que a decisão possa ser revista.
+- **O `AVERAGE` sobre o `UNIQUE` também segue a página, pelo mesmo motivo.** Sobre esse mesmo `Q1:Q4` o
+  MySheet responde 14/3, que é o `SUM` dele sobre o `COUNT` dele. O oráculo informa `SUM` **14**, `COUNT` **3**
+  e `AVERAGE` **0** para a mesma expressão — três respostas que não podem estar todas certas — e a página do
+  `AVERAGE` da Microsoft é explícita: a média é a soma sobre a contagem, com os zeros incluídos.
+- **Um produtor vinculado por `LET`, passado por `CHOOSE` ou por um `+` unário colapsa para o superior
+  esquerdo dele.** `SUM(LET(x,FILTER(A1:A3,A1:A3>0),x))` é `5` aqui, onde o Excel responde **14** nos dois
+  modos de entrada (medido em 2026-09-10; lá `ROWS(LET(x,FILTER(…),x))` = 2,
+  `SUM(CHOOSE(1,FILTER(…)))` e `SUM(+FILTER(…))` = 14). Um vínculo é capturado como *valor* antes que a
+  avaliação elemento-a-elemento possa vê-lo, então o que é vinculado é a resposta-de-célula do produtor. Use o
+  produtor diretamente no slot de argumento do consumidor. A instância mais alta é um produtor vinculado por
+  `LET` em um slot de critérios — `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` é `1` aqui, o `COUNTIF`
+  sobre o único elemento colapsado, contra o `#REF!` do Excel nos dois modos de entrada, com `SUM(f)` 5 contra
+  14 e `ROWS(f)` 1 contra 2 na mesma forma. Essa linha é o único pin deliberadamente vermelho deste motor,
+  vermelho para que a correção o torne verde em vez de ser descoberta por acidente.
+
 **Qual fábrica uma nova função nativa usa (para quem contribui).** A classificação é um sinalizador
 explícito por entrada em [`FunctionRegistry`](../../Danfma.MySheet/Parsing/FunctionRegistry.cs):
 `Entry<T>(…)` registra uma função que consome intervalos/arrays por conta própria e nunca é elevada, e
@@ -548,30 +700,44 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   `MinArgs+3`, preenchendo os slots restantes com um número, um texto, um lógico e um intervalo de três
   células por vez, e entrega à entrada três retângulos que diferem em posição, formato e conteúdo. Um corpo
   puramente escalar responde de forma idêntica para os três; um ciente de intervalos não, e a falha nomeia a
-  chamada que os distinguiu. A varredura ainda é cega para **21** das 126 entradas cientes de intervalos —
+  chamada que os distinguiu. A varredura ainda é cega para **22** das 130 entradas cientes de intervalos —
   as que respondem a mesma coisa para todo retângulo: os testes de formato e de referência (`AREAS`,
   `ISREF`, `ISFORMULA`, `FORMULATEXT`, `SHEET`, `TYPE`), `OFFSET`/`INDIRECT`, as exclusões de projeto (`IF`,
-  `LET`, `RANDBETWEEN`) e as reduções que erram de forma idêntica nos três (`AND`, `OR`, `IRR`, `MIRR`,
-  `XNPV`, `PROB`, `FORECAST`, `FORECAST.LINEAR`, `PERCENTILE.EXC`, `TRIMMEAN`). Essas 21 têm a lista
+  `LET`, `RANDBETWEEN`), as reduções que erram de forma idêntica nos três (`AND`, `OR`, `IRR`, `MIRR`,
+  `XNPV`, `PROB`, `FORECAST`, `FORECAST.LINEAR`, `PERCENTILE.EXC`, `TRIMMEAN`) e o `SEQUENCE`, que não recebe
+  intervalo algum — os argumentos dele são um tamanho, um início e um passo, então não há retângulo para lhe
+  entregar e a varredura é cega para ele em definitivo. Essas 22 têm a lista
   registrada e a lista à mão como única defesa, então o próprio conjunto cego é fixado pelo nome e ganhar um
   membro também quebra a suíte.
 
 **Não suportado (por design).**
 
-- Uma **célula seca** cuja fórmula inteira é o array mantém `#VALUE!` — `=IF(B2:B5="Show",1,0)` sozinha
-  ainda é um erro, e o mesmo vale para uma chamada elevada isolada: **`=LEN(A1:A3)` em uma célula é
-  `#VALUE!`**, assim como `=ROUND(A1:A3,0)` e `=-A1:A3`. A elevação acontece dentro dos *consumidores*, e a
-  fronteira da célula não é um deles: ela nunca entra na avaliação elemento a elemento, então a célula vê o
-  corpo escalar comum do `LEN` recebendo um intervalo. Envolva a chamada em um consumidor e ela funciona —
-  `=SUM(LEN(A1:A3))` nessa mesma célula é `3` para `A1:A3` = 5, 0 e 9 (um caractere cada). Arrays existem
-  apenas como *argumentos* dentro dos consumidores acima, nunca como o valor de uma célula (o cache por
-  célula permanece estritamente escalar). Isso **não** contradiz a
+- Uma **célula seca** cuja fórmula inteira é um array é `#VALUE!` **a menos que o array venha de um dos quatro
+  [produtores](#produtores-de-array-dinâmico)**, que respondem o elemento superior esquerdo deles. A regra da
+  fronteira é, portanto, por tipo de nó, e há três casos. (1) Um **produtor** — `=FILTER(...)`, `=SORT(...)`,
+  `=UNIQUE(...)`, `=SEQUENCE(...)` e qualquer expressão construída sobre um deles — devolve o valor superior
+  esquerdo do array, a regra `@`-sobre-array do Excel, a mesma resposta em toda célula e nos dois modos de
+  entrada do Excel: veja a tabela naquela seção. (2) Um **operando de intervalo sob um operador ou uma função
+  elevada** mantém `#VALUE!` aqui — `=A1:A3*2`, `=LEN(A1:A3)`, `=ROUND(A1:A3,0)`, `=-A1:A3` — porque a
+  elevação acontece dentro dos *consumidores* e a fronteira da célula não é um deles: a célula vê o corpo
+  escalar comum do `LEN` recebendo um intervalo. O Excel faz ali algo diferente de qualquer um dos dois
+  motores, e isso é uma lacuna genuína, não uma regra: digitada, o Excel aplica interseção implícita a cada
+  operando de intervalo *antes* do operador, usando a linha da própria célula da fórmula, então com
+  `A1:A3` = 5, 0, 9 um `=-A1:A3` sozinho é `-5` em `C1`, `0` em `C2`, `-9` em `C3` e `#VALUE!` em `C5`, e
+  `=ROUND(A1:A3,0)` é 5, 0, 9 e `#VALUE!` nessas mesmas células; inserida como array, ele toma o superior
+  esquerdo em todas elas (`-5`, `5`). As duas colunas medidas no Aspose.Cells 26.6.0, 2026-09-10. O `#VALUE!`
+  de hoje está fixado por teste para que fechar essa lacuna seja deliberado — e note que o comentário do
+  próprio teste que a fixa ainda afirma que a forma digitada é `#VALUE!` em qualquer lugar, o que a medição
+  acima contradiz para uma fórmula em linha *dentro* do intervalo. (3) Um `IF(range…)` ou uma comparação de
+  intervalo sozinhos são `#VALUE!` pelo mesmo motivo do caso (2) — `=IF(B2:B5="Show",1,0)` e
+  `=IF(TRUE,A1:A3,B1)` sozinhas são erros — uma inconsistência conhecida com o caso (1) ao lado. Em todos os
+  casos, envolver a expressão em um consumidor funciona: `=SUM(LEN(A1:A3))` nessa mesma célula é `3` para
+  `A1:A3` = 5, 0 e 9 (um caractere cada). Arrays continuam existindo apenas como *argumentos* e como o
+  superior esquerdo colapsado de um produtor, nunca como o valor multicélula de uma célula: o cache por célula
+  permanece estritamente escalar e não há spill. Isso **não** contradiz a
   [interseção implícita na fronteira da célula](#interseção-implícita-na-fronteira-da-célula): aquela regra
-  intersecta uma *referência*, e um array computado não é uma — então `=IF(TRUE,A1:A3,B1)` em uma célula
-  continua sendo `#VALUE!`, enquanto o `=A1:A3` puro ao lado dela é `A3`. O Excel também responde `#VALUE!`
-  para um `=LEN(A1:A3)` digitado normalmente; só a forma legada com `Ctrl+Shift+Enter` devolve o `LEN(A1)`
-  do canto superior esquerdo (medido no Aspose.Cells 26.6.0, 2026-09-09). Dar essa metade de array à
-  fronteira é trabalho futuro, e a resposta atual está fixada por teste para que a mudança seja deliberada.
+  intersecta uma *referência* — o `=A1:A3` puro ao lado destas é `A3` em `C3` — enquanto um array computado não
+  tem posição na planilha, e é por isso que a resposta do produtor não depende da posição.
 - **Um produto propagado em uma célula pura também é `#VALUE!`**, e essa lacuna vive na fronteira, não na
   regra de propagação: `=A1:C3*E1:E3` digitada em uma célula nunca entra na avaliação elemento a elemento,
   então é o `#VALUE!` do próprio operador de multiplicação, enquanto `=SUM(A1:C3*E1:E3)` nessa mesma célula é
@@ -609,8 +775,8 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   irmãs) ele responde `#VALUE!` na digitação normal e `#REF!` quando a fórmula é inserida como array, e com
   um **produtor** de array dinâmico no slot ele responde `#REF!` nos *dois* modos de entrada —
   `COUNTIF(FILTER(A1:A3,A1:A3>0),">5")`, `COUNTIF(SEQUENCE(5),">3")`, `SUMIF(SORT(A1:A3),">0")` e
-  `COUNTIF(UNIQUE(A1:A3),">0")`, tudo medido no Aspose.Cells 26.6.0, em 2026-09-10 (essas quatro funções
-  ainda não existem aqui; elas são citadas porque são a forma que fixa a regra). O `#REF!` é, portanto, ao
+  `COUNTIF(UNIQUE(A1:A3),">0")`, tudo medido no Aspose.Cells 26.6.0, em 2026-09-10, e respondido da mesma
+  forma aqui agora que [as quatro existem](#produtores-de-array-dinâmico). O `#REF!` é, portanto, ao
   mesmo tempo a resposta do modo array que esta seção reproduz e a única resposta em que as duas colunas do
   produtor concordam, e é por isso que a regra é `#REF!` e não `#VALUE!`. Fixado por
   `CriteriaComputedArgumentTests` e `MathAggregateTests.CriteriaFamily_RejectsAComputedArrayWithRef`. Um
@@ -625,8 +791,8 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   (`CHOOSE`, `OFFSET`, `INDEX`), um nome definido, uma célula única e uma coluna inteira continuam sendo
   intervalos, então `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` e `COUNTIF(OFFSET(A1,0,0,3,1),">0")` dão `2`, como
   no oráculo nos dois modos. Quatro formas são **desvios deliberados**, cada uma fixada como tal em
-  `CriteriaComputedArgumentTests` — três deixadas para a varredura de compatibilidade e a quarta para o
-  roteamento do `LET` da Fase 7:
+  `CriteriaComputedArgumentTests` — três deixadas para a varredura de compatibilidade e a quarta o limite
+  permanente do `LET`:
   `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` dá `0` aqui, onde o oráculo responde `2` nos *dois* modos de entrada —
   um `IF` de condição escalar aqui é um escalar opaco em vez da referência do seu ramo, e fechar isso é item
   da própria varredura, deliberadamente fora desta regra; `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`
@@ -638,8 +804,10 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   onde o oráculo responde `#REF!` inserido como array (`#VALUE!` digitado), porque um nó `LET` é um escalar
   opaco para a sondagem de formato, enquanto um nome vinculado por `LET` *é* um nó de referência cuja
   vinculação já foi reduzida a escalar na captura, então a comporta não vê array de jeito nenhum. Essa última
-  é **pré-existente** (medida idêntica antes desta regra) e pertence ao roteamento do `LET` da Fase 7, que
-  é onde `LET(f,FILTER(…),COUNTIF(f,…))` vai cair. O `SUMPRODUCT` é o único membro dessa família que optou
+  é **pré-existente** (medida idêntica antes de a regra chegar) e é um limite permanente, não parte desta
+  regra: `LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,">0"))` é exatamente essa forma e é o único pin
+  deliberadamente vermelho da suíte — veja o item sobre `LET` em
+  [produtores de array dinâmico](#produtores-de-array-dinâmico). O `SUMPRODUCT` é o único membro dessa família que optou
   por aceitar arrays computados — `SUMPRODUCT((A1:A3<>0)*1)` = 2 e `SUMPRODUCT(A1:A3*1,B1:B3)` = 32,
   coincidindo com o oráculo nos dois modos — e os consumidores de dobra listados em **Suportado**
   acima (`SUM(IF(…))` e companhia) sempre os aceitaram. O `SUBTOTAL` e a forma-referência do
@@ -657,8 +825,16 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   dobra a coluna aberta (`SUM(LEN(A:A))` = 3 sobre três células de um caractere, Aspose.Cells 26.6.0
   inserido como array, 2026-09-09); uma fórmula que funciona sobre `A1:A3` e depois é arrastada para uma
   coluna inteira recupera o antigo `#VALUE!`, sem nenhum outro aviso.
-- Uma condição **escalar** mantém o curto-circuito nativo do `IF` — apenas uma condição de array conduz o
-  zip.
+- Uma condição **escalar** mantém o curto-circuito nativo do `IF`: só o ramo tomado é avaliado, e apenas uma
+  *condição* de array conduz o zip. O ramo tomado, porém, continua sendo lido como array quando *é* um — um
+  produtor, uma chamada elevada ou o resultado de um operador — então `SUM(IF(TRUE,SEQUENCE(3),0))` é 6 e
+  `ROWS(IF(TRUE,SEQUENCE(3),0))` é 3, coincidindo com o Excel nos *dois* modos de entrada, e
+  `SUM(IF(TRUE,A1:C3*2,0))` é 90 sobre `A1:C3` = 1…9, coincidindo com a coluna dele inserida como array
+  (`#VALUE!` digitado). A exceção é um ramo que é um **intervalo puro**: `SUM(IF(TRUE,A1:C3,0))` é `#VALUE!`
+  aqui, onde o Excel responde 45 nos dois modos, deliberadamente intocado porque mexer nisso responderia
+  "o `IF` devolve uma referência?" para essa única forma enquanto as irmãs dela ficam sem resposta. Está
+  registrado para a varredura de compatibilidade e fixado como lacuna. Tudo medido no Aspose.Cells 26.6.0,
+  2026-09-10.
 
 **Divergências conhecidas.** Cada uma delas está fixada por teste como uma *lacuna*, e não afirmada como a
 regra do Excel, de modo que fechar qualquer uma é sempre uma edição deliberada; a única entrada sem teste que
@@ -705,18 +881,6 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   para a varredura de compatibilidade com o Excel já planejada. Fixada por
   `VectorBroadcastingTests.RectangleShorterThanARowVector_StaysNotAvailable_WhereTheOracleFillsWithZero`,
   cujo comentário carrega todos os números acima.
-- **`ROWS`/`COLUMNS` sobre um array computado é `#VALUE!` aqui**, onde o Excel informa a extensão real do
-  array. Para o resultado de um operador ou de uma chamada elevada — `ROWS(A1:C3*2)`, `COLUMNS(A1:C3*2)`,
-  `ROWS(A1:C3*H1:H2)`, `COLUMNS(E1:E3*E5:G5)`, `ROWS(LEN(A1:A3))`, `ROWS(-A1:A3)` — o MySheet responde
-  `#VALUE!` e o Excel responde a extensão (**3**, **3**, **3** e **3** para as quatro formas propagadas, a
-  extensão *propagada* e não a de um dos operandos), tanto digitada quanto inserida como array; sobre o vetor
-  do próprio `ROW`/`COLUMN`, o MySheet responde 1 onde o Excel responde 3 (`ROWS(ROW(A1:C3))`). Os dois lados
-  medidos em 2026-09-10, o Excel no Aspose.Cells 26.6.0. O motivo é a lista de consumidores, e não a regra de
-  propagação: `ROWS` e `COLUMNS` querem uma *referência* e nunca foram ensinados a entrar na avaliação
-  elemento a elemento, então veem o `#VALUE!` comum do operador. O `INDEX` *é* um consumidor, então por ele a
-  extensão é observável — `INDEX(A1:C3*H1:H2,3,1)` é o `#N/A` de uma posição não coberta, e não o `#REF!` de
-  uma fora dos limites. Registrado para a varredura de compatibilidade com o Excel já planejada. Esta é a
-  única entrada desta lista **sem nenhum teste que a fixe**: nada quebra se esse `#VALUE!` mudar.
 - **`SUM(ROW(Ghost!A1:A3))`** — um retângulo escrito *literalmente* sobre uma planilha que não existe, em
   posição de array — responde `6`, os números de linha `1+2+3`, enquanto o Excel responde `#REF!`. O
   `ROW(Ghost!A1:A3)` escalar na mesma pasta de trabalho já é `#REF!`, assim como o caminho de array sobre um
@@ -767,7 +931,8 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   (`#VALUE!` digitado), e o gêmeo de união *literal* é `#VALUE!` aqui, o que faz desta a única linha em que
   um nome não coincide com seu literal; e um nó `LET` no próprio slot de argumento de um consumidor continua
   opaco, porque a sondagem de formato não olha para dentro dele, então `SUM(LET(r,Rng,(r<>0)*1))` dá `1`
-  contra **2** nos dois modos de entrada — quem cuida dessa é a correção de roteamento do `LET` da Fase 7. Um
+  contra **2** nos dois modos de entrada — o mesmo limite permanente do `LET` que a
+  [seção dos produtores](#produtores-de-array-dinâmico) registra, ainda aberto. Um
   nome vinculado por `LET` *dentro* de uma posição de array, por outro lado, resolve **quando o nome está
   vinculado a um intervalo**, através do escopo do `LET` que a
   [resolução de nomes](#intervalos-nomeados) consulta primeiro: `LET(r,A1:A3,SUM((r<>0)*1))` = **2**,
@@ -777,7 +942,8 @@ combinação de teclas — e todo número tirado da forma digitada vem rotulado 
   `LET(r,A1:A3*1,COUNT(r*1))` dá `0`, `LET(r,A1:A3*1,SUM(r*1))` dá `#VALUE!` e
   `LET(r,A1:A3*1,INDEX(r*2,3))` dá `#REF!` contra os **3**, **14** e **18** do oráculo nos dois modos de
   entrada — inalterado por esta regra (medido no Aspose.Cells 26.6.0, em 2026-09-10, e no motor antes e
-  depois da regra), e quem cuida dessa metade também é o roteamento do `LET` da Fase 7.
+  depois da regra), e é o mesmo limite permanente do `LET` — um produtor vinculado por `LET` colapsa
+  exatamente por esse motivo.
 - **Uma função ciente de intervalos nunca é elevada sobre os slots ESCALARES dela.** O Excel também eleva
   uma função ciente de intervalos: ele consome o intervalo no slot que recebe um e repete a *chamada
   inteira* por elemento de um retângulo entregue a qualquer outro slot. A classificação do MySheet é por

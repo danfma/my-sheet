@@ -211,8 +211,10 @@ unchanged, guarded by a frozen pre-2.0 binary fixture in the test suite.
 
 Releases that changed how a saved value is *interpreted* without touching the format:
 
-- **3.17.0** — no format change and no new tag. Early-1900 date serials (`[0, 61)`) change MEANING by one
-  calendar day; cached results over that window need one `InvalidateCache()`.
+- **3.17.0, the date epoch** — no format change and no new tag *for that part of the release*. Early-1900
+  date serials (`[0, 61)`) change MEANING by one calendar day; cached results over that window need one
+  `InvalidateCache()`. Other parts of 3.17.0 do add union tags and a `Workbook` member — see the
+  forward-compatibility subsections below.
 
 ### Forward-compatibility: shared-formula delta nodes (tags 319-321)
 
@@ -260,6 +262,56 @@ use `AGGREGATE` serializes to exactly the same bytes as before: the frozen binar
 — the base64 cell-store wire snapshot and the pre-2.0 `.msgpack.bin` fixture — stay valid and need no
 regeneration. Only a new **member on `Workbook` itself** would change the shape of every saved file and
 force that.
+
+### Forward-compatibility: the dynamic-array producer nodes (tags 323-326)
+
+`FILTER`, `SORT`, `UNIQUE` and `SEQUENCE` are four new expression node types and claim the next four
+append-only union tags, in one coordinated edit (see [implicit array
+arguments](workbook-and-expressions.md#dynamic-array-producers) for what they do):
+
+| Tag | Node |
+| --: | --- |
+| 323 | `Lookup.Filter` |
+| 324 | `Lookup.Sort` |
+| 325 | `Lookup.Unique` |
+| 326 | `Mathematics.Sequence` |
+
+A cell whose formula calls one of them is serialized under that tag. The next free tag is **327**.
+
+This is a **one-way** compatibility boundary, same as any append-only tag addition:
+
+- A file saved by **this or a later** version of the library — whether produced by `Workbook.Save` or by
+  `ExcelFile.Load` followed by a save — can contain cells using tags 323-326 whenever a cell's formula calls
+  one of the four. Such a file **cannot be opened by a version of the library older than the one that
+  introduced these tags**: the older MemoryPack union does not recognize them and deserialization fails.
+- A file saved by an **older** version of the library never contains these tags, and continues to load
+  unchanged in this and every later version, exactly as the append-only policy above guarantees.
+- As with `AGGREGATE`, the tags are written per node, so a workbook that uses none of the four serializes to
+  exactly the same bytes as before and the frozen binary goldens need no regeneration.
+
+**A warm snapshot can now carry error code 7, `#CALC!`.** These four introduce Excel's empty-array error as
+the eighth [`Error`](computed-value.md) code, so a warm-start value block can hold a `CachedCellValue` whose
+`ErrorCode` is `7` — for example the cached result of `=SUM(FILTER(A1:A3,A1:A3>100))`. That is a **value**,
+not a format change: the value block's shape is unchanged and no tag is involved.
+
+The degradation is graceful in both directions. What is *pinned by tests* is the mechanism, on this build:
+
+- A code past the end of the error table displays as the unknown marker **`#ERR?`** rather than throwing —
+  `Error.FromCode(8).Display` is `#ERR?` — which is the rule a **pre-3.17** build applies to code 7, whose
+  table stopped at `#N/A`. So an older build reading such a snapshot shows a wrong error text; it does not
+  crash and it does not fail to load. (The old build itself is not exercised by the suite; what the suite
+  pins is that the marker rule exists and that 7 is no longer past the table.)
+- An error display text the engine does not know folds onto `#VALUE!` rather than throwing —
+  `Error.FromDisplay("#SPILL!")` is `#VALUE!` — which is also what makes `#CALC!` demonstrably a *real* code
+  now rather than one the fold conjures.
+- The warm-start surrogate round-trips code 7 exactly: `CachedCellValue.ErrorCode` is `7` going out and
+  `Error.Calc` coming back.
+
+Those three are pinned by `ErrorTests.Calc_IsTheEighthError_AndRoundTripsExactly` and
+`ErrorTests.AnUnknownDisplay_StillFoldsOntoValue_AndCalcIsNoLongerUnknown`. The `.xlsx` round trip also
+closes — the exporter writes `#CALC!` as an ordinary `t="e"` cell and the loader recognizes it alongside the
+other singleton codes — but it is carried by the code (the two mirrored canonicalization switches) rather
+than by a dedicated fixture in the Excel suite.
 
 ### Forward-compatibility: container v3 (chunked Brotli)
 
