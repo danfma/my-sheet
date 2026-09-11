@@ -49,9 +49,10 @@ internal static class StructuredReferenceSyntax
 
         if (payload.Length == 0)
         {
-            // Tabela1[] is ACCEPTED and means the whole DATA body: measured, Aspose stores it back as the
-            // bare `Tabela1` and, over a table WITH a totals row, answers the data (90) where [#All]
-            // answers 180. A real xlsx carries the spelling too (the saved <f> keeps `SUM(Tabela1[])`).
+            // Tabela1[] is ACCEPTED and means the whole DATA body: measured, Aspose reads it back (the
+            // cell.Formula surface) as the bare `Tabela1` and, over a table WITH a totals row, answers the
+            // data (90) where [#All] answers 180. A real xlsx carries the spelling too — the SAVED <f>
+            // keeps `SUM(Tabela1[])`, so the two surfaces disagree and only this one names them.
             return new TableReference(tableName, null, TableArea.Data);
         }
 
@@ -435,9 +436,13 @@ internal static class StructuredReferenceSyntax
     private static bool HasEdgeWhitespace(string name) =>
         name.Length > 0 && (char.IsWhiteSpace(name[0]) || char.IsWhiteSpace(name[^1]));
 
-    // The escape set is Microsoft's documented one and exactly what the oracle emits: [ ] # ' @ and nothing
-    // else, so a comma, a colon, a parenthesis, a '%' and a raw newline all pass through untouched
-    // ([e#f] -> [e'#f], [a'b] -> [a''b], [c@d] -> [c'@d], [a,b] and [Line\nBreak] stored identically).
+    // The escape set is Microsoft's documented one and matches what the oracle emits on the cell.Formula
+    // READBACK surface: [ ] # ' @ and nothing else, so a comma, a colon, a parenthesis, a '%' and a raw
+    // newline all pass through untouched ([e#f] -> [e'#f], [a'b] -> [a''b], [c@d] -> [c'@d], [a,b] and
+    // [Line\nBreak] stored identically). The SAVED <f> disagrees for '@' — the oracle writes [c@d] and
+    // [a@b] unescaped there while still escaping '#' — but this writer's output is accepted and
+    // readback-stable on both surfaces, which is the invariant that matters here (measured,
+    // Aspose.Cells 26.6.0, PLAIN, 2026-09-11, flash-review probe).
     private static void EscapeName(StringBuilder builder, string name)
     {
         foreach (var c in name)

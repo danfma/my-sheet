@@ -10,7 +10,8 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// <summary>
 /// Phase 4 T1 (foundation): the <see cref="TableReference"/> node itself — resolution over the Phase 3
 /// registry, the two invariants of <see cref="TableReference.Evaluate"/>, the union tag and the wire. The
-/// parser does not emit the node yet (Phase 4 T5), so every tree here is built by hand; the region geometry
+/// parser has emitted the node since the parse-arm commit, so a tree here is built by hand as a test-
+/// isolation choice — the parse-level shapes live in StructuredReferenceTests — and the region geometry
 /// for the five non-<see cref="TableArea.Data"/> areas is Phase 5 T1's and is pinned here only as the
 /// interim <c>#REF!</c> it answers today.
 /// </summary>

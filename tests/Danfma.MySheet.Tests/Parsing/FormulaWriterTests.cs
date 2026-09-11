@@ -97,11 +97,16 @@ public class FormulaWriterTests
     [Arguments("Sheet1!A1+1", "A1+1")] // referência ao próprio contexto fica sem qualificação
     // Fase 4: os sete pares de normalização do item 16, com as três direções que a Ruling 2 inverteu já
     // corrigidas (medido em Aspose.Cells 26.6.0, entrada PLAIN, 2026-09-11). `[[Valor]]` perde o par de
-    // colchetes interno, `[#Data]` é implícito ao lado de uma coluna, o espaço decorativo depois da vírgula
-    // cai, e `[#totals]` é canonizado. As invertidas: `Tabela1[ Col ]` vira `Tabela1[[ Col ]]` porque o
-    // oráculo NÃO apara o espaço (`[ Padded ]` volta como `[[ Padded ]]`), `Tabela1[[Sales Amount]]` volta
-    // como `Tabela1[Sales Amount]` (e não o contrário), e `Tabela1[Rev#1]` volta em colchete SIMPLES com o
-    // `#` escapado.
+    // colchetes interno, o espaço decorativo depois da vírgula cai, e `[#totals]` é canonizado. As
+    // invertidas: `Tabela1[ Col ]` vira `Tabela1[[ Col ]]` porque o oráculo NÃO apara o espaço
+    // (`[ Padded ]` volta como `[[ Padded ]]`), `Tabela1[[Sales Amount]]` volta como
+    // `Tabela1[Sales Amount]` (e não o contrário), e `Tabela1[Rev#1]` volta em colchete SIMPLES com o
+    // `#` escapado. DIVERGÊNCIA registrada, e não medição do oráculo: os pares `[[#Data],[Valor]]` ->
+    // `[Valor]` (e o gêmeo com espaço) são normalização DO MySheet — o oráculo PRESERVA o `[#Data]` ao
+    // lado de uma coluna (`=SUM(Tabela1[[#Data],[Valor]])` volta idêntico; só o espaço decorativo cai) e
+    // canoniza apenas a ORDEM (`[[Valor],[#Data]]` -> `[[#Data],[Valor]]`; review probe oracle-full3,
+    // linhas 6-7 e 48). O colapso é inevitável no modelo — o nó `(Valor, Data)` não distingue a origem —
+    // e semanticamente inocente, mas FORMULATEXT/export diverge: work item sob P0, não paridade.
     [Arguments("Tabela1[[Valor]]", "Tabela1[Valor]")]
     [Arguments("Tabela1[[#Data],[Valor]]", "Tabela1[Valor]")]
     [Arguments("Tabela1[[#Data], [Valor]]", "Tabela1[Valor]")]

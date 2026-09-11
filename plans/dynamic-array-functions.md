@@ -224,9 +224,10 @@ coordinated edit (`Danfma.MySheet/Expressions/Expression.cs:356-359`):
 | 325 | `Lookup.Unique` | 7 |
 | 326 | `Mathematics.Sequence` | 7 |
 
-**The next free tag is 327.** The file now carries **327** `[MemoryPackUnion]` attributes, tags 0-326 with no
-gaps, and the policy comment at the top of the file reads "Add new tags at 327+". Note that
-`grep -c MemoryPackUnion Expression.cs` prints **328**, not 327: the policy comment itself contains the
+**The next free tag is 328** — 327 went to `TableReference` (Phase 4). The file now carries **328**
+`[MemoryPackUnion]` attributes, tags 0-327 with no gaps, and the policy comment at the top of the file
+reads "Add new tags at 328+". Note that
+`grep -c MemoryPackUnion Expression.cs` prints **329**, not 328: the policy comment itself contains the
 word. Count `^\[MemoryPackUnion` if you want the attribute count. Two phases appending tags independently
 collide at MemoryPack type initialization, not at compile time, so re-count before claiming a number.
 

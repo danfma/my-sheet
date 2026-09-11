@@ -372,13 +372,12 @@ recebe o cabeçalho novo quando você o salva.)
 
 Este é um limite de compatibilidade em **uma única direção**:
 
-- **Nenhuma tag nova de union.** O registro vive no `Workbook`, não na union de expressões, e nada na
-  linguagem de fórmulas lê uma tabela ainda: uma referência estruturada (`Tabela1[Valor]`) não passa pelo
-  parser. O nó que representará uma delas, e a tag de union que ele tomará (**a 327 agora está tomada pelo
-  `TableReference`; a próxima tag livre é a 328** — as de 0 a 327 estão ocupadas; conte o `Expression.cs` com
-  uma âncora de início de linha, porque um
-  `grep -c MemoryPackUnion` puro devolve um a mais), pertencem ao trabalho de semântica de referências; essa
-  metade do limite ainda não existe.
+- **Uma tag nova de union.** O registro em si vive no `Workbook`, não na union de expressões — mas o
+  trabalho de semântica de referências adicionou desde então o nó que representa uma referência
+  estruturada, e a metade "nenhuma tag" deste limite acabou: a tag **327 é do `TableReference`; a próxima
+  tag livre é a 328** (as de 0 a 327 estão ocupadas; conte o `Expression.cs` com uma âncora de início de
+  linha, porque um `grep -c MemoryPackUnion` puro devolve um a mais). Uma referência estruturada
+  (`Tabela1[Valor]`) agora passa pelo parser e avalia através deste registro.
 - **O cabeçalho do objeto vai de `0x02` para `0x03`, e um registro vazio custa quatro bytes.** MEDIDO em
   2026-09-10 no branch que introduz o registro (MemoryPack 1.21.4, `Save` frio e descomprimido): um
   `Workbook` vazio é serializado em **13** bytes (`03` + três mapas de comprimento zero), onde a versão

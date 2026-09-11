@@ -341,11 +341,11 @@ when you save it.)
 
 This is a **one-way** compatibility boundary:
 
-- **No new union tag.** The registry lives on `Workbook`, not in the expression union, and nothing in the
-  formula language reads a table yet: a structured reference (`Tabela1[Valor]`) does not parse. The node
-  that will represent one, and the union tag it claims (**327 is now taken by `TableReference`; the next free tag is 328** — 0-327 are taken; count
-  `Expression.cs` with a leading-bracket anchor, because a bare `grep -c MemoryPackUnion` is one too high),
-  belong to the reference-semantics work; that half of the boundary does not exist yet.
+- **One new union tag.** The registry itself lives on `Workbook`, not in the expression union — but the
+  reference-semantics work has since added the node that represents a structured reference, so the "no tag"
+  half of this boundary is gone: tag **327 is `TableReference`; the next free tag is 328** (0-327 are taken;
+  count `Expression.cs` with a leading-bracket anchor, because a bare `grep -c MemoryPackUnion` is one too
+  high). A structured reference (`Tabela1[Valor]`) now parses and evaluates through this registry.
 - **The object header goes `0x02` → `0x03`, and an empty registry costs four bytes.** MEASURED 2026-09-10
   on the branch that introduces the registry (MemoryPack 1.21.4, cold uncompressed `Save`): an empty
   `Workbook` serializes to **13** bytes (`03` + three zero-length maps) where the previous version wrote

@@ -172,8 +172,9 @@ public class StructuredReferenceSyntaxTests
         await Assert.That(reference.Area).IsEqualTo(area);
     }
 
-    // `Tabela1[]` is ACCEPTED and means the whole DATA body, measured: Aspose stores it back as the bare
-    // `Tabela1` and, over a table WITH a totals row, answers 90 (the data) where `[#All]` answers 180.
+    // `Tabela1[]` is ACCEPTED and means the whole DATA body, measured: Aspose reads it back on the
+    // cell.Formula surface as the bare `Tabela1` (the SAVED <f> keeps `SUM(Tabela1[])` — the surfaces
+    // disagree) and, over a table WITH a totals row, answers 90 (the data) where `[#All]` answers 180.
     // `Tabela1[[]]` is also accepted but means `#All` — measured on the same two fixtures (180 with the
     // totals row) and stored back as `=SUM(Tabela1[#All])`.
     [Test]
@@ -370,8 +371,11 @@ public class StructuredReferenceSyntaxTests
         await Assert.That(reparsed).IsEqualTo(reference);
     }
 
-    // Exhaustive property pass over EVERY payload the tokenizer can produce out of the ten characters the
-    // grammar reacts to, up to four of them. Two invariants, both of which a hand-picked row list can miss:
+    // Exhaustive property pass over every payload the tokenizer can produce out of the ten characters the
+    // grammar reacts to, up to four of them — the alphabet is too small to spell a specifier (#Data needs
+    // five ordered characters the shuffler will not often produce), so coverage of the specifier forms
+    // rests on the hand-picked rows above and this pass guards the PARTITION: no third exception kind, no
+    // round-trip hole. Two invariants, both of which a hand-picked row list can miss:
     // (a) the only exception that escapes Parse is a ParseException carrying one of the three structured
     // kinds — never an IndexOutOfRange from the offsets, a NullReference, or a raw InvalidOperation; and
     // (b) every ACCEPTED payload's canonical rendering re-parses to the same node, so no spelling the

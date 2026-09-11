@@ -169,10 +169,11 @@ internal sealed class Parser(
     // package stores the workbook name in an externalLink part and refers to it by number. A payload that is
     // neither cannot be pinned down: `[Valor]` is an implicit-table column reference and `[Book1.xlsx]` is a
     // by-name external reference, and nothing in the token tells them apart, so the third message names both
-    // possibilities instead of asserting one. The implicit-table shape is the only one of the three the
-    // oracle itself rejects outside a table — "Invalid table reference, formula should be in table when
-    // specifing no table name" (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11) — because it is valid only
-    // INSIDE its own table, which the parser has no cell context to check.
+    // possibilities instead of asserting one. The implicit-table shapes — `[Valor]`, and equally the
+    // current-row spellings `[@Valor]` and `[@]` — are the ones the oracle itself rejects outside a table,
+    // all with the same message "Invalid table reference, formula should be in table when specifing no
+    // table name" (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11, all three measured), because they are
+    // valid only INSIDE their own table, which the parser has no cell context to check.
     private static string UnsupportedPrefixBracket(string text)
     {
         var payload = text[1..^1];
@@ -373,7 +374,8 @@ internal sealed class Parser(
         }
 
         // A structured (table) reference: this identifier is the table name and the `[...]` token carries the
-        // whole specifier. Three ordering facts put the arm exactly here, all measured, none hypothetical.
+        // whole specifier. Three ordering facts put the arm exactly here: the first two are forced by the
+        // call shape itself, and only the third is measured.
         //  - AFTER the LParen check above, so `SUM(...)` still wins. Safe because FunctionRegistry.ByName is
         //    consulted at exactly one site, behind an Expect(LParen) in ParseFunctionCall, so `Name[` can
         //    never look like a call.

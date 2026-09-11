@@ -245,9 +245,10 @@ public class TableRegistryTests
     // === The table-name rule =============================================================================
 
     // "Tabela1" and "Table1" are Excel's OWN default table names (measured in a real ClosedXML-authored file:
-    // name="Tabela1" displayName="Tabela1") and they are exactly what NamedReferences.ValidateName REJECTS
-    // today, because Parser.IsCellReference treats any letters-then-digits string as a cell reference with no
-    // column/row bound. This assertion is the regression guard for the dedicated, grid-bounded check.
+    // name="Tabela1" displayName="Tabela1"). Before Phase 4's grid-bounded repoint they were exactly what
+    // the name validator rejected, because its cell-reference check treated any letters-then-digits string
+    // as a cell reference with no column/row bound; this assertion is the regression guard for the repointed,
+    // grid-bounded rule that now ACCEPTS them (NameValidationTests pins the acceptance directly).
     [Test]
     public async Task ExcelDefaultAndDottedNames_AreAccepted()
     {
