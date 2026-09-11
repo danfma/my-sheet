@@ -326,3 +326,371 @@ on re-parse) before any repo code was written.
 ## Phase Summary
 
 _(write when phase completes)_
+
+## Re-verification against main @ 1df5174 (2026-09-10) — READ THIS BEFORE ANY BRIEF IS WRITTEN
+
+The design predates Phases 3, 8, 9, 10, 11a and 11b, all of which are merged. A full anchor and claim audit
+found **27 stale anchors, 9 loose ones and 38 exact**, plus eleven behavioural claims that are now false and
+five oracle measurements that INVERT design decisions. `Tokenizer.cs` and `FormulaWriter.cs` did not move at
+all; `ArrayEvaluation.cs`, `NamedReferences.cs` and `TableInteropTests.cs` moved so far that their citations
+are useless. Measured baselines on main today, all green: core **1817 / 0**, Excel **93 / 0**,
+`TokenizerTests` 9, `ParseExceptionTests` 14, `FormulaWriterTests` **51** (not the design's 49),
+`TableInteropTests` 14.
+
+### The eight findings that would do the most damage unnoticed
+
+1. **The union tag is 327, not 322 and not 323.** Item 4 says write 322; `Expression.cs:353` gives 322 to
+   `Aggregate` (Phase 2). On main the next free tag is 323 — **but Phase 7 takes 323 FILTER, 324 SORT, 325
+   UNIQUE and 326 SEQUENCE and merges before this phase**, so item 4 must write **327** and bump the
+   append-only policy comment (already at "327+" on the Phase 7 branch) to 328+. A duplicate tag fails at
+   MemoryPack *type initialization*, not at compile time — a crash on first serialize, in a phase whose own
+   verification step 6 is a byte comparison. **Count the attributes at implementation time; do not trust any
+   number written here.**
+2. **Aspose's canonical single-column rendering is SINGLE-bracket, and item 12 has it inverted.** Measured on
+   Aspose.Cells 26.6.0, PLAIN entry, over a `Data!Tabela1` fixture: `Tabela1[Sales Amount]`,
+   `Tabela1['#OfItems]`, `Tabela1[Total (USD)]`, `Tabela1[a,b]`, `Tabela1[a:b]`, `Tabela1[% Comissao]` and
+   `Tabela1[Unit_Price]` are all stored back IDENTICALLY, while the double-bracket spelling of each is
+   **rewritten to the single-bracket one**. The escape is a `'` prefix on each of `[ ] # ' @` — exactly item
+   12's `EscapeName` set — so `[e#f]` becomes `[e'#f]`, `[c@d]` becomes `[c'@d]`, `[a'b]` becomes `[a''b]`,
+   and `[x[y]` / `[p]q]` are REJECTED unescaped. **The double-bracket form is canonical for exactly one
+   case: a column name with leading or trailing whitespace** (`[ Padded ]` → `[[ Padded ]]`). This settles
+   open questions 1 and 2 and inverts item 12's `IsSimpleColumnName` rule, the RENDERING DIVERGENCE risk
+   (which calls MySheet writing `Tabela1[['#OfItems]]` "safe"), item 16's 15 canonical rows, and item 16's
+   normalization pairs `("Tabela1[Sales Amount]","Tabela1[[Sales Amount]]")` and
+   `("Tabela1[Rev#1]","Tabela1[[Rev'#1]]")`, both of which now point the wrong way. **B1's "alternative,
+   Excel-truer fix" is therefore not an alternative — it is the P0-correct answer. Promote it to the
+   correction.**
+3. **Aspose does NOT trim a single-bracket specifier — it rejects it.** `Tabela1[ Valor ]` over a header
+   `"Valor"` is rejected (`Invalid table column:  Valor`), and so is `Tabela1[[ Valor ]]`. With a header that
+   genuinely is `" Padded "`, `[ Padded ]` resolves and canonicalises to `[[ Padded ]]`. Aspose tolerates a
+   space only AFTER a comma between items (`Tabela1[[#Headers], [#Data], [Valor]]` = 4, rewritten without
+   the space). So the design's Trim of each item OUTSIDE its brackets is right and its `payload.Trim()` on
+   the payload is **wrong**: item 6's `Trim()`, item 14's `[ Col ] => "Col"` / `[[ Col ]] => " Col "` and
+   item 16's `("Tabela1[ Col ]","Tabela1[Col]")` must all change, and `Tabela1[ Valor ]` must end as a
+   resolution-time miss rather than a silent hit on `Valor`. Open question 3 is answered: Excel does not
+   trim. This also retires the design's WHITESPACE LENIENCE risk, which called it a pre-existing class to
+   document rather than fix — under P0's addendum a measured rejection is a work item.
+4. **Phase 4 item 3 and Phase 5 item 1 create the SAME file with DIFFERENT enums**, and Phase 5 item 4
+   duplicates item 4 verbatim while Phase 5 item 8 duplicates item 11. Phase 4 wants
+   `TableArea { Data, All, Headers, Totals, HeadersAndData, DataAndTotals }`; Phase 5 wants
+   `TableItem : byte { Data, All, Headers, Totals }`, which **cannot represent the specifier pairs the
+   grammar produces**. Measured, the pairs are legal Excel: `COUNTA(Tabela1[[#Headers],[#Data]])` = 12,
+   `SUM(Tabela1[[#Data],[#Totals]])` = 666, `COUNTA(Tabela1[[#Headers],[#Data],[Valor]])` = 4, all stored
+   identically — so open question 6 is answered in favour of keeping them, and Phase 4's 6-member enum wins.
+   **Resolve this before either phase is dispatched.** Phase 5 item 5 also asks for
+   `TableDefinition.TryGetRegion(...)`; Phase 3 shipped `Table`, not `TableDefinition`.
+5. **`ArrayEvaluation` is unrecognisable and M1's prescribed arm SHAPE is now wrong.** `Probe` moved
+   `:123-201` → **`:242-349`**, `TryBuildOperand` `:420-481` → **`:372-466`**, the scalar default `:478-480`
+   → **`:462-464`**, the fall-through comment `:131-136` → **`:252-256`**. `Probe` now also admits
+   `NameReference` (Phase 11a), `UnaryOperation` and a lifted `Function` (Phase 8). M1's diagnosis still
+   holds — a `TableReference` falls to the default and broadcasts as a 1x1 opaque scalar — but its
+   prescription ("mirror the `AnchoredRangeReference` arms") gives ONE outcome, where the tree's current
+   pattern is Phase 11a's shared FOUR-outcome oracle so `Probe` and the builder provably cannot drift (the
+   invariant is documented at `:233-235`). A header-only table with zero data rows needs more than one
+   outcome: `Table.TryGetColumnRange` returns false when `DataRowCount == 0` (`Table.cs:121`).
+   **M1 should shrink to a cross-reference** — Phase 5 item 10 already carries the right text and item 21
+   already owns the test. Two further things nobody states: `Row{[NameReference or Reference]}` at `:281`
+   **already admits a `TableReference`** the moment the node exists, and `IsBareReferenceNode` (`:230-231` =
+   `expression is Reference or NameReference`) **needs no change at all** — its own doc at `:226` says "a
+   name today, a structured table reference tomorrow", so the master plan's "the single line to extend" is
+   stale and `SUM(Tabela1[Valor])` takes the reference path for free.
+   M1 also asserts `SUM(Tabela1[Valor]*2)` and `SUM(IF(Tabela1[Col]>0,1,0))` return Excel's elementwise
+   result; measured, that is **120 and 2 ARRAY-ENTERED** and **`#VALUE!` for both PLAIN**. The targets are
+   right for this engine, but the entry mode must be stated beside the numbers.
+6. **Item 18 would land as a red suite plus a contradiction of an in-tree comment.**
+   `ExcelGridCellReferenceTests.IsCellReference_StaysUnbounded` (`:51-56`) asserts
+   `Parser.IsCellReference("Tabela1")` is TRUE, and `Parser.cs:818-826` argues the unbounded behaviour is
+   deliberate. Item 18's "blast radius measured" list does not contain that file. **The elegant split the
+   tree now offers:** item 18's stated goal (making `DefineName("Table1")` stop throwing) is reached by
+   repointing `NamedReferences.IsValidName` (`:203`) from `Parser.IsCellReference` to the already-shipped,
+   already-tested `Parser.IsExcelGridCellReference` — no parser change, no broken test. The other half (bare
+   `=Tabela1` resolving to the data body, which Aspose confirms: `SUM(Tabela1)` = 180, the whole data body)
+   still needs a parser change and still needs a go/no-go.
+7. **Phase 4 has ZERO docs items and the shipped docs assert the opposite of what it does.**
+   `docs/workbook-and-expressions.md:832` and `docs/pt-BR/workbook-and-expressions.md:878` both state that
+   `=SUM(Tabela1[Valor])` raises `ParseException: Unexpected character '['`. Also affected:
+   `workbook-and-expressions.md:111-118` (enumerates every `ParseErrorKind`; item 2 adds three) and `:773`
+   with pt-BR `:819`; `docs/excel-interop.md:66, :125, :243-246` and pt-BR `:68, :264` ("cannot be parsed
+   and degrades to the cached value"); and `docs/serialization.md` plus its twin, which need the same
+   forward-compatibility subsection the `AGGREGATE` tag has at `:243-252` (pt-BR `:264-273`) and whose "next
+   free tag" sentence at `:294` (pt-BR `:320-321`) must move. **The pt-BR twin is already asymmetric** — it
+   does not enumerate the `ParseErrorKind` members — so the twin edits differ and must be diffed afterwards.
+8. **Verification step 9 points the implementer at the wrong oracle.** `/tmp/probe-lexer-parser` is a
+   self-authored prototype; under P0's addendum Aspose 26.6.0 beats it, and **15 rows where the two
+   disagree** were measured. Either regenerate the expected output after the writer rule flips (finding 2)
+   or delete the step in favour of an Aspose probe.
+
+### Independently re-measured by the controller (2026-09-10)
+
+Findings 2 and 3 and the three misclassified shapes invert design decisions, so every one of them was
+re-measured a second time on a DIFFERENT fixture (a 5-column `Tabela1` built through `ListObjects.Add` with
+`DisplayName`, columns `Valor` / `Sales Amount` / `#OfItems` / `" Padded "` / `e#f` and values 10..50), and
+all nine reproduce byte for byte, Aspose.Cells 26.6.0, PLAIN entry:
+
+| written | value | stored back |
+| --- | --- | --- |
+| `SUM(Tabela1[Valor])` | 30 | identical |
+| `SUM(Tabela1[[Valor]])` | 30 | **`=SUM(Tabela1[Valor])`** |
+| `SUM(Tabela1[[Sales Amount]])` | 60 | **`=SUM(Tabela1[Sales Amount])`** |
+| `SUM(Tabela1[['#OfItems]])` | 90 | **`=SUM(Tabela1['#OfItems])`** |
+| `SUM(Tabela1[ Padded ])` | 120 | **`=SUM(Tabela1[[ Padded ]])`** |
+| `SUM(Tabela1[e#f])` | 150 | **`=SUM(Tabela1[e'#f])`** |
+| `SUM(Tabela1[ Valor ])` | REJECTED | `Invalid table column:  Valor` |
+| `SUM(Tabela1[])` | 450 | **`=SUM(Tabela1)`** |
+| `SUM(Tabela1[[Valor],[#Data]])` | 30 | **`=SUM(Tabela1[[#Data],[Valor]])`** |
+| `SUM('Tabela1'[Valor])` | REJECTED | `Invalid "'"` |
+| `COUNTA(Tabela1[[#Headers],[#Data]])` | 20 | identical |
+| `SUM(Tabela1[[Valor]:[Sales Amount]])` | 90 | identical |
+
+So the writer rule is settled and needs no third opinion: **single bracket always, `'` before each of
+`[ ] # ' @`, and double brackets only for a column name carrying leading or trailing whitespace.**
+
+### Three shapes the design classifies wrongly, measured
+
+| shape | design says | Aspose 26.6.0 PLAIN |
+| --- | --- | --- |
+| `Tabela1[]` | `InvalidStructuredReference` ("empty specifier") | **ACCEPTED**, = 666, rewritten to `=SUM(Tabela1)` — the whole data body |
+| `Tabela1[[Valor],[#Data]]` | `Invalid` ("a specifier cannot follow a column") | **ACCEPTED**, = 60, rewritten to `=SUM(Tabela1[[#Data],[Valor]])` — Aspose REORDERS |
+| `Tabela1[[A],[B]]` | `Unsupported` "precisely because we are unsure" | **REJECTED** (`Unknown token with bracket`) → the truer kind is `Invalid` |
+
+The design's tie-break rule (classify `Unsupported` when unsure whether Excel accepts a shape) is sound but
+no longer applies to any of these: the uncertainty is gone. Two more settled by measurement: a column SPAN is
+legal (`SUM(Tabela1[[Valor]:[Sales Amount]])` = 660, stored identically), so keeping it `Unsupported` is the
+right KIND but not because Excel rejects it; and `[#Totals]` on a table with no totals row is **`#REF!`**,
+which answers the master plan's own open question. Case is insensitive and canonicalised (`[#totals]` →
+`#Totals`), so item 14's lowercase row and item 16's `("Tabela1[#totals]","Tabela1[#Totals]")` pair are right.
+
+### `'My Table'[Valor]` is not Excel
+
+`SUM('Tabela1'[Valor])` is **rejected** by Aspose (`Invalid "'"`), and `Table.ValidateName`
+(`Table.cs:149-206`) already forbids a space in a registered table name. So item 14's accepted row, item 16's
+canonical row and item 12's `'`-quoting branch are unreachable or wrong — and item 14's stated MECHANISM
+("`ReadQuotedName` emits a decoded Identifier token the new `ParseIdentifier` arm then sees") is
+mechanically true, which is exactly why it would ship green while being non-Excel.
+
+### Claims that still hold, measured against the Release build
+
+`Parser.IsCellReference` returns TRUE for `Tabela1`, `Table1`, `Sales2024`, `Vendas2024`, `ABC123` and `表1`,
+so item 8's "before `:326` is MANDATORY" and its ordinal reasoning stand. `DefineName("Tabela1")` throws
+today. `=Tabela1` parses to `CellReference { Id = TABELA1 }` and evaluates to **0** — the silent wrong answer
+is real. `=[1]Sheet1!A1` throws `UnexpectedCharacter` at 0, and `='[1]Data'!A1` is untouched by an
+unconditional `[` reader because `'` dispatches first (`Tokenizer.cs:57`). `Tokenize("1 # 2")` still throws,
+so `InvalidCharacter_Throws` survives item 1. **No test in either suite contains a `[` inside a formula
+string** (re-grepped, 0 hits). `FunctionRegistry.ByName` has exactly one call site, behind
+`Expect(LParen)`, so `Name[` can never look like a call. Item 13's "working for free" claim holds
+structurally AND numerically (`SUM(Tabela1[Valor]:Tabela1[Sales Amount])` = 660). `FormulaWriter`'s
+`default:` throws and `Precedence` returns `AtomPrecedence` via `_ =>`, so item 12's arm is mandatory and no
+`Precedence` change is needed. `NamedReferences.CaptureValue`'s default is still
+`_ => expression.Evaluate(context)`, so M1's "needs NO arm" note is right (at `:79`, not `:59-69`).
+`DependencyExtractor.Visit`'s `default: return;` and `ReferenceGuard`'s `default: return null` both stand
+verbatim as risks. And item 11's accept-not-reject is right: Aspose applies implicit intersection to a bare
+`Tabela1[Valor]` per row (10 / 20 / 30 over the data rows, `#VALUE!` outside), which is compatible with
+sharing one master tree for the reason `AnchoredFormulaSupport.cs:34-41` already gives — **but item 11 has no
+test item anywhere in the 18, and TDD is not optional here.**
+
+### B2 is correct, its arithmetic is right, every anchor is +4, and it misses two comments
+
+Read at `:132-301`: each of the five table tests asserts only `warnings.Count`, `Kind == UnparsableFormula`,
+`Subject == "B4"`, a non-empty `Detail` and the cached fallback (999.0 / Blank / 999.0 / 999.0+888.0 /
+42.0+43.0). **None asserts the formula text or the failure reason**, so all five pass after the vehicle swap:
+verification 8 must read `failed: 0`, not `failed: 5`. The count is 11 test methods and 12 usages. Every one
+of B2's fifteen line numbers is **+4**. Two comments the same commit falsifies and B2 does not list:
+`TableInteropTests.cs:249-251` ("the master's TOKENIZATION is what fails here, before any parse" — after item
+7 it tokenizes fine and the failure moves to the parser) and `WorksheetStreamLoader.cs:520-522` ("which the
+tokenizer has no `[` for"). B2's cached-value list also omits `888.0` (`:222`). Note Phase 3 already rewrote
+half of the `TableInteropTests` class comment, so only "the tokenizer has no `[`" remains false-after-Phase-4.
+
+### Anchors, corrected
+
+`Parser.cs` is **863 lines, not 813**, and moved only below `:717`: `Expect` `:783-795` → **`:717-730`**;
+`ParseFormula`'s throw → **`:50-55`**; `ShiftCellId`'s letter-count guard → **`:557`**. Exact and unmoved:
+every `Tokenizer.cs` anchor, every `FormulaWriter.cs` anchor, `Token.cs:25/:26`, all four
+`ParseException.cs` kinds, `Parser.cs:308/:319/:321/:326/:88/:143/:173/:217/:360/:364/:420-428/:618/:629/:788-812`,
+`NamedRangeTests.cs:224-232`, `TokenizerTests.cs:7-11`, and `WorksheetStreamLoader.cs:479-528`.
+Corrected: `AnchoredFormulaSupport.cs:37` → **`:42`** (rationale `:34-37` → **`:34-41`**);
+`NamedReferences.cs:59-69` → `CaptureValue` **`:59-80`**, default at **`:79`**; `NamedReferences.cs:192` →
+**`:203`** inside `IsValidName` `:186-206`; `Index.cs:178-179` → **`:183-184`** (`:173-181` is now Phase 11a's
+`IsBareReferenceNode` gate); `WorksheetStreamLoader.cs:460` → **`:469-477`**, `:500-515` → **`:518-528`**,
+`:555-566` → `DegradeToCachedLiteral` **`:565-582`**, `:94` → field at **`:99`**;
+`ExcelExport.cs:107-127` → **`:110-129`**, `:317-330` → `SharedStrings.WriteTo` **`:324-335`**;
+`TokenizerTests.cs:74-78` → **`:73-77`**, `:63-69` → **`:65-71`**; `FormulaWriterTests.cs:18-61` → **`:19-65`**,
+`:62-66` → **`:66-69`**, `:69-81` → args **`:74-76`** and method **`:77-84`**; `TableInteropTests.cs:21` →
+**`:23`**, class comment `:8-18` → **`:8-20`**, the five table tests `:128-297` → **`:132-301`**, and every
+other `TableInteropTests` line **+4**. `ExpressionParser.cs:57-66` → **`:58-66`**. `DynamicRange.cs:42-56` →
+`Evaluate` is **`:50-56`**. `Workbook.cs:123-124` → the property is at **`:131`**.
+
+**Two claims whose ANCHOR does not support them.** `ExcelMerge.cs:325/:438` is cited for "copies the
+`TableDefinitionPart` verbatim"; those lines are generic `writer.WriteNode` calls for rows and cells, and
+**nothing in `Danfma.MySheet.Excel` mentions `TableDefinitionPart`, `tableParts` or `<table>` at all**. The
+conclusion (merge is unaffected) is true for a different reason: merge rewrites only sheet XML and leaves
+every other package part alone. And "the only `(int)` cast on an enum in the engine is
+`WorkdayFunctions.cs:19`" is false — the cast is at `:24`, and `CalendarArithmetic.cs:299`/`:366` and
+`ComputedValue.cs:108`/`:206` cast enums too. The conclusion survives: **nothing anywhere uses `TokenType`
+ordinally**, so inserting a member is safe.
+
+### Dependencies — three retired, one narrowed, one shifted
+
+- **`reference-semantics` (Phase 1): RETIRED.** Complete and ff-merged; nothing in the 18 items calls
+  anything it owns. Item 3's "the registry seam owned by the table-model-registry/reference-semantics phase"
+  is a mis-attribution — that seam belongs to Phase 5.
+- **`table-model-registry` (Phase 3): RETIRED for items 1, 2, 4-18.** Everything they need is in the tree:
+  `Workbook.Tables` (`Workbook.cs:153`), `DefineTable` (`:659`, six-arg overload `:690`), the `Table` record
+  (`Table.cs:26-35`) with derived geometry (`:39-68`), `TryGetColumnIndex` (`:86`), `TryGetColumnRange`
+  (`:114`), `ValidateName` (`:149`) and `Parser.IsExcelGridCellReference` (`:827-862`). Measured:
+  `DefineTable("Tabela1")` and `("Table1")` succeed, `("T1")` and `("A1")` throw.
+- **NARROWED to item 3's method bodies.** `TableReferences.TryResolve` does not exist and Phase 3 did not
+  create it; what shipped is `Table.TryGetColumnRange`, **`[#Data]` only** (documented at `:108-113` as "the
+  whole surface the reference-semantics phase needs"). There is no primitive for `#All`/`#Headers`/`#Totals`.
+  Implement `TryResolveRange` in item 3 directly over `Workbook.Tables` + `TryGetColumnRange` for `Data`,
+  returning `#REF!`/`#NAME?` otherwise, and Phase 4 waits on nothing.
+- **The SEQUENCING risk names the wrong phase. The real blocker is Phase 6, not Phase 5.** Grepping
+  `Danfma.MySheet.Excel` for `TableDefinitionPart`, `tableParts`, `<table>`, `DefineTable` and `Tables[`
+  gives **zero hits** — nothing registers a table from an xlsx. So even with Phase 5 fully merged, a real
+  `.xlsx` cell holding `SUM(Tabela1[Valor])` goes from "Excel's cached value plus a warning" to `#NAME?`.
+  Only Phase 6 closes that, and the master plan's release gate already covers it. **Phases 4, 5 and 6 can be
+  developed concurrently and merged in any order, provided no release ships before Phase 6.**
+- **The upstream win:** T1 below is the ONLY thing Phase 5 needs from Phase 4. Fold Phase 5 items 1-4 into
+  it, hand Phase 5 the node the moment T1 merges, and the two phases run concurrently from that point.
+
+### Also stale in the master plan
+
+"The next free tag is 322 as of writing" → **327 after Phase 7** (`docs/serialization.md:294` says 323, which
+is main's number). The gate baseline "1203 core + 88 Excel" → measured **1817 + 93**. The phase table says
+Phase 11a executes "before Phase 3 and Phase 7" and Phase 11 "before Phase 3"; Phase 3 is Complete, so both
+notes are unsatisfiable as written. And "`ArrayEvaluation.IsBareReferenceNode` is the single line to extend"
+is wrong for a node deriving from `Reference` — it needs no change.
+
+### Suggested decomposition — 6 tasks, three concurrent in the middle
+
+Three decisions must be made before dispatch, none of them an implementer's call: the `TableArea` vs
+`TableItem` enum, the single-versus-double-bracket writer rule, and item 18's go/no-go with its new split.
+File ownership below is disjoint by construction — no two concurrent tasks touch the same file.
+
+- **T1 — Foundation (first, alone).** Items 1, 2, 3, 4 plus the `TryFindClosingBracket` half of item 5.
+  `Token.cs`, `ParseException.cs`, `TableReference.cs` (new), `Expression.cs`,
+  `StructuredReferenceSyntax.cs` (new, scanner only). Everything else needs the token member, the error
+  kinds, the node type and the union tag to compile; pulling the scanner forward is what lets T2 and T3 run
+  in parallel.
+- **T2 — Grammar and writer.** Items 5 (rest), 6, 12, 16. `StructuredReferenceSyntax.cs`,
+  `FormulaWriter.cs`, `FormulaWriterTests.cs`. One task, not two: encode and decode must not drift, which is
+  the design's own reason for one file. Critical path; carries B1 and findings 2, 3 and the three misclassified
+  shapes. `FormulaWriterTests` **51 → 73**.
+- **T3 — Lexer.** Items 7, 13. `Tokenizer.cs`, `TokenizerTests.cs`. Testable without the parser; needs only
+  T1's scanner. `TokenizerTests` **9 → 13**.
+- **T4a — Anchored support.** Item 11 plus the test it is missing. `AnchoredFormulaSupport.cs` (the
+  `NameReference => true` arm at **`:42`**, comment `:34-41`) and one shared-formula test file it alone owns.
+- **T5 — Parser arms (after T2 and T3).** Items 8, 9, 10, 14, 15. `Parser.cs`,
+  `StructuredReferenceTests.cs` (new), `ParseExceptionTests.cs`. Sequential because all three arms are in one
+  file and items 14/15 need the tokenizer. Item 10 keeps its guard but loses its false Excel rationale:
+  Aspose **accepts** `Data!Tabela1[Valor]` (= 60) and strips the qualifier, even across sheets, so throwing is
+  a deliberate divergence. `ParseExceptionTests` **14 → 25**.
+- **T6a — Loader vehicle and docs (after T5).** Item 17, all of finding 7, and the serialization
+  subsections. `TableInteropTests.cs`, `WorksheetStreamLoader.cs` (the `:520-522` comment only), `docs/*.md`
+  and `docs/pt-BR/*.md`. Carries B2. One owner for both twins, with a mandatory twin-diff at the end.
+- **T6b — Item 18, optional (after T5, beside T6a).** `NamedReferences.cs` (the `:203` repoint),
+  `Parser.cs`, `ExcelGridCellReferenceTests.cs`, `NamedRangeTests.cs`, `ExpressionParserTests.cs`. Its own
+  `fix(parser)` commit. If the go/no-go lands on the repoint alone it no longer touches `Parser.cs` and can
+  move up beside T2 and T3.
+
+Going wider would put two agents in `StructuredReferenceSyntax.cs` or two in `Parser.cs`, which is worse than
+sequential.
+
+### Two smaller gaps
+
+Verification step 7 runs `--no-build` on the whole core suite, which `tasks/lessons.md` records as running
+OLD binaries right after a merge — add `dotnet build --no-incremental` first and state the expected total
+(**1817 plus the new cases**). And item 2's `UnsupportedStructuredReference` doc string calls implicit-table
+`[Valor]` unsupported; Aspose's own message is `Invalid table reference, formula should be in table when
+specifing no table name`, i.e. it is invalid only OUTSIDE the table. `Tabela1[@Valor]` outside the table is
+**accepted** and evaluates to `#VALUE!`, and `Tabela1[#This Row]` is accepted and rewritten to
+`=SUM(Tabela1[@])` — so MySheet throwing a `ParseException` for both is an S1 scope decision, not parity, and
+the risk list should say so.
+
+## CONTROLLER RULINGS on the three pre-dispatch decisions (2026-09-10) — binding
+
+The re-verification above said three decisions had to be made before any brief was written. Two of them turned
+out to be measurements rather than preferences, and the third splits. All three are settled here.
+
+### Ruling 1 — the node is Phase 5's text with Phase 4's enum, and it lands in Phase 4's T1
+
+Phase 4 item 3 and Phase 5 items 1-4 create the same file. **Phase 5's text wins on everything except the
+enum's members and the tag**, because it is the better-reasoned half and its reasoning is MEASURED where Phase
+4's is asserted: Phase 5 item 3 records that a probe returning `ComputedValue.Reference(this)` made
+`SUM(node)` answer 0 instead of 14 (`EnumerateValues`'s catch-all `case Reference` yields the reference value
+back as one non-numeric element, which `AddReferenced` silently drops), and that returning the CONCRETE
+resolved range hits the `case RangeReference` arm instead. It also records why `IsVolatile` must NOT be
+overridden — `DependencyExtractor.Visit` would mark every structured-reference formula `AlwaysDirty` and throw
+away the static `RangeDep` — and why `NamedReferences.CaptureValue` needs no arm, with four measured rows.
+None of that is in Phase 4's item 3, and none of it is guessable.
+
+The **enum keeps Phase 4's six members**, because the measurement forces it: the specifier pairs are legal
+Excel, and Phase 5's four-member `TableItem` cannot represent what the grammar produces. Keep `Data = 0` for
+Phase 5's stated reason (the overwhelmingly common `T[Col]` then serializes the enum's default byte) and
+append the two pairs:
+
+```
+public enum TableArea : byte { Data = 0, All = 1, Headers = 2, Totals = 3, HeadersAndData = 4, DataAndTotals = 5 }
+```
+
+**The tag is 327** (finding 1 above), not the 322 both phases wrote. **Phase 5 items 1-4 are DELETED and
+Phase 5 depends on T1 instead** — that is the change that lets Phases 4 and 5 run concurrently, since T1 is
+the only thing Phase 5 needs from Phase 4.
+
+### Ruling 2 — single bracket, and the pairs SHRINK where the singletons ERROR
+
+The writer rule is settled by measurement, taken twice on two different fixtures (findings 2 and 3 and the
+controller's independent re-measurement): **single bracket always, `'` before each of `[ ] # ' @`, and double
+brackets only for a column name carrying leading or trailing whitespace.** Item 12's `IsSimpleColumnName`
+rule, the RENDERING DIVERGENCE risk, item 16's 15 canonical rows and its two normalization pairs all invert.
+B1's "alternative, Excel-truer fix" becomes the correction.
+
+**And the region geometry for the two pair members is measured, with one result an implementer would get
+wrong by analogy.** Over a 3-column table at A1:C4 (one header row, three data rows, values 10 / 20 / 30 per
+column), Aspose.Cells 26.6.0, PLAIN entry:
+
+| formula | no totals row | with a totals row |
+| --- | --- | --- |
+| `COUNTA(Tabela1[#All])` | 12 | 14 |
+| `COUNTA(Tabela1[#Data])` | 9 | 9 |
+| `COUNTA(Tabela1[#Headers])` | 3 | 3 |
+| `COUNTA(Tabela1[[#Headers],[#Data]])` | 12 | 12 |
+| `SUM(Tabela1[[#Headers],[#Data]])` | 180 | 180 |
+| `COUNTA(Tabela1[[#Data],[#Totals]])` | **9** | 11 |
+| `SUM(Tabela1[[#Data],[#Totals]])` | **180** | 270 |
+| `SUM(Tabela1[[#Headers],[#Data],[Valor]])` | 30 | 30 |
+| `COUNTA(Tabela1[[#Headers],[#Data],[Valor]])` | 4 | 4 |
+
+So `HeadersAndData` is `(Left..Right, TopRow..dataBottom)` and `DataAndTotals` is
+`(Left..Right, dataTop..BottomRow)`, and **neither pair needs an error arm**: when the row it names is
+absent, `BottomRow == dataBottom` (or `TopRow == dataTop`) and the region simply shrinks to the data body —
+`[[#Data],[#Totals]]` on a table with no totals row is the data, 9 cells summing 180, NOT `#REF!`. The
+SINGLETONS are the ones that error: `[#Headers]` when `HeaderRowCount == 0` and `[#Totals]` when
+`TotalsRowCount == 0`. An implementer copying the singleton's error arm into the pair by analogy would answer
+`#REF!` where Excel answers the data, which is a silent divergence in the shape users write to mean "the table
+without its header". Phase 5 item 5's `TryGetRegion` gains the two arms with no guard, and the column
+narrowing stays where it is, AFTER the region (`[[#Headers],[#Data],[Valor]]` = the Valor column's header plus
+its three cells: COUNTA 4, SUM 30 with the text header skipped).
+
+Note the earlier `[#Totals]` = `#REF!` measurement and this table's `COUNTA(Tabela1[#Totals])` = 1 on a table
+with no totals row agree: `COUNTA` counts an error as one element. Do not read that 1 as an empty region.
+
+### Ruling 3 — item 18 splits, and neither half is optional
+
+Item 18 is recorded as optional. Under P0 it is not: `=Tabela1` evaluates to **0** today with no error, and
+Aspose answers `SUM(Tabela1)` = 180, the whole data body. A silent wrong answer is a work item. But the two
+halves belong to different phases:
+
+- **The name-validator repoint lands in Phase 4, as T6b.** Repoint `NamedReferences.IsValidName` (`:203`)
+  from `Parser.IsCellReference` to the already-shipped, already-tested `Parser.IsExcelGridCellReference`. That
+  is what makes `DefineName("Table1")` stop throwing, it touches no parser code, it breaks no test, and
+  `IsExcelGridCellReference` already answers false for `Tabela1` / `Table1` / `表1` and true for `Q1` /
+  `ABC123` / `$A$1` / `A01`. Because it no longer touches `Parser.cs`, T6b moves UP to run beside T2 and T3.
+- **Bare `=Tabela1` resolving to the data body moves to Phase 5**, where the resolver lives, and it stops
+  being optional there. It needs `ParseIdentifier` to stop classifying a registered table name as a cell
+  reference, which is a parser change whose correctness depends on resolution, so splitting it across the two
+  phases is what makes each half testable on its own.
+- **Item 18's blast-radius list gains `tests/Danfma.MySheet.Tests/Parsing/ExcelGridCellReferenceTests.cs`**
+  either way, and whoever takes the Phase 5 half must answer `Parser.cs:818-826`, which argues in-tree that
+  `IsCellReference` is unbounded on purpose. That argument is about MySheet's grid having no ceiling and is
+  not obviously wrong; the repoint sidesteps it rather than contradicting it, which is why the repoint is the
+  half that ships first.

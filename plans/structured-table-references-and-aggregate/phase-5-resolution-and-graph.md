@@ -116,6 +116,35 @@ already prevents warm-start from bypassing.
 
 ## Implementation items
 
+## CONTROLLER RULING (2026-09-10) — items 1-4 are DELETED and this phase depends on Phase 4's T1
+
+Phase 4 item 3 and this phase's items 1-4 create the SAME file, with different enums and the same wrong union
+tag. Resolved in `phase-4-lexer-parser.md`'s "CONTROLLER RULINGS on the three pre-dispatch decisions", which is
+binding for both phases. In short:
+
+- **This phase's TEXT for items 1-3 wins and moves into Phase 4's first task (T1)** — it is better reasoned and
+  its reasoning is measured where Phase 4's item 3 only asserts. Do not re-derive it; carry it verbatim.
+- **The enum keeps Phase 4's SIX members** (`Data = 0, All, Headers, Totals, HeadersAndData, DataAndTotals`),
+  because the specifier pairs are legal Excel — measured, `COUNTA(Tabela1[[#Headers],[#Data]])` = 12 and
+  `SUM(Tabela1[[#Data],[#Totals]])` = 270 with a totals row — and a four-member `TableItem` cannot represent
+  what Phase 4's grammar produces. Keep `Data = 0` for the reason item 1 gives.
+- **The union tag is 327**, not 322: 322 is `Aggregate` (Phase 2) and 323-326 are Phase 7's four producers.
+  Count `Expression.cs` with `^\[MemoryPackUnion` at implementation time.
+- **Item 5's `TryGetRegion` gains two arms and NO new guard.** `HeadersAndData` is
+  `(Left..Right, TopRow..dataBottom)`, `DataAndTotals` is `(Left..Right, dataTop..BottomRow)`, and when the row
+  a pair names is absent the region simply SHRINKS to the data body rather than erroring — measured,
+  `[[#Data],[#Totals]]` on a table with no totals row is 9 cells summing 180, not `#REF!`. Only the
+  SINGLETONS error. Copying the singleton's error arm into the pair by analogy is the mistake to avoid.
+  Also: `TryGetRegion` lives on `Table`, not `TableDefinition` — Phase 3 shipped `Table`.
+- **Because items 1-4 leave, T1 is the ONLY thing this phase needs from Phase 4**, so the two phases run
+  concurrently from T1's merge. The remaining merge constraint is a RELEASE one and it names Phase 6, not this
+  phase: nothing in `Danfma.MySheet.Excel` registers a table from an xlsx yet, so no release ships before
+  Phase 6.
+- **Bare `=Tabela1` resolving to the data body moves INTO this phase** from Phase 4's optional item 18, and it
+  is not optional here: `=Tabela1` answers 0 today with no error where Aspose answers the data body
+  (`SUM(Tabela1)` = 180, measured). Whoever takes it must answer `Parser.cs:818-826`, which argues in-tree
+  that `Parser.IsCellReference` is unbounded on purpose.
+
 - [ ] **1.** Create Danfma.MySheet/Expressions/TableReference.cs: `public enum TableItem : byte { Data = 0, All = 1, Headers = 2, Totals = 3 }` and `[MemoryPackable] public sealed partial record TableReference(string TableName, string? ColumnName, TableItem Item) : Reference`. Contract with the lexer phase, stated in the doc comment: `TableName`/`ColumnName` hold the DECODED payload (the `'`-prefix escape table `'[ '] '# ''` already applied, exactly as Tokenizer.ReadQuotedName:170-174 stores the decoded text), because IndexOfColumn compares against the raw `TableColumn/@name` from the xlsx. `Item = Data` with a non-null `ColumnName` is `T[Col]`; `Item = Data` with a null `ColumnName` is `T[#Data]`. Do NOT override `IsVolatile`.
       *Files:* `Danfma.MySheet/Expressions/TableReference.cs`
       *Why:* `Data = 0` makes the overwhelmingly common `T[Col]` form serialize the enum's default byte.

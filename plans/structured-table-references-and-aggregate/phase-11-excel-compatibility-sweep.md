@@ -462,6 +462,33 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* Phase 11a deliberately dropped the `IF`-reference item as not blocking, and this measurement shows the
       criteria family is where it actually bites.
 
+## Controller additions after Phase 7's Task 8 (2026-09-10)
+
+- [ ] **32.** The `IF`-returns-a-reference question also bites under a SCALAR condition, and item 31's "decide the
+      three together" is now four. Phase 7's Task 8 made a scalar-condition `IF` stream a computed-array branch, and
+      deliberately left a BARE-REFERENCE branch outside that path, so these rows stand as measured divergences
+      (Aspose.Cells 26.6.0, 2026-09-10, the oracle giving the SAME answer in BOTH entry modes):
+      `SUM(IF(TRUE,A1:A3,0))` = 14 there and `#VALUE!` here; `SUM(IF(TRUE,A1:A3,SEQUENCE(3)))` = 14 / `#VALUE!`;
+      `ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))` = 3 / `#VALUE!`; and a SINGLE-CELL name, `SUM(IF(TRUE,MyCell,0))` with
+      `MyCell` on a text cell, = 0 there and `#VALUE!` here. All four are PRE-EXISTING — verified by running the
+      pre-fix and post-fix builds of Task 8 side by side, no row moved — and all four are pinned in
+      `MiniCseConsumerTests.ABareReferenceBranch_UnderAScalarConditionIf_IsUnmovedAndStillDiverges` with both
+      numbers, so whoever fixes the family turns that test red and finds the values in it.
+      Task 8 declined the MIXED shape (a bare-reference branch whose sibling is a producer) rather than streaming
+      it, because streaming would answer the reference question for that shape alone (14) while leaving the plain
+      shape open (`#VALUE!`) — a half-decision. Deciding items 31 and 32 together is what avoids that.
+      *Files:* `Danfma.MySheet/Expressions/Logical/If.cs`, `ArrayEvaluation.cs` (`ProbeIfBranches`,
+      `TryBuildScalarConditionIf`), `CriteriaScan.cs`, `MiniCseConsumerTests.cs`, both docs twins
+      *Why:* Task 8 fixed the SILENT half of the scalar-condition `IF` defect (a producer collapsing to its
+      top-left) and left the LOUD half, which is a deliberate, reviewable boundary rather than an oversight.
+
+**An oracle limitation found while measuring the above, recorded so nobody re-measures it:** array-entered
+`ROWS(IF(FALSE,SEQUENCE(3)))` makes `Workbook.CalculateFormula()` throw
+`CellsException: IndexOutOfRangeException` inside Aspose itself, and the throw takes down every other formula in
+the same workbook — which is why the probe for these rows evaluates one formula per workbook. PLAIN answers 1
+there, and MySheet answers 1 in both modes, so nothing is pending; the note exists because the crash looks like a
+probe bug and is not one.
+
 ## Implementation items
 
 - [ ] **1.** Create `tests/Danfma.MySheet.Tests/Expressions/ExcelCompatibilitySweepTests.cs` holding the acceptance pins for (a)-(f) ONLY, each carrying **Aspose's** value and each therefore failing on `1b1e2d3` with the MySheet value named in the comment. Reuse `MathAggregateTests`'s `Calc(formula, params (string Id, object Value)[] cells)` shape (it is the nearest sibling; copy the helper rather than making it public). Pins, with today's failing value in brackets: **(a)** on the (a) fixture — `AGGREGATE(9,o,C1:C3)` = 8 for o in 0..3 [today 5] and 11 for o in 4..7 [passes], `AGGREGATE(9,o,F1:F3)` = 11 for all o in 0..7 [today 8 at 0-3], `AGGREGATE(3,o,C1:C3)` = 2 for 0..3 [today 1] and 3 for 4..7, `AGGREGATE(3,o,F1:F3)` = 3 for all o [today 2 at 0-3], `AGGREGATE(9,o,D1:D3)` = 8 / 11 and `SUBTOTAL(9,C1:C3)` = 8, `SUBTOTAL(3,C1:C3)` = 2, `SUBTOTAL(9,F1:F3)` = 11 as no-regression pins [all pass today]. **(b)** `SUBTOTAL(9,7)`, `SUBTOTAL(9,A1:A3,7)`, `SUBTOTAL(2,7)`, `SUBTOTAL(3,7)`, `SUBTOTAL(9,"7")`, `SUBTOTAL(9,TRUE)`, `SUBTOTAL(9,A1:A3,"")`, `AGGREGATE(9,4,7)`, `AGGREGATE(9,6,7)`, `AGGREGATE(9,4,A1:A3,7)`, `AGGREGATE(9,0,A1:A3,7)` → `ErrorValue.NotValue` [today 7/21/1/1/0/0/14/7/7/21/21], plus the no-regression pins `AGGREGATE(9,4,A1:A3,B1)` = 15, `SUBTOTAL(9,A1)` = 5, `AGGREGATE(15,6,7,1)` = `AGGREGATE(15,4,7,1)` = `AGGREGATE(14,6,7,1)` = `AGGREGATE(16,6,7,0.5)` = 7, and `AGGREGATE(15,6,1/0,1)` → `ErrorValue.NotValue` [today `#DIV/0!`]. **(c)** `MODE.SNGL(A1:A4)` = 2 on 2,1,1,2 [today 1]; = 1 on 1,2,2,1 [today 2]; `MODE.SNGL(A1:A6)` = 3 on 3,1,2,1,2,3 [today 1]; and `MODE(...)` / `AGGREGATE(13,4,...)` equal to it on each. **(d)** the seven `#DIV/0!` rows of (d)'s table [today `#NUM!`], plus `AGGREGATE(15,0,E2:E2,1)` = `#DIV/0!`, `AGGREGATE(15,6,G1:G1,1)` = `#NUM!`, `AGGREGATE(15,6,E1:E1,1)` = 5, `AGGREGATE(15,6,E1:E2,1)` = 5, `AGGREGATE(15,6,E2:E3,1)` = 9, `AGGREGATE(9,6,E2)` = 0 as no-regression pins. **(e)** MOVED TO PHASE 11a — DELIVERED 2026-09-10 in `tests/Danfma.MySheet.Tests/Expressions/DefinedNameArrayEligibilityTests.cs` (the pins are `COUNT((Rng<>"")*1)` = 3 [was 1], `SUM((Rng<>0)*1)` = 2 [was 1], `SMALL(IF(Rng>0,Rng),1)` = 5 [was 0], each asserted EQUAL to its literal-range twin exactly as this half asked; do NOT duplicate them here). **(f)** all fifteen `IF`/`CHOOSE` rows of (f)'s table.
