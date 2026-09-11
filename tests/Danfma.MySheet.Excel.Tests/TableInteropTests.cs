@@ -15,9 +15,11 @@ namespace Danfma.MySheet.Excel.Tests;
 /// cannot represent degrades the AFFECTED CELL ONLY (falling back to the cached value Excel stored
 /// alongside it, reported via <see cref="ExcelLoadOptions.OnWarning"/>) instead of aborting the whole load.
 ///
-/// ClosedXML writes the table (an independent implementation, like every other fixture here); the
+/// ClosedXML writes the table for the hand-written fixtures below (an independent implementation); the
 /// structured-reference formula cells are injected through the OpenXML SDK afterwards because ClosedXML
-/// validates formulas on write and has no API for planting an arbitrary one.
+/// validates formulas on write and has no API for planting an arbitrary one. The committed <c>f*</c>
+/// fixtures under Fixtures/ are the exception both ways: Aspose.Cells authored their tables AND typed
+/// their formulas natively (that is what makes them the oracle fixtures).
 /// </summary>
 public class TableInteropTests
 {

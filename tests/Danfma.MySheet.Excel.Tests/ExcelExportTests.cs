@@ -278,8 +278,10 @@ public class ExcelExportTests
         // Writing <table> parts is out of scope, pinned here as a deliberate contract rather than left as
         // an absence nobody checked: the loaded workbook HAS the table in its registry and the export
         // drops it. In Formulas mode the file then carries structured references with no table behind
-        // them, which Excel opens as #NAME? — the documented export trap. (What the <f> text of such a
-        // cell round-trips as is pinned once the parser reads it.)
+        // them, which Excel opens as #NAME? — the documented export trap. The <f> text itself survives
+        // verbatim (measured 2026-09-11, Phase 6 review: <x:f>SUM(Tabela1[Valor])</x:f> in the exported
+        // sheet, zero table parts in the package) — pinned below in Formulas mode, since a regression in
+        // the export's formula writer is what would silently change what Excel opens.
         var workbook = ExcelFile.Load(XlsxParts.Fixture("f1-plain"));
         var path = Path.Combine(
             Path.GetTempPath(),
@@ -298,6 +300,11 @@ public class ExcelExportTests
 
             await Assert.That(data.TableDefinitionParts.Count()).IsEqualTo(0);
             await Assert.That(XlsxParts.ReadXml(data)).DoesNotContain("<tableParts");
+
+            if (mode == FormulaMode.Formulas)
+            {
+                await Assert.That(XlsxParts.ReadXml(data)).Contains("SUM(Tabela1[Valor])");
+            }
         }
         finally
         {
