@@ -127,20 +127,6 @@ Process record, because it is part of the deliverable: every phase ran brief-dri
 2. Cut **3.21.0** via `.github/workflows/release.yml` `workflow_dispatch` (the user runs it): versionize bumps the version, tags, packs both packages and publishes to NuGet.org via Trusted Publishing; `CHANGELOG.md` is generated (never edited by hand).
 3. After the release: `git pull` on main, confirm the tag, and the structured-table work is shipped. The recorded follow-ups live in `plans/structured-table-references-and-aggregate/phase-11-excel-compatibility-sweep.md` items 32-34 (the deliberate seams), plus the deferred minors in each phase's fix-wave file.
 
-## RESUME HERE (2026-09-11, session 3 — Phases 4 AND 5 merged)
+## RESUME HERE
 
-**3.20.0 shipped. Phase 4 COMPLETE (`e3dc21f`). Phase 5 COMPLETE and merged (`313a6c8`, core 2552 / 0, Excel 93 / 0, csharpier clean, Release 0 warnings, no trailers).** Phase 6 is rebased onto main and T2 is running. **Phase 6 is the release blocker** — without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
-
-| branch | worktree | head | suite there | state |
-| --- | --- | --- | --- | --- |
-| `feat/excel-loader` | `MySheet-p6` | `24a1c75` | core 2552 / 0, Excel **123 / 2** | T1 landed + rebased clean. The 2 failures are T2's first work items (both measured consequences of the Phase 4/5 merges — see the phase-6 ledger's session-3 entry). T2 RUNNING on the controller's subagent instance; T3 last (docs, both twins, RE-MEASURE EVERY ANCHOR — plus `docs/pt-BR/performance.md:434` SMALL, handed over by the Phase 5 review) |
-
-**Reviewer lineup (user): every review = one controller subagent instance + Copilot, every Copilot finding verified against the tree before acting. Kimi 403 monthly. No Claude/z.ai CLI dispatches until Monday Sep 14.** Copilot's reviews on both phases so far: gates real, oracle numbers transcribed-not-measured, and on Phase 5 it fabricated agreement on the sweep-32 seam — zero actionable findings both times; the discounts are recorded in both fix-wave files.
-
-Next actions in order: (1) T2 returns → controller review, ledger, then T3 (docs sweep, both twins, re-anchored); (2) Phase 6 review (controller subagent + Copilot) over `main..feat/excel-loader`, de-dup into `phase-6-excel-loader/fix-wave.md`, execute, rebase, ff-merge, verify on main; (3) master plan rows 4/5/6 Complete with counts, Phase C/D Phase Summaries, tell the user **3.21.0 can be cut** (release via `release.yml` `workflow_dispatch`, the user runs it).
-
-## Final Recap
-_(write when all phases complete)_
-
-## Deployment Plan
-_(write when all phases complete — releases are manual via `.github/workflows/release.yml` `workflow_dispatch`: versionize bumps and tags, packs both packages, publishes to NuGet.org via Trusted Publishing; the user runs it)_
+**Nothing to resume — the epic is complete.** Phases 4, 5 and 6 are merged (final heads: `e3dc21f`, `313a6c8`, `b778ab7`), `main` is green (core 2552 / 0, Excel 133 / 0), and the Deployment Plan above holds the release steps: push `main` (37 commits ahead of `origin/main`), then the user cuts **3.21.0** via `release.yml` `workflow_dispatch`.
