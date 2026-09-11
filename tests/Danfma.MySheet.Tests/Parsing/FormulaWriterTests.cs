@@ -404,9 +404,12 @@ public class FormulaWriterTests
             "RAND()",
             "RANDBETWEEN(1,6)",
             // Fase 7 — os quatro produtores de array dinâmico. Cada um é um nó de Expression novo
-            // (MemoryPackUnion 323-326), então cada um precisa do seu arm no FormulaWriter para não
-            // estourar NotSupportedException — o que também derrubaria o AnchoredFormulaSupport e o
-            // DependencyExtractor, que chegam aos argumentos pelo mesmo acessor FormulaWriter.Call.
+            // (MemoryPackUnion 323-326), e o que os faz escrever NÃO é um arm por função: o FormulaWriter tem
+            // UM único `case Function` (FormulaWriter.cs:184) que resolve nome e argumentos por
+            // FunctionRegistry.ByType (:437). Então o que esta bateria cobre é a entrada de registro de cada
+            // produtor, e um produtor sem entrada estoura NotSupportedException aqui — o que também derrubaria
+            // o AnchoredFormulaSupport e o DependencyExtractor, que chegam aos argumentos pelo mesmo acessor.
+            // A frase anterior deste comentário afirmava um arm por função, que não existe.
             // As formas com os opcionais entram porque um arm que escreve só os obrigatórios volta a
             // parsear sem erro nenhum, apenas com menos argumentos, e o round trip é o que pega isso.
             "FILTER(A1:A3,B1:B3)",

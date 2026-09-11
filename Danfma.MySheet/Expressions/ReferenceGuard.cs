@@ -96,7 +96,13 @@ internal static class ReferenceGuard
             // Phase 7: the three axis-selection producers stand for their SOURCE array the way the unary-plus
             // arm above stands for its operand — COUNT(FILTER(Ghost!A1:A3,…)) must be the same structural
             // #REF! as COUNT(Ghost!A1:A3), not the silent 0 an empty selection would count to. SEQUENCE has
-            // no reference argument and needs no arm; the include/flag slots are read by the build itself.
+            // no reference argument and needs no arm.
+            //
+            // THE SOURCE SLOT ONLY, and the phase's final review measured what that leaves open: a ghost sheet
+            // in the INCLUDE slot is not seen structurally, so COUNT(FILTER(A1:A3,Ghost!B1:B3>0)) is 0 while
+            // SUM of the same formula is #REF!. That is the pre-existing IF/Binary hole rather than anything
+            // these three arms introduce — the same gap exists for COUNT(IF(Ghost!B1:B3>0,A1:A3,0)) — and the
+            // oracle also answers 0 there, which is why it is recorded and not closed here.
             case Lookup.Filter filter:
                 return MissingSheet(filter.Arguments[0], context);
 

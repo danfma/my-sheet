@@ -92,6 +92,15 @@ public class SortTests
 
         // Argument errors propagate in argument order: SORT(A1:A3,1,1/0) and SORT(A1:A3,1,1,1/0) are
         // #DIV/0!; SORT(A1:A3,"x",0) is #VALUE! (the index is read first).
+        //
+        // AND SO DOES AN ERROR IN sort_index, which is the ONE row in this phase where the engine follows the
+        // oracle's PLAIN column rather than its array-entered one — both final reviewers flagged it, and the
+        // sentence in Sort.cs's remark claimed it was pinned here when it was not. Oracle 26.6.0, 2026-09-10:
+        // INDEX(SORT(A1:A3,1/0),1) is #DIV/0! PLAIN and #VALUE! ARRAY-ENTERED. This engine answers #DIV/0!,
+        // deliberately, because an error in sort_index must not become a DIFFERENT error from one in
+        // sort_order or by_col — the two assertions below it would otherwise disagree with this one on the
+        // same kind of input. Pinned so that choosing the other column becomes a decision rather than a drift.
+        await Assert.That(First(column, Ref("1/0", sheet))).IsEqualTo(ErrorValue.DivByZero);
         await Assert
             .That(First(column, Number(1), Ref("1/0", sheet)))
             .IsEqualTo(ErrorValue.DivByZero);

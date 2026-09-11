@@ -46,9 +46,15 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// (<c>SUM(SORT(A1))</c> = 5, <c>=SORT("x")</c> = "x", <c>SUM(SORT(1/0))</c> = <c>#DIV/0!</c>).</para>
 ///
 /// <para>Every number above was measured on Aspose.Cells 26.6.0, 2026-09-10, plain and array-entered entry
-/// agreeing unless named; pinned in <c>SortTests</c> and <c>DynamicArrayTests</c>. One split is deliberately
-/// NOT pinned: <c>INDEX(SORT(A1:A3,1/0),1)</c> is <c>#DIV/0!</c> plain and <c>#VALUE!</c> array-entered on
-/// the oracle; this implementation propagates the argument's own error like the other two slots do.</para>
+/// agreeing unless named; pinned in <c>SortTests</c> and <c>DynamicArrayTests</c>. One split is the ONE row
+/// in this phase where the engine follows the oracle's PLAIN column rather than its array-entered one:
+/// <c>INDEX(SORT(A1:A3,1/0),1)</c> is <c>#DIV/0!</c> plain and <c>#VALUE!</c> array-entered there, and this
+/// implementation answers <c>#DIV/0!</c> because it propagates the argument's own error exactly as the other
+/// two slots do. Both reviewers flagged it, and it is a deliberate consistency choice inside the function
+/// rather than a mode confusion: an error in <c>sort_index</c> must not become a different error from one in
+/// <c>sort_order</c>. It had NO assertion until the reviews found this remark claiming one; it is pinned in
+/// <c>SortTests</c> now, with both oracle columns named, so choosing the other column is a decision rather
+/// than a drift.</para>
 /// </remarks>
 [MemoryPackable]
 public sealed partial record Sort(Expression[] Arguments) : Function, IArrayProducer
