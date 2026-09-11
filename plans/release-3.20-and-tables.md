@@ -18,15 +18,15 @@ Rules that bind every phase here, decided by the user on 2026-09-10 and 2026-09-
 
 ## Phase A: 11c — array bindings, suite to zero failures
 
-Status: In progress
+Status: Complete
 
 Plan: `structured-table-references-and-aggregate/phase-11c-array-bindings.md`. Briefs: `.superpowers/sdd/phase-11c-array-bindings/task-{1..4}-brief.md`. Worktree `/Volumes/Work/Develop/MySheet-11c`, branch `feat/array-bindings`.
 
 - [x] Task 1 — the pins, red on arrival (items 1-3), plus the twelve unmeasured oracle rows. `6ad7cea`, core 1927/1 → 1978/38.
 - [x] Task 2 — the scope carries an array; gates consult it (items 4-8). `1fd687d`, core → 1988/15 (the 15 are Task 3's).
-- [ ] Task 3 — defined names, CHOOSE, unary `+` (items 9-12). Core suite reaches 0 failures here.
-- [ ] Task 4 — docs, design of record, bookkeeping (items 13-15).
-- [ ] Two-part final review, fix wave, ff-merge to `main`.
+- [x] Task 3 — defined names, CHOOSE, unary `+` (items 9-12). `ceb7539`, core 1988/15 → **2001 / 0**.
+- [x] Task 4 — docs, design of record, bookkeeping (items 13-15). `199fb98`.
+- [x] Two-part final review (an Opus subagent and GLM-5.3; both Yes with fixes, same Critical found independently), fix wave, ff-merged at `47087c6`.
 - [x] Add the missing Phase 11b row to the master plan's phase table. `a99ab43`.
 
 ### Verification Plan
@@ -35,7 +35,14 @@ Plan: `structured-table-references-and-aggregate/phase-11c-array-bindings.md`. B
 - STOP HERE and tell the user: `main` is green, 3.20.0 can be cut (`release.yml`, `workflow_dispatch`). Phase B starts only after the user says so or cuts the release.
 
 ### Phase Summary
-_(write when phase completes)_
+
+**Complete, merged at `47087c6`.** `main` is green for the first time since Phase 7 registered its producers: core **2008 / 0**, Excel **93 / 0**, csharpier clean, Release 0 warnings, no AI trailer in 45 commits. **3.20.0 can be cut** (`release.yml`, `workflow_dispatch`); `main` is 38 commits ahead of `origin/main` and needs a push first.
+
+Four binding sites stopped collapsing a computed array to its top-left. The scope holds an `ArrayOperand` built once (`ArrayBindings.Capture`); `NameReference` answers that binding in each of its three roles; the one bare-reference predicate every gate shares became context-aware, and the context-free overload was removed for want of callers; `ResolveNameShape` gained an `Array` outcome; `Choose`, `UnaryOperation{Plus}` and `Let` gained probe/build arms. No new `ComputedValueKind`. Three Phase 8 pins and six Phase 11a pins flipped, each with both numbers in its commit body.
+
+Five of the controller's own claims were measured false by the implementers and are worth carrying forward: a design item saying a gate "follows with no code of its own" was wrong twice (the criteria gate needed `ProbeLet`/`TryBuildLet`); item 11 as written would have created four new divergences, because making `+A1:A3` array-eligible at a top level makes the criteria gate refuse what the oracle reads (`COUNTIF(+A1:A3,">0")` is 2 there); item 10 needed CHOOSE's own capture rather than IF's; the scalar reading of a binding is the operand's top-left at every site, not `#VALUE!`; and `TryGetRegion` would have been a lie as a `Try*` returning three outcomes.
+
+The review's most useful finding was not a defect but a coverage gap: a contributor-style revert of the predicate's defined-name clause left the suite fully green with four measured divergences silently restored. The unary-`+` half survived the same mutation through mechanism pins in two other files; the defined-name half had none and now does.
 
 ## Phase B: 4 — foundation task first, the rest in parallel
 
