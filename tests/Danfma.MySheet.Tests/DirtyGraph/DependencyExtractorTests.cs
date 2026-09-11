@@ -1,4 +1,6 @@
 using Danfma.MySheet.DirtyGraph;
+using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Mathematics;
 using Danfma.MySheet.Parsing;
 
 namespace Danfma.MySheet.Tests.DirtyGraph;
@@ -324,5 +326,127 @@ public class DependencyExtractorTests
         // deve: o produtor não é uma barreira.
         await Assert.That(Scan("=SUM(SORT(OFFSET(A1,1,0)))").AlwaysDirty).IsTrue();
         await Assert.That(Scan("=SUM(UNIQUE(INDIRECT(\"A1:A3\")))").AlwaysDirty).IsTrue();
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Fase 5 (referências estruturadas). Uma TableReference resolve, em tempo de construção do grafo, para
+    // o retângulo CONCRETO que ela denota — o mesmo `case RangeReference` de :91-103, alcançado por
+    // re-despacho, sem aritmética de canto duplicada. Isso é corretude e não desempenho: sem o arm, o nó
+    // cai no `default: return;` de :216-217, que não contribui dependência nenhuma E NÃO marca AlwaysDirty
+    // — exatamente a armadilha de dependência PERDIDA em silêncio que a doc da classe (:40-44) chama de a
+    // única falha inaceitável. O parser ainda não emite o nó nesta branch (Fase 4 T5), então as árvores
+    // abaixo são montadas à mão.
+    // ------------------------------------------------------------------------------------------------
+
+    private static DependencyScan Scan(Expression expression, Workbook? workbook = null) =>
+        DependencyExtractor.Extract(expression, workbook);
+
+    // Data!Tabela1 = A1:C4, header Item/Valor/Qtd, 3 linhas de dados. O sheet NÃO precisa existir para o
+    // extractor (a geometria vem do registro), mas existe aqui para o fixture ser o mesmo dos outros testes.
+    private static Workbook TableWorkbook()
+    {
+        var workbook = new Workbook();
+        workbook.Sheets.Add("Data");
+        workbook.DefineTable("Tabela1", "Data", "A1:C4", ["Item", "Valor", "Qtd"]);
+        return workbook;
+    }
+
+    [Test]
+    public async Task StructuredReference_IsAStaticRangeDep_NotAlwaysDirty()
+    {
+        var scan = Scan(
+            new Sum([new TableReference("Tabela1", "Valor", TableArea.Data)]),
+            TableWorkbook()
+        );
+
+        // [Valor] = Data!B2:B4 — a coluna 2, linhas 2..4, e NADA além disso.
+        await Assert.That(scan.AlwaysDirty).IsFalse();
+        await Assert.That(scan.Ranges).Contains(new RangeDep("Data", 2, 2, 2, 4));
+        await Assert.That(scan.Ranges.Count).IsEqualTo(1);
+        await Assert.That(scan.Cells.Count).IsEqualTo(0);
+
+        // A área muda o retângulo, não a classificação: [#All] é o corpo inteiro, A1:C4.
+        var all = Scan(
+            new Sum([new TableReference("Tabela1", null, TableArea.All)]),
+            TableWorkbook()
+        );
+
+        await Assert.That(all.AlwaysDirty).IsFalse();
+        await Assert.That(all.Ranges).Contains(new RangeDep("Data", 1, 3, 1, 4));
+
+        // E o nó é visto onde quer que esteja na árvore, não só como argumento direto de um agregador.
+        var nested = Scan(
+            new Sum([
+                new BinaryOperation(
+                    BinaryOperator.Multiply,
+                    new TableReference("Tabela1", "Valor", TableArea.Data),
+                    new RangeReference("A1", "A3", "Sheet1")
+                ),
+            ]),
+            TableWorkbook()
+        );
+
+        await Assert.That(nested.AlwaysDirty).IsFalse();
+        await Assert.That(nested.Ranges).Contains(new RangeDep("Data", 2, 2, 2, 4));
+        await Assert.That(nested.Ranges).Contains(new RangeDep("Sheet1", 1, 1, 1, 3));
+    }
+
+    // O que dá DENTES ao veredito acima: AlwaysDirty é falso por padrão, então "é falso" não distingue
+    // "o extractor resolveu a tabela" de "o extractor não fez nada". Os três casos irresolúveis viram
+    // always-dirty, espelhando ResolveName :258-262 — e o sem-workbook é o pior dos três, porque hoje
+    // devolve um scan VAZIO com AlwaysDirty falso, isto é, IsEmpty (:34): uma fórmula que o engine dirty
+    // acredita não depender de nada.
+    [Test]
+    public async Task StructuredReference_WithUnknownTable_IsAlwaysDirty()
+    {
+        var scan = Scan(
+            new Sum([new TableReference("NoSuch", "Valor", TableArea.Data)]),
+            TableWorkbook()
+        );
+
+        await Assert.That(scan.AlwaysDirty).IsTrue();
+        await Assert.That(scan.Ranges.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task StructuredReference_WithUnknownColumn_IsAlwaysDirty()
+    {
+        var scan = Scan(
+            new Sum([new TableReference("Tabela1", "NoSuch", TableArea.Data)]),
+            TableWorkbook()
+        );
+
+        await Assert.That(scan.AlwaysDirty).IsTrue();
+        await Assert.That(scan.Ranges.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task StructuredReference_WithNoWorkbook_IsAlwaysDirty()
+    {
+        var scan = Scan(
+            new Sum([new TableReference("Tabela1", "Valor", TableArea.Data)]),
+            workbook: null
+        );
+
+        await Assert.That(scan.AlwaysDirty).IsTrue();
+        await Assert.That(scan.IsEmpty).IsFalse();
+    }
+
+    // O delta de fórmula compartilhada é INERTE para uma referência estruturada, e essa é a razão de o arm
+    // repassar o delta ambiente em vez de zerá-lo: o retângulo resolvido é ABSOLUTO (vem do registro), então
+    // a escrava de uma fórmula compartilhada lê exatamente as mesmas células que a mestra — uma referência
+    // estruturada não desloca por escrava, ao contrário de um AnchoredRangeReference.
+    [Test]
+    public async Task StructuredReference_UnderASharedFormulaDelta_DoesNotShift()
+    {
+        var workbook = TableWorkbook();
+        var master = new Sum([new TableReference("Tabela1", "Valor", TableArea.Data)]);
+
+        var direct = Scan(master, workbook);
+        var slave = Scan(new SharedFormulaSlave(master, 7, 3), workbook);
+
+        await Assert.That(slave.AlwaysDirty).IsFalse();
+        await Assert.That(slave.Ranges).IsEquivalentTo(direct.Ranges);
+        await Assert.That(slave.Ranges).Contains(new RangeDep("Data", 2, 2, 2, 4));
     }
 }

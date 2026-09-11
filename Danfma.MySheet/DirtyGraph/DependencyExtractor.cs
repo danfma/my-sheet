@@ -44,13 +44,15 @@ internal sealed class DependencyScan
 /// quando o conjunto de dependências genuinamente não pode ser enumerado.</para>
 ///
 /// <para>Estático (deps enumeráveis): <see cref="CellReference"/>, <see cref="RangeReference"/>,
-/// <see cref="OpenRangeReference"/>, <see cref="UnionReference"/>, operadores, e os args de qualquer função
-/// built-in (incl. INDEX/CHOOSE/VLOOKUP/MATCH — a dependência é o range inteiro que eles varrem).</para>
+/// <see cref="OpenRangeReference"/>, <see cref="UnionReference"/>, <see cref="TableReference"/> (que resolve
+/// para o retângulo concreto do registro de tabelas), operadores, e os args de qualquer função built-in
+/// (incl. INDEX/CHOOSE/VLOOKUP/MATCH — a dependência é o range inteiro que eles varrem).</para>
 ///
 /// <para>Always-dirty (deps não-enumeráveis): OFFSET e INDIRECT (célula-alvo computada), DynamicRange
 /// (endpoints reference-returning), os voláteis NOW/TODAY/RAND/RANDBETWEEN (<see cref="Expression.IsVolatile"/>),
-/// um <see cref="FunctionCall"/> custom (comportamento host desconhecido), e um <see cref="NameReference"/>
-/// que não resolve.</para>
+/// um <see cref="FunctionCall"/> custom (comportamento host desconhecido), um <see cref="NameReference"/>
+/// que não resolve, e uma <see cref="TableReference"/> que não resolve (tabela ou coluna desconhecida, área
+/// ausente, ou nenhum workbook para consultar o registro).</para>
 ///
 /// <para><b>Shared-formula delta (produção, Fase 3).</b> Um <see cref="SharedFormulaSlave"/> NÃO é
 /// always-dirty: o walker entra na sua árvore ancorada compartilhada (<see cref="SharedFormulaSlave.Master"/>)
@@ -63,8 +65,9 @@ internal sealed class DependencyScan
 internal static class DependencyExtractor
 {
     /// <summary>Extrai as dependências de <paramref name="expression"/>. <paramref name="workbook"/> (opcional)
-    /// é usado só para resolver <see cref="NameReference"/> via <see cref="Workbook.DefinedNames"/>; sem ele,
-    /// um nome vira always-dirty.</summary>
+    /// é usado só para resolver <see cref="NameReference"/> via <see cref="Workbook.DefinedNames"/> e
+    /// <see cref="TableReference"/> via <see cref="Workbook.Tables"/>; sem ele, um nome ou uma referência
+    /// estruturada vira always-dirty.</summary>
     public static DependencyScan Extract(Expression expression, Workbook? workbook = null)
     {
         var scan = new DependencyScan();
@@ -113,6 +116,25 @@ internal static class DependencyExtractor
                 {
                     Visit(area, scan, wb, resolving, deltaRow, deltaColumn);
                 }
+                return;
+
+            case TableReference table:
+                // Fase 5. Uma referência estruturada resolve para um retângulo CONCRETO já na construção do
+                // grafo, porque TryResolveRange precisa só do workbook (é livre de contexto) — é exatamente
+                // por isso que a primitiva recebe Workbook e não EvaluationContext. Re-despachar Visit no
+                // RangeReference resolvido reusa o `case RangeReference` de :91-103 verbatim, sem duplicar
+                // aritmética de canto, o mesmo padrão de re-despacho que AggregateCodes usa para nós
+                // ancorados. Irresolúvel (tabela/coluna desconhecida, ou sem workbook) → conservador, igual a
+                // ResolveName :258-262: perder a dependência em silêncio é o único modo de falha inaceitável
+                // aqui. O delta ambiente é repassado e é INERTE: o retângulo vem do registro e é absoluto,
+                // então uma referência estruturada não desloca por escrava de fórmula compartilhada.
+                if (wb is null || !table.TryResolveRange(wb, out var tableRange, out _))
+                {
+                    scan.AlwaysDirty = true;
+                    return;
+                }
+
+                Visit(tableRange!, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
             case DynamicRange dynamicRange:

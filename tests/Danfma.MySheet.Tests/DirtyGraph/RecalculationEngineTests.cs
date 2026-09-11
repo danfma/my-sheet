@@ -1,4 +1,5 @@
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Mathematics;
 using Danfma.MySheet.Parsing;
 
 namespace Danfma.MySheet.Tests.DirtyGraph;
@@ -335,9 +336,11 @@ public class RecalculationEngineTests
 
 #if MYSHEET_TABLES
     // O gêmeo de tabela: redefinir uma TABELA é o MESMO evento de invalidação total, porque o contador é único
-    // (DefinitionsVersion). A Fase 3 ainda não tem nó de fórmula que REFERENCIE uma tabela (isso é a Fase 5), então
-    // o valor stale é montado do único jeito disponível: uma edição de célula que NUNCA é reportada ao engine.
-    // Literal→literal não bumpa Sheet.StructuralVersion, logo o único sinal de staleness é a redefinição.
+    // (DefinitionsVersion). Quando estes dois foram escritos (Fase 3) não havia nó de fórmula que REFERENCIASSE
+    // uma tabela, então o valor stale é montado do único jeito que havia: uma edição de célula que NUNCA é
+    // reportada ao engine. Literal→literal não bumpa Sheet.StructuralVersion, logo o único sinal de staleness é
+    // a redefinição. O gêmeo que usa o nó de verdade é StructuredReferenceGraph_Rebuilds_AfterDefineTable,
+    // abaixo (Fase 5).
     [Test]
     public async Task RedefiningATable_ForcesAFullRecompute()
     {
@@ -392,6 +395,90 @@ public class RecalculationEngineTests
         await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
         await Assert.That(result.DirtyCellCount).IsEqualTo(-1);
         await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0);
+    }
+
+    // Fase 5: o gêmeo dos dois acima com uma fórmula que REFERENCIA a tabela de verdade, o que torna o valor
+    // stale real em vez de montado. Sem o bump de DefinitionsVersion + InvalidateCache, alargar a tabela
+    // deixaria B1 servindo 3 (a soma da geometria ANTIGA) para sempre: nenhuma Sheet foi tocada, então
+    // Sheet.StructuralVersion não bumpa, e o único sinal é a redefinição. O parser ainda não emite o nó nesta
+    // branch (Fase 4 T5), então a árvore é montada à mão.
+    [Test]
+    public async Task StructuredReferenceGraph_Rebuilds_AfterDefineTable()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        data["A2"] = new NumberValue(1);
+        data["A3"] = new NumberValue(2);
+        data["A4"] = new NumberValue(4);
+        data["A5"] = new NumberValue(8);
+        wb.DefineTable("Tabela1", "Data", "A1:A3", ["Valor"]);
+        main["B1"] = new Sum([new TableReference("Tabela1", "Valor", TableArea.Data)]);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0); // aquece: A2:A3
+
+        // O controle que dá dentes ao resto: A4 está FORA da geometria antiga, então editá-lo e reportá-lo
+        // não pode mover B1. Se movesse, o 15 abaixo não provaria nada sobre a redefinição.
+        data["A4"] = new NumberValue(1000);
+        engine.Recalculate([new CellRef("Data", "A4")]);
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0);
+        data["A4"] = new NumberValue(4);
+        engine.Recalculate([new CellRef("Data", "A4")]);
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0);
+
+        // Alarga a tabela: [Valor] passa a ser A2:A5. Nenhuma célula mudou — só a definição.
+        wb.DefineTable("Tabela1", "Data", "A1:A5", ["Valor"]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.DirtyCellCount).IsEqualTo(-1);
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(15.0); // 1+2+4+8
+
+        // E o grafo RECONSTRUÍDO aponta para o retângulo novo: A5 agora é dependência de verdade, e segui-la
+        // é uma edição de VALOR (não reconstrói). É este par — o controle de A4 acima e esta linha — que
+        // distingue "recalculou tudo uma vez" de "o grafo aprendeu a geometria nova".
+        data["A5"] = new NumberValue(90);
+        var afterValueEdit = engine.Recalculate([new CellRef("Data", "A5")]);
+
+        await Assert.That(afterValueEdit.StructureRebuilt).IsFalse();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(97.0); // 1+2+4+90
+
+        // O segundo controle, e o que prova que o 97 vem do cone dirty e não de "recomputa tudo sempre": uma
+        // célula fora da geometria NOVA também não move B1.
+        data["A9"] = new NumberValue(5000);
+        engine.Recalculate([new CellRef("Data", "A9")]);
+
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(97.0);
+    }
+
+    // O espelho do caso irresolúvel: registrar a tabela DEPOIS é uma mudança de definição como qualquer outra,
+    // então o #NAME? memoizado não sobrevive a ela. (Que o extractor marque a fórmula always-dirty enquanto a
+    // tabela não existe é asserido em DependencyExtractorTests, não aqui.)
+    [Test]
+    public async Task AnUnresolvableStructuredReference_FollowsALaterDefineTable()
+    {
+        var wb = new Workbook();
+        var data = wb.Sheets.Add("Data");
+        var main = wb.Sheets.Add("Main");
+        data["A1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        data["A2"] = new NumberValue(1);
+        data["A3"] = new NumberValue(2);
+        main["B1"] = new Sum([new TableReference("Tabela1", "Valor", TableArea.Data)]);
+
+        wb.ComputeAll();
+        var engine = wb.CreateRecalculationEngine();
+        await Assert.That(wb.GetCellValue("Main", "B1").AsObject()).IsEqualTo(ErrorValue.Name);
+
+        wb.DefineTable("Tabela1", "Data", "A1:A3", ["Valor"]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(result.StructureRebuilt).IsTrue();
+        await Assert.That(wb.GetCellValue("Main", "B1").ToDouble()).IsEqualTo(3.0);
     }
 #endif
 }

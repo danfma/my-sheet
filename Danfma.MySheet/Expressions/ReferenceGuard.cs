@@ -2,11 +2,20 @@ namespace Danfma.MySheet.Expressions;
 
 /// <summary>
 /// Structural validation of a reference ARGUMENT before a function enumerates it. A reference to a sheet
-/// that does not exist is a structural failure of the reference itself (<c>#REF!</c>), fiel ao Excel —
-/// distinct from a VALUE error inside a cell of an existing sheet. The distinction matters because the
-/// error-ignoring COUNT family would silently treat a missing sheet as an empty range (returning 0) if the
-/// failure were only surfaced as a per-cell error in the value stream; it must instead SHORT-CIRCUIT the
-/// whole function to <c>#REF!</c>. Consuming functions check this at their choke point, before enumeration.
+/// that does not exist — written literally, or reached through a defined name or a structured reference — is
+/// a structural failure of the reference itself (<c>#REF!</c>), fiel ao Excel, distinct from a VALUE error
+/// inside a cell of an existing sheet. The distinction matters because the error-ignoring COUNT family would
+/// silently treat a missing sheet as an empty range (returning 0) if the failure were only surfaced as a
+/// per-cell error in the value stream; it must instead SHORT-CIRCUIT the whole function to <c>#REF!</c>.
+/// Consuming functions check this at their choke point, before enumeration.
+/// <para>
+/// The boundary of "structural" is narrow on purpose, and Phase 5's ruling R2 drew it: a reference that
+/// cannot even be FORMED — an unknown table, an unknown column, <c>[#Totals]</c> on a table with no totals
+/// row — is NOT structural here. It is a plain error VALUE that each consumer treats like any other
+/// error-valued argument, which is why <c>COUNT(Tabela1[#Totals])</c> is 0 and <c>COUNTA</c> is 1 (measured,
+/// both entry modes) rather than <c>#REF!</c>. Only a reference that resolves and then names a sheet that is
+/// gone short-circuits.
+/// </para>
 /// </summary>
 internal static class ReferenceGuard
 {
@@ -29,10 +38,12 @@ internal static class ReferenceGuard
 
     /// <summary>
     /// Returns <see cref="Error.Ref"/> when the argument is a reference (a cell, a range, an open range,
-    /// any area of a union, or a defined name that stands for one) whose sheet does not exist; otherwise
-    /// <c>null</c>. A reference produced by a FUNCTION (e.g. OFFSET) is not inspected here — such functions
-    /// already resolve their base through <see cref="NamedReferences.TryResolveReference"/> and yield
-    /// <c>#REF!</c> themselves when the base sheet is missing.
+    /// any area of a union, a defined name that stands for one, or a structured reference that resolves to
+    /// one) whose sheet does not exist; otherwise <c>null</c>. A reference produced by a FUNCTION (e.g.
+    /// OFFSET) is not inspected here — such functions already resolve their base through
+    /// <see cref="NamedReferences.TryResolveReference"/> and yield <c>#REF!</c> themselves when the base
+    /// sheet is missing. An argument that is a reference NODE but resolves to nothing is not this method's
+    /// business either (see the class remarks and the <see cref="TableReference"/> arm).
     /// </summary>
     public static Error? MissingSheet(Expression argument, EvaluationContext context)
     {
@@ -92,6 +103,27 @@ internal static class ReferenceGuard
                 return dynamic.TryResolveReference(context, out var resolvedRange)
                     ? MissingSheet(resolvedRange!, context)
                     : Error.Ref;
+
+            case TableReference table:
+                // Phase 5 (ruling R2). ONE thing is checked here and nothing else: whether the range the
+                // table RESOLVES TO still has its sheet. That check is not optional — AggregateCodes.Gather
+                // indexes workbook.Sheets[range.SheetName] with the THROWING indexer, so SUBTOTAL(9,T[Col])
+                // over a table whose sheet was removed is an unhandled KeyNotFoundException without it, and
+                // COUNTA answered 3 where the plain-range baseline answers #REF! (both measured).
+                //
+                // A table that does NOT resolve returns null, the DELIBERATE opposite of the DynamicRange arm
+                // above, because the two failures are not the same kind. A DynamicRange that cannot form a
+                // concrete range has no value to offer; an unresolvable structured reference HAS one — its
+                // own #NAME?/#REF! — and TableReference.Evaluate hands it to the consumer, which then does
+                // what it does with any error-valued argument. Measured on the oracle, both entry modes:
+                // SUM(Tabela1[#Totals]) #REF! but COUNT 0 and COUNTA 1, the same shape the oracle gives an
+                // unknown defined name (SUM #NAME?, COUNT 0, COUNTA 1). Returning `tableError` here would
+                // make COUNT and COUNTA answer #REF! — two silent divergences in the very family this guard
+                // exists for, which is what MissingSheetReferenceTests'
+                // StructuredReference_ThatDoesNotResolve_IsAnErrorValue_NotAShortCircuit pins.
+                return table.TryResolveRange(context.Workbook, out var resolvedTable, out _)
+                    ? Check(context, resolvedTable!.SheetName)
+                    : null;
 
             // Phase 7: the three axis-selection producers stand for their SOURCE array the way the unary-plus
             // arm above stands for its operand — COUNT(FILTER(Ghost!A1:A3,…)) must be the same structural
