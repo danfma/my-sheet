@@ -242,9 +242,14 @@ internal static class NamedReferences
             }
         }
 
-        // A1-style cell references are reserved (Parser.IsCellReference is the single source of truth), as
-        // are the boolean literals the tokenizer would read as BooleanValue instead of a NameReference.
-        return !Parser.IsCellReference(name)
+        // A1-style cell references are reserved, as are the boolean literals the tokenizer would read as
+        // BooleanValue instead of a NameReference. "Cell reference" here means a real address into Excel's
+        // grid (Parser.IsExcelGridCellReference: 1-3 ASCII letters, row 1..1,048,576) — the SAME predicate
+        // the table-name rule (Table.IsValidName) uses, since tables and defined names share one namespace
+        // and must agree on which names are reserved. Parser.IsCellReference is deliberately unbounded and
+        // would reserve Excel's own default table names (Tabela1, Table1, 表1); NameValidationTests pins
+        // the agreement.
+        return !Parser.IsExcelGridCellReference(name)
             && !string.Equals(name, "TRUE", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(name, "FALSE", StringComparison.OrdinalIgnoreCase);
     }
