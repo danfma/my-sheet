@@ -143,6 +143,79 @@ public class ParseExceptionTests
         await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.NestingTooDeep);
     }
 
+    // === The three structured-reference kinds (Phase 4) ==================================================
+
+    // The tokenizer's own reject: the balanced-bracket scan runs off the end, so the token is the whole
+    // remainder from the '[' and the position is the '[' itself. This is the ONE structured kind raised
+    // before the parser ever runs.
+    [Test]
+    public async Task UnterminatedBracketedReference()
+    {
+        var error = Throws("=Tabela1[Valor");
+
+        await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.UnterminatedBracketedReference);
+        await Assert.That(error.Token).IsEqualTo("[Valor");
+        await Assert.That(error.Position).IsEqualTo(7);
+    }
+
+    // Balanced brackets whose content the oracle REJECTS (Aspose.Cells 26.6.0, PLAIN entry): an unknown
+    // specifier is `Invalid table rows type`, two columns is `Unknown token with bracket`, and an illegal
+    // specifier pair is "Specified rows to make up the contiguous range can only be one of following items:
+    // Headers, Data, Totals, Data and Headers, Data and Totals, CurrentRow". So the kind is Invalid, not
+    // Unsupported — the design's "classify Unsupported when unsure whether Excel accepts a shape" tie-break
+    // no longer applies to any of them. Two rows the design listed here are ACCEPTED and moved out:
+    // `Tabela1[]` (the whole data body) and `Tabela1[[Valor],[#Data]]` (accepted and REORDERED).
+    [Test]
+    [Arguments("=Tabela1[#Bogus]", "[#Bogus]", 8)]
+    [Arguments("=Tabela1[[A],[B]]", "[[A],[B]]", 13)] // reported at the SECOND column's own offset
+    [Arguments("=Tabela1[[#All],[#Data]]", "[[#All],[#Data]]", 8)]
+    public async Task InvalidStructuredReference(string formula, string token, int position)
+    {
+        var error = Throws(formula);
+
+        await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.InvalidStructuredReference);
+        await Assert.That(error.Token).IsEqualTo(token);
+        await Assert.That(error.Position).IsEqualTo(position);
+    }
+
+    // Valid Excel that MySheet does not model — an S1 scope decision, not parity, which is why these are a
+    // different kind from the rows above. Measured: `Tabela1[@Valor]` outside the table evaluates to #VALUE!
+    // (it is not rejected) and is STORED as the `[[#This Row],[Valor]]` item list, `Tabela1[#This Row]` is
+    // accepted and rewritten to `Tabela1[@]`, a column span `Tabela1[[Valor]:[Sales Amount]]` resolves, and
+    // even `Data!Tabela1[Valor]` resolves — the oracle answers 60 and stores the formula with the qualifier
+    // STRIPPED. Only the implicit-table `[Valor]` is genuinely rejected outside a table ("Invalid table
+    // reference, formula should be in table when specifing no table name").
+    [Test]
+    [Arguments("=Tabela1[@Valor]", "[@Valor]", 8)]
+    [Arguments("=Tabela1[#This Row]", "[#This Row]", 8)]
+    [Arguments("=Tabela1[[#This Row],[Valor]]", "[[#This Row],[Valor]]", 9)]
+    [Arguments("=SUM([Valor])", "[Valor]", 4)]
+    [Arguments("=Tabela1[[Col1]:[Col3]]", "[[Col1]:[Col3]]", 14)]
+    [Arguments("=Data!Tabela1[Valor]", "Tabela1", 5)] // the table NAME's position, not the bracket's
+    public async Task UnsupportedStructuredReference(string formula, string token, int position)
+    {
+        var error = Throws(formula);
+
+        await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.UnsupportedStructuredReference);
+        await Assert.That(error.Token).IsEqualTo(token);
+        await Assert.That(error.Position).IsEqualTo(position);
+    }
+
+    // The external-workbook form, pinned here BECAUSE this file is the only place UnexpectedCharacter is
+    // asserted (the first test above): the kind for `=[1]Sheet1!A1` deliberately changed from
+    // UnexpectedCharacter — the tokenizer had no '[' at all — to UnsupportedStructuredReference, which names
+    // the shape instead of the character.
+    [Test]
+    public async Task UnsupportedStructuredReference_ExternalWorkbook()
+    {
+        var error = Throws("=[1]Sheet1!A1");
+
+        await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.UnsupportedStructuredReference);
+        await Assert.That(error.Token).IsEqualTo("[1]");
+        await Assert.That(error.Position).IsEqualTo(0);
+        await Assert.That(error.Message).Contains("External-workbook");
+    }
+
     [Test]
     public async Task Message_KeepsThePositionSuffix()
     {

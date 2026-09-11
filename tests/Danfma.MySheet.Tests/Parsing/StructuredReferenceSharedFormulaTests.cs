@@ -11,8 +11,10 @@ namespace Danfma.MySheet.Tests.Parsing;
 /// accepts a <see cref="NameReference"/>: the node resolves by table name against the workbook-scoped registry and
 /// carries no position component, so one master tree is correct for every slave and a table formula shared down a
 /// column stays off the per-slave token re-parse (<c>ExpressionParser.ParseSharedFormulaBody</c>).
-/// <para>The parser does not emit the node yet (Phase 4 T5), so every tree here is built by hand, exactly as
-/// <c>TableReferenceTests</c> does, and the per-row behaviour is read through
+/// <para>Every tree here is built by hand, exactly as <c>TableReferenceTests</c> does — the parser emits the node
+/// since Phase 4 T5, and <c>StructuredReferenceTests</c> pins that its anchored-master and shifted-slave parses
+/// produce the identical one, so nothing is lost by keeping this file's trees parser-free. The per-row behaviour is
+/// read through
 /// <see cref="Workbook.GetCellValue(string,string)"/> — the only path that crosses the cell boundary's implicit
 /// intersection (see <c>CellBoundaryIntersectionTests</c>). The verdict tests and the per-row tests are
 /// deliberately separate: the verdict is what <c>WorksheetStreamLoader.TryBuildAnchoredMaster</c> consults, and

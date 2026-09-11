@@ -140,6 +140,19 @@ internal sealed class Parser(
                 Expect(TokenType.RParen);
                 return inner;
 
+            case TokenType.BracketedSpecifier:
+                // A `[...]` with no table name before it — the three shapes S1 keeps permanently out of
+                // scope, each with its own message so the error names what the user wrote instead of
+                // "unexpected token". This arm is also why the tokenizer's reader is unconditional rather
+                // than gated on the previous token: the reader makes one token out of every `[`, and the
+                // parser is the single place that decides the shape is unsupported.
+                throw new ParseException(
+                    ParseErrorKind.UnsupportedStructuredReference,
+                    UnsupportedPrefixBracket(token.Text),
+                    token.Position,
+                    token.Text
+                );
+
             default:
                 throw new ParseException(
                     ParseErrorKind.UnexpectedToken,
@@ -147,6 +160,44 @@ internal sealed class Parser(
                     token.Position,
                     token.Text
                 );
+        }
+    }
+
+    // Tells the three out-of-scope prefix shapes apart by their payload, which is all that distinguishes
+    // them: a leading '@' is the current-row form written without a table name (`[@Valor]`, `[@]`), an
+    // all-digits payload is the external-workbook index (`[1]Sheet1!A1`), and anything else is an
+    // implicit-table column reference (`[Valor]`), which is the only one of the three the oracle itself
+    // rejects outside a table — "Invalid table reference, formula should be in table when specifing no table
+    // name" (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11) — precisely because it is valid only INSIDE the
+    // table it belongs to, which MySheet has no cell context to check at parse time.
+    private static string UnsupportedPrefixBracket(string text)
+    {
+        var payload = text[1..^1];
+
+        if (payload.StartsWith('@'))
+        {
+            return $"This-row structured references are not supported: '{text}'";
+        }
+
+        if (payload.Length > 0 && IsAllDigits(payload))
+        {
+            return $"External-workbook references are not supported: '{text}'";
+        }
+
+        return $"Implicit-table structured references ('{text}') are not supported: qualify the reference "
+            + "with the table name";
+
+        static bool IsAllDigits(string text)
+        {
+            foreach (var c in text)
+            {
+                if (!char.IsAsciiDigit(c))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
     }
 
@@ -318,6 +369,32 @@ internal sealed class Parser(
             return ParseFunctionCall(token);
         }
 
+        // A structured (table) reference: this identifier is the table name and the `[...]` token carries the
+        // whole specifier. Three ordering facts put the arm exactly here, all measured, none hypothetical.
+        //  - AFTER the LParen check above, so `SUM(...)` still wins. Safe because FunctionRegistry.ByName is
+        //    consulted at exactly one site, behind an Expect(LParen) in ParseFunctionCall, so `Name[` can
+        //    never look like a call.
+        //  - BEFORE the IsCellReference check below, which is MANDATORY: that check is unbounded (any
+        //    letters-then-digits string) and answers TRUE for "Tabela1", "Table1", "Sales2024" and "ABC123" —
+        //    Excel's own DEFAULT table names included — so an arm placed after it would build a CellReference
+        //    and leave this token dangling. Jumping the IsBoolean check too costs nothing and covers a table
+        //    named TRUE/FALSE.
+        //  - The bracket must be ADJACENT to the name: Current.Position is the '[' and token.Text is an
+        //    identifier's RAW slice, so the two only meet when nothing sits between them. Both spellings a
+        //    gap admits are rejected by the oracle (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11, over a
+        //    Data!Tabela1 whose Valor column sums to 60): `SUM('Tabela1'[Valor])` is `Invalid "'"` and
+        //    `SUM(Tabela1 [Valor])` is "Invalid table reference, formula should be in table when specifing no
+        //    table name". Quoting is the reason this is a guard and not a nicety — ReadQuotedName delivers a
+        //    DECODED identifier, so `'My Table'[Valor]` would build a node the writer renders back as the
+        //    unparsable `My Table[Valor]`. Taking no arm leaves both with the dangling-token error they have.
+        if (
+            Current.Type == TokenType.BracketedSpecifier
+            && Current.Position == token.Position + token.Text.Length
+        )
+        {
+            return StructuredReferenceSyntax.Parse(token.Text, Advance());
+        }
+
         if (IsBoolean(token.Text, out var boolean))
         {
             return new BooleanValue(boolean);
@@ -358,6 +435,26 @@ internal sealed class Parser(
 
         Expect(TokenType.Bang);
         var first = Advance();
+
+        // `Data!Tabela1[Valor]`: a sheet qualifier on a table reference. Out of scope by S1 and a DELIBERATE
+        // divergence, not parity — measured (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11) the oracle ACCEPTS
+        // it, answers 60 and stores the formula back with the qualifier STRIPPED, from the table's own sheet,
+        // from another sheet, and with the qualifier quoted ('Data'!Tabela1[Valor]) alike; table names are
+        // workbook-scoped, so the qualifier carries no information. The guard's real argument is
+        // diagnosability: without it the error depends on how the table happens to be SPELLED —
+        // `Data!Tabela1[Valor]` would hit the !IsCellReference throw below (ExpectedCellReference), while
+        // `Data!Sales2024[Valor]` would pass IsCellReference (unbounded, so TRUE for that spelling), build a
+        // nonsense CellReference and only fail later as a dangling UnexpectedToken. One `if` gives both
+        // spellings the same kind, at the table name's own position.
+        if (Current.Type == TokenType.BracketedSpecifier)
+        {
+            throw new ParseException(
+                ParseErrorKind.UnsupportedStructuredReference,
+                "A sheet qualifier cannot be applied to a table reference",
+                first.Position,
+                first.Text
+            );
+        }
 
         // A qualified range/open-range: Data!A1:B2, Data!A:A, Data!1:5, Data!A1:C. Both endpoints live on
         // the qualified sheet; the ':' forces reference semantics on a column-/row-only endpoint.

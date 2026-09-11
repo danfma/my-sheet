@@ -63,6 +63,27 @@ public class FormulaWriterTests
     [Arguments("SUM(A:A10)")]
     [Arguments("SUM(A1:C)")]
     [Arguments("SUM(Sheet2!A:A)")]
+    // Fase 4: referências estruturadas (tabela). São as quinze linhas canônicas do item 16 mais a chamada de
+    // função, agora entrando pelo PARSER — até T5 elas viviam como árvores montadas à mão logo abaixo, e
+    // nenhum valor esperado mudou na mudança. A grafia canônica é medida em Aspose.Cells 26.6.0, entrada
+    // PLAIN, 2026-09-11: colchete SIMPLES sempre, `'` antes de cada um de `[ ] # ' @`, e colchete duplo só
+    // para nome de coluna com espaço nas pontas (`Tabela1[[ Col ]]`).
+    [Arguments("Tabela1[Valor]")]
+    [Arguments("Tabela1[#All]")]
+    [Arguments("Tabela1[#Data]")]
+    [Arguments("Tabela1[#Headers]")]
+    [Arguments("Tabela1[#Totals]")]
+    [Arguments("Tabela1[[#All],[Valor]]")]
+    [Arguments("Tabela1[[#Headers],[#Data]]")]
+    [Arguments("Tabela1[[#Data],[#Totals]]")]
+    [Arguments("Tabela1[[#Headers],[#Data],[% Comissao]]")]
+    [Arguments("Tabela1[[#Data],[#Totals],[Valor]]")]
+    [Arguments("Tabela1[Sales Amount]")]
+    [Arguments("Tabela1[Total (USD)]")]
+    [Arguments("Tabela1['#OfItems]")]
+    [Arguments("Tabela1[[ Col ]]")]
+    [Arguments("Tabela1[Rev'#1]")]
+    [Arguments("SUM(Tabela1[Valor])")]
     public async Task RoundTrips_CanonicalText(string formula)
     {
         await Assert.That(Parse(formula).ToFormula(ContextSheet)).IsEqualTo(formula);
@@ -74,6 +95,20 @@ public class FormulaWriterTests
     [Arguments("1 + 2 * 3", "1+2*3")]
     [Arguments("SUM( A1 : A2 )", "SUM(A1:A2)")]
     [Arguments("Sheet1!A1+1", "A1+1")] // referência ao próprio contexto fica sem qualificação
+    // Fase 4: os sete pares de normalização do item 16, com as três direções que a Ruling 2 inverteu já
+    // corrigidas (medido em Aspose.Cells 26.6.0, entrada PLAIN, 2026-09-11). `[[Valor]]` perde o par de
+    // colchetes interno, `[#Data]` é implícito ao lado de uma coluna, o espaço decorativo depois da vírgula
+    // cai, e `[#totals]` é canonizado. As invertidas: `Tabela1[ Col ]` vira `Tabela1[[ Col ]]` porque o
+    // oráculo NÃO apara o espaço (`[ Padded ]` volta como `[[ Padded ]]`), `Tabela1[[Sales Amount]]` volta
+    // como `Tabela1[Sales Amount]` (e não o contrário), e `Tabela1[Rev#1]` volta em colchete SIMPLES com o
+    // `#` escapado.
+    [Arguments("Tabela1[[Valor]]", "Tabela1[Valor]")]
+    [Arguments("Tabela1[[#Data],[Valor]]", "Tabela1[Valor]")]
+    [Arguments("Tabela1[[#Data], [Valor]]", "Tabela1[Valor]")]
+    [Arguments("Tabela1[#totals]", "Tabela1[#Totals]")]
+    [Arguments("Tabela1[ Col ]", "Tabela1[[ Col ]]")]
+    [Arguments("Tabela1[[Sales Amount]]", "Tabela1[Sales Amount]")]
+    [Arguments("Tabela1[Rev#1]", "Tabela1[Rev'#1]")]
     public async Task NormalizesEquivalentText(string input, string canonical)
     {
         var expression = Parse(input);
@@ -88,44 +123,13 @@ public class FormulaWriterTests
     // Sem este arm o `default:` do FormulaWriter estoura NotSupportedException, ou seja FORMULATEXT e toda
     // exportação em modo Formulas morrem em qualquer célula com referência estruturada.
     //
-    // As grafias abaixo são as quinze linhas canônicas do item 16, com as quatro que a Ruling 2 inverteu já
-    // corrigidas (`Tabela1[Sales Amount]`, `Tabela1[Total (USD)]`, `Tabela1['#OfItems]` em colchete SIMPLES;
-    // `'My Table'[Valor]` removida porque o oráculo REJEITA a forma com o nome da tabela entre apóstrofos).
-    // Medido em Aspose.Cells 26.6.0, entrada PLAIN, 2026-09-11, por um probe FORA da suíte: as 102 grafias
-    // que este writer consegue emitir (17 nomes de coluna, o nulo incluído, x 6 áreas, todas distintas)
-    // voltam do oráculo byte a byte iguais. O número 102 é dessa medição, não da contagem de nenhum teste.
-    //
-    // Elas entram por uma ÁRVORE montada à mão, e não por RoundTrips_CanonicalText, porque aquele harness
-    // chama ExpressionParser e o arm de ParseIdentifier que reconhece o token BracketedSpecifier é da
-    // tarefa T5 (item 8). Quando T5 aterrissar, estas linhas viram [Arguments] de RoundTrips_CanonicalText
-    // e de NormalizesEquivalentText sem mudar um único valor esperado — a metade do parse já está pinada em
-    // StructuredReferenceSyntaxTests.Write_ThenParse_IsTheSameNode.
-    [Test]
-    [Arguments("Valor", TableArea.Data, "Tabela1[Valor]")]
-    [Arguments(null, TableArea.All, "Tabela1[#All]")]
-    [Arguments(null, TableArea.Data, "Tabela1[#Data]")]
-    [Arguments(null, TableArea.Headers, "Tabela1[#Headers]")]
-    [Arguments(null, TableArea.Totals, "Tabela1[#Totals]")]
-    [Arguments("Valor", TableArea.All, "Tabela1[[#All],[Valor]]")]
-    [Arguments(null, TableArea.HeadersAndData, "Tabela1[[#Headers],[#Data]]")]
-    [Arguments(null, TableArea.DataAndTotals, "Tabela1[[#Data],[#Totals]]")]
-    [Arguments("% Comissao", TableArea.HeadersAndData, "Tabela1[[#Headers],[#Data],[% Comissao]]")]
-    [Arguments("Valor", TableArea.DataAndTotals, "Tabela1[[#Data],[#Totals],[Valor]]")]
-    [Arguments("Sales Amount", TableArea.Data, "Tabela1[Sales Amount]")]
-    [Arguments("Total (USD)", TableArea.Data, "Tabela1[Total (USD)]")]
-    [Arguments("#OfItems", TableArea.Data, "Tabela1['#OfItems]")]
-    [Arguments(" Col ", TableArea.Data, "Tabela1[[ Col ]]")]
-    [Arguments("Rev#1", TableArea.Data, "Tabela1[Rev'#1]")]
-    public async Task TableReference_RendersItsCanonicalSpelling(
-        string? column,
-        TableArea area,
-        string expected
-    )
-    {
-        Expression reference = new TableReference("Tabela1", column, area);
-
-        await Assert.That(reference.ToFormula(ContextSheet)).IsEqualTo(expected);
-    }
+    // As vinte e duas linhas do item 16 (quinze canônicas + sete pares de normalização) vivem agora nas duas
+    // listas de [Arguments] acima, medidas em Aspose.Cells 26.6.0, entrada PLAIN, 2026-09-11: um probe FORA
+    // da suíte confirmou que as 102 grafias que este writer consegue emitir (17 nomes de coluna, o nulo
+    // incluído, x 6 áreas, todas distintas) voltam do oráculo byte a byte iguais — o número 102 é dessa
+    // medição, não da contagem de nenhum teste. A tabela COMPLETA de grafias do writer, incluindo as que o
+    // parser não produz, é de StructuredReferenceSyntaxTests.Write_RendersTheCanonicalSpelling; o que sobra
+    // aqui são os slots em que o nó entra e as travessias que RoundTrips_CanonicalText não alcança.
 
     // O átomo nunca é parentizado: Precedence devolve AtomPrecedence pelo `_ =>`, então o nó entra cru em
     // qualquer slot de operando. `SUM(Tabela1[Valor])` é a linha canônica do item 16 que envolve o nó numa
