@@ -1,7 +1,10 @@
 using System.Reflection;
 using Danfma.MySheet;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Information;
+using Danfma.MySheet.Expressions.Lookup;
 using Danfma.MySheet.Expressions.Mathematics;
+using Danfma.MySheet.Parsing;
 using MemoryPack;
 using StringValue = Danfma.MySheet.Expressions.StringValue;
 
@@ -447,6 +450,88 @@ public class TableReferenceTests
         var value = Node(column: "NoSuch").Evaluate(new EvaluationContext(Fixture())).AsObject();
 
         await Assert.That(value).IsEqualTo(ErrorValue.Reference);
+    }
+
+    // === ISFORMULA / FORMULATEXT: item 17 ================================================================
+    //
+    // Oracle (Aspose.Cells 26.6.0, 2026-09-11, both entry modes): ISFORMULA(Tabela1[Valor]) is FALSE over
+    // the fixture's plain-literal value cells and FORMULATEXT is #N/A (no formula to show, matching a
+    // literal-range top-left). An unresolvable table (Tabela1[#Totals] with no totals row) is ISFORMULA
+    // FALSE -- NOT the #VALUE! the two switches' `_ => (null, null)` default gives a non-reference argument
+    // -- and FORMULATEXT #REF!, the node's own error VALUE, mirroring ReferenceGuard's TableReference arm
+    // (R2): the failure IS a value, never a short-circuit to a different code.
+
+    [Test]
+    public async Task IsFormula_OverAValueCell_IsFalse()
+    {
+        var value = new IsFormula([Node()]).Evaluate(new EvaluationContext(Fixture())).AsObject();
+
+        await Assert.That(value as bool?).IsFalse();
+    }
+
+    [Test]
+    public async Task IsFormula_OverAnUnresolvableTable_IsFalse_NotAValueError()
+    {
+        var workbook = Oracle(false);
+        var node = Node(column: null, area: TableArea.Totals);
+
+        var value = new IsFormula([node]).Evaluate(new EvaluationContext(workbook)).AsObject();
+
+        await Assert.That(value as bool?).IsFalse();
+    }
+
+    [Test]
+    public async Task FormulaText_OverAValueCell_IsNotAvailable()
+    {
+        var value = new FormulaText([Node()]).Evaluate(new EvaluationContext(Fixture())).AsObject();
+
+        await Assert.That(value).IsEqualTo(ErrorValue.NotAvailable);
+    }
+
+    [Test]
+    public async Task FormulaText_OverAnUnresolvableTable_IsTheNodesOwnError()
+    {
+        var workbook = Oracle(false);
+        var node = Node(column: null, area: TableArea.Totals);
+
+        var value = new FormulaText([node]).Evaluate(new EvaluationContext(workbook)).AsObject();
+
+        await Assert.That(value).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task FormulaText_OverAnUnknownTable_IsTheNameError()
+    {
+        var value = new FormulaText([Node("NoSuch")])
+            .Evaluate(new EvaluationContext(Fixture()))
+            .AsObject();
+
+        await Assert.That(value).IsEqualTo(ErrorValue.Name);
+    }
+
+    // Proves the arm actually resolves through the range's StartId/SheetName (not a hardcoded answer): B2
+    // holds a real FORMULA here, so ISFORMULA flips to TRUE and FORMULATEXT round-trips its un-parsed text,
+    // exactly like the AnchoredRangeReference arms this mirrors.
+    [Test]
+    public async Task IsFormula_AndFormulaText_ReadTheResolvedRangesTopLeftCell()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = new StringValue("Item");
+        data["B1"] = new StringValue("Valor");
+        data["A2"] = new StringValue("a");
+        data["B2"] = ExpressionParser.Parse("=5*2", data);
+        data["A3"] = new StringValue("b");
+        data["B3"] = new NumberValue(20);
+        workbook.DefineTable("Tabela1", "Data", "A1:B3", ["Item", "Valor"]);
+        var context = new EvaluationContext(workbook);
+        var node = Node();
+
+        var isFormula = new IsFormula([node]).Evaluate(context).AsObject();
+        var formulaText = new FormulaText([node]).Evaluate(context).AsObject();
+
+        await Assert.That(isFormula as bool?).IsTrue();
+        await Assert.That(formulaText).IsEqualTo("=5*2");
     }
 
     // === TryResolveReference ============================================================================

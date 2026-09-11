@@ -582,6 +582,18 @@ public sealed partial record FormulaText(Expression[] Arguments) : Function
     // (ValueExpression) or nothing -> #N/A; a non-reference argument -> #VALUE! (per the docs).
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        // Phase 5 item 17. A structured reference cannot join the (sheetName, cellId) switch below as an
+        // ordinary arm: an unresolvable one must report its OWN error (measured, Aspose.Cells 26.6.0,
+        // 2026-09-11 — FORMULATEXT(Tabela1[#Totals]) is #REF! over a table with no totals row), never the
+        // switch's uniform #VALUE! for a non-reference argument — mirroring ReferenceGuard's TableReference
+        // arm (R2): the failure IS a value, not a short-circuit to a different code.
+        if (Arguments[0] is TableReference table)
+        {
+            return table.TryResolveRange(context.Workbook, out var tableRange, out var error)
+                ? EvaluateAt(context, tableRange!.SheetName, tableRange.StartId)
+                : ComputedValue.Error(error);
+        }
+
         var (sheetName, cellId) = Arguments[0] switch
         {
             CellReference cell => (cell.SheetName, cell.Id),
@@ -608,15 +620,20 @@ public sealed partial record FormulaText(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Value);
         }
 
-        if (
-            !context.Workbook.Sheets.TryGetValue(sheetName, out var sheet)
-            || !sheet.TryGetValue(cellId, out var expression)
-            || expression is ValueExpression
-        )
-        {
-            return ComputedValue.Error(Error.NA);
-        }
-
-        return ComputedValue.Text("=" + expression.ToFormula(sheetName));
+        return EvaluateAt(context, sheetName, cellId);
     }
+
+    // The shared tail once (sheetName, cellId) is known good, whether it came from a plain reference node
+    // or a resolved structured reference: a plain-literal or missing target is #N/A, otherwise the target
+    // expression's un-parsed formula text.
+    private static ComputedValue EvaluateAt(
+        EvaluationContext context,
+        string sheetName,
+        string cellId
+    ) =>
+        !context.Workbook.Sheets.TryGetValue(sheetName, out var sheet)
+        || !sheet.TryGetValue(cellId, out var expression)
+        || expression is ValueExpression
+            ? ComputedValue.Error(Error.NA)
+            : ComputedValue.Text("=" + expression.ToFormula(sheetName));
 }
