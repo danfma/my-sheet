@@ -70,6 +70,54 @@ public class TableInteropTests
         return path;
     }
 
+    /// <summary>
+    /// The A1:B3 fixture extended with a totals row: the part becomes <c>ref="A1:B4" totalsRowCount="1"</c>
+    /// with the totals in row 4. ClosedXML writes the totals cell as <c>SUBTOTAL(109,[Valor])</c> with NO
+    /// cached value (measured), so a 999 lie is cached over it here — keeping the cache-vs-evaluate
+    /// distinction the assertions below need (the producer's own 42 would coincide with the true answer).
+    /// </summary>
+    private static string WriteTotalsTableFixture(Action<SheetData>? inject = null)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-totals-{Guid.NewGuid():N}.xlsx");
+
+        using (var fixture = new XLWorkbook())
+        {
+            var data = fixture.AddWorksheet("Data");
+
+            data.Cell("A1").Value = "Item";
+            data.Cell("B1").Value = "Valor";
+            data.Cell("A2").Value = "a";
+            data.Cell("B2").Value = 10;
+            data.Cell("A3").Value = "b";
+            data.Cell("B3").Value = 32;
+
+            var table = data.Range("A1:B3").CreateTable("Tabela1");
+
+            table.ShowTotalsRow = true;
+            table.Field("Valor").TotalsRowFunction = XLTotalsRowFunction.Sum;
+
+            fixture.SaveAs(path);
+        }
+
+        using (var document = SpreadsheetDocument.Open(path, isEditable: true))
+        {
+            var worksheet = document.WorkbookPart!.WorksheetParts.First().Worksheet!;
+            var sheetData = worksheet.GetFirstChild<SheetData>()!;
+
+            var row4 = sheetData.Elements<Row>().First(row => row.RowIndex?.Value == 4);
+            var b4 = row4.Elements<Cell>().First(cell => cell.CellReference?.Value == "B4");
+
+            b4.RemoveAllChildren();
+            b4.AppendChild(new CellFormula("SUBTOTAL(109,[Valor])"));
+            b4.AppendChild(new CellValue("999"));
+
+            inject?.Invoke(sheetData);
+            worksheet.Save();
+        }
+
+        return path;
+    }
+
     // <c>&lt;f&gt;</c> before <c>&lt;v&gt;</c>, the order the schema requires. A null cachedValue omits
     // <c>&lt;v&gt;</c> entirely (a formula cell with no cached result at all); an empty string writes
     // <c>&lt;v/&gt;</c>. <paramref name="type"/> sets @t, so a cached result can be a string, an error or a
@@ -114,7 +162,7 @@ public class TableInteropTests
     }
 
     [Test]
-    public async Task Load_TableWithOrdinaryFormulas_LoadsAsAPlainRange_WithoutWarnings()
+    public async Task Load_Table_RegistersItInWorkbookTables_WithoutWarnings()
     {
         // Baseline: the presence of a table part is harmless on its own — its cells are ordinary cells.
         // The cached <v> is a DELIBERATE LIE (999 != 10 + 32) so the assertion below can only pass if the
@@ -134,9 +182,13 @@ public class TableInteropTests
             // Re-evaluated by MySheet, not read from the cached <v>.
             await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(42.0);
             // The loader registers the <table> part in the table registry (TableDefinitionReaderTests pins
-            // the record it builds), and it does NOT turn the table's name into a defined name — the two
-            // registries stay distinct, exactly as Excel's Name Manager keeps them.
+            // the record it builds, geometry included), and it does NOT turn the table's name into a
+            // defined name — the two registries stay distinct, exactly as Excel's Name Manager keeps them.
             await Assert.That(workbook.Tables.Count).IsEqualTo(1);
+            await Assert.That(workbook.Tables.ContainsKey("Tabela1")).IsTrue();
+            await Assert
+                .That(string.Join("|", workbook.Tables["Tabela1"].ColumnNames))
+                .IsEqualTo("Item|Valor");
             await Assert.That(workbook.DefinedNames.ContainsKey("Tabela1")).IsFalse();
         }
         finally
@@ -177,6 +229,113 @@ public class TableInteropTests
             workbook.InvalidateCache();
 
             await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(40.0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task Load_StructuredReference_WithOutOfScopeThisRowForms_StillDegradeWithAWarning()
+    {
+        // S1 keeps the current-row forms out of scope, so the multiplier shapes a real file carries
+        // degrade their cells — BOTH spellings (the hand-typed `[@Valor]` and the item-list form the
+        // producer actually stores for it, per Fixtures/README.md), and regardless of what surrounds the
+        // reference. Asserting the ABSENCE of InvalidTableDefinition is the point: the table registered
+        // fine, the formula SHAPE is what failed — the distinction the two warning kinds exist to make.
+        var path = WriteTableFixture(sheetData =>
+        {
+            AppendToRow(
+                sheetData,
+                4,
+                FormulaCell("B4", new CellFormula("Tabela1[@Valor]*2"), "999")
+            );
+            AppendToRow(
+                sheetData,
+                5,
+                FormulaCell("B5", new CellFormula("Tabela1[[#This Row],[Valor]]*2"), "888")
+            );
+        });
+
+        try
+        {
+            var warnings = new List<ExcelLoadWarning>();
+
+            var workbook = ExcelFile.Load(path, new ExcelLoadOptions { OnWarning = warnings.Add });
+
+            await Assert.That(warnings.Count).IsEqualTo(2);
+            await Assert
+                .That(
+                    warnings.All(warning => warning.Kind == ExcelLoadWarningKind.UnparsableFormula)
+                )
+                .IsTrue();
+            await Assert
+                .That(warnings.Select(warning => warning.Subject).ToList())
+                .IsEquivalentTo(new List<string> { "B4", "B5" });
+            await Assert
+                .That(
+                    warnings.Any(warning =>
+                        warning.Kind == ExcelLoadWarningKind.InvalidTableDefinition
+                    )
+                )
+                .IsFalse();
+            await Assert.That(workbook.Tables.Count).IsEqualTo(1);
+
+            await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(999.0);
+            await Assert.That(workbook.GetCellValue("Data", "B5").ToDouble()).IsEqualTo(888.0);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task Load_TableWithATotalsRow_ExcludesItFromTheDataBody()
+    {
+        // The part's ref INCLUDES the totals row (ref="A1:B4" totalsRowCount="1", while autoFilter stops
+        // at A1:B3), so the one geometry mistake this shape invites — forgetting
+        // lastDataRow = lastRow - totalsRows — produces a plausible number (10 + 32 + 999 = 1041) rather
+        // than an error. Excel's rule being matched: Table[Column] is the data body only, [#All] is
+        // header + data + totals, [#Totals] is the totals row itself.
+        var path = WriteTotalsTableFixture(sheetData =>
+        {
+            AppendToRow(
+                sheetData,
+                5,
+                FormulaCell("D1", new CellFormula("SUM(Tabela1[Valor])"), "888")
+            );
+            AppendToRow(
+                sheetData,
+                6,
+                FormulaCell("D2", new CellFormula("ROWS(Tabela1[#All])"), "777")
+            );
+            AppendToRow(
+                sheetData,
+                7,
+                FormulaCell("D3", new CellFormula("SUM(Tabela1[#Totals])"), "666")
+            );
+        });
+
+        try
+        {
+            var warnings = new List<ExcelLoadWarning>();
+
+            var workbook = ExcelFile.Load(path, new ExcelLoadOptions { OnWarning = warnings.Add });
+
+            // The totals cell's implicit [Valor] is S1 out-of-scope, so THAT cell degrades — to the 999
+            // lie, not to a computed 42 — and nothing else warns.
+            await Assert.That(warnings.Count).IsEqualTo(1);
+            await Assert.That(warnings[0].Kind).IsEqualTo(ExcelLoadWarningKind.UnparsableFormula);
+            await Assert.That(warnings[0].Subject).IsEqualTo("B4");
+
+            // The data body stops short of the totals row: 42, not 1041.
+            await Assert.That(workbook.GetCellValue("Data", "D1").ToDouble()).IsEqualTo(42.0);
+            // [#All] spans header + data + totals.
+            await Assert.That(workbook.GetCellValue("Data", "D2").ToDouble()).IsEqualTo(4.0);
+            // [#Totals] reads the totals ROW — the cached 999, not a recomputed sum.
+            await Assert.That(workbook.GetCellValue("Data", "D3").ToDouble()).IsEqualTo(999.0);
         }
         finally
         {
