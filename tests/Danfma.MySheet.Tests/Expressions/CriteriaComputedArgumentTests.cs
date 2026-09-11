@@ -304,7 +304,8 @@ public class CriteriaComputedArgumentTests
         //
         // Pinned at 0 by Phase 11a as a PRE-EXISTING DIVERGENCE (measured identical on main at 5f9d1ac and
         // on that branch), flipped to #REF! by Phase 11c (array bindings): 0 → #REF! for every row. What made
-        // it 0: Rule B's gate is `!IsBareReferenceNode(argument) && IsArrayEligible(argument, context)`, and
+        // it 0: Rule B's gate was `!IsBareReferenceNode(argument) && IsArrayEligible(argument, context)`
+        // (context-free then), and
         // a LET escaped it from BOTH sides. LET(...) written in the slot was a Let NODE the shape probe
         // treated as an opaque scalar, so it was not array-eligible; a LET-BOUND NAME in the slot was a
         // reference node IsBareReferenceNode admitted by design (Rule A's top-level rule), and its binding

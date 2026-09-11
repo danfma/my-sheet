@@ -89,22 +89,24 @@ internal struct PositionalRange
     ///
     /// <para>What it does not read is a RECOGNISED computed array, which is narrower than "an array": every
     /// caller in the criteria family runs <see cref="RejectComputedArray"/> on the same argument first, and
-    /// that predicate is exactly <c>!IsBareReferenceNode(argument) &amp;&amp; IsArrayEligible(argument,
-    /// context)</c>, so the materialized fallback below STILL produces the one-element <c>#VALUE!</c>
-    /// collapse whenever an array reaches the slot behind a node the predicate excludes. Three such shapes
-    /// exist today, all PRE-EXISTING (measured identical on <c>main</c>) and each pinned as a known
-    /// divergence in <c>CriteriaComputedArgumentTests</c>: a <c>Let</c> NODE, which
-    /// <see cref="ArrayEvaluation"/>'s shape probe treats as an opaque scalar, so
-    /// <c>COUNTIF(LET(r,A1:A3,r*1),"&gt;0")</c> is <c>0</c>; a LET-BOUND NAME, which
-    /// <see cref="ArrayEvaluation.IsBareReferenceNode"/> admits as a reference node while
-    /// <see cref="NamedReferences.CaptureValue"/> has already collapsed the binding to one scalar, so
-    /// <c>LET(r,A1:A3*1,COUNTIF(r,"&gt;0"))</c> is <c>0</c>; and an operand the mini-CSE cost guard REFUSES,
-    /// which is therefore not array-eligible, so <c>SUMIF(A:A*1,"&gt;0")</c> is <c>0</c>. The oracle answers
-    /// <c>#REF!</c> array-entered for all three (typed: <c>#VALUE!</c> for the two <c>LET</c> shapes,
-    /// <c>#REF!</c> for the open range) — Aspose.Cells 26.6.0, measured 2026-09-10. So the fallback sees the
-    /// shapes Excel accepts as a range (a reference, a name, a scalar, a refused open range) AND the
-    /// collapses those three shapes still deliver; the gate removes the arrays the mini-CSE can recognise,
-    /// not every array.</para>
+    /// that predicate is exactly <c>!IsBareReferenceNode(argument, context) &amp;&amp;
+    /// IsArrayEligible(argument, context)</c>, so the materialized fallback below STILL produces the
+    /// one-element <c>#VALUE!</c> collapse whenever an array reaches the slot behind a node the predicate
+    /// excludes. One such shape remains, PRE-EXISTING (measured identical on <c>main</c>) and pinned as a
+    /// known divergence in <c>CriteriaComputedArgumentTests</c>: an operand the mini-CSE cost guard REFUSES,
+    /// which is therefore not array-eligible, so <c>SUMIF(A:A*1,"&gt;0")</c> is <c>0</c> where the oracle
+    /// answers <c>#REF!</c> in both entry modes (Aspose.Cells 26.6.0, measured 2026-09-10). Two more did
+    /// until Phase 11c (array bindings) and are now refused: a <c>Let</c> NODE, once an opaque scalar to the
+    /// shape probe and now array-eligible when its body is (<see cref="ArrayEvaluation.Probe"/>'s <c>Let</c>
+    /// arm), so <c>COUNTIF(LET(r,A1:A3,r*1),"&gt;0")</c> is <c>#REF!</c>; and a LET-BOUND NAME, once a
+    /// reference node to the predicate while <see cref="NamedReferences.CaptureValue"/> had already collapsed
+    /// its binding to one scalar, now an array binding the context-aware
+    /// <see cref="ArrayEvaluation.IsBareReferenceNode(Expression, EvaluationContext)"/> does not admit, so
+    /// <c>LET(r,A1:A3*1,COUNTIF(r,"&gt;0"))</c> is <c>#REF!</c> (both rows in
+    /// <c>CriteriaComputedArgumentTests.LetBoundComputedArray_InARangeSlot_IsRefused</c>). So the fallback
+    /// sees the shapes Excel accepts as a range (a reference, a name bound to one, a scalar, a refused open
+    /// range) AND the collapse the refused shape still delivers; the gate removes the arrays the mini-CSE
+    /// can recognise, not every array.</para>
     /// </summary>
     public static PositionalRange Open(Expression argument, EvaluationContext context)
     {
@@ -209,10 +211,13 @@ internal struct PositionalRange
     /// The criteria family's range-slot gate: <c>#REF!</c> for an argument that is not a bare reference NODE
     /// yet the mini-CSE would stream as an array, and <c>null</c> (open the cursor as usual) for everything
     /// else. The predicate is exactly the first two conditions of
-    /// <see cref="ArrayEvaluation.TryStream"/> — <see cref="ArrayEvaluation.IsBareReferenceNode"/> then
+    /// <see cref="ArrayEvaluation.TryStream"/> — the context-aware
+    /// <see cref="ArrayEvaluation.IsBareReferenceNode(Expression, EvaluationContext)"/> then
     /// <see cref="ArrayEvaluation.IsArrayEligible"/> — so a scalar-conditioned <c>IF</c>, a <c>CHOOSE</c>, an
     /// <c>OFFSET</c>, a defined name, a single cell, a bare scalar and a cost-guard-REFUSED open-range
-    /// expression are all outside it and keep the paths they have today.
+    /// expression are all outside it and keep the paths they have today, while a name LET-bound to an
+    /// array is inside it (Phase 11c): <c>LET(f,FILTER(…),COUNTIF(f,"&gt;0"))</c> is <c>#REF!</c> like the
+    /// producer written in the slot (ArrayBindingTests).
     ///
     /// <para>The rule: a range slot of <c>SUMIF</c>/<c>SUMIFS</c>/<c>COUNTIF</c>/<c>COUNTIFS</c>/
     /// <c>AVERAGEIF</c>/<c>AVERAGEIFS</c>/<c>MAXIFS</c>/<c>MINIFS</c> — criteria range and
@@ -232,7 +237,7 @@ internal struct PositionalRange
     /// eight <see cref="Open"/>/<c>RangeValueCursor.Open</c> call sites of the criteria family alone.</para>
     /// </summary>
     public static Error? RejectComputedArray(Expression argument, EvaluationContext context) =>
-        !ArrayEvaluation.IsBareReferenceNode(argument)
+        !ArrayEvaluation.IsBareReferenceNode(argument, context)
         && ArrayEvaluation.IsArrayEligible(argument, context)
             ? Error.Ref
             : null;

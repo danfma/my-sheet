@@ -263,14 +263,160 @@ public class ArrayBindingTests
     public async Task ALetBinding_IsEvaluatedOnce_EvenWhenItIsAnArray()
     {
         // Oracle 26.6.0, 2026-09-11: 0 in BOTH modes. GUARD: a LET binding is evaluated ONCE (the LET page's
-        // own sentence); an array binding must be built once and read twice, never rebuilt with a second
-        // RAND() draw. Green today for the wrong reason — the binding collapses to one scalar, and one
-        // scalar read twice is trivially equal — and it must stay green when the binding carries the array.
-        // Twenty fresh workbooks so a single lucky draw cannot hide a rebuild.
+        // own sentence); an array binding is built once at binding time (ArrayBindings.Capture, Let.TryBind)
+        // and read twice through the scope, never rebuilt with a second RAND() draw. History: this row was
+        // green BEFORE the binding carried the array, for the wrong reason — the binding collapsed to one
+        // scalar, and one scalar read twice is trivially equal — which is why the counting row below exists:
+        // it is the one that turns red under a rebuild. Twenty fresh workbooks so a single lucky draw
+        // cannot hide one either.
         for (var i = 0; i < 20; i++)
         {
             await Assert.That(Calc("=LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x))")).IsEqualTo(0.0);
         }
+    }
+
+    [Test]
+    public async Task ALetArrayBinding_IsBuiltOnce_WhenTheNameIsReadTwice()
+    {
+        // Engine pin (no oracle column — a custom function has no oracle): the binding EXPRESSION of an array
+        // binding runs exactly once however many times the name is read. TICK() counts its own calls, and
+        // SEQUENCE(3,1,TICK(),1) is array-eligible, so this row enters the ARRAY branch of the binding
+        // (ROWS(x) is 3 only when the operand, not its top-left, is bound: 1 + 2 + 3 = 6 from a first tick
+        // of 1, so 3*10 + 6 = 36 pins both the shape and the value); the scalar-binding control below
+        // enters the CaptureValue branch, which was already evaluate-once. Under the collapse (the mutation
+        // in Phase 2's verification plan — item 5's array branch reverted to CaptureValue) this row answers
+        // 11 (ROWS 1, SUM 1) with the count still 1, because the collapse evaluates once as well: the shape
+        // is what proves the branch, the count what proves evaluate-once.
+        var (workbook, sheet) = Named();
+        var ticks = 0;
+        workbook.RegisterFunction("TICK", (_, _) => ++ticks);
+
+        var array = ExpressionParser
+            .Parse("=LET(x,SEQUENCE(3,1,TICK(),1),ROWS(x)*10+SUM(x))", sheet)
+            .Evaluate(workbook)
+            .AsObject();
+
+        await Assert.That(array).IsEqualTo(36.0);
+        await Assert.That(ticks).IsEqualTo(1);
+
+        ticks = 0;
+        var scalar = ExpressionParser
+            .Parse("=LET(n,TICK(),n+n)", sheet)
+            .Evaluate(workbook)
+            .AsObject();
+
+        await Assert.That(scalar).IsEqualTo(2.0);
+        await Assert.That(ticks).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("=LET(x,A1:A3*2,x)", "10")] // today #VALUE! — loud
+    [Arguments("=LET(x,IF(A1:A3>0,A1:A3),x)", "5")] // today #VALUE! — loud
+    public async Task ABareOperatorBindingInACell_ShowsItsTopLeft_ArrayEnteredColumn(
+        string formula,
+        string oracle
+    )
+    {
+        // Oracle 26.6.0, 2026-09-11 (controller's ruling after Task 1, measured in H1 and H5, both modes):
+        // CSE 10 / 5; PLAIN intersects per row (10 in H1, #VALUE! in H5), so the columns split and the CSE
+        // column is the target. The SCALAR reading of an array-eligible binding is the built operand's
+        // TOP-LEFT (ArrayBindings.Binding.TopLeft through ArrayEvaluation.FirstElement), the same rule a
+        // bare producer follows — not Evaluate's #VALUE!, which is what an operator over a range answers on
+        // the scalar path and what MySheet answered here before Task 2. Read through the cell: this is the
+        // row that proves the cell boundary needs no change for an operator binding either.
+        await Assert.That(InCell(formula)).IsEqualTo(Oracle(oracle));
+    }
+
+    [Test]
+    public async Task ABareOperatorArrayInACell_StaysTheBoundaryDecision()
+    {
+        // CONTROL, an engine pin rather than an oracle row: bare =A1:A3*2 in a cell is still #VALUE!
+        // (CellBoundaryIntersectionTests — the cell-boundary array gap is a separate sweep decision). The
+        // top-left rule above is a rule for a BINDING's scalar reading, applied by NameReference.Evaluate to
+        // a bound name; Workbook's boundary keeps calling plain CaptureValue and never applies it to a bare
+        // operator node, so a LET around the same expression is 10 (the row above) while the bare node is
+        // not.
+        await Assert.That(InCell("=A1:A3*2")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    [Arguments("=LET(f,FILTER(A1:A3,A1:A3>0),f)", "5")]
+    [Arguments("=LET(f,FILTER(A1:A3,A1:A3>0),f+1)", "6")]
+    public async Task TheCellBoundary_NeverSeesAnArray_BecauseALetNodeEvaluatesToItsTopLeft(
+        string formula,
+        string oracle
+    )
+    {
+        // WHY Workbook's cell boundary needs no change for an array binding (Phase 11c item 8): the bare
+        // formula reaches the boundary as a Let NODE, and NamedReferences.CaptureValue on a Let node is
+        // Let.Evaluate, whose body reads the bound name through NameReference.Evaluate — the operand's
+        // top-left, a plain scalar. So the value the boundary receives is neither a reference (nothing to
+        // intersect) nor an array (nothing to spill): the three assertions pin that the capture is not a
+        // reference value, that the expression path and the cell path agree, and that both are the
+        // oracle's top-left (5 / 6, Aspose.Cells 26.6.0, 2026-09-11, both modes).
+        var (workbook, sheet) = Named();
+        var expression = ExpressionParser.Parse(formula, sheet);
+        var captured = NamedReferences.CaptureValue(
+            expression,
+            new EvaluationContext(workbook, "Sheet1", "H20")
+        );
+
+        await Assert.That(captured.TryGetReference(out _)).IsFalse();
+        await Assert.That(captured.AsObject()).IsEqualTo(Oracle(oracle));
+        await Assert.That(InCell(formula)).IsEqualTo(Oracle(oracle));
+    }
+
+    // A range NAME for the seam rows below: IF(TRUE,Rng,0) passes the name's reference VALUE out of
+    // If.Evaluate without answering TryResolveReference itself, which is the one shape where
+    // ArrayBindings.Shape (the probe's stand-in) and ArrayBindings.Capture (the build) classify a binding
+    // differently — a scalar to the probe, a range-bound name to the build.
+    private static object? WithRng(string formula)
+    {
+        var (workbook, sheet) = Named();
+        workbook.DefineName("Rng", "Sheet1!$A$1:$A$3");
+
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
+    [Test]
+    [Arguments("=LET(a,IF(TRUE,Rng,0),b,a,SUM(b*1))", "14")]
+    [Arguments("=SUM(LET(a,IF(TRUE,Rng,0),b,a,b*1)*B1:B3)", "32")]
+    public async Task AChainedRebindingOfAnIfOverARangeName_ResolvesOnTheBuildSide(
+        string formula,
+        string oracle
+    )
+    {
+        // Oracle 26.6.0, 2026-09-11 (own probe copy, this fixture): 14 in BOTH modes; #VALUE! plain / 32
+        // CSE (the columns split, as they do for every operator over a range — the CSE column is the
+        // target). The build side is where the seam resolves right: a is Capture'd as the reference value
+        // If.Evaluate carries, b rebinds it, and b*1 zips over the three cells — for the first row
+        // directly (SUM's argument is b*1, a Binary the probe answers for through the name's REAL scope),
+        // and for the second because B1:B3 makes the outer Binary an array whatever the probe said about
+        // the Let, so the build runs. The second row MOVED with Phase 11c's Let arm: #VALUE! before (the
+        // Let node was an opaque scalar to the build too), 32 now.
+        await Assert.That(WithRng(formula)).IsEqualTo(Oracle(oracle));
+    }
+
+    [Test]
+    [Arguments("=SUM(LET(a,IF(TRUE,Rng,0),b,a,b*1))", "#VALUE!")]
+    [Arguments("=COUNTIF(LET(a,IF(TRUE,Rng,0),b,a,b*1),\">0\")", "0")]
+    public async Task AChainedRebindingOfAnIfOverARangeName_IsOpaqueToTheProbe_KnownDivergence(
+        string formula,
+        string oracle
+    )
+    {
+        // KNOWN DIVERGENCE, unchanged by Phase 11c (measured identical on 6ad7cea, before the Let arm):
+        // the oracle (26.6.0, 2026-09-11, own probe copy) answers 14 in BOTH modes for the first row and
+        // #VALUE! plain / #REF! CSE for the second; the engine answers #VALUE! and 0. The probe's stand-in
+        // for a binding resolves reference-ness through TryResolveReference, which IF does not answer, so
+        // a is a scalar in the probe's scope, the Let is "not an array" to the consumer's gate, and the
+        // consumer keeps its scalar path (SUM evaluates the Let: a reference value times 1 is #VALUE!) or
+        // its cursor (COUNTIF opens the one collapsed element: 0). The probe is only ever MORE conservative
+        // than the build here, never the reverse — the reason the invariant "eligible iff the build is an
+        // array" is not broken in the direction a consumer could observe as a double evaluation. Owned by
+        // the "IF returns a reference" question (sweep item 32), not by this phase; a pin so the seam
+        // ArrayBindings.Shape documents is not a silent one.
+        await Assert.That(WithRng(formula)).IsEqualTo(Oracle(oracle));
     }
 
     [Test]

@@ -10,7 +10,7 @@ namespace Danfma.MySheet.Tests.Expressions;
 
 /// <summary>
 /// Phase 7 (dynamic arrays), the PRODUCER CONTRACT: <see cref="IArrayProducer"/>, its two dispatch arms in
-/// <see cref="ArrayEvaluation"/>, <see cref="ArrayEvaluation.FirstElement"/>, and the shared operands in
+/// <see cref="ArrayEvaluation"/>, <see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>, and the shared operands in
 /// <c>ArrayShaping.cs</c> (<see cref="SingletonArrayOperand"/>, <see cref="AxisSelectionOperand"/>) with
 /// their hard invariant. None of the four functions exists yet — these tests drive the contract through
 /// TEST-ONLY producers, so that FILTER, SORT, UNIQUE and SEQUENCE plug into a channel that is already

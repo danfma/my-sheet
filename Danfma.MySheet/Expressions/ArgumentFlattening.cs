@@ -17,7 +17,7 @@ internal static class ArgumentFlattening
     /// true (<c>COUNTA(UNIQUE(A1:A3))</c> = 3, <c>CONCAT(A1:A3*2)</c> = "10018", <c>TEXTJOIN(",",TRUE,
     /// FILTER(A1:A3,A1:A3&gt;0))</c> = "5,9"; Aspose.Cells 26.6.0, 2026-09-10, array-entered column,
     /// pinned in <c>DynamicArrayTests</c>); everything else is evaluated once as a scalar, which for a
-    /// producer is its top-left (<see cref="ArrayEvaluation.FirstElement"/>). <paramref name="streamArrays"/>
+    /// producer is its top-left (<see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>). <paramref name="streamArrays"/>
     /// is false for exactly one caller, <c>CONCATENATE</c>, which joins scalars and answers a producer's
     /// top-left on the oracle in both entry modes; <c>COUNTBLANK</c> rejects a computed array up front
     /// (<see cref="PositionalRange.RejectComputedArray"/>) and never reaches the arm. The gate is the one

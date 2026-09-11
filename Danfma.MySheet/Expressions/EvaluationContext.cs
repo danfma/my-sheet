@@ -15,16 +15,27 @@ public readonly struct EvaluationContext
     // per formula), so the linear walk beats the hashing + copying overhead. Walking newest-first also gives
     // shadowing for free: a rebind of the same name (LET(x,1,LET(x,x+1,x))) pushes a new node in front, so the
     // most recent one is found first and the outer binding is simply never reached.
+    //
+    // A binding holds one of TWO forms (Phase 11c, array bindings): a ComputedValue — a scalar, or the
+    // reference VALUE a range binding captures (NamedReferences.CaptureValue) — or an ArrayOperand built
+    // ONCE at binding time for an array-eligible binding expression (ArrayBindings.Capture). One node type
+    // carries both so the walk, the shadowing and the cost above are unchanged; which form a node holds is
+    // what TryGetName and TryGetArrayBinding disagree about, on purpose. A name answers exactly one of them,
+    // and the NEAREST binding of a name is the answer for both, so it shadows an outer binding of the OTHER
+    // form too: LET(x,1,LET(x,FILTER(…),SUM(x))) sums the array and never reaches the 1, and
+    // LET(x,FILTER(…),LET(x,1,x)) is 1.
     private sealed class NameScope
     {
         public readonly string Name;
         public readonly ComputedValue Value;
+        public readonly ArrayOperand? Operand;
         public readonly NameScope? Parent;
 
-        public NameScope(string name, ComputedValue value, NameScope? parent)
+        public NameScope(string name, ComputedValue value, ArrayOperand? operand, NameScope? parent)
         {
             Name = name;
             Value = value;
+            Operand = operand;
             Parent = parent;
         }
     }
@@ -76,7 +87,34 @@ public readonly struct EvaluationContext
         new(Workbook, sheetName, cellId, names: null, deltaRow: 0, deltaColumn: 0);
 
     public EvaluationContext WithName(string name, ComputedValue value) =>
-        new(Workbook, SheetName, CellId, new NameScope(name, value, _names), DeltaRow, DeltaColumn);
+        new(
+            Workbook,
+            SheetName,
+            CellId,
+            new NameScope(name, value, operand: null, _names),
+            DeltaRow,
+            DeltaColumn
+        );
+
+    /// <summary>
+    /// The ARRAY-binding form (Phase 11c): <paramref name="name"/> bound to an operand that was built once,
+    /// at binding time, and is read — never rebuilt — by every consumer of the name for the scope's lifetime
+    /// (one evaluation). Found by <see cref="TryGetArrayBinding"/>, invisible to <see cref="TryGetName"/>:
+    /// an array binding is not a <see cref="ComputedValue"/>.
+    /// </summary>
+    internal EvaluationContext WithName(string name, ArrayOperand operand) =>
+        new(
+            Workbook,
+            SheetName,
+            CellId,
+            new NameScope(name, value: default, operand, _names),
+            DeltaRow,
+            DeltaColumn
+        );
+
+    /// <summary>Binds whichever form <paramref name="binding"/> holds — the one call a binding site makes.</summary>
+    internal EvaluationContext WithName(string name, ArrayBindings.Binding binding) =>
+        binding.Operand is { } operand ? WithName(name, operand) : WithName(name, binding.Value);
 
     /// <summary>
     /// G3 spike: pushes a shared-formula delta for the duration of evaluating a
@@ -87,20 +125,53 @@ public readonly struct EvaluationContext
     public EvaluationContext WithDelta(int deltaRow, int deltaColumn) =>
         new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn);
 
-    // Names are case-insensitive, matching the OrdinalIgnoreCase comparer the old dictionary used (and
-    // Workbook.DefinedNames still uses for the layer this falls back to — see NameReference).
+    /// <summary>
+    /// The nearest SCALAR-form binding of <paramref name="name"/> — a scalar or a captured reference value.
+    /// False when the name is unbound, and false when its nearest binding is an array (see
+    /// <see cref="TryGetArrayBinding"/>): the two lookups answer for the same node and never both.
+    /// </summary>
     public bool TryGetName(string name, out ComputedValue value)
+    {
+        if (Find(name) is { Operand: null } node)
+        {
+            value = node.Value;
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    /// <summary>
+    /// The nearest ARRAY-form binding of <paramref name="name"/> (Phase 11c): the operand
+    /// <see cref="WithName(string, ArrayOperand)"/> bound. False when the name is unbound or its nearest
+    /// binding is a scalar.
+    /// </summary>
+    internal bool TryGetArrayBinding(string name, out ArrayOperand operand)
+    {
+        if (Find(name) is { Operand: { } bound })
+        {
+            operand = bound;
+            return true;
+        }
+
+        operand = null!;
+        return false;
+    }
+
+    // The nearest binding of a name, whichever form it holds. Names are case-insensitive, matching the
+    // OrdinalIgnoreCase comparer the old dictionary used (and Workbook.DefinedNames still uses for the layer
+    // this falls back to — see NameReference).
+    private NameScope? Find(string name)
     {
         for (var node = _names; node is not null; node = node.Parent)
         {
             if (string.Equals(node.Name, name, StringComparison.OrdinalIgnoreCase))
             {
-                value = node.Value;
-                return true;
+                return node;
             }
         }
 
-        value = default;
-        return false;
+        return null;
     }
 }

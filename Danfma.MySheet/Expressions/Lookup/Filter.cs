@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// <c>FILTER(array, include, [if_empty])</c> — the rows (or columns) of <c>array</c> whose <c>include</c>
 /// element is TRUE, as a mini-CSE producer (<see cref="IArrayProducer"/>): <c>SUM(FILTER(A1:A3,A1:A3&gt;0))</c>
 /// is 14 over 5, 0, 9 and <c>INDEX(FILTER(A1:A3,A1:A3&gt;0),2)</c> is 9; in a cell it answers its top-left
-/// element (<see cref="ArrayEvaluation.FirstElement"/>). The include is read ONCE at build time — the
+/// element (<see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>). The include is read ONCE at build time — the
 /// data-dependent length is fixed then — and the kept VALUES stay on demand through
 /// <see cref="AxisSelectionOperand"/>, so a blank survives the selection as a blank
 /// (<c>COUNTA(FILTER(A5:A8,A5:A8&lt;&gt;"zzz"))</c> = 3 = <c>COUNTA(A5:A8)</c>, <c>ISBLANK</c> of the second

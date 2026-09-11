@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// <c>SORT(array, [sort_index], [sort_order], [by_col])</c> — the rows (or, with <c>by_col</c>, the columns)
 /// of <c>array</c> permuted by one key column (or row), as a mini-CSE producer (<see cref="IArrayProducer"/>):
 /// <c>INDEX(SORT(A1:A3),1)</c> is 0 over 5, 0, 9, <c>INDEX(SORT(A1:A3,1,-1),1)</c> is 9, and a cell shows the
-/// top-left (<see cref="ArrayEvaluation.FirstElement"/>: <c>=SORT(A1:B3,1,-1)</c> is 9). The KEYS are read
+/// top-left (<see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>: <c>=SORT(A1:B3,1,-1)</c> is 9). The KEYS are read
 /// once at build time and the permutation fixed then; the values stay on demand through
 /// <see cref="AxisSelectionOperand"/>, so a blank arrives as a blank.
 /// </summary>

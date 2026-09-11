@@ -6,7 +6,7 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// <c>UNIQUE(array, [by_col], [exactly_once])</c> — the distinct rows (or, with <c>by_col</c>, the distinct
 /// columns) of <c>array</c> in order of FIRST appearance, as a mini-CSE producer (<see cref="IArrayProducer"/>):
 /// <c>UNIQUE(Q1:Q4)</c> over 9, 5, 9, 0 is 9, 5, 0 (<c>SUM</c> 14, <c>COUNTA</c> 3), and a cell shows the
-/// top-left (<see cref="ArrayEvaluation.FirstElement"/>). The KEYS are read once at build time; the values
+/// top-left (<see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>). The KEYS are read once at build time; the values
 /// stay on demand through <see cref="AxisSelectionOperand"/>, so a kept blank arrives as a blank.
 /// </summary>
 /// <remarks>

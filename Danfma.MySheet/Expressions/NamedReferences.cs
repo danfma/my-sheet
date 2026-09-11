@@ -128,7 +128,17 @@ internal static class NamedReferences
         }
 
         // A LET binding shadows a defined name completely: if the name is bound in scope, only a
-        // reference-kind value (e.g. a range captured by LET) counts; a scalar binding is not a reference.
+        // reference-kind value (e.g. a range captured by LET) counts; a scalar binding is not a reference,
+        // and neither is an ARRAY binding (Phase 11c) — the consumers that ask reach that one through
+        // ArrayEvaluation's NameReference arms and the context-aware IsBareReferenceNode instead. Both
+        // checks come BEFORE the defined-name fallback, so a workbook name spelled like the LET name never
+        // leaks through a binding of either form.
+        if (context.TryGetArrayBinding(name.Name, out _))
+        {
+            reference = null;
+            return false;
+        }
+
         if (context.TryGetName(name.Name, out var bound))
         {
             return bound.TryGetReference(out reference);

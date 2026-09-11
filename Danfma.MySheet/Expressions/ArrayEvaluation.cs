@@ -44,8 +44,11 @@ internal readonly struct ArrayEvaluationResult
 /// (<c>#NAME?</c> included) — a formula name that DOES resolve to one is that reference, and takes the
 /// rectangle/open-range/single-cell arm accordingly. At a
 /// consumer's TOP level a bare name is a reference and takes the reference path exactly as a bare literal
-/// range does: <see cref="IsBareReferenceNode"/> is the one predicate the three top-level gates share, and
-/// DefinedNameArrayEligibilityTests' must-not-move pins are what make it load-bearing. Two shapes are LIFTED
+/// range does: <see cref="IsBareReferenceNode(Expression, EvaluationContext)"/> is the one predicate the
+/// three top-level gates share, and DefinedNameArrayEligibilityTests' must-not-move pins are what make it
+/// load-bearing — unless the name is LET-bound to an ARRAY (Phase 11c, <see cref="ArrayBindings"/>), which
+/// the predicate does not admit: the same <c>f</c> then streams to <c>SUM(f)</c> and <c>ROWS(f)</c> and is
+/// refused by <c>COUNTIF(f,…)</c>, both right (ArrayBindingTests). Two shapes are LIFTED
 /// element-wise (Phase 8): a unary <c>-</c>/<c>%</c>
 /// over an array (unary <c>+</c> is Excel's reference-preserving no-op and stays opaque, so
 /// <c>SUM(+A1:A3)</c> keeps reading the cells), and any built-in the registry classifies
@@ -55,7 +58,9 @@ internal readonly struct ArrayEvaluationResult
 /// node that PRODUCES an array — Phase 7's <c>FILTER</c>/<c>SORT</c>/<c>UNIQUE</c>/<c>SEQUENCE</c> — plugs in
 /// through <see cref="IArrayProducer"/>, reached by one arm in each of <see cref="Probe"/> and
 /// <see cref="TryBuildOperand"/> and answering for its own shape and elements (a bare producer in a cell
-/// is its top-left element, <see cref="FirstElement"/>). Any
+/// is its top-left element, <see cref="FirstElement(Expression, EvaluationContext)"/>). A <c>LET</c> is an
+/// array when its body is one in the scope its bindings make (<see cref="ArrayBindings"/>; the <c>Let</c>
+/// arms of <see cref="Probe"/> and <see cref="TryBuildOperand"/>). Any
 /// node outside this set is treated as a scalar (broadcast); a whole-column/open range is REFUSED (the cost
 /// guard) so the whole evaluation reports "not an array" and the caller keeps its current scalar path — except
 /// INSIDE a lifted shape, where the refusal makes that unary/function an opaque scalar (evaluated once, its
@@ -162,8 +167,9 @@ internal static class ArrayEvaluation
     ///
     /// <para>Because a range-bound name IS array-eligible, a consumer gate must exclude a bare
     /// <see cref="NameReference"/> at its top level exactly as it excludes a bare <see cref="Reference"/>
-    /// — through <see cref="IsBareReferenceNode"/>, never a hand-written <c>is not Reference</c>, which a
-    /// name (an <see cref="Expression"/>, not a <see cref="Reference"/>) slips past. Measured on the
+    /// — through <see cref="IsBareReferenceNode(Expression, EvaluationContext)"/>, never a hand-written
+    /// <c>is not Reference</c>, which a name (an <see cref="Expression"/>, not a <see cref="Reference"/>)
+    /// slips past. Measured on the
     /// prototype WITHOUT that exclusion, fifteen top-level shapes regressed (<c>SUBTOTAL(9,Rng)</c> 14 →
     /// <c>#VALUE!</c>, <c>AGGREGATE(14,0,Nested,1)</c> 2 → a silent 3, <c>SUM(A1:INDEX(Rng,3))</c> 14 →
     /// <c>#REF!</c>, <c>SUM(Wide)</c> on an error fixture <c>#DIV/0!</c> → <c>#N/A</c>, …); they are pinned
@@ -187,8 +193,16 @@ internal static class ArrayEvaluation
     /// </summary>
     internal static ComputedValue FirstElement(Expression expression, EvaluationContext context) =>
         TryBuildOperand(expression, context, out var operand) && operand.IsArray
-            ? operand.At(0, operand.Rows, operand.Columns)
+            ? FirstElement(operand)
             : ComputedValue.Error(Error.Value);
+
+    /// <summary>
+    /// The same <c>@</c> rule over an operand that was ALREADY built — an array binding read bare
+    /// (<see cref="NameReference.Evaluate"/>, <see cref="ArrayBindings.Binding.TopLeft"/>): position 0 at
+    /// the operand's own extent, with no second build.
+    /// </summary>
+    internal static ComputedValue FirstElement(ArrayOperand operand) =>
+        operand.At(0, operand.Rows, operand.Columns);
 
     /// <summary>
     /// THE mini-CSE consumer gate: the three conditions every consumer that wants to STREAM a computed array
@@ -202,14 +216,16 @@ internal static class ArrayEvaluation
     ///
     /// <para>The ORDER is load-bearing, not stylistic:</para>
     /// <list type="number">
-    /// <item><description><see cref="IsBareReferenceNode"/> FIRST. A plain <see cref="RangeReference"/> — an
-    /// <see cref="AnchoredRangeReference"/>, which <see cref="Probe"/> classifies as <c>(true, true)</c>
-    /// exactly like one, and a <see cref="NameReference"/> bound to a rectangle — IS array-eligible, so
-    /// without this guard (or with it placed after the probe) every reference argument would be diverted off
-    /// its reference path into the stream, losing whatever that path carries: the snapshot/dense walk, the
-    /// engine's column-major first-error scan, and for the aggregate family the nested-SUBTOTAL/AGGREGATE
-    /// skip, which only the cell-by-cell scan can apply. The name half of that is measured, not inferred:
-    /// see <see cref="IsArrayEligible"/>'s remarks.</description></item>
+    /// <item><description><see cref="IsBareReferenceNode(Expression, EvaluationContext)"/> FIRST. A plain
+    /// <see cref="RangeReference"/> — an <see cref="AnchoredRangeReference"/>, which <see cref="Probe"/>
+    /// classifies as <c>(true, true)</c> exactly like one, and a <see cref="NameReference"/> bound to a
+    /// rectangle — IS array-eligible, so without this guard (or with it placed after the probe) every
+    /// reference argument would be diverted off its reference path into the stream, losing whatever that
+    /// path carries: the snapshot/dense walk, the engine's column-major first-error scan, and for the
+    /// aggregate family the nested-SUBTOTAL/AGGREGATE skip, which only the cell-by-cell scan can apply. The
+    /// name half of that is measured, not inferred: see <see cref="IsArrayEligible"/>'s remarks. The
+    /// predicate is context-aware for exactly one reason: a name LET-bound to an ARRAY is not a reference,
+    /// and must reach the stream (Phase 11c).</description></item>
     /// <item><description><see cref="IsArrayEligible"/> SECOND. It is the CHEAP structural pre-check that
     /// never evaluates the expression, so a scalar argument pays only a shallow type-walk before falling
     /// through to the caller's scalar path.</description></item>
@@ -219,7 +235,8 @@ internal static class ArrayEvaluation
     ///
     /// <para>One nearby site deliberately does NOT use this gate: <c>Index.TryResolveReference</c> probes only
     /// to REJECT the array forms and never builds a stream at all, so it applies the first two conditions
-    /// itself — with the same <see cref="IsBareReferenceNode"/> predicate. <c>NumericAggregation.Fold</c>'s
+    /// itself — with the same <see cref="IsBareReferenceNode(Expression, EvaluationContext)"/> predicate.
+    /// <c>NumericAggregation.Fold</c>'s
     /// <c>default:</c> arm, whose own switch owns the dispatch of every reference NODE, routes through this
     /// gate too: its leading condition is what keeps a bare name (which that switch does not peel off — it is
     /// not a <see cref="Reference"/>) on the referenced-cell path.</para>
@@ -230,7 +247,7 @@ internal static class ArrayEvaluation
         out ArrayStream stream
     )
     {
-        if (!IsBareReferenceNode(expression) && IsArrayEligible(expression, context))
+        if (!IsBareReferenceNode(expression, context) && IsArrayEligible(expression, context))
         {
             return TryEvaluateStream(expression, context, out stream);
         }
@@ -241,16 +258,30 @@ internal static class ArrayEvaluation
 
     /// <summary>
     /// Whether <paramref name="expression"/> is a bare reference NODE — a syntactic <see cref="Reference"/>
-    /// or a <see cref="NameReference"/> — which at a consumer's TOP level must take the consumer's reference
-    /// path even when <see cref="IsArrayEligible"/> would say yes for it. The one predicate every top-level
-    /// gate shares (<see cref="TryStream"/>, <c>Index.TryResolveReference</c>, <c>NumericAggregation.Fold</c>'s
-    /// <c>default:</c> arm, and the criteria family's range-slot rejection), so a reference-denoting node that
-    /// is not a <see cref="Reference"/> — a name today, a structured table reference tomorrow — is excluded
-    /// in ONE place. Measured on the prototype without the name half: fifteen top-level shapes regressed
-    /// (see <see cref="IsArrayEligible"/>'s remarks).
+    /// or a <see cref="NameReference"/> that is NOT LET-bound to an array in <paramref name="context"/> —
+    /// which at a consumer's TOP level must take the consumer's reference path even when
+    /// <see cref="IsArrayEligible"/> would say yes for it. The one predicate every top-level gate shares
+    /// (<see cref="TryStream"/>, <c>Index.TryResolveReference</c>, <c>NumericAggregation.Fold</c>'s
+    /// <c>default:</c> arm, the criteria family's range-slot rejection, the If-branch rule of
+    /// <see cref="ProbeIfBranches"/>, and <see cref="ArrayBindings.Capture"/>), so a reference-denoting node
+    /// that is not a <see cref="Reference"/> — a name today, a structured table reference tomorrow — is
+    /// excluded in ONE place. Measured on the prototype without the name half: fifteen top-level shapes
+    /// regressed (see <see cref="IsArrayEligible"/>'s remarks).
+    ///
+    /// <para>The context is what makes a name's answer honest (Phase 11c): a name whose nearest LET binding
+    /// is an ARRAY (<see cref="EvaluationContext.TryGetArrayBinding"/>) is not a reference — it is an array
+    /// — and answers <c>false</c>, so <c>SUM(f)</c>/<c>ROWS(f)</c> stream it and <c>COUNTIF(f,…)</c> refuses
+    /// it (ArrayBindingTests). A name bound to a scalar or a range, a defined name and an unknown name keep
+    /// the syntactic answer, <c>true</c>. There is no context-free overload: every gate runs where a
+    /// context exists, and a LET binding does not exist before evaluation, so a caller without one has no
+    /// name to ask about.</para>
     /// </summary>
-    internal static bool IsBareReferenceNode(Expression expression) =>
-        expression is Reference or NameReference;
+    internal static bool IsBareReferenceNode(Expression expression, EvaluationContext context) =>
+        expression switch
+        {
+            NameReference name => !context.TryGetArrayBinding(name.Name, out _),
+            _ => expression is Reference,
+        };
 
     // The pure-shape twin of TryBuildOperand: decides, WITHOUT evaluating the expression, whether the build
     // would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an array
@@ -285,6 +316,13 @@ internal static class ArrayEvaluation
             // An open/whole-column range in an array position is refused (the cost guard).
             case OpenRangeReference:
                 return (false, false);
+
+            // A name LET-bound to an ARRAY (Phase 11c) is that array: the operand was built once at binding
+            // time (ArrayBindings.Capture), so the probe answers for it without resolving anything. Checked
+            // BEFORE ResolveNameShape, which would answer Opaque for it (an array binding is not a
+            // reference), and before a defined name of the same spelling, which the binding shadows.
+            case NameReference bound when context.TryGetArrayBinding(bound.Name, out _):
+                return (true, true);
 
             // A bare defined name is whatever it is bound to (Phase 11a Rule A): the four outcomes of
             // ResolveNameShape map onto the three answers above plus the opaque scalar of `default`. Placed
@@ -360,6 +398,11 @@ internal static class ArrayEvaluation
                 return (true, condition.IsArray || branches.IsArray);
             }
 
+            // A LET is an array when its BODY is one in the scope its bindings make (Phase 11c). Reachable
+            // because LET is Entry<Let> — Consumes — so the lift arm above does not take it. See ProbeLet.
+            case Let let:
+                return ProbeLet(let, context);
+
             // A node that PRODUCES an array (Phase 7: FILTER/SORT/UNIQUE/SEQUENCE, and any later producer)
             // answers for itself. Placed LAST before `default` and after every arm above: the open-range
             // refusal and the name arm come first because they are different node types; the lift arm
@@ -417,7 +460,7 @@ internal static class ArrayEvaluation
             //     open range with the loud 1x1 #VALUE! WrapScalar gives it rather than refusing. So a
             //     refusable reference in the UNTAKEN branch must cost nothing, which is what the oracle says:
             //     SUM(IF(FALSE,MyColumn,0)*B1:B3) is 0, and probing it here would make it #VALUE!.
-            if (IsBareReferenceNode(branch) && !conditionIsArray)
+            if (IsBareReferenceNode(branch, context) && !conditionIsArray)
             {
                 continue;
             }
@@ -428,7 +471,7 @@ internal static class ArrayEvaluation
                 return (false, false);
             }
 
-            if (IsBareReferenceNode(branch))
+            if (IsBareReferenceNode(branch, context))
             {
                 continue;
             }
@@ -437,6 +480,53 @@ internal static class ArrayEvaluation
         }
 
         return (true, isArray);
+    }
+
+    // The Let arm's probe half (Phase 11c): walk the bindings with ArrayBindings.Shape — each name bound
+    // to the SHAPE its capture would have, an array stand-in or the reference it resolves to or an opaque
+    // blank, with nothing evaluated — and probe the body in that scope. A malformed LET is the scalar
+    // path's own #VALUE!: an opaque scalar. A bare-reference BODY is not counted, on ProbeIfBranches' rule
+    // for a bare-reference branch: whether LET(f,A1:A3,f) hands its consumer the RANGE is the same
+    // "returns a reference" question as IF's, left where it is (sweep item 32) — the body still evaluates
+    // in the bound scope and the consumer keeps today's answer. The context-aware predicate is what makes
+    // that rule and the array case agree about a name: LET(f,FILTER(…),f) has an ARRAY body, and streams.
+    //
+    // The probe never refuses on a binding: a binding whose expression the cost guard refuses (an open
+    // range in an array position) is captured by CaptureValue on the build side, a scalar, and Shape binds
+    // it as one — so a refusal is only ever the BODY's, exactly as TryBuildLet finds it.
+    private static (bool Succeeds, bool IsArray) ProbeLet(Let let, EvaluationContext context)
+    {
+        if (!let.TryBind(context, ArrayBindings.Shape, out var scope))
+        {
+            return (true, false);
+        }
+
+        var body = let.Arguments[^1];
+
+        return IsBareReferenceNode(body, scope) ? (true, false) : Probe(body, scope);
+    }
+
+    // The Let arm's build half: the SAME walk with ArrayBindings.Capture — the bindings' single evaluation,
+    // exactly Let.Evaluate's — then the body built in that scope. A bare-reference body evaluates in the
+    // bound scope and broadcasts (the probe did not count it); a malformed LET is the loud #VALUE! scalar,
+    // with the well-formed prefix of its bindings evaluated once, as Let.Evaluate evaluates it.
+    private static bool TryBuildLet(Let let, EvaluationContext context, out ArrayOperand operand)
+    {
+        if (!let.TryBind(context, ArrayBindings.Capture, out var scope))
+        {
+            operand = new ScalarOperand(ComputedValue.Error(Error.Value));
+            return true;
+        }
+
+        var body = let.Arguments[^1];
+
+        if (IsBareReferenceNode(body, scope))
+        {
+            operand = new ScalarOperand(body.Evaluate(scope));
+            return true;
+        }
+
+        return TryBuildOperand(body, scope, out operand);
     }
 
     // The shape twin of TryBuildPositionOperand — same argument order, same three outcomes, so ROW/COLUMN
@@ -484,6 +574,13 @@ internal static class ArrayEvaluation
             case OpenRangeReference:
                 operand = null!;
                 return false;
+
+            // The twin of Probe's array-binding arm (Phase 11c): the operand built once at binding time IS
+            // the name's operand — no second build, which is what keeps a volatile binding at one draw
+            // (LET(x,SEQUENCE(3,1,RAND(),0),SUM(x)-SUM(x)) = 0, ArrayBindingTests).
+            case NameReference bound when context.TryGetArrayBinding(bound.Name, out var binding):
+                operand = binding;
+                return true;
 
             // The twin of Probe's NameReference arm, on the same oracle: a rectangle streams its cells (a
             // missing sheet included — BuildRange hands back the per-element #REF!); the cost guard refuses
@@ -547,6 +644,10 @@ internal static class ArrayEvaluation
 
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
                 return TryBuildIf(ifNode, context, out operand);
+
+            // The build twin of Probe's Let arm, in the same position — see TryBuildLet.
+            case Let let:
+                return TryBuildLet(let, context, out operand);
 
             // The build twin of Probe's producer arm, in the same position for the same reasons.
             case IArrayProducer producer:
@@ -969,7 +1070,7 @@ internal static class ArrayEvaluation
             return true;
         }
 
-        if (IsBareReferenceNode(branch))
+        if (IsBareReferenceNode(branch, context))
         {
             operand = WrapScalar(branch.Evaluate(context), context);
             return true;

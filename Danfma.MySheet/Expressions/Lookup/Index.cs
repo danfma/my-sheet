@@ -168,11 +168,13 @@ public sealed partial record Index(Expression[] Arguments) : Function
         // Phase 11a, but a reference at this top level — keeps resolving to its cell: without it, measured
         // on the prototype, SUM(A1:INDEX(Rng,3)) went 14 → #REF!, ROW(INDEX(Rng,2)) 2 → #VALUE!,
         // ISREF(INDEX(Rng,2)) TRUE → FALSE and OFFSET(INDEX(Rng,1),1,0) 0 → #REF!
-        // (DefinedNameArrayEligibilityTests.Index_OverABareName_StillReturnsAReference).
+        // (DefinedNameArrayEligibilityTests.Index_OverABareName_StillReturnsAReference). The context-aware
+        // overload is what lets a name bound to an ARRAY by LET fall to the array path instead:
+        // LET(f,FILTER(…),INDEX(f,2)) is 9 (ArrayBindingTests), where the reference path answered #REF!.
         if (
             Arguments[0] is Row { Arguments: [OpenRangeReference] }
             || (
-                !ArrayEvaluation.IsBareReferenceNode(Arguments[0])
+                !ArrayEvaluation.IsBareReferenceNode(Arguments[0], context)
                 && ArrayEvaluation.IsArrayEligible(Arguments[0], context)
             )
         )

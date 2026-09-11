@@ -432,12 +432,16 @@ public class DefinedNameArrayEligibilityTests
     }
 
     [Test]
-    public async Task LetBoundName_InAnArrayPosition_IsUnchanged_KnownDivergence()
+    public async Task LetBoundName_InAnArrayPosition_StreamsThroughTheLetNode()
     {
-        // DELIBERATE DIVERGENCE, left as it is by this phase: the consumer's argument is the Let node, which
-        // Probe does not look inside, so the name arm never sees r. Phase 7's LET routing correction owns it.
-        // Aspose 26.6.0: 2 PLAIN and 2 ARRAY-ENTERED (the two columns agree here).
-        await Assert.That(Num(OnGrid("=SUM(LET(r,Rng,(r<>0)*1))"))).IsEqualTo(1.0);
+        // Aspose 26.6.0: 2 PLAIN and 2 ARRAY-ENTERED (the two columns agree here). History: Phase 11a pinned
+        // this row at 1 as a DELIBERATE DIVERGENCE — the consumer's argument was the Let node, which Probe
+        // did not look inside, so the name arm never saw r — and handed it to Phase 7's LET routing
+        // correction. Phase 11c (array bindings) is that correction: Probe's Let arm walks the bindings and
+        // probes the body in the bound scope, where r is the range it was bound to, so the Let node is
+        // array-eligible and SUM streams it. 1 → 2 with that arm (ArrayBindingTests holds the producer
+        // twins).
+        await Assert.That(Num(OnGrid("=SUM(LET(r,Rng,(r<>0)*1))"))).IsEqualTo(2.0);
     }
 
     [Test]
@@ -452,27 +456,29 @@ public class DefinedNameArrayEligibilityTests
     {
         // The other side of the LET pin above: the arm resolves through NamedReferences.TryResolveReference,
         // whose FIRST stop is the LET scope, so a LET-bound name INSIDE an array position is the range it
-        // was bound to — it is only the Let node itself, as a consumer's argument, that Probe does not look
-        // inside. A behaviour change of Rule A that the phase table does not list, pinned so it is not a
-        // silent one. Aspose 26.6.0: 2, 2, 3, 18 in BOTH modes. MySheet before the arm (this tree with the
-        // arm stashed, 2026-09-10): 1, 1, 0 and an error — the opaque reference value again, the
+        // was bound to — the Let node itself, as a consumer's argument, was the one shape Probe did not
+        // look inside until Phase 11c's Let arm (the pin above). A behaviour change of Rule A that the
+        // phase table does not list, pinned so it is not a silent one. Aspose 26.6.0: 2, 2, 3, 18 in BOTH
+        // modes. MySheet before the arm (this tree with the arm stashed, 2026-09-10): 1, 1, 0 and an error
+        // — the opaque reference value again, the
         // INDEX one through the same #REF! path as INDEX(Rng*2,3) above.
         await Assert.That(Num(OnGrid(formula))).IsEqualTo(expected);
     }
 
     [Test]
-    public async Task LetBoundComputedArray_InANestedArrayPosition_IsUnchanged_KnownDivergence()
+    public async Task LetBoundComputedArray_InANestedArrayPosition_StreamsAsTheBoundOperand()
     {
-        // The LIMIT of the pin above, and the reason its name says "name": the scope resolution only reaches
-        // a name bound to a REFERENCE. A name bound to a computed ARRAY never becomes one, because
-        // NamedReferences.CaptureValue evaluates a non-range binding as a scalar when the LET binds it —
-        // before any array position can see it — so r is one #VALUE! here and the three shapes answer exactly
-        // what they answered before Rule A (measured on main 5f9d1ac, 2026-09-10: the same 0, #VALUE!, #REF!).
-        // Aspose 26.6.0, measured 2026-09-10: 3, 14 and 18 in BOTH entry modes. Phase 7's LET routing
-        // correction (its item M1) owns this half too — LET(x,FILTER(…),SUM(x)) is the same shape.
-        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,COUNT(r*1))"))).IsEqualTo(0.0);
-        await Assert.That(OnGrid("=LET(r,A1:A3*1,SUM(r*1))")).IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(OnGrid("=LET(r,A1:A3*1,INDEX(r*2,3))")).IsEqualTo(ErrorValue.Reference);
+        // Aspose 26.6.0, measured 2026-09-10: 3, 14 and 18 in BOTH entry modes. History: Phase 11a pinned
+        // these three at 0, #VALUE! and #REF! as the LIMIT of the pin above — the scope resolution only
+        // reached a name bound to a REFERENCE, and a name bound to a computed ARRAY never became one,
+        // because NamedReferences.CaptureValue evaluated a non-range binding as a scalar when the LET bound
+        // it, so r was one #VALUE! before any array position could see it — and handed the half to Phase
+        // 7's LET routing correction (item M1). Phase 11c (array bindings) is that correction: the binding
+        // is built once as an operand (ArrayBindings.Capture) and the name's array arm hands it back, so
+        // r*1 zips over the three cells. 0 → 3, #VALUE! → 14, #REF! → 18 with the binding.
+        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,COUNT(r*1))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,SUM(r*1))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,INDEX(r*2,3))"))).IsEqualTo(18.0);
     }
 
     [Test]

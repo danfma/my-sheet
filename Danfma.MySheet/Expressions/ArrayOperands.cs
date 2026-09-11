@@ -14,7 +14,7 @@ namespace Danfma.MySheet.Expressions;
 /// <see cref="ArrayEvaluation.TryBuildOperand"/> — so adding a producer never edits
 /// <c>ArrayEvaluation.cs</c>; it mirrors the codebase's extension-by-shared-abstraction style
 /// (<c>INumericFold</c>). A producer's node keeps <see cref="Expression.Evaluate"/> as its CELL answer,
-/// which is <see cref="ArrayEvaluation.FirstElement"/> — Excel's <c>@</c> on an array, the top-left.
+/// which is <see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/> — Excel's <c>@</c> on an array, the top-left.
 /// </summary>
 /// <remarks>
 /// <para>The two members are twins and MUST agree, because the mini-CSE's documented contract is
@@ -30,7 +30,7 @@ namespace Danfma.MySheet.Expressions;
 /// <para>A REFUSED child (an open range somewhere below — the cost guard) makes the producer refuse:
 /// <c>(false, false)</c> from the probe, <c>false</c> from the build. That is the <c>BinaryOperation</c>/
 /// <c>If</c> side of Phase 8's split, not the lift's opaque-scalar side, so the consumer keeps its scalar
-/// path and reaches <see cref="ArrayEvaluation.FirstElement"/>, which answers <c>#VALUE!</c>
+/// path and reaches <see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>, which answers <c>#VALUE!</c>
 /// (<c>ArrayProducerContractTests</c>; <c>SUM(FILTER(A:A,A:A>0))</c> is the phase's pinned deviation).</para>
 ///
 /// <para>Whatever the build hands back when it succeeds is an ARRAY with <c>Rows >= 1 &amp;&amp; Columns >= 1</c>

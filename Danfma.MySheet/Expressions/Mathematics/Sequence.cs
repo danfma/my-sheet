@@ -7,7 +7,7 @@ namespace Danfma.MySheet.Expressions.Mathematics;
 /// with no input array: a <paramref name="rows"/>x<c>columns</c> array filled row-major with
 /// <c>start + i * step</c>. It reaches every consumer through <see cref="IArrayProducer"/> —
 /// <c>SUM(SEQUENCE(5))</c> is 15, <c>INDEX(SEQUENCE(2,3),2,2)</c> is 5 — and in a cell it answers its
-/// top-left element (<see cref="ArrayEvaluation.FirstElement"/>): <c>=SEQUENCE(2,3,7,1)</c> is 7.
+/// top-left element (<see cref="ArrayEvaluation.FirstElement(Expression, EvaluationContext)"/>): <c>=SEQUENCE(2,3,7,1)</c> is 7.
 /// </summary>
 /// <remarks>
 /// <para><b>Arguments</b>, each evaluated ONCE at build time (the read the laziness contract sanctions). An
