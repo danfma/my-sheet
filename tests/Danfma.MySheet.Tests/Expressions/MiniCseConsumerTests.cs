@@ -1395,8 +1395,9 @@ public class MiniCseConsumerTests
     // mixed-shape rows multiply against — and Data!Zeros = E1:E4, header V, data 10, 0, 30, whose ZERO is the
     // only thing that makes the corpus idiom's denominator observable (see the corpus test).
     //
-    // The parser cannot spell Tabela1[Valor] on this head (Phase 4 T5 owns Parser.cs), so every tree below is
-    // built by hand and the comment above it is the formula it spells. Every number is Aspose.Cells 26.6.0,
+    // Phase 4's parse arms have merged, so the parser CAN spell Tabela1[Valor]; the trees below stay
+    // hand-built (the comment above each is still the formula it spells) so this file's oracle comparisons
+    // never drift with the parser. Every number is Aspose.Cells 26.6.0,
     // measured 2026-09-11 on that fixture with the formula on Main!H20, PLAIN and array-entered; the mini-CSE
     // implements the ARRAY-ENTERED rule inside a function argument, so the CSE column is the one asserted and
     // the PLAIN one is named only where it differs — never compared against it. The exception is a row

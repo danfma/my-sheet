@@ -237,8 +237,8 @@ public class MissingSheetReferenceTests
     //     error-valued argument. COUNT answers 0 and COUNTA answers 1, NOT #REF! - measured on the oracle,
     //     both entry modes (see StructuredReference_ThatDoesNotResolve_IsAnErrorValue_NotAShortCircuit).
     //
-    // The parser cannot emit a TableReference on this branch yet (Phase 4 T5), so every tree here is built by
-    // hand, as TableReferenceTests does.
+    // Every tree here is built by hand, as TableReferenceTests does — a test-isolation choice now that the
+    // parser emits the node (Phase 4's parse arms), not a need.
 
     // The oracle's own fixture on a sheet of its own: Data!Tabela1 = A1:C4, header Item/Valor/Qtd, data rows
     // a,10,1 / b,20,2 / c,30,3, no totals row. The formula under test still lives in Main!Z1.

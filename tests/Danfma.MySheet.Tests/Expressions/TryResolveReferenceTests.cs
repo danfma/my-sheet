@@ -152,8 +152,8 @@ public class TryResolveReferenceTests
     // One fixture for the bounds matrix below: Data!Tabela1 = A1:B5 with a header row AND a totals row, so
     // header 1, data 2..4, totals 5, columns Item / Valor. Every expected rectangle is the one Aspose.Cells
     // 26.6.0 reports for the specifier (measured 2026-09-11 on the same shape: ROW/ROWS/COLUMN/COLUMNS typed
-    // PLAIN and array-entered, which agreed). The parser has no bracket arm yet (Phase 4 T5), so the nodes
-    // are built by hand exactly as TableReferenceTests builds them.
+    // PLAIN and array-entered, which agreed). The nodes are built by hand exactly as TableReferenceTests
+    // builds them — an isolation choice now that the parser has its bracket arm (Phase 4).
     private static Workbook TableFixture(bool totals = true, string valorColumn = "Valor")
     {
         var workbook = new Workbook();
