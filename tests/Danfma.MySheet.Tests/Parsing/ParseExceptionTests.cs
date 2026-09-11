@@ -190,6 +190,8 @@ public class ParseExceptionTests
     [Arguments("=Tabela1[#This Row]", "[#This Row]", 8)]
     [Arguments("=Tabela1[[#This Row],[Valor]]", "[[#This Row],[Valor]]", 9)]
     [Arguments("=SUM([Valor])", "[Valor]", 4)]
+    [Arguments("=[@Valor]", "[@Valor]", 0)] // the current-row form with no table name: a PREFIX-position arm
+    [Arguments("=[@]", "[@]", 0)]
     [Arguments("=Tabela1[[Col1]:[Col3]]", "[[Col1]:[Col3]]", 14)]
     [Arguments("=Data!Tabela1[Valor]", "Tabela1", 5)] // the table NAME's position, not the bracket's
     public async Task UnsupportedStructuredReference(string formula, string token, int position)
@@ -199,6 +201,25 @@ public class ParseExceptionTests
         await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.UnsupportedStructuredReference);
         await Assert.That(error.Token).IsEqualTo(token);
         await Assert.That(error.Position).IsEqualTo(position);
+    }
+
+    // A `[...]` in PREFIX position — nothing before it to be a table name — is one of three different
+    // mistakes, and the whole point of that arm is a message that says WHICH. The first two are pinned by
+    // their payload; the third cannot be: `[Valor]` (an implicit-table column) and `[Book1.xlsx]` (an external
+    // reference BY NAME) are indistinguishable from the token, so the message names both rather than
+    // asserting one. Only the INDEX spelling `[1]` is decidable, and it is the only external spelling a saved
+    // file carries, because the package keeps the workbook name in an externalLink part.
+    [Test]
+    [Arguments("=[@Valor]", "This-row structured references")]
+    [Arguments("=[1]Sheet1!A1", "External-workbook references")]
+    [Arguments("=SUM([Valor])", "A structured reference with no table name")]
+    [Arguments("=[Book1.xlsx]Sheet1!A1", "A structured reference with no table name")]
+    public async Task UnsupportedStructuredReference_NamesTheShape(string formula, string message)
+    {
+        var error = Throws(formula);
+
+        await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.UnsupportedStructuredReference);
+        await Assert.That(error.Message).Contains(message);
     }
 
     // The external-workbook form, pinned here BECAUSE this file is the only place UnexpectedCharacter is
@@ -213,7 +234,6 @@ public class ParseExceptionTests
         await Assert.That(error.Kind).IsEqualTo(ParseErrorKind.UnsupportedStructuredReference);
         await Assert.That(error.Token).IsEqualTo("[1]");
         await Assert.That(error.Position).IsEqualTo(0);
-        await Assert.That(error.Message).Contains("External-workbook");
     }
 
     [Test]

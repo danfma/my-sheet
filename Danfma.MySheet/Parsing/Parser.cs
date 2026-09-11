@@ -163,13 +163,16 @@ internal sealed class Parser(
         }
     }
 
-    // Tells the three out-of-scope prefix shapes apart by their payload, which is all that distinguishes
-    // them: a leading '@' is the current-row form written without a table name (`[@Valor]`, `[@]`), an
-    // all-digits payload is the external-workbook index (`[1]Sheet1!A1`), and anything else is an
-    // implicit-table column reference (`[Valor]`), which is the only one of the three the oracle itself
-    // rejects outside a table — "Invalid table reference, formula should be in table when specifing no table
-    // name" (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11) — precisely because it is valid only INSIDE the
-    // table it belongs to, which MySheet has no cell context to check at parse time.
+    // Names the out-of-scope prefix shape from its payload, which is all there is to go on: a leading '@' is
+    // the current-row form written without a table name (`[@Valor]`, `[@]`), and an all-digits payload is the
+    // external-workbook INDEX (`[1]Sheet1!A1`) — the only external spelling a saved file carries, since the
+    // package stores the workbook name in an externalLink part and refers to it by number. A payload that is
+    // neither cannot be pinned down: `[Valor]` is an implicit-table column reference and `[Book1.xlsx]` is a
+    // by-name external reference, and nothing in the token tells them apart, so the third message names both
+    // possibilities instead of asserting one. The implicit-table shape is the only one of the three the
+    // oracle itself rejects outside a table — "Invalid table reference, formula should be in table when
+    // specifing no table name" (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11) — because it is valid only
+    // INSIDE its own table, which the parser has no cell context to check.
     private static string UnsupportedPrefixBracket(string text)
     {
         var payload = text[1..^1];
@@ -184,8 +187,8 @@ internal sealed class Parser(
             return $"External-workbook references are not supported: '{text}'";
         }
 
-        return $"Implicit-table structured references ('{text}') are not supported: qualify the reference "
-            + "with the table name";
+        return $"A structured reference with no table name is not supported: '{text}' — qualify the column "
+            + "with its table name; an external-workbook reference is out of scope either way";
 
         static bool IsAllDigits(string text)
         {
@@ -377,16 +380,19 @@ internal sealed class Parser(
         //  - BEFORE the IsCellReference check below, which is MANDATORY: that check is unbounded (any
         //    letters-then-digits string) and answers TRUE for "Tabela1", "Table1", "Sales2024" and "ABC123" —
         //    Excel's own DEFAULT table names included — so an arm placed after it would build a CellReference
-        //    and leave this token dangling. Jumping the IsBoolean check too costs nothing and covers a table
-        //    named TRUE/FALSE.
-        //  - The bracket must be ADJACENT to the name: Current.Position is the '[' and token.Text is an
-        //    identifier's RAW slice, so the two only meet when nothing sits between them. Both spellings a
-        //    gap admits are rejected by the oracle (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11, over a
-        //    Data!Tabela1 whose Valor column sums to 60): `SUM('Tabela1'[Valor])` is `Invalid "'"` and
-        //    `SUM(Tabela1 [Valor])` is "Invalid table reference, formula should be in table when specifing no
-        //    table name". Quoting is the reason this is a guard and not a nicety — ReadQuotedName delivers a
-        //    DECODED identifier, so `'My Table'[Valor]` would build a node the writer renders back as the
-        //    unparsable `My Table[Valor]`. Taking no arm leaves both with the dangling-token error they have.
+        //    and leave this token dangling. Jumping the IsBoolean check costs nothing and keeps `TRUE[Valor]`
+        //    one coherent failure (a table Table.ValidateName forbids, so #NAME? at resolution) instead of a
+        //    boolean with a bracket dangling after it.
+        //  - The bracket must start exactly where the identifier's SOURCE SPAN ends. `Position + Text.Length`
+        //    is that end for ReadIdentifier, whose Text is the raw slice; for ReadQuotedName it NEVER is,
+        //    because Text is decoded while the span also carries the two quotes (and any doubled one) — so
+        //    the test rejects a quoted table name unconditionally, not by luck, and rejects a whitespace gap
+        //    for the ordinary reason. Both are rejected by the oracle too (Aspose.Cells 26.6.0, PLAIN entry,
+        //    2026-09-11, over a Data!Tabela1 whose Valor column sums to 60): `SUM('Tabela1'[Valor])` is
+        //    `Invalid "'"` and `SUM(Tabela1 [Valor])` is "Invalid table reference, formula should be in table
+        //    when specifing no table name". Quoting is why this is a guard and not a nicety — ReadQuotedName
+        //    delivers a DECODED identifier, so `'My Table'[Valor]` would build a node the writer renders back
+        //    as the unparsable `My Table[Valor]`. Taking no arm leaves both with the error they already have.
         if (
             Current.Type == TokenType.BracketedSpecifier
             && Current.Position == token.Position + token.Text.Length
@@ -445,7 +451,9 @@ internal sealed class Parser(
         // `Data!Tabela1[Valor]` would hit the !IsCellReference throw below (ExpectedCellReference), while
         // `Data!Sales2024[Valor]` would pass IsCellReference (unbounded, so TRUE for that spelling), build a
         // nonsense CellReference and only fail later as a dangling UnexpectedToken. One `if` gives both
-        // spellings the same kind, at the table name's own position.
+        // spellings the same kind, at the table name's own position. It guards THIS endpoint only: a bracket
+        // on the right-hand endpoint of a qualified range (`Data!A1:Tabela1[Valor]`) is consumed by the Colon
+        // branch below and keeps the generic token error, since that shape is nothing a producer writes.
         if (Current.Type == TokenType.BracketedSpecifier)
         {
             throw new ParseException(

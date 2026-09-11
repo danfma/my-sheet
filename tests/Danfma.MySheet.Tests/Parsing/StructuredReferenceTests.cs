@@ -86,9 +86,13 @@ public class StructuredReferenceTests
         data["A2"] = new NumberValue(10);
         workbook.DefineTable("Tabela1", "Data", "A1:A2", ["Valor"]);
         data["C1"] = ExpressionParser.Parse("=SUM(Tabela1[ Valor ])", data);
+        // The control: #REF! is also this phase's answer for a specifier it cannot resolve yet, so without
+        // this line the test would pass just as well over a table whose columns resolve to nothing at all.
+        data["C2"] = ExpressionParser.Parse("=SUM(Tabela1[Valor])", data);
 
         await Assert.That(workbook.GetCellValue("Data", "C1").TryGetError(out var error)).IsTrue();
         await Assert.That(error.Display).IsEqualTo("#REF!");
+        await Assert.That(workbook.GetCellValue("Data", "C2").ToDouble()).IsEqualTo(10.0);
     }
 
     // The commonest real shape, and the one the writer renders back verbatim. `SUM(Tabela1[Valor])` = 60 on
@@ -108,9 +112,12 @@ public class StructuredReferenceTests
     // === Where the arm sits, and why =====================================================================
 
     // The measured reason the arm goes BEFORE the IsCellReference check: that check is unbounded (any
-    // letters-then-digits string) and answers TRUE for every one of these names, Excel's own defaults
+    // letters-then-digits string) and answers TRUE for the first five names below, Excel's own defaults
     // included — so an arm placed after it would build a CellReference and leave the bracket token dangling.
-    // TRUE/FALSE cover the IsBoolean check two lines above it, which costs nothing to jump.
+    // The last two rows exercise the OTHER arm jumped, IsBoolean (IsCellReference answers false for a
+    // letters-only string), so `TRUE[Valor]` is one coherent resolution-time failure instead of a boolean
+    // with a bracket dangling after it — `Table.ValidateName` forbids TRUE/FALSE as table names, so the node
+    // can only ever be #NAME?, and that is the point: the error is coherent, not that the table is usable.
     [Test]
     [Arguments("Tabela1")]
     [Arguments("Table1")]
@@ -139,29 +146,80 @@ public class StructuredReferenceTests
         await Assert.That(error.Display).IsEqualTo("#NAME?");
     }
 
-    // === The bracket must be ADJACENT to the table name ==================================================
+    // === The bracket must start where the table name's SOURCE SPAN ends ==================================
 
-    // Both shapes a gap admits are REJECTED by the oracle, so the arm requires adjacency and they keep the
-    // dangling-token error they have today: `SUM('Tabela1'[Valor])` is `Invalid "'"` and
-    // `SUM(Tabela1 [Valor])` is "Invalid table reference, formula should be in table when specifing no table
-    // name" (the space breaks the association, leaving an implicit-table reference). Quoting matters twice
-    // over: ReadQuotedName hands this arm a DECODED identifier, so `'My Table'[Valor]` would produce a node
-    // the writer renders as the unparsable `My Table[Valor]`, and a table name with a space cannot be
-    // registered anyway (`Table.ValidateName`, and Aspose refuses the DisplayName: "Invalid text for the
-    // defined name").
+    // Two classes fail that test, and the oracle rejects both. A QUOTED name fails unconditionally rather
+    // than by luck: ReadQuotedName's token carries the DECODED text with the opening quote's position, so the
+    // span is always at least two characters longer than the text, and the arm can never fire for it —
+    // which is the point, because the writer would render such a node as the unparsable `My Table[Valor]`
+    // (and a table name with a space cannot be registered anyway: `Table.ValidateName` forbids it, and Aspose
+    // refuses the DisplayName with "Invalid text for the defined name"). A WHITESPACE gap fails for the
+    // ordinary reason. Measured rejections, Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11:
+    // `SUM('Tabela1'[Valor])` is `Invalid "'"`, and `SUM(Tabela1 [Valor])` is "Invalid table reference,
+    // formula should be in table when specifing no table name" — the space breaks the association, leaving an
+    // implicit-table reference. So MySheet declines the arm and each keeps the error it already had.
     [Test]
-    [Arguments("'My Table'[Valor]", ParseErrorKind.UnexpectedToken)]
-    [Arguments("'Tabela1'[Valor]", ParseErrorKind.UnexpectedToken)]
-    [Arguments("Tabela1 [Valor]", ParseErrorKind.UnexpectedToken)]
+    [Arguments("'My Table'[Valor]", ParseErrorKind.UnexpectedToken)] // quoted, no gap at all
+    [Arguments("'Tabela1'[Valor]", ParseErrorKind.UnexpectedToken)] // quoted, and decodes to a legal name
+    [Arguments("Tabela1 [Valor]", ParseErrorKind.UnexpectedToken)] // a whitespace gap
     // In an argument slot the same token is what a ')' was expected instead of: no arm is taken, so the kind
     // is whatever the surrounding grammar says about a token it cannot use, never a structured kind.
     [Arguments("SUM('Tabela1'[Valor])", ParseErrorKind.ExpectedToken)]
-    public async Task ANonAdjacentBracket_IsNotATableReference(string formula, ParseErrorKind kind)
+    public async Task ABracketOffTheNamesSpan_IsNotATableReference(
+        string formula,
+        ParseErrorKind kind
+    )
     {
         var error = Throws(formula);
 
         await Assert.That(error.Kind).IsEqualTo(kind);
         await Assert.That(error.Token).IsEqualTo("[Valor]");
+    }
+
+    // A name spelling the span test must still ACCEPT: every character ReadIdentifier takes is inside its raw
+    // slice, so '$', '.', '_' and a non-ASCII letter all keep the bracket adjacent.
+    [Test]
+    [Arguments("$A$1[Valor]", "$A$1")]
+    [Arguments("_xlfn.Tabela1[Valor]", "_xlfn.Tabela1")]
+    [Arguments("Tabela.1[Valor]", "Tabela.1")]
+    [Arguments("表1[Valor]", "表1")]
+    public async Task EveryIdentifierCharacterKeepsTheBracketOnTheSpan(string formula, string table)
+    {
+        await Assert
+            .That(Parse(formula))
+            .IsEqualTo(new TableReference(table, "Valor", TableArea.Data));
+    }
+
+    // === The shapes that reach the arm TWICE =============================================================
+
+    // A range whose endpoints are both structured references. It works with no code of its own (the phase's
+    // item 13 claims exactly that, and nothing pinned it): the ':' infix builds a DynamicRange over the two
+    // resolved rectangles. Measured on the oracle, over a Tabela1 at A1:B4 with Item 1/2/3 and Valor 10/20/30:
+    // `SUM(Tabela1[Item]:Tabela1[Valor])` = 66, stored identically — the same 66 asserted here. Note the
+    // asymmetry this exposes: the INNER spelling of the same span, `Tabela1[[Item]:[Valor]]`, is rejected as
+    // "The column span ... is not supported" by the grammar (an S1 scope decision) while the oracle answers 66
+    // for both, so the rejection is about the SPELLING, not about the engine being unable to span columns.
+    [Test]
+    public async Task ARangeBetweenTwoTableColumns_ResolvesOverBoth()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = new StringValue("Item");
+        data["B1"] = new StringValue("Valor");
+
+        for (var row = 2; row <= 4; row++)
+        {
+            data[$"A{row}"] = new NumberValue(row - 1);
+            data[$"B{row}"] = new NumberValue((row - 1) * 10);
+        }
+
+        workbook.DefineTable("Tabela1", "Data", "A1:B4", ["Item", "Valor"]);
+        data["D1"] = ExpressionParser.Parse("=SUM(Tabela1[Item]:Tabela1[Valor])", data);
+
+        await Assert.That(workbook.GetCellValue("Data", "D1").ToDouble()).IsEqualTo(66.0);
+        await Assert
+            .That(data["D1"]!.ToFormula("Data"))
+            .IsEqualTo("SUM(Tabela1[Item]:Tabela1[Valor])");
     }
 
     // === Both shared-formula entry points build the same node ============================================

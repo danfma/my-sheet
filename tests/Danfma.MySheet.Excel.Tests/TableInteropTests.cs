@@ -28,10 +28,15 @@ public class TableInteropTests
 
     // The vehicle for every test that only needs SOME formula the load rejects — the negative-parse cache,
     // the <v>-decode fallbacks and the two shared-master paths are not about tables at all. It is the
-    // current-row item list Excel/Aspose actually STORES for a typed `SUM(Tabela1[@Valor])` (measured on
-    // Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11: the saved <f> reads
-    // `SUM(Tabela1[[#This Row],[Valor]])`), and S1 keeps the current-row forms permanently out of scope — so
-    // this vehicle cannot rot the way `Tabela1[Valor]` did.
+    // current-row item list a real file STORES for a typed `SUM(Tabela1[@Valor])`, and S1 keeps the
+    // current-row forms permanently out of scope, so this vehicle cannot rot the way `Tabela1[Valor]` did.
+    //
+    // The spelling is measured on the surface that matters HERE, which is the sheet XML this loader reads, and
+    // the two surfaces disagree — name the surface or the next reader will "correct" this note. Aspose.Cells
+    // 26.6.0, PLAIN entry, 2026-09-11, `SUM(Tabela1[@Valor])` typed, saved, then unzipped: the raw
+    // `<f>` reads `SUM(Tabela1[[#This Row],[Valor]])`, while Aspose's OWN object model reports
+    // `=SUM(Tabela1[@Valor])` for the same cell after a reopen. Typing the item-list spelling instead
+    // produces the identical `<f>`, so both spellings converge on the one this constant carries.
     private const string UnsupportedStructuredFormula = "SUM(Tabela1[[#This Row],[Valor]])";
 
     /// <summary>A "Data" sheet holding <c>Tabela1</c> over A1:B3 (header + two rows), plus whatever

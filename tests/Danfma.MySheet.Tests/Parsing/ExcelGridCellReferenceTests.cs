@@ -3,7 +3,8 @@ using Danfma.MySheet.Parsing;
 namespace Danfma.MySheet.Tests.Parsing;
 
 /// <summary>
-/// <c>Parser.IsExcelGridCellReference</c>: the table-name rule's "looks like a cell reference" predicate.
+/// <c>Parser.IsExcelGridCellReference</c>: BOTH name rules' "looks like a cell reference" predicate —
+/// <c>Table.ValidateName</c>'s and, since the defined-name repoint, <c>NamedReferences.IsValidName</c>'s.
 /// Unlike <c>Parser.IsCellReference</c> (unbounded on purpose — MySheet's grid has no ceiling and the
 /// parser relies on that), this one is bounded on BOTH the letter run (1-3 letters, so <c>Tabela1</c> and
 /// <c>Table1</c>, Excel's own default table names, are never mistaken for cells) and the grid
