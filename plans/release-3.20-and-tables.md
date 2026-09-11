@@ -109,18 +109,17 @@ Status: Not started
 ### Phase Summary
 _(write when phase completes)_
 
-## RESUME HERE (2026-09-11, session 3 — Phase 4 merged)
+## RESUME HERE (2026-09-11, session 3 — Phases 4 AND 5 merged)
 
-**3.20.0 shipped. Phase 4 COMPLETE and merged (main @ `e3dc21f`, core 2370 / 0, Excel 93 / 0, tag 328).** Phase 5 is rebased onto main and T5 (its last task) is running. Merge order fixed: p5 → main next, then p6 rebases last. No release before Phase 6 — without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
+**3.20.0 shipped. Phase 4 COMPLETE (`e3dc21f`). Phase 5 COMPLETE and merged (`313a6c8`, core 2552 / 0, Excel 93 / 0, csharpier clean, Release 0 warnings, no trailers).** Phase 6 is rebased onto main and T2 is running. **Phase 6 is the release blocker** — without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
 
 | branch | worktree | head | suite there | state |
 | --- | --- | --- | --- | --- |
-| `feat/resolution-and-graph` | `MySheet-p5` | `d8048a8` | core 2525 / 0, Excel 93 / 0 | T1-T4 accepted, rebased onto the merged Phase 4 (one header conflict resolved), INDIRECT canaries flipped (`d8048a8`). T5 RUNNING on the controller's subagent instance |
-| `feat/excel-loader` | `MySheet-p6` | `ae6d82a` | Excel 125 / 0 | T1 landed, clean. T2 unblocked once Phase 5 merges; rebase onto main then T2 → T3 |
+| `feat/excel-loader` | `MySheet-p6` | `24a1c75` | core 2552 / 0, Excel **123 / 2** | T1 landed + rebased clean. The 2 failures are T2's first work items (both measured consequences of the Phase 4/5 merges — see the phase-6 ledger's session-3 entry). T2 RUNNING on the controller's subagent instance; T3 last (docs, both twins, RE-MEASURE EVERY ANCHOR — plus `docs/pt-BR/performance.md:434` SMALL, handed over by the Phase 5 review) |
 
-**Reviewer lineup (user): every review = one controller subagent instance + Copilot (verify every Copilot finding against the tree). Kimi 403 monthly. No Claude/z.ai CLI dispatches until Monday Sep 14.** Implementation tasks that were Opus-class run on the controller's subagent instance.
+**Reviewer lineup (user): every review = one controller subagent instance + Copilot, every Copilot finding verified against the tree before acting. Kimi 403 monthly. No Claude/z.ai CLI dispatches until Monday Sep 14.** Copilot's reviews on both phases so far: gates real, oracle numbers transcribed-not-measured, and on Phase 5 it fabricated agreement on the sweep-32 seam — zero actionable findings both times; the discounts are recorded in both fix-wave files.
 
-Next actions in order: (1) T5 returns → controller review (suites, commits, brief-claim audit), ledger, then the Phase 5 review (controller subagent + Copilot) over `main..feat/resolution-and-graph`, de-dup into `phase-5-resolution-and-graph/fix-wave.md`, execute, rebase (expect conflicts ONLY where the wave edits files main also edited), ff-merge, verify on main; (2) rebase p6 onto main, dispatch Phase 6 T2 (evaluation pins over the nine committed Aspose fixtures — unblocked), then T3 (docs, both twins, RE-MEASURE EVERY ANCHOR — several are 3-8 lines off, and Phase 4's fix wave moved more); (3) Phase 6 review, fix wave, ff-merge; (4) master plan rows Complete, tell the user 3.21.0 can be cut.
+Next actions in order: (1) T2 returns → controller review, ledger, then T3 (docs sweep, both twins, re-anchored); (2) Phase 6 review (controller subagent + Copilot) over `main..feat/excel-loader`, de-dup into `phase-6-excel-loader/fix-wave.md`, execute, rebase, ff-merge, verify on main; (3) master plan rows 4/5/6 Complete with counts, Phase C/D Phase Summaries, tell the user **3.21.0 can be cut** (release via `release.yml` `workflow_dispatch`, the user runs it).
 
 ## Final Recap
 _(write when all phases complete)_
