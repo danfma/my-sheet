@@ -377,4 +377,92 @@ public class FunctionRegistryClassificationTests
 
         await Assert.That(argumentless).IsEmpty();
     }
+
+    // The guard Phase 7's final review asked for. A producer flagged Elementwise used to recurse to a STACK
+    // OVERFLOW — the lift arm precedes the producer arm in ArrayEvaluation's switches, so the lift asks for
+    // the node's scalar, FirstElement builds the array operand, and that build re-enters the lift. A crash
+    // takes the whole host down and no test can catch it, which is strictly worse than a wrong number.
+    [Test]
+    public async Task AProducerFlaggedElementwise_IsRefusedByName_RatherThanOverflowingTheStack()
+    {
+        // Every producer in the tree, fabricated with the WRONG flag. The real entries are Consumes, so this
+        // reaches the validator the only way a test can: by building the entry the mistake would build.
+        foreach (var (name, nodeType) in Producers())
+        {
+            var misflagged = new FunctionRegistry.RegistryEntry(
+                name,
+                1,
+                1,
+                static arguments => arguments[0],
+                nodeType,
+                static f => [],
+                ArrayLifting.Elementwise
+            );
+
+            var thrown = Assert.Throws<InvalidOperationException>(() =>
+                FunctionRegistry.RequireProducerIsConsumes(misflagged)
+            );
+
+            // The message must NAME the offender, or the guard is a riddle at type-initialization time.
+            await Assert.That(thrown!.Message).Contains(name);
+            await Assert.That(thrown.Message).Contains(nodeType.Name);
+            await Assert.That(thrown.Message).Contains("Entry<T>");
+        }
+
+        // Anti-vacuity: the same validator must ACCEPT each of them with the right flag, and accept a
+        // genuinely elementwise entry. Without this the test would pass if the validator threw on everything.
+        foreach (var (name, nodeType) in Producers())
+        {
+            FunctionRegistry.RequireProducerIsConsumes(
+                new FunctionRegistry.RegistryEntry(
+                    name,
+                    1,
+                    1,
+                    static arguments => arguments[0],
+                    nodeType,
+                    static f => [],
+                    ArrayLifting.Consumes
+                )
+            );
+        }
+
+        // And the shipped table passes it, entry by entry — the static constructor already ran by the time
+        // this test executes, but asserting it here is what makes the coverage visible.
+        foreach (var entry in FunctionRegistry.ByName.Values)
+        {
+            FunctionRegistry.RequireProducerIsConsumes(entry);
+        }
+
+        // The roster this test walks is not hand-written: it is every node type in the assembly that
+        // implements the interface, so a fifth producer is covered the day it is added.
+        static (string Name, Type NodeType)[] Producers() =>
+            typeof(Workbook)
+                .Assembly.GetTypes()
+                .Where(t =>
+                    t is { IsAbstract: false, IsInterface: false }
+                    && t.GetInterfaces().Any(i => i.Name == "IArrayProducer")
+                )
+                .Select(t => (t.Name.ToUpperInvariant(), t))
+                .OrderBy(pair => pair.Item1)
+                .ToArray();
+    }
+
+    // The roster above must not be empty, or the loop asserts nothing at all.
+    [Test]
+    public async Task TheProducerRoster_IsTheFourThisPhaseAdded()
+    {
+        var producers = typeof(Workbook)
+            .Assembly.GetTypes()
+            .Where(t =>
+                t is { IsAbstract: false, IsInterface: false }
+                && t.GetInterfaces().Any(i => i.Name == "IArrayProducer")
+            )
+            .Select(t => t.Name)
+            .OrderBy(name => name)
+            .ToArray();
+
+        await Assert
+            .That(producers)
+            .IsEquivalentTo((string[])["Filter", "Sequence", "Sort", "Unique"]);
+    }
 }

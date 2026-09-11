@@ -28,12 +28,18 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// <c>by_col</c> compares columns: <c>COLUMNS(UNIQUE(A1:B3,TRUE))</c> = 2, <c>UNIQUE(A1:A3,TRUE)</c> is the
 /// one 3x1 column (<c>SUM</c> 14). <c>exactly_once</c> keeps the candidates that occur ONCE — 9, 5, 9, 0
 /// gives 5, 0 — following Microsoft's page ("all distinct rows or columns that occur exactly once"), and NOT
-/// the oracle, which keeps the distinct-count SHAPE and pads it by repeating the last kept value:
-/// <c>ROWS(UNIQUE(Q1:Q4,FALSE,TRUE))</c> = 3 with the third row a second 0 (and 1, 3, 3 for 1, 2, 2, 3), a
-/// UNIQUE result holding a duplicate, which its own row count contradicts; that is why it is not matched.
-/// The same padding is why the oracle answers a 1-row 4 for <c>UNIQUE(S1:S2,FALSE,TRUE)</c> over 4, 4,
-/// where nothing occurs once — here that is the empty result, a 1x1 <c>#CALC!</c>
-/// (<see cref="ArrayShaping"/>: never a 0-extent array).</para>
+/// the oracle. The oracle keeps the DISTINCT-count shape and OVERWRITES ITS FRONT with the once-occurring
+/// values, leaving every distinct element the once-list does not reach exactly where it already was. The
+/// clearest fixture is 1, 1, 2, 3, 3, 4: the distinct rows are 1, 2, 3, 4, only 2 and 4 occur once, and the
+/// oracle answers <b>2, 4, 3, 4</b> — a four-row result carrying a value that occurs twice (3) and a
+/// duplicate of one that does not (4), so it contradicts its own row count in two ways at once. That is why
+/// it is not matched. The same overwrite is why the oracle answers a 1-row 4 for
+/// <c>UNIQUE(S1:S2,FALSE,TRUE)</c> over 4, 4, where nothing occurs once and so nothing is overwritten —
+/// here that is the empty result, a 1x1 <c>#CALC!</c> (<see cref="ArrayShaping"/>: never a 0-extent array).
+/// An earlier version of this paragraph said the oracle "pads by repeating the last kept value". That model
+/// coincides on 9, 5, 9, 0 and on 1, 2, 2, 3 and is wrong everywhere the distinct tail differs from the last
+/// kept value: it predicts 5, 9, 9 for 5, 9, 0, 0 (measured 5, 9, 0) and 8, 8, 8 for 7, 7, 8, 9, 9
+/// (measured 8, 8, 9). All measured on Aspose.Cells 26.6.0, 2026-09-10, both entry modes.</para>
 ///
 /// <para><b>Refusal.</b> The build returns <c>false</c> exactly when the array's own build is refused (an
 /// open range) and <c>ProbeArray</c> asks the same question; every other failure is the producer's own 1x1

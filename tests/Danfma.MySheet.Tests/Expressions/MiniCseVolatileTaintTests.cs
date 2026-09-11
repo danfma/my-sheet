@@ -308,4 +308,93 @@ public class MiniCseVolatileTaintTests
         // Every draw is in (0,1) and repeated three times with step 0, so every sum is in (0,3).
         await Assert.That(seen.All(value => value > 0d && value < 3d)).IsTrue();
     }
+
+    [Test]
+    public async Task AScalarConditionIf_WithAVolatileCondition_NeverCollapsesTheProducer()
+    {
+        // THE REGRESSION TEST FOR THE DEFECT THE FINAL REVIEW FOUND, and the reason it is here rather than
+        // beside the other scalar-condition pins: it can only be seen by drawing the condition many times.
+        // The first version of TryBuildScalarConditionIf DECLINED when the taken branch was a bare reference,
+        // handing the choice back to the consumer's scalar path, which re-entered If.Evaluate and drew the
+        // condition a SECOND time. When the two draws disagreed the fallback evaluated the OTHER branch as a
+        // scalar, and a producer's scalar rule is its top-left — so SEQUENCE(3) became 1 and SUM answered 1.
+        // Over 400 seeds that happened in exactly 100 of them. Nothing in the value pins could see it: every
+        // single-seed run either takes the reference branch (#VALUE!) or agrees twice (6).
+        //
+        // So the assertion is over the SET of answers across seeds, and what makes it able to fail is the
+        // third bucket: 1 must never appear. 200 seeds is enough — the defect hit one seed in four.
+        var range = new HashSet<string>();
+        var name = new HashSet<string>();
+
+        for (var seed = 1; seed <= 200; seed++)
+        {
+            range.Add(Answer(seed, "=SUM(IF(RAND()<0.5,A1:A3,SEQUENCE(3)))"));
+            name.Add(Answer(seed, "=SUM(IF(RAND()<0.5,Rng,SEQUENCE(3)))"));
+        }
+
+        // A1:A3 is 5, 0, 9. The reference branch is #VALUE! for a bare range and 14 for the name (the
+        // scalar path's own answers, reproduced ONCE by WrapScalar); the producer branch is 6. A collapsed
+        // producer would be "1" and a collapsed range would be "5".
+        await Assert.That(range.OrderBy(x => x).ToArray()).IsEquivalentTo(["#VALUE!", "6"]);
+        await Assert.That(name.OrderBy(x => x).ToArray()).IsEquivalentTo(["14", "6"]);
+
+        // Both branches being producers never reached the declining path, which is exactly why an earlier
+        // check of this method missed the defect. Kept as the contrast, not as the guard.
+        var both = new HashSet<string>();
+        for (var seed = 1; seed <= 200; seed++)
+        {
+            both.Add(Answer(seed, "=SUM(IF(RAND()<0.5,SEQUENCE(5),SEQUENCE(3)))"));
+        }
+
+        await Assert.That(both.OrderBy(x => x).ToArray()).IsEquivalentTo(["15", "6"]);
+
+        static string Answer(int seed, string formula)
+        {
+            var workbook = new Workbook { RandomSeed = seed };
+            var sheet = workbook.Sheets.Add("Sheet1");
+            sheet["A1"] = new NumberValue(5);
+            sheet["A2"] = new NumberValue(0);
+            sheet["A3"] = new NumberValue(9);
+            workbook.DefineName("Rng", "Sheet1!$A$1:$A$3");
+            sheet["Z1"] = ExpressionParser.Parse(formula, sheet);
+
+            var value = workbook.GetCellValue("Sheet1", "Z1").AsObject();
+
+            return value is ErrorValue error ? error.ErrorCode : value?.ToString() ?? "null";
+        }
+    }
+
+    [Test]
+    public async Task AScalarConditionIf_OverAProducer_IsTaintedOnEveryBranchShape()
+    {
+        // The taint on the path Task 8 added, which had NO volatility coverage at all: every test above this
+        // one reads IF(B2:B5…), an ARRAY condition. Measured over six Recalculate() passes on this build,
+        // each of the three refreshes and the non-volatile control does not — the control is what stops this
+        // test passing because everything refreshes.
+        await Assert
+            .That(DistinctOver("=SUM(IF(RAND()>0.5,SEQUENCE(3),SEQUENCE(5)))"))
+            .IsGreaterThan(1);
+        await Assert.That(DistinctOver("=SUM(IF(RAND()>0.5,SEQUENCE(3),0))")).IsGreaterThan(1);
+        await Assert.That(DistinctOver("=SUM(IF(RAND()>0.5,1,2))")).IsGreaterThan(1);
+        await Assert.That(DistinctOver("=SUM(IF(TRUE,SEQUENCE(3),0))")).IsEqualTo(1);
+
+        static int DistinctOver(string formula)
+        {
+            var workbook = new Workbook { RandomSeed = 17 };
+            var sheet = workbook.Sheets.Add("Sheet1");
+            sheet["A1"] = new NumberValue(5);
+            sheet["A2"] = new NumberValue(0);
+            sheet["A3"] = new NumberValue(9);
+            sheet["A1"] = ExpressionParser.Parse(formula, sheet);
+            var seen = new HashSet<double>();
+
+            for (var pass = 0; pass < 6; pass++)
+            {
+                seen.Add(Cell(workbook, "A1"));
+                workbook.Recalculate();
+            }
+
+            return seen.Count;
+        }
+    }
 }

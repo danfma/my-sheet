@@ -74,6 +74,46 @@ internal static class FunctionRegistry
         ArrayLifting Lifting
     );
 
+    /// <summary>
+    /// Throws when an entry flags an <see cref="IArrayProducer"/> node
+    /// <see cref="ArrayLifting.Elementwise"/>. Run over the whole table at type initialization (see the
+    /// static constructor), so the offender is named before any formula is parsed.
+    /// </summary>
+    /// <remarks>
+    /// A producer flagged Elementwise does not merely answer from one cell — it takes the HOST DOWN. The
+    /// lift arm sits BEFORE the producer arm in both <see cref="ArrayEvaluation"/> switches, so the lift asks
+    /// the node for its scalar, the producer's scalar rule is <c>FirstElement</c>, <c>FirstElement</c> builds
+    /// the array operand, that build re-enters <c>TryGetLift</c>, and the cycle recurses until the stack
+    /// overflows — a crash with no failing test, which is strictly worse than a wrong number a guard can
+    /// name. Measured by Phase 7's final review, which mis-flagged <c>SEQUENCE</c> the way a contributor
+    /// would and got a stack overflow instead of a red suite. C# cannot express "T does not implement
+    /// IArrayProducer" as a generic constraint, which is why this is a runtime check and not a
+    /// <c>where</c> clause on <see cref="Elementwise{T}"/>.
+    /// </remarks>
+    internal static void RequireProducerIsConsumes(in RegistryEntry entry)
+    {
+        if (
+            entry.Lifting is ArrayLifting.Elementwise
+            && typeof(IArrayProducer).IsAssignableFrom(entry.NodeType)
+        )
+        {
+            throw new InvalidOperationException(
+                $"{entry.Name} ({entry.NodeType.Name}) implements IArrayProducer and must be registered "
+                    + "with Entry<T> (ArrayLifting.Consumes), never Elementwise<T>. The lift arm precedes "
+                    + "the producer arm in ArrayEvaluation's two switches, so the producer's FirstElement "
+                    + "rule re-enters the lift and recurses until the stack overflows."
+            );
+        }
+    }
+
+    static FunctionRegistry()
+    {
+        foreach (var entry in Entries)
+        {
+            RequireProducerIsConsumes(entry);
+        }
+    }
+
     // Ordinal by declaration order below (mirrors the historical Parser table / FormulaWriter dictionary
     // grouping — arithmetic/logical/text/lookup, financial, math, statistical, compatibility aliases, then
     // date/time and the F1 volatile functions).

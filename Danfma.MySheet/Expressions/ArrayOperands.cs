@@ -45,8 +45,12 @@ namespace Danfma.MySheet.Expressions;
 /// (<c>bool IArrayProducer.TryBuildArrayOperand(…)</c>) — an implicit public method mentioning
 /// <see cref="ArrayOperand"/> is a CS0050 inconsistent-accessibility error. (2) The registry entry MUST be
 /// <see cref="ArrayLifting.Consumes"/>: the <c>Function when TryGetLift</c> arm sits BEFORE the producer
-/// arm in both switches, so an <see cref="ArrayLifting.Elementwise"/> producer would be lifted per element
-/// and answer from one cell.</para>
+/// arm in both switches, so an <see cref="ArrayLifting.Elementwise"/> producer does not merely answer from
+/// one cell — the lift asks for the node's scalar, <c>FirstElement</c> builds the array operand, that build
+/// re-enters <c>TryGetLift</c>, and the cycle recurses until the STACK OVERFLOWS, taking the host down with
+/// no failing test. Measured by this phase's final review. That is why
+/// <c>FunctionRegistry.RequireProducerIsConsumes</c> now refuses the combination at the registry's static
+/// initialization, naming the offender, and why an earlier version of this sentence understated it.</para>
 /// </remarks>
 internal interface IArrayProducer
 {

@@ -881,22 +881,47 @@ internal static class ArrayEvaluation
     // scalar rule is FirstElement. `conditionValue` is the value the caller already built, so the condition
     // is evaluated once (the former path evaluated it a second time inside If.Evaluate).
     //
-    // Two shapes keep the Probe's promise (IsArrayEligible == the build yields an array):
-    //   - When the IF is NOT array-eligible (no computed-array branch — ProbeIfBranches), the taken branch
-    //     is evaluated as the scalar If.Evaluate would have produced: a bare range is #VALUE! and a name
-    //     carries its reference value, both unchanged from before (the "IF returns a reference" question
-    //     is not decided here).
-    //   - When it IS eligible but the TAKEN branch turns out scalar (IF(FALSE,SEQUENCE(3),0), an error
-    //     condition, a branch-less IF's FALSE), the scalar is handed back as a 1x1 array rather than a
-    //     ScalarOperand, so a consumer that probed "array" never falls back to its scalar path and
-    //     re-evaluates the condition (a volatile condition would draw twice). A 1x1 broadcasts like the
-    //     scalar it holds, so no consumer reads it differently.
-    // One shape breaks it, knowingly: a bare-reference branch TAKEN on the eligible path
-    // (IF(TRUE,A1:A3,SEQUENCE(3)), IF(TRUE,Rng,SEQUENCE(3))) declines — the build returns false — and the
-    // consumer's scalar path then answers exactly what it answers with a scalar sibling (#VALUE! for the
-    // range, 14 for the name), at the cost of evaluating the condition a second time. Streaming the range
-    // instead would answer the reference question for the mixed shape only (14 here, #VALUE! for
-    // IF(TRUE,A1:A3,0)), which is the half-decision ProbeIfBranches exists to avoid.
+    // THE BUILD NEVER RETURNS false ON THE ELIGIBLE PATH, AND THAT IS THE WHOLE POINT — an earlier version
+    // DECLINED for a taken bare-reference branch, handing the choice back to the consumer's scalar path,
+    // which re-entered If.Evaluate and evaluated the condition a SECOND time. With a volatile condition the
+    // two draws disagree and the fallback then takes the OTHER branch as a scalar, so a producer collapsed to
+    // its top-left again: over 400 seeded workbooks SUM(IF(RAND()<0.5,A1:A3,SEQUENCE(3))) answered 1 in
+    // exactly 100 of them — the very silent wrong number this method exists to remove. Found by the phase's
+    // final review, which tested the MIXED shape where an earlier check had tested only two producers, the
+    // one shape that never reaches the decline.
+    //
+    // So every path now returns true with an operand, and the Probe's promise (IsArrayEligible == the build
+    // yields an array) holds in three cases rather than two:
+    //   - NOT array-eligible (no computed-array branch — ProbeIfBranches): the taken branch is evaluated as
+    //     the scalar If.Evaluate would have produced, unchanged from before.
+    //   - Eligible, and the taken branch builds as an array: that operand IS the IF's operand.
+    //   - Eligible, and the taken branch yields a SCALAR — IF(FALSE,SEQUENCE(3),0), an error condition, a
+    //     branch-less IF's FALSE, or a bare reference — the scalar is handed back through WrapScalar as a 1x1
+    //     array, never a ScalarOperand, so the consumer that probed "array" cannot fall back and re-draw.
+    //     A 1x1 broadcasts like the scalar it holds, so no consumer reads it differently.
+    //
+    // WrapScalar is what keeps a bare-reference branch answering what it answered before, WITHOUT deciding
+    // the "IF returns a reference" question: it reproduces the scalar path's own answer once instead of
+    // twice, and the asymmetry between a name and a bare range is not a choice made here — it falls out of
+    // what each node's Evaluate returns. RangeReference.Evaluate is #VALUE! (a plain error, so a 1x1 error),
+    // while NameReference.Evaluate carries a reference value, which WrapScalar resolves through BuildRange
+    // exactly as SelectionProducers.TryBuildSource already does for INDIRECT/OFFSET. Measured on this build:
+    // SUM(IF(TRUE,A1:A3,0)) and SUM(IF(TRUE,A1:A3,SEQUENCE(3))) are both #VALUE! and ROWS of the second is
+    // #VALUE! (the oracle says 14, 14 and 3 — sweep item 32, unmoved); SUM(IF(TRUE,MyName,0)) and
+    // SUM(IF(TRUE,MyName,SEQUENCE(3))) are both 14; an OPEN range resolves to the loud 1x1 #VALUE! its
+    // shape always gets (SUM(IF(TRUE,MyColumn,SEQUENCE(3)))), and in the UNTAKEN branch it still costs
+    // nothing (SUM(IF(FALSE,MyColumn,0)*B1:B3) = 0, SUM(IF(TRUE,SEQUENCE(3),MyColumn)) = 6).
+    // One row MOVED with the fix and moved toward the oracle: a single-cell name in the mixed shape,
+    // SUM(IF(TRUE,MyCell,SEQUENCE(3))) over a text cell, went #VALUE! -> 0, which is the oracle's answer.
+    // Its plain twin SUM(IF(TRUE,MyCell,0)) stays #VALUE! because it is not array-eligible at all.
+    //
+    // WHAT THIS METHOD DOES NOT PROMISE. A gate that keys on the PROBE rather than on the built operand sees
+    // "array" and refuses before any of the above runs, so a bare-reference branch is NOT interchangeable
+    // with a scalar sibling for those consumers. Measured, and pinned: COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),
+    // ">0") is #REF! while COUNTIF(IF(TRUE,A1:A3,0),">0") is 0 (the oracle answers 2 for both), and
+    // COUNTBLANK of the same pair is #REF! against 0 (the oracle answers 1). An earlier version of this
+    // comment claimed the decline "answers exactly what it answers with a scalar sibling"; for the criteria
+    // family and COUNTBLANK that was false, and it is the probe, not the build, that makes it so.
     private static bool TryBuildScalarConditionIf(
         If ifNode,
         ComputedValue conditionValue,
@@ -926,17 +951,33 @@ internal static class ArrayEvaluation
             return true;
         }
 
-        if (IsBareReferenceNode(branch) || !TryBuildOperand(branch, context, out var built))
+        if (IsBareReferenceNode(branch))
+        {
+            operand = WrapScalar(branch.Evaluate(context), context);
+            return true;
+        }
+
+        if (!TryBuildOperand(branch, context, out var built))
         {
             operand = null!;
             return false;
         }
 
-        operand = built.IsArray ? built : new SingletonArrayOperand(built.Scalar);
+        operand = built.IsArray ? built : WrapScalar(built.Scalar, context);
         return true;
 
         static ArrayOperand Wrap(ComputedValue value, bool asArray) =>
             asArray ? new SingletonArrayOperand(value) : new ScalarOperand(value);
+
+        static ArrayOperand WrapScalar(ComputedValue value, EvaluationContext context) =>
+            value.TryGetReference(out var reference)
+                ? reference switch
+                {
+                    RangeReference range => BuildRange(range, context),
+                    CellReference cell => new SingletonArrayOperand(cell.Evaluate(context)),
+                    _ => new SingletonArrayOperand(ComputedValue.Error(Error.Value)),
+                }
+                : new SingletonArrayOperand(value);
     }
 
     // The shape of a binary result: a scalar takes the other side's shape; two arrays fold per axis by

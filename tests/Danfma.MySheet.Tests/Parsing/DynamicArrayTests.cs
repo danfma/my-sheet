@@ -452,12 +452,14 @@ public class DynamicArrayTests
         // columns that occur exactly once from the range or array". Q1:Q4 = 9, 5, 9, 0 leaves 5 and 0.
         // Oracle 26.6.0, 2026-09-10, plain == CSE, for the two rows pinned here.
         // The SHAPE of that result is deliberately NOT pinned: the oracle answers
-        // ROWS(UNIQUE(Q1:Q4,FALSE,TRUE)) = 3 with the third row a REPEAT of the last kept value
-        // (5, 0, 0 — and 1, 3, 3 for 1, 2, 2, 3), i.e. it keeps the DISTINCT-count shape and pads. That
-        // contradicts both the page and itself (a UNIQUE result containing a duplicate), so this file
-        // pins only what the two readings agree on: the values in order at the front, and a SUM that is
-        // the same either way here because the padded element is the 0. See the task report — the shape
-        // is an open question for the producer contract, not a settled expectation.
+        // ROWS(UNIQUE(Q1:Q4,FALSE,TRUE)) = 3, keeping the DISTINCT-count shape and OVERWRITING ITS FRONT
+        // with the once-occurring values, so every distinct element the once-list does not reach stays where
+        // it was — 5, 0, 0 here, 1, 3, 3 for 1, 2, 2, 3, and 2, 4, 3, 4 for 1, 1, 2, 3, 3, 4, which is the
+        // fixture that pins the rule down: it carries a value occurring twice (3) and a duplicate of one
+        // that does not (4). That contradicts both the page and itself, so this file pins only what the two
+        // readings agree on: the values in order at the front, and a SUM that is the same either way here
+        // because the element left in place is the 0. See the task report — the shape is an open question
+        // for the producer contract, not a settled expectation.
         // Observed today: #REF! (INDEX) / #NAME? (SUM).
         await Assert
             .That(Num(Calc("=INDEX(UNIQUE(Q1:Q4,FALSE,TRUE),1)", Duplicates)))

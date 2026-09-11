@@ -653,10 +653,13 @@ os dois motores divergem — então fechar um é sempre uma edição deliberada.
   todos os elementos, então sem o limite `SUM(SEQUENCE(1000000,10000))` travaria em vez de responder.
 - **`UNIQUE(…, exactly_once)` segue a página da Microsoft, e não o oráculo medido.** Sobre `Q1:Q4` = 9, 5, 9, 0
   as linhas que ocorrem exatamente uma vez são 5 e 0, e é isso que o MySheet devolve (`ROWS` 2, `SUM` 5). O
-  oráculo preserva a forma da contagem de *distintos* e a completa repetindo o último valor mantido — `ROWS`
-  **3** com `SUM` **5**, isto é, as linhas 5, 0, 0 — de modo que o resultado de `UNIQUE` dele contém uma
-  duplicata, o que a própria contagem de linhas dele contradiz. Onde o oráculo se contradiz, a regra
-  documentada vence; a medição fica registrada ao lado do teste para que a decisão possa ser revista.
+  oráculo preserva a forma da contagem de *distintos* e **sobrescreve a frente dela** com os valores que
+  ocorrem uma única vez, deixando cada elemento distinto que a lista não alcança exatamente onde estava —
+  `ROWS` **3** com `SUM` **5**, isto é, as linhas 5, 0, 0. Sobre 1, 1, 2, 3, 3, 4 a mesma regra responde
+  **2, 4, 3, 4**: um resultado de quatro linhas que carrega um valor que ocorre duas vezes (3) e uma
+  duplicata de um que não ocorre (4), de modo que o `UNIQUE` do oráculo contradiz a própria contagem de
+  linhas. Onde o oráculo se contradiz, a regra documentada vence; a medição fica registrada ao lado do teste
+  para que a decisão possa ser revista.
 - **O `AVERAGE` sobre o `UNIQUE` também segue a página, pelo mesmo motivo.** Sobre esse mesmo `Q1:Q4` o
   MySheet responde 14/3, que é o `SUM` dele sobre o `COUNT` dele. O oráculo informa `SUM` **14**, `COUNT` **3**
   e `AVERAGE` **0** para a mesma expressão — três respostas que não podem estar todas certas — e a página do
@@ -726,9 +729,9 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   `A1:A3` = 5, 0, 9 um `=-A1:A3` sozinho é `-5` em `C1`, `0` em `C2`, `-9` em `C3` e `#VALUE!` em `C5`, e
   `=ROUND(A1:A3,0)` é 5, 0, 9 e `#VALUE!` nessas mesmas células; inserida como array, ele toma o superior
   esquerdo em todas elas (`-5`, `5`). As duas colunas medidas no Aspose.Cells 26.6.0, 2026-09-10. O `#VALUE!`
-  de hoje está fixado por teste para que fechar essa lacuna seja deliberado — e note que o comentário do
-  próprio teste que a fixa ainda afirma que a forma digitada é `#VALUE!` em qualquer lugar, o que a medição
-  acima contradiz para uma fórmula em linha *dentro* do intervalo. (3) Um `IF(range…)` ou uma comparação de
+  de hoje está fixado por teste para que fechar essa lacuna seja deliberado, e o teste que a fixa agora
+  carrega a mesma medição por linha em vez da afirmação anterior de que a forma digitada é `#VALUE!` em
+  qualquer lugar. (3) Um `IF(range…)` ou uma comparação de
   intervalo sozinhos são `#VALUE!` pelo mesmo motivo do caso (2) — `=IF(B2:B5="Show",1,0)` e
   `=IF(TRUE,A1:A3,B1)` sozinhas são erros — uma inconsistência conhecida com o caso (1) ao lado. Em todos os
   casos, envolver a expressão em um consumidor funciona: `=SUM(LEN(A1:A3))` nessa mesma célula é `3` para

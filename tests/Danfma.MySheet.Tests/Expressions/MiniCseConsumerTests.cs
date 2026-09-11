@@ -1230,6 +1230,41 @@ public class MiniCseConsumerTests
         await Assert
             .That(Num(OnPositionGrid("=SUM(IF(TRUE,SEQUENCE(3),MyColumn))")))
             .IsEqualTo(6.0);
+        // An open range TAKEN is the loud 1x1 #VALUE! its shape always gets — not a whole-column walk and
+        // not a decline. This is the row that proves WrapScalar's `_ =>` arm is reachable.
+        await Assert
+            .That(OnPositionGrid("=SUM(IF(TRUE,MyColumn,SEQUENCE(3)))"))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // The ONE row the volatility fix moved, and it moved toward the oracle: a single-cell name in the
+        // MIXED shape now answers through WrapScalar's CellReference arm, so A2's text reaches SUM and is
+        // skipped, giving 0 — which is the oracle's answer in both modes. Its plain twin above stays
+        // #VALUE! because it is not array-eligible at all and never enters this path.
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyCell,SEQUENCE(3)))"))).IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task AGateKeyedOnTheProbe_RefusesABareReferenceBranch_WhereAScalarSiblingIsAccepted()
+    {
+        // Task 8's comment used to claim a bare-reference branch "answers exactly what it answers with a
+        // scalar sibling". The phase's final review measured that false for the two consumers whose gate
+        // keys on the PROBE rather than on the built operand: the probe says "array" because the SIBLING is
+        // a producer, so the gate refuses before the branch is ever built. The answer itself is not wrong —
+        // it is the same #REF! those gates give any computed array — but the two forms are NOT
+        // interchangeable, and the oracle agrees with neither of them.
+        //
+        // Aspose.Cells 26.6.0, 2026-09-10, both entry modes: the oracle answers 2 for both COUNTIF rows and
+        // 1 for both COUNTBLANK rows. Our scalar-sibling answers (0 and 0) are the criteria family's own
+        // recorded divergence, owned by the sweep; what this test pins is that the MIXED form differs from
+        // the plain one, which is the part Task 8 introduced.
+        await Assert
+            .That(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Num(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,0),\">0\")"))).IsEqualTo(0.0);
+        await Assert
+            .That(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Num(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,0))"))).IsEqualTo(0.0);
     }
 
     [Test]
@@ -1317,11 +1352,16 @@ public class MiniCseConsumerTests
         // OpenRangeReference as an array operand (a cost guard, not a measurement), and a producer
         // propagates that refusal the way a binary or an IF does, so the consumer sees #VALUE!.
         //
-        // Re-measured on the oracle 26.6.0, 2026-09-10, one formula per workbook with A1:A3 = 5, 0, 9 and
-        // nothing else on the sheet: SUM(FILTER(A:A,A:A>0)) = 14 and ROWS(FILTER(A:A,A:A>0)) = 2 in BOTH
-        // entry modes. The phase file records #VALUE! for the plain column of that first formula; that is
-        // NOT reproducible on this version, so the deviation is a deviation in both modes and the older
-        // note should not be repeated.
+        // Re-measured on the oracle 26.6.0, 2026-09-10, one formula per workbook. The phase file's #VALUE!
+        // for the plain column of the first formula IS reproducible — it is FIXTURE-DEPENDENT, and an earlier
+        // version of this comment called it "NOT reproducible" after measuring only the narrow fixture:
+        //
+        //   A1:A3 = 5, 0, 9 and nothing else      SUM 14 / 14, ROWS 2 / 2, COUNT 2 / 2   (plain / CSE)
+        //   plus A5 = 7, A7 = "t", A8 = 7         SUM #VALUE! / 28, ROWS 5 / 5, COUNT 4 / 4
+        //
+        // The wide fixture keeps five rows holding four numbers, because text compares greater than 0. So the
+        // deviation below is a deviation in both modes on the NARROW fixture, which is the one this grid has,
+        // and the mode split is real on a wider column. Do not retire a measured claim from one fixture.
         await Assert.That(OnProducerGrid("=SUM(FILTER(A:A,A:A>0))")).IsEqualTo(ErrorValue.NotValue);
         await Assert
             .That(OnProducerGrid("=ROWS(FILTER(A:A,A:A>0))"))

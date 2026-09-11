@@ -350,11 +350,22 @@ decisions, recorded with the oracle's own numbers so they can be revisited.
 
 **1. `UNIQUE(…, exactly_once)` follows the page.** Over `Q1:Q4` = 9, 5, 9, 0 the distinct rows are 9, 5, 0
 and the rows occurring exactly once are 5 and 0. MySheet answers those two rows: `ROWS` 2, `SUM` 5. The
-oracle keeps the DISTINCT-count SHAPE and pads it by repeating the last kept value: `ROWS` **3** with `SUM`
-**5** — three rows that are 5, 0, 0 — so a UNIQUE result holds a duplicate, which its own row count
-contradicts (measured 2026-09-10, both modes). The same padding is why the oracle answers a 1-row 4 for
-`UNIQUE(S1:S2,FALSE,TRUE)` over 4, 4, where nothing occurs once; here that is the empty result, a 1x1
-`#CALC!`.
+oracle keeps the DISTINCT-count SHAPE and **overwrites its front** with the once-occurring values, leaving
+every distinct element the once-list does not reach exactly where it already was: `ROWS` **3** with `SUM`
+**5** — three rows that are 5, 0, 0. The fixture that pins the rule down rather than a coincidence is
+1, 1, 2, 3, 3, 4: the distinct rows are 1, 2, 3, 4, only 2 and 4 occur once, and the oracle answers
+**2, 4, 3, 4** — a four-row result carrying a value that occurs twice (3) *and* a duplicate of one that does
+not (4), so it contradicts its own row count in two ways at once. The same overwrite is why the oracle
+answers a 1-row 4 for `UNIQUE(S1:S2,FALSE,TRUE)` over 4, 4: nothing occurs once, so nothing overwrites the
+single distinct row; here that is the empty result, a 1x1 `#CALC!`. All measured on Aspose.Cells 26.6.0,
+2026-09-10, both entry modes.
+
+An earlier version of this section — and seven other places, all corrected in the same pass — said the oracle
+"pads by repeating the last kept value". That model coincides on 9, 5, 9, 0 and on 1, 2, 2, 3, which is why
+it survived, and it is wrong wherever the distinct tail differs from the last kept value: it predicts
+5, 9, 9 for 5, 9, 0, 0 (measured 5, 9, 0), 8, 8, 8 for 7, 7, 8, 9, 9 (measured 8, 8, 9) and 2, 4, 4, 4 for
+the fixture above (measured 2, 4, 3, 4). It was found by the phase's final review, which measured six
+fixtures instead of the two the original claim rested on.
 
 **2. `AVERAGE` over `UNIQUE` follows the page.** Over the same `Q1:Q4`, MySheet answers 14/3 = 4.666…, which
 is its own `SUM` 14 over its own `COUNT` 3. The oracle answers `SUM` **14** and `COUNT` **3** and `AVERAGE`

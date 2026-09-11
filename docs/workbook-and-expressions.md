@@ -625,10 +625,12 @@ two engines differ — so closing one is always a deliberate edit.
   without the cap `SUM(SEQUENCE(1000000,10000))` would hang instead of answering.
 - **`UNIQUE(…, exactly_once)` follows Microsoft's page, not the measured oracle.** Over `Q1:Q4` = 9, 5, 9, 0
   the rows occurring exactly once are 5 and 0, and that is what MySheet returns (`ROWS` 2, `SUM` 5). The
-  oracle keeps the *distinct*-count shape and pads it by repeating the last kept value — `ROWS` **3** with
-  `SUM` **5**, i.e. rows 5, 0, 0 — so its `UNIQUE` result contains a duplicate, which its own row count
-  contradicts. Where the oracle contradicts itself the documented rule wins; the measurement is recorded
-  beside the test so the decision can be revisited.
+  oracle keeps the *distinct*-count shape and **overwrites its front** with the once-occurring values,
+  leaving every distinct element the once-list does not reach exactly where it was — `ROWS` **3** with `SUM`
+  **5**, i.e. rows 5, 0, 0. Over 1, 1, 2, 3, 3, 4 the same rule answers **2, 4, 3, 4**: a four-row result
+  carrying a value that occurs twice (3) and a duplicate of one that does not (4), so the oracle's `UNIQUE`
+  contradicts its own row count. Where the oracle contradicts itself the documented rule wins; the
+  measurement is recorded beside the test so the decision can be revisited.
 - **`AVERAGE` over `UNIQUE` follows the page too, for the same reason.** Over that same `Q1:Q4` MySheet
   answers 14/3, which is its own `SUM` over its own `COUNT`. The oracle reports `SUM` **14**, `COUNT` **3**
   and `AVERAGE` **0** for the same expression — three answers that cannot all be right — and Microsoft's
@@ -695,9 +697,8 @@ The guard tests are precise about which of those two mistakes each one catches:
   so with `A1:A3` = 5, 0, 9 a bare `=-A1:A3` is `-5` in `C1`, `0` in `C2`, `-9` in `C3` and `#VALUE!` in `C5`,
   and `=ROUND(A1:A3,0)` is 5, 0, 9 and `#VALUE!` in those same cells; array-entered it takes the top-left in
   every cell (`-5`, `5`). Both columns measured on Aspose.Cells 26.6.0, 2026-09-10. Today's `#VALUE!` is
-  pinned so closing that gap has to be deliberate — and note that the pinning test's own comment still says
-  the plain form is `#VALUE!` everywhere, which the measurement above contradicts for a formula row *inside*
-  the range. (3) A bare `IF(range…)` or range comparison is `#VALUE!` for the same reason as (2) —
+  pinned so closing that gap has to be deliberate, and the pinning test now carries the same per-row
+  measurement rather than the older claim that the plain form is `#VALUE!` everywhere. (3) A bare `IF(range…)` or range comparison is `#VALUE!` for the same reason as (2) —
   `=IF(B2:B5="Show",1,0)` and `=IF(TRUE,A1:A3,B1)` on their own are errors — a known inconsistency with case
   (1) beside it. In every case, wrapping the expression in a consumer works: `=SUM(LEN(A1:A3))` in that same
   cell is `3` for `A1:A3` = 5, 0, 9 (one character each). Arrays still exist only as *arguments* and as a

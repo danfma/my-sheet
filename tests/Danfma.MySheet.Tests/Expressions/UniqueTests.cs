@@ -84,9 +84,15 @@ public class UniqueTests
 
         // Q1:Q4 = 9, 5, 9, 0 leaves 5 and 0 (INDEX 1 = 5, INDEX 2 = 0, SUM 5 — oracle, both modes).
         // The SHAPE follows Microsoft's page ("all distinct rows or columns that occur exactly once"):
-        // TWO rows. NOT the oracle, which keeps the distinct-count shape and pads it by repeating the
-        // last kept value — ROWS(UNIQUE(Q1:Q4,FALSE,TRUE)) = 3 with INDEX(…,3) a second 0 — a UNIQUE
-        // result holding a duplicate, contradicted by its own row count; that is why it is not matched.
+        // TWO rows. NOT the oracle, which keeps the DISTINCT-count shape and OVERWRITES ITS FRONT with the
+        // once-occurring values, leaving every distinct element the once-list does not reach where it already
+        // was. Here that gives ROWS(UNIQUE(Q1:Q4,FALSE,TRUE)) = 3 with INDEX(…,3) a second 0. The fixture
+        // that shows what the rule really is, rather than a coincidence, is 1, 1, 2, 3, 3, 4: distinct rows
+        // 1, 2, 3, 4, only 2 and 4 occurring once, and the oracle answers 2, 4, 3, 4 — carrying a value that
+        // occurs twice (3) AND a duplicate of one that does not (4). That is why it is not matched.
+        // An earlier version of this comment said the oracle "pads by repeating the last kept value". It
+        // coincides on THIS fixture and is wrong on 5, 9, 0, 0 (predicts 5, 9, 9; measured 5, 9, 0) and on
+        // 7, 7, 8, 9, 9 (predicts 8, 8, 8; measured 8, 8, 9). Aspose.Cells 26.6.0, 2026-09-10, both modes.
         var once = U(Ref("Q1:Q4", sheet), BooleanValue.False, BooleanValue.True);
         await Assert.That(Num(Eval(Nth(once, 1), workbook))).IsEqualTo(5.0);
         await Assert.That(Num(Eval(Nth(once, 2), workbook))).IsEqualTo(0.0);
@@ -95,7 +101,8 @@ public class UniqueTests
         await Assert.That(Eval(Nth(once, 3), workbook)).IsEqualTo(ErrorValue.Reference);
 
         // Nothing occurring once is the EMPTY result — a 1x1 #CALC! (ERROR.TYPE 14, COUNT 0), the page's
-        // reading again: the oracle's padding gives it a 1-row 4 for S1:S2 = 4, 4.
+        // reading again. The oracle gives it a 1-row 4 for S1:S2 = 4, 4: nothing occurs once, so nothing
+        // overwrites the single distinct row and that row survives untouched.
         var nothing = U(Ref("S1:S2", sheet), BooleanValue.False, BooleanValue.True);
         await Assert.That(Eval(new Sum([nothing]), workbook)).IsEqualTo(ErrorValue.Calculation);
         await Assert.That(Num(Eval(new ErrorType([nothing]), workbook))).IsEqualTo(14.0);
