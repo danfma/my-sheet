@@ -22,12 +22,12 @@ Status: In progress
 
 Plan: `structured-table-references-and-aggregate/phase-11c-array-bindings.md`. Briefs: `.superpowers/sdd/phase-11c-array-bindings/task-{1..4}-brief.md`. Worktree `/Volumes/Work/Develop/MySheet-11c`, branch `feat/array-bindings`.
 
-- [ ] Task 1 — the pins, red on arrival (items 1-3), plus the twelve unmeasured oracle rows.
-- [ ] Task 2 — the scope carries an array; gates consult it (items 4-8).
+- [x] Task 1 — the pins, red on arrival (items 1-3), plus the twelve unmeasured oracle rows. `6ad7cea`, core 1927/1 → 1978/38.
+- [x] Task 2 — the scope carries an array; gates consult it (items 4-8). `1fd687d`, core → 1988/15 (the 15 are Task 3's).
 - [ ] Task 3 — defined names, CHOOSE, unary `+` (items 9-12). Core suite reaches 0 failures here.
 - [ ] Task 4 — docs, design of record, bookkeeping (items 13-15).
 - [ ] Two-part final review, fix wave, ff-merge to `main`.
-- [ ] Add the missing Phase 11b row to the master plan's phase table (found 2026-09-11).
+- [x] Add the missing Phase 11b row to the master plan's phase table. `a99ab43`.
 
 ### Verification Plan
 - On `main` after the merge: core `failed: 0` (total recorded in the ledger), Excel `93 / 0`, `dotnet csharpier check .` clean, Release build 0 warnings.
@@ -41,10 +41,15 @@ _(write when phase completes)_
 
 Status: Not started
 
-Plan: `structured-table-references-and-aggregate/phase-4-lexer-parser.md` (re-verified 2026-09-10, three rulings). Briefs: `.superpowers/sdd/phase-4-lexer-parser/task-{1..7}-brief.md`. Worktree `/Volumes/Work/Develop/MySheet-p4`, branch `feat/lexer-parser`, created off `main` AFTER Phase A merges (the union tag is 327 only once Phase 7's 323-326 are on main — they are).
+Status corrected 2026-09-11: the worktree was created off `main` EARLY (tags 323-326 were already there), so Phase B ran concurrently with Phase A. It still merges AFTER Phase A.
 
-- [ ] Task 1 — foundation: token, error kinds, `TableReference` with the six-member enum and tag 327, scanner. Merge this task to `main` on its own as soon as it is green: it is all Phase 5 needs.
-- [ ] Tasks 2, 3, 4, 7 concurrently (grammar+writer, lexer, anchored support, name-validator repoint).
+Plan: `structured-table-references-and-aggregate/phase-4-lexer-parser.md` (re-verified 2026-09-10, three rulings). Briefs: `.superpowers/sdd/phase-4-lexer-parser/task-{1..7}-brief.md`. Worktree `/Volumes/Work/Develop/MySheet-p4`, branch `feat/lexer-parser`.
+
+- [x] Task 1 — foundation: token, error kinds, `TableReference` with the six-member enum and tag 327, scanner. `d6e4062` + `3dbd6b2`, core 1927/1 → 1973/1, tag count 327 → 328.
+- [x] Task 3 — lexer. `ed336c5`, `TokenizerTests` 9 → 17 cases, core → 1981/1.
+- [x] Task 7 — name-validator repoint. `eaaa36d`, core → 1993/1.
+- [x] Task 4 — anchored support. `e2761c2`, core → 2008/1.
+- [ ] Task 2 — grammar + writer (running).
 - [ ] Task 5 — parser arms (after 2 and 3).
 - [ ] Task 6 — loader vehicle and every doc the phase falsifies (after 5).
 - [ ] Two-part final review, fix wave, ff-merge.
@@ -62,8 +67,10 @@ Status: Not started
 
 Plans: `phase-5-resolution-and-graph.md` (its items 1-4 are deleted by the 2026-09-10 ruling; it depends only on Phase B Task 1) and `phase-6-excel-loader.md`. Both need re-verification against `main` before briefs are generated — Phase 5's anchors are as old as Phase 4's were, and Phase 6 has never been audited.
 
-- [ ] Re-verify Phase 5 against `main` (a read-only agent, same brief shape as Phase 4's re-verification); write its rulings; generate briefs; worktree `/Volumes/Work/Develop/MySheet-p5`.
-- [ ] Re-verify Phase 6 the same way; briefs; worktree `/Volumes/Work/Develop/MySheet-p6`.
+- [x] Re-verify Phase 5 against `main`; rulings R1-R4 written into the phase file (`53010e4`); five briefs; worktree `/Volumes/Work/Develop/MySheet-p5`, branch `feat/resolution-and-graph` off `feat/lexer-parser`.
+- [x] Re-verify Phase 6; nine rulings written into the phase file (`9bef4c7`); three briefs; worktree `/Volumes/Work/Develop/MySheet-p6`, branch `feat/excel-loader`.
+- [x] Phase 6 Task 1 — the `<table>` reader, nine committed Aspose fixtures, export/merge pins. `ae6d82a`, Excel 93/0 → 125/0.
+- [ ] Phase 5 Task 1 — six-area geometry plus the `Empty` outcome (running).
 - [ ] Execute Phase 5 (its cadence), ff-merge.
 - [ ] Execute Phase 6 (its cadence), ff-merge. Phase 6 is the release blocker: without it a real `.xlsx` cell holding `SUM(Tabela1[Valor])` answers `#NAME?`.
 
@@ -86,6 +93,21 @@ Status: Not started
 
 ### Phase Summary
 _(write when phase completes)_
+
+## RESUME HERE (2026-09-11, end of session)
+
+Four branches, none merged, every one clean at its last accepted commit. Merge order is fixed: **11c → main → cut 3.20.0 → p4 rebases onto main → p5 rebases onto p4 → p6 rebases last**.
+
+| branch | worktree | head | suite there |
+| --- | --- | --- | --- |
+| `feat/array-bindings` | `MySheet-11c` | `1fd687d` | core 1988 / 15 — the 15 are Task 3's rows |
+| `feat/lexer-parser` | `MySheet-p4` | `e2761c2` | core 2008 / 1 (11c's pin) |
+| `feat/resolution-and-graph` | `MySheet-p5` | `eaaa36d` | core 1993 / 1 |
+| `feat/excel-loader` | `MySheet-p6` | `ae6d82a` | Excel 125 / 0 |
+
+Three tasks were in flight when the session ended — 11c T3, Phase 4 T2, Phase 5 T1. Check each worktree's `git status --short` first: if one is dirty, an agent died mid-edit and its brief plus the ledger say what it owed. Then dispatch what is missing, per-phase ledgers under `.superpowers/sdd/<phase>/progress.md`.
+
+Next actions in order: finish 11c T3 (core to 0 failures), 11c T4 (docs, Sonnet), 11c's two-part review, ff-merge, **stop and tell the user 3.20.0 can be cut**. Then Phase 4 T2 → T5 → T6, Phase 5 T1 → T2/T3/T4 → T5, Phase 6 T2 → T3.
 
 ## Final Recap
 _(write when all phases complete)_
