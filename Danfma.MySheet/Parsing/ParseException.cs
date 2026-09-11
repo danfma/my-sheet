@@ -36,6 +36,26 @@ public enum ParseErrorKind
 
     /// <summary>The formula nests deeper than the parser's recursion limit.</summary>
     NestingTooDeep,
+
+    /// <summary>A structured (table) reference whose closing <c>]</c> is missing (<c>=Tabela1[Valor</c>).</summary>
+    UnterminatedBracketedReference,
+
+    /// <summary>
+    /// Balanced brackets whose content Excel's own grammar rejects — an unknown specifier
+    /// (<c>Tabela1[#Bogus]</c>), a dangling <c>'</c> escape, a multi-column item list
+    /// (<c>Tabela1[[A],[B]]</c>). The file is malformed, as opposed to
+    /// <see cref="UnsupportedStructuredReference"/>.
+    /// </summary>
+    InvalidStructuredReference,
+
+    /// <summary>
+    /// Valid Excel that MySheet does not model — a scope decision, not parity: the current-row forms
+    /// <c>Tabela1[@Valor]</c> and <c>Tabela1[[#This Row],[Valor]]</c>, the implicit-table form <c>[Valor]</c>,
+    /// a column span <c>Tabela1[[A]:[C]]</c>, the external-workbook form <c>[1]Sheet1!A1</c>, and a
+    /// sheet-qualified <c>Data!Tabela1[Valor]</c>. When it is uncertain whether Excel accepts a shape it is
+    /// classified here, never as <see cref="InvalidStructuredReference"/>.
+    /// </summary>
+    UnsupportedStructuredReference,
 }
 
 /// <summary>

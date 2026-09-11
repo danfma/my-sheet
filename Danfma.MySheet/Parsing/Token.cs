@@ -23,6 +23,10 @@ internal enum TokenType
     LParen,
     RParen,
     Bang,
+
+    // The whole `[...]` suffix of a structured (table) reference, Text = the raw bracketed text INCLUDING
+    // the brackets, undecoded.
+    BracketedSpecifier,
     EndOfInput,
 }
 
