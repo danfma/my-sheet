@@ -1,6 +1,10 @@
 using System.Globalization;
 using Danfma.MySheet;
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Logical;
+using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Expressions.Mathematics;
+using Danfma.MySheet.Expressions.Statistical;
 using Danfma.MySheet.Parsing;
 using StringValue = Danfma.MySheet.Expressions.StringValue;
 
@@ -253,6 +257,129 @@ public class RangeValueCacheEquivalenceTests
             var cached = EvaluateBuilt(workbook, sheet, formula);
             await Assert.That(cached).IsEqualTo(expected);
         }
+    }
+
+    // === Phase 5 items 15/16: TableReference through the same choke points ================================
+    //
+    // PERF only, not correctness: TryGetRangeSnapshot already rejected anything but
+    // RangeReference/OpenRangeReference before item 15, and every probe site below gated on `argument is
+    // Reference`, so a TableReference already fell to each site's own `default:` and produced the right
+    // answer -- through Evaluate -> the reference VALUE -> EnumerateValues' boxed iterator. Item 15
+    // normalizes INSIDE TryGetRangeSnapshot itself (the one admission choke point every site here shares);
+    // item 16 normalizes the ARGUMENT up front at each site's own dense-rectangle fast path (mirroring the
+    // AnchoredRangeReference lines already there), so even a first read (not yet admitted) gets the
+    // allocation-free struct enumerator instead of the boxed default. The parser cannot spell Tabela1[Valor]
+    // yet (Phase 4 T5), so every table node below is built by hand, as TableReferenceTests.cs does.
+    private static readonly string[] TableColumnNames = ["Key", "Value", "Text"];
+
+    // Tbl[Key]/[Value]/[Text] over the SAME 300-row data Build() lays down in columns A/B/C — a headerless
+    // table (Build never writes a header row), so the whole populated body is the data area.
+    private static Workbook BuildTable(Scenario scenario)
+    {
+        var (workbook, _) = Build(scenario);
+        workbook.DefineTable("Tbl", "Data", $"A1:C{Rows}", TableColumnNames, hasHeaderRow: false);
+        return workbook;
+    }
+
+    private static readonly TableReference TableKey = new("Tbl", "Key", TableArea.Data);
+    private static readonly TableReference TableValue = new("Tbl", "Value", TableArea.Data);
+    private static readonly TableReference TableText = new("Tbl", "Text", TableArea.Data);
+    private static readonly TableReference TableAll = new("Tbl", null, TableArea.Data);
+
+    // The direct, sharpest proof of item 15: a TableReference and its equivalent literal RangeReference
+    // share the SAME cache entry (the admission key is the RESOLVED rectangle, not the syntactic node), so
+    // SUM(Tbl[Key]) and SUM(Data!A1:A300) serve off one snapshot instead of two.
+    [Test]
+    public async Task TryGetRangeSnapshot_NormalizesATableReference_ToTheSameEntryAsItsLiteralRange()
+    {
+        var workbook = BuildTable(Scenario.AscendingNumbers);
+        var context = new EvaluationContext(workbook);
+        var literal = new RangeReference("A1", $"A{Rows}", "Data");
+
+        // Second-use admission: the table's FIRST read only marks the resolved rectangle (linear path ->
+        // null). The literal range's FIRST read is then already that SAME rectangle's SECOND read overall,
+        // so it builds the snapshot immediately -- proof the two keyed on the same entry.
+        await Assert.That(workbook.TryGetRangeSnapshot(TableKey, context) is null).IsTrue();
+        var built = workbook.TryGetRangeSnapshot(literal, context);
+        await Assert.That(built is not null).IsTrue();
+        await Assert
+            .That(ReferenceEquals(workbook.TryGetRangeSnapshot(TableKey, context), built))
+            .IsTrue();
+        await Assert
+            .That(ReferenceEquals(workbook.TryGetRangeSnapshot(literal, context), built))
+            .IsTrue();
+    }
+
+    // The battery-style differential proof item 15/16's commit body promises: the SAME formula tree, over a
+    // TableReference, must answer identically bypassed and across the three admission reads -- exercising
+    // every wired call site (RangeAggregate.Memoize; CriteriaScan/PositionalRange.Open; RangeValueCursor.Open;
+    // ArgumentFlattening.ExpandCached via XLOOKUP's return_array).
+    [Test]
+    public async Task TableReference_MatchesBypass_AcrossTheThreeAdmissionReads_ForTheWiredCallSites()
+    {
+        (string Name, Expression Node)[] formulas =
+        [
+            ("MATCH exact", new Match([new NumberValue(50), TableKey, new NumberValue(0)])),
+            ("MATCH approximate", new Match([new NumberValue(50), TableKey, new NumberValue(1)])),
+            ("MATCH text", new Match([new StringValue("k50"), TableText, new NumberValue(0)])),
+            ("XLOOKUP", new XLookup([new NumberValue(50), TableKey, TableValue])),
+            (
+                "VLOOKUP",
+                new VLookup([
+                    new NumberValue(50),
+                    TableAll,
+                    new NumberValue(2),
+                    new BooleanValue(false),
+                ])
+            ),
+            ("SUMIF", new SumIf([TableKey, new NumberValue(50)])),
+            ("COUNTIF", new CountIf([TableKey, new StringValue(">100")])),
+            ("AVERAGEIF", new AverageIf([TableKey, new NumberValue(50)])),
+            ("AND", new And([TableKey])),
+            ("OR", new Or([TableKey])),
+            ("SMALL", new Small([TableKey, new NumberValue(5)])),
+            ("MEDIAN", new Median([TableKey])),
+            ("SUM", new Sum([TableKey])),
+            ("COUNT", new Count([TableKey])),
+            ("COUNTA", new CountA([TableKey])),
+            ("MAX", new Max([TableKey])),
+            ("MIN", new Min([TableKey])),
+            ("AVERAGE", new Average([TableKey])),
+        ];
+
+        var failures = new List<string>();
+        var cases = 0;
+
+        foreach (var scenario in new[] { Scenario.AscendingNumbers, Scenario.WithErrors })
+        {
+            var workbook = BuildTable(scenario);
+            var context = new EvaluationContext(workbook, "Data");
+
+            foreach (var (name, node) in formulas)
+            {
+                cases++;
+
+                workbook.RangeCacheDisabled = true;
+                workbook.InvalidateCache();
+                var expected = Describe(node.Evaluate(context));
+
+                workbook.RangeCacheDisabled = false;
+                workbook.InvalidateCache();
+                var read1 = Describe(node.Evaluate(context));
+                var read2 = Describe(node.Evaluate(context));
+                var read3 = Describe(node.Evaluate(context));
+
+                if (read1 != expected || read2 != expected || read3 != expected)
+                {
+                    failures.Add(
+                        $"{scenario} :: {name} :: expected={expected} read1={read1} read2={read2} read3={read3}"
+                    );
+                }
+            }
+        }
+
+        await Assert.That(cases).IsGreaterThan(30);
+        await Assert.That(failures).IsEmpty();
     }
 
     // === Helpers =========================================================================================

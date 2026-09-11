@@ -147,6 +147,22 @@ internal struct PositionalRange
             argument = anchoredRange.ToRangeReference(context);
         }
 
+        // Phase 5 item 16, PERF only: resolves a TableReference to its concrete rectangle UP FRONT, same
+        // shape and same reason as the AnchoredRangeReference resolution above — runs BEFORE the snapshot
+        // branch so it can read the resolved rectangle's shape too, and before the dense-rectangle fallback
+        // so a first (not-yet-admitted) read also gets the allocation-free struct enumerator instead of
+        // falling to ArgumentFlattening.ExpandComputedValues' boxed default. An unresolvable table is left
+        // as-is: it falls through to that same fallback, which already answers with the node's own error
+        // VALUE as one element — unchanged, since RejectComputedArray (this file) admits it before Open is
+        // ever called.
+        if (
+            argument is TableReference table
+            && table.TryResolveRange(context.Workbook, out var tableRange, out _)
+        )
+        {
+            argument = tableRange!;
+        }
+
         if (snapshot is not null)
         {
             // The snapshot hands its values over as a FLAT list, but the SHAPE still has to travel with them:

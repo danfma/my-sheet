@@ -766,6 +766,19 @@ public sealed partial class Workbook
     /// </summary>
     internal RangeSnapshot? TryGetRangeSnapshot(Reference range, EvaluationContext context)
     {
+        // Phase 5 item 15, PERF only: every probe site below gates on `argument is Reference`, so a
+        // TableReference already clears the caller's own check and arrives here — where, before this
+        // normalization, it was rejected outright by the type check just below and fell back to the
+        // per-call linear path every time. Resolving it to its concrete rectangle up front keys the entry
+        // on that RESOLVED range, so `SUM(Tabela1[Valor])` and `SUM(Data!B2:B4)` share one snapshot.
+        // Deliberately narrow to TableReference: DynamicRange.TryResolveReference EVALUATES its endpoints,
+        // so generalizing this to every Reference subclass would inject endpoint evaluation into a
+        // cache-admission probe.
+        if (range is TableReference table && table.TryResolveRange(this, out var tableRange, out _))
+        {
+            range = tableRange!;
+        }
+
         if (RangeCacheDisabled || range is not (RangeReference or OpenRangeReference))
         {
             return null;

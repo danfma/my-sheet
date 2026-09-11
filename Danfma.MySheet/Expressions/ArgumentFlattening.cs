@@ -76,6 +76,32 @@ internal static class ArgumentFlattening
 
                     break;
 
+                // Phase 5 item 16, PERF only: the `default:` arm below already answers correctly for a
+                // TableReference (TryStream declines it via IsBareReferenceNode, so it falls to Evaluate ->
+                // the reference VALUE -> EnumerateValues' boxed iterator, or the error VALUE as one element
+                // when unresolvable). This arm buys the allocation-free struct enumerator on the resolved
+                // path, mirroring the AnchoredRangeReference arm above.
+                case TableReference table:
+                    if (
+                        table.TryResolveRange(
+                            context.Workbook,
+                            out var tableRange,
+                            out var tableError
+                        )
+                    )
+                    {
+                        foreach (var value in tableRange!.ExpandComputedValues(context))
+                        {
+                            yield return value;
+                        }
+                    }
+                    else
+                    {
+                        yield return ComputedValue.Error(tableError);
+                    }
+
+                    break;
+
                 default:
                     // Phase 7: the mini-CSE arm. TryStream is the argument's SINGLE evaluation (a volatile
                     // operand draws once), so it must come before the scalar Evaluate below, not after it.
@@ -127,6 +153,19 @@ internal static class ArgumentFlattening
         if (argument is AnchoredRangeReference anchoredRange)
         {
             argument = anchoredRange.ToRangeReference(context);
+        }
+
+        // Phase 5 item 16, PERF only: resolves a TableReference to its concrete rectangle UP FRONT,
+        // mirroring the AnchoredRangeReference resolution above, so the capacity hint and the switch below
+        // treat a resolved table exactly like an ordinary RangeReference. An unresolvable table is left
+        // as-is: it falls through to `default:` below, which already answers with the node's own error
+        // VALUE as one element (the same thing this normalization skipping does today, unchanged).
+        if (
+            argument is TableReference table
+            && table.TryResolveRange(context.Workbook, out var tableRange, out _)
+        )
+        {
+            argument = tableRange!;
         }
 
         // A closed rectangle has known bounds: size the buffer to its exact cell count so the hot per-cell fill

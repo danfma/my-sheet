@@ -95,6 +95,19 @@ internal struct RangeValueCursor
             argument = anchoredRange.ToRangeReference(context);
         }
 
+        // Phase 5 item 16, PERF only: resolves a TableReference to its concrete rectangle UP FRONT, same
+        // shape as the AnchoredRangeReference resolution above, so the switch's RangeReference fast path
+        // (the allocation-free struct enumerator) serves a resolved table too. An unresolvable table is
+        // left as-is: it falls through to `default:` below, which already answers with the node's own
+        // error VALUE — unchanged, since TryStream/IsBareReferenceNode never enter this method at all.
+        if (
+            argument is TableReference table
+            && table.TryResolveRange(context.Workbook, out var tableRange, out _)
+        )
+        {
+            argument = tableRange!;
+        }
+
         switch (argument)
         {
             case RangeReference rectangle:
