@@ -355,11 +355,24 @@ internal static class ArrayEvaluation
                     _ => (true, false),
                 };
 
+            // A structured (table) reference (Phase 5), decided WITHOUT resolving anything, unlike the
+            // defined name above: a table's own `ref` is a bounded A1 rectangle and Table.GetRegion only
+            // ever narrows it, so a TableReference can never denote a scalar and never an open range. The
+            // open-range cost guard above therefore cannot apply to one, and (true, true) cannot
+            // mis-broadcast.
+            // A table that does NOT resolve is still an ARRAY here, because the build wraps its Error in a
+            // 1x1 SingletonArrayOperand — which is what keeps the "IsArrayEligible ⇒ the build succeeds AS
+            // AN ARRAY" invariant this class documents (see the remarks on IsArrayEligible) true for the
+            // #NAME?/#REF! cases too.
+            case TableReference:
+                return (true, true);
+
             // ROW(x)/COLUMN(x) over a reference: ONE arm each, because the two functions differ only in the
             // AXIS the shared shape walk reports — see ProbePosition. The `[NameReference or Reference]`
             // pattern admits every reference NODE (RangeReference, AnchoredRangeReference and
-            // OpenRangeReference all derive from Reference) plus a defined name, and deliberately not a
-            // reference-returning FUNCTION: see ResolvePositionRange.
+            // OpenRangeReference all derive from Reference, and so does TableReference — ROW(Tabela1[Valor])
+            // needs no arm of its own) plus a defined name, and deliberately not a reference-returning
+            // FUNCTION: see ResolvePositionRange.
             case Row { Arguments: [NameReference or Reference] } row:
                 return ProbePosition(row.Arguments[0], context);
 
@@ -659,10 +672,28 @@ internal static class ArrayEvaluation
                 }
             }
 
+            // The twin of Probe's TableReference arm (Phase 5): resolve through the node's ONE primitive and
+            // hand the concrete rectangle to BuildRange, so a table column streams its cells through exactly
+            // the reading logic a literal range does — nothing duplicated.
+            //
+            // A table that does not resolve becomes a 1x1 array carrying its Error. SingletonArrayOperand
+            // covers EVERY position by the broadcasting rule, so (Tabela1[#Totals]<>"")*A1:A3 reports #REF!
+            // at every element instead of the #VALUE! a dimension mismatch would give, and the operand is
+            // still IsArray, which is the promise the probe made.
+            case TableReference table:
+                operand = table.TryResolveRange(
+                    context.Workbook,
+                    out var tableRange,
+                    out var tableError
+                )
+                    ? BuildRange(tableRange!, context)
+                    : new SingletonArrayOperand(ComputedValue.Error(tableError));
+                return true;
+
             // ROW(x)/COLUMN(x) over a reference: ONE arm each, both walking the same shapes on their own
             // axis — see TryBuildPositionOperand, whose order Probe/ProbePosition mirrors exactly. The
-            // pattern admits every reference NODE plus a defined name, and deliberately not a
-            // reference-returning FUNCTION: see ResolvePositionRange.
+            // pattern admits every reference NODE (a TableReference included) plus a defined name, and
+            // deliberately not a reference-returning FUNCTION: see ResolvePositionRange.
             case Row { Arguments: [NameReference or Reference] } row:
                 return TryBuildPositionOperand(
                     row,

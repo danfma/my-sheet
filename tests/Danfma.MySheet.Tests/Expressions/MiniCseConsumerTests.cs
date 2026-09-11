@@ -1,6 +1,13 @@
 using Danfma.MySheet.Expressions;
+using Danfma.MySheet.Expressions.Information;
+using Danfma.MySheet.Expressions.Logical;
+using Danfma.MySheet.Expressions.Lookup;
+using Danfma.MySheet.Expressions.Mathematics;
+using Danfma.MySheet.Expressions.Statistical;
+using Danfma.MySheet.Expressions.Text;
 using Danfma.MySheet.Parsing;
 using StringValue = Danfma.MySheet.Expressions.StringValue;
+using TableIndex = Danfma.MySheet.Expressions.Lookup.Index;
 
 namespace Danfma.MySheet.Tests.Expressions;
 
@@ -1379,5 +1386,548 @@ public class MiniCseConsumerTests
         await Assert.That(Num(OnProducerGrid("=COUNT(FILTER(A:A,A:A>0))"))).IsEqualTo(0.0);
         await Assert.That(Num(OnProducerGrid("=COUNT(SORT(A:A))"))).IsEqualTo(0.0);
         await Assert.That(Num(OnProducerGrid("=COUNTA(SORT(A:A))"))).IsEqualTo(1.0);
+    }
+
+    // === Phase 5 T3: a structured (table) reference as a mini-CSE operand ===============================
+    //
+    // The oracle's own table fixture, cell for cell: Data!Tabela1 = A1:C4, header Item / Valor / Qtd, data
+    // rows a,10,1 / b,20,2 / c,30,3, no totals row. Beside it, Main!A1:A3 = 5, 0, 9 — the literal column the
+    // mixed-shape rows multiply against — and Data!Zeros = E1:E4, header V, data 10, 0, 30, whose ZERO is the
+    // only thing that makes the corpus idiom's denominator observable (see the corpus test).
+    //
+    // The parser cannot spell Tabela1[Valor] on this head (Phase 4 T5 owns Parser.cs), so every tree below is
+    // built by hand and the comment above it is the formula it spells. Every number is Aspose.Cells 26.6.0,
+    // measured 2026-09-11 on that fixture with the formula on Main!H20, PLAIN and array-entered; the mini-CSE
+    // implements the ARRAY-ENTERED rule inside a function argument, so the CSE column is the one asserted and
+    // the PLAIN one is named only where it differs — never compared against it.
+    private static Workbook TableGrid()
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["A1"] = new NumberValue(5);
+        main["A2"] = new NumberValue(0);
+        main["A3"] = new NumberValue(9);
+
+        var data = workbook.Sheets.Add("Data");
+        data["A1"] = new StringValue("Item");
+        data["B1"] = new StringValue("Valor");
+        data["C1"] = new StringValue("Qtd");
+        data["A2"] = new StringValue("a");
+        data["B2"] = new NumberValue(10);
+        data["C2"] = new NumberValue(1);
+        data["A3"] = new StringValue("b");
+        data["B3"] = new NumberValue(20);
+        data["C3"] = new NumberValue(2);
+        data["A4"] = new StringValue("c");
+        data["B4"] = new NumberValue(30);
+        data["C4"] = new NumberValue(3);
+        workbook.DefineTable("Tabela1", "Data", "A1:C4", ["Item", "Valor", "Qtd"]);
+
+        data["E1"] = new StringValue("V");
+        data["E2"] = new NumberValue(10);
+        data["E3"] = new NumberValue(0);
+        data["E4"] = new NumberValue(30);
+        workbook.DefineTable("Zeros", "Data", "E1:E4", ["V"]);
+
+        return workbook;
+    }
+
+    private static object? OnTableGrid(Expression node) =>
+        node.Evaluate(new EvaluationContext(TableGrid(), "Main")).AsObject();
+
+    // Tabela1[Valor] (B2:B4 = 10, 20, 30), and the literal range it resolves to — the paired oracle for every
+    // row below, already pinned for the literal form by this file's K1 tests.
+    private static TableReference Valor => new("Tabela1", "Valor", TableArea.Data);
+
+    private static RangeReference ValorRange => new("B2", "B4", "Data");
+
+    // Tabela1[Item] (A2:A4 = "a", "b", "c") and Tabela1[Qtd] (C2:C4 = 1, 2, 3).
+    private static TableReference ItemColumn => new("Tabela1", "Item", TableArea.Data);
+
+    private static TableReference Qtd => new("Tabela1", "Qtd", TableArea.Data);
+
+    // Zeros[V] (E2:E4 = 10, 0, 30).
+    private static TableReference Zeroed => new("Zeros", "V", TableArea.Data);
+
+    private static RangeReference ZeroedRange => new("E2", "E4", "Data");
+
+    // Tabela1[#Totals] over a table with NO totals row: the one structured reference the oracle itself
+    // accepts at entry and answers an error VALUE for (#REF!), and this suite's unresolvable-table node.
+    private static TableReference NoTotalsRow => new("Tabela1", null, TableArea.Totals);
+
+    // Main!A1:A3 = 5, 0, 9.
+    private static RangeReference Literal => new("A1", "A3", "Main");
+
+    // The tree combinators: each spells the operator it is named for, so a nested tree reads close to the
+    // formula in its comment.
+    private static Expression Times(Expression left, Expression right) =>
+        new BinaryOperation(BinaryOperator.Multiply, left, right);
+
+    private static Expression Over(Expression left, Expression right) =>
+        new BinaryOperation(BinaryOperator.Divide, left, right);
+
+    private static Expression NotBlank(Expression operand) =>
+        new BinaryOperation(BinaryOperator.NotEqual, operand, new StringValue(""));
+
+    private static Expression NotZero(Expression operand) =>
+        new BinaryOperation(BinaryOperator.NotEqual, operand, new NumberValue(0));
+
+    private static Expression Above(Expression operand, double bound) =>
+        new BinaryOperation(BinaryOperator.GreaterThan, operand, new NumberValue(bound));
+
+    private static Expression Number(double value) => new NumberValue(value);
+
+    // (ROW(x) - ROW(INDEX(x,1,1)) + 1) / ((x<>"") * (x<>0)) — the corpus formula's exact shape: a 1-based
+    // position vector over the reference, divided by a mask that turns a blank or zero row into #DIV/0!.
+    private static Expression CorpusIdiom(Expression source) =>
+        Over(
+            new BinaryOperation(
+                BinaryOperator.Add,
+                new BinaryOperation(
+                    BinaryOperator.Subtract,
+                    new Row([source]),
+                    new Row([new TableIndex([source, Number(1), Number(1)])])
+                ),
+                Number(1)
+            ),
+            Times(NotBlank(source), NotZero(source))
+        );
+
+    [Test]
+    public async Task Count_OfStructuredReferenceComparison_IsElementWise()
+    {
+        // =COUNT((Tabela1[Valor]<>"")*1) → the three comparisons, each multiplied by 1 → 3.
+        //
+        // The single highest-value row of Phase 5: measured 1 on this build before the Probe/build arms, and
+        // 1 is not an error. The table node fell to Probe's `default:` arm as an OPAQUE SCALAR, so nothing in
+        // the expression was an array, so COUNT never streamed — it took its scalar path and folded the ONE
+        // value the whole expression evaluates to. Oracle 3 CSE (0 PLAIN). The literal-range twin beside it
+        // is the paired oracle: the same formula written with Data!B2:B4 already answered 3 before this
+        // phase.
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NotBlank(Valor), Number(1))]))))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NotBlank(ValorRange), Number(1))]))))
+            .IsEqualTo(3.0);
+
+        // =SUM((Tabela1[Valor]<>"")*1) → 3 as well, the loud half of the same shape.
+        await Assert
+            .That(Num(OnTableGrid(new Sum([Times(NotBlank(Valor), Number(1))]))))
+            .IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task Min_OfIfOverAStructuredReference_IsElementWise()
+    {
+        // =MIN(IF(Tabela1[Valor]>0,Tabela1[Valor])) → 10 CSE (#VALUE! PLAIN), the row item 21 names.
+        // It is kept because it is the oracle's, but it DISCRIMINATES NOTHING on this fixture: the scalar
+        // broadcast answered 10 too, because every value passes the >0 filter and MIN over the whole column
+        // is also 10. The rows after it are the discriminating ones.
+        await Assert
+            .That(Num(OnTableGrid(new Min([new If([Above(Valor, 0), Valor])]))))
+            .IsEqualTo(10.0);
+
+        // =MIN(IF(Tabela1[Valor]>15,Tabela1[Valor])) → 20 CSE: measured 10 before the arms (the whole
+        // column's minimum, the filter silently ignored) and 20 after, which is the literal range's answer.
+        await Assert
+            .That(Num(OnTableGrid(new Min([new If([Above(Valor, 15), Valor])]))))
+            .IsEqualTo(20.0);
+        await Assert
+            .That(Num(OnTableGrid(new Min([new If([Above(ValorRange, 15), ValorRange])]))))
+            .IsEqualTo(20.0);
+
+        // =SUM(IF(Tabela1[Valor]>15,Tabela1[Valor])) → 50 CSE (60 before: the whole column again), and
+        // =SUM(IF(Tabela1[Valor]>15,1,0)) → 2 CSE (1 before: one broadcast element, not three).
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new If([Above(Valor, 15), Valor])]))))
+            .IsEqualTo(50.0);
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new If([Above(Valor, 15), Number(1), Number(0)])]))))
+            .IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task Sum_OfRowOverAStructuredReference_IsTheRowVector()
+    {
+        // =SUM(ROW(Tabela1[Valor])) → rows 2 + 3 + 4 = 9 CSE (2 PLAIN), and
+        // =SUM(COLUMN(Tabela1[Valor])) → column B alone = 2 in BOTH modes.
+        //
+        // These two needed NO arm of their own, and that is the assertion: ROW/COLUMN's mini-CSE arms match
+        // on `[NameReference or Reference]`, a TableReference IS a Reference, and ResolvePositionRange
+        // resolves it through the virtual TryResolveReference. Both answered 9 and 2 before the Probe/build
+        // arms landed as well — the pins exist so a narrowing of that pattern to a named list of node types
+        // cannot drop the table silently.
+        await Assert.That(Num(OnTableGrid(new Sum([new Row([Valor])])))).IsEqualTo(9.0);
+        await Assert.That(Num(OnTableGrid(new Sum([new Column([Valor])])))).IsEqualTo(2.0);
+        await Assert.That(Num(OnTableGrid(new Sum([new Row([ValorRange])])))).IsEqualTo(9.0);
+    }
+
+    [Test]
+    public async Task SmallOverTheCorpusIdiom_MatchesTheRangeForm()
+    {
+        // The corpus formula, whole: SMALL((ROW(T[c])-ROW(INDEX(T[c],1,1))+1)/((T[c]<>"")*(T[c]<>0)),1).
+        // Over Tabela1[Valor] the oracle answers 1 in both modes, and so does the literal-range form — but on
+        // THIS column every denominator is 1, so the row cannot tell an element-wise division from a
+        // broadcast one (it answered 1 before the arms too). It is pinned because it is the shape the corpus
+        // uses, and the Zeros rows below are what actually discriminate.
+        await Assert
+            .That(Num(OnTableGrid(new Small([CorpusIdiom(Valor), Number(1)]))))
+            .IsEqualTo(Num(OnTableGrid(new Small([CorpusIdiom(ValorRange), Number(1)]))));
+        await Assert
+            .That(Num(OnTableGrid(new Small([CorpusIdiom(Valor), Number(1)]))))
+            .IsEqualTo(1.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Aggregate([Number(15), Number(6), CorpusIdiom(Valor), Number(1)])
+                    )
+                )
+            )
+            .IsEqualTo(1.0);
+
+        // Zeros[V] = 10, 0, 30 — the column whose middle row makes the mask matter. Oracle, both modes
+        // unless marked: SMALL(…,1) #DIV/0! (SMALL propagates the element error), COUNT of the division 2
+        // CSE (0 PLAIN), and AGGREGATE(15,6,…,2) = 3 — the SECOND position among the rows the mask keeps,
+        // which is the whole point of the idiom. Measured before the arms: 1, 3 and 2 — every one of them a
+        // plausible number and every one of them wrong, because the broadcast denominator was a single 1.
+        await Assert
+            .That(OnTableGrid(new Small([CorpusIdiom(Zeroed), Number(1)])))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Num(OnTableGrid(new Count([CorpusIdiom(Zeroed)])))).IsEqualTo(2.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Aggregate([Number(15), Number(6), CorpusIdiom(Zeroed), Number(2)])
+                    )
+                )
+            )
+            .IsEqualTo(3.0);
+
+        // And the same three over the literal E2:E4, the paired oracle.
+        await Assert
+            .That(OnTableGrid(new Small([CorpusIdiom(ZeroedRange), Number(1)])))
+            .IsEqualTo(ErrorValue.DivByZero);
+        await Assert.That(Num(OnTableGrid(new Count([CorpusIdiom(ZeroedRange)])))).IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task TheElementWiseOperatorShapes_OverAStructuredReference_StreamTheColumn()
+    {
+        // Every one of these was #VALUE! or a single-element number before the arms, and every one is the
+        // oracle's array-entered answer after. The PLAIN column is #VALUE! for all of them except the
+        // SUMPRODUCT row (a 2-D result at the cell boundary), which is why the CSE column is the one quoted;
+        // SUMPRODUCT array-evaluates its own argument and answers 2 in both modes.
+        // =SUM(Tabela1[Valor]*2) → 120
+        await Assert.That(Num(OnTableGrid(new Sum([Times(Valor, Number(2))])))).IsEqualTo(120.0);
+
+        // =SUM(-Tabela1[Valor]) → -60, and =SUM(Tabela1[Valor]%) → 0.1+0.2+0.3
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new UnaryOperation(UnaryOperator.Negate, Valor)]))))
+            .IsEqualTo(-60.0);
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new UnaryOperation(UnaryOperator.Percent, Valor)]))))
+            .IsEqualTo(0.1 + 0.2 + 0.3);
+
+        // =SUM(LEN(Tabela1[Item])) → LEN("a")+LEN("b")+LEN("c") = 3
+        await Assert.That(Num(OnTableGrid(new Sum([new Len([ItemColumn])])))).IsEqualTo(3.0);
+
+        // =SUM(Tabela1[Valor]*A1:A3) → 10*5 + 20*0 + 30*9 = 320: a table column zipped with a LITERAL range,
+        // the shape that proves the operand is the rectangle and not a broadcast value.
+        await Assert.That(Num(OnTableGrid(new Sum([Times(Valor, Literal)])))).IsEqualTo(320.0);
+
+        // =SUM((Tabela1[Valor]>15)*Tabela1[Qtd]) → (0,1,1)*(1,2,3) = 5, and =SUM(Tabela1[Qtd]*Tabela1[Qtd])
+        // → 1+4+9 = 14: TWO structured references zipped with each other.
+        await Assert.That(Num(OnTableGrid(new Sum([Times(Above(Valor, 15), Qtd)])))).IsEqualTo(5.0);
+        await Assert.That(Num(OnTableGrid(new Sum([Times(Qtd, Qtd)])))).IsEqualTo(14.0);
+
+        // =SUMPRODUCT((Tabela1[Valor]>15)*1) → 2 in BOTH modes (1 before the arms).
+        await Assert
+            .That(Num(OnTableGrid(new SumProduct([Times(Above(Valor, 15), Number(1))]))))
+            .IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task CountIf_OfAComputedArrayOverAStructuredReference_IsRef()
+    {
+        // =COUNTIF(Tabela1[Valor]*1,">0") → #REF! array-entered (#VALUE! PLAIN): the criteria family REFUSES
+        // a computed array in a range slot, and a table column under an operator is one. Measured 0 before
+        // the arms — the criteria gate saw an opaque scalar and counted nothing — against the literal
+        // range's #REF!, the rule this file already pins for a literal range under an operator
+        // (=COUNTIF(A1:C3*H1:H2,">0") above). The exact twin is asserted beside it, and the two now agree.
+        await Assert
+            .That(OnTableGrid(new CountIf([Times(Valor, Number(1)), new StringValue(">0")])))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnTableGrid(new CountIf([Times(ValorRange, Number(1)), new StringValue(">0")])))
+            .IsEqualTo(ErrorValue.Reference);
+
+        // A BARE table column in the same slot is a reference, not a computed array, so it is not refused:
+        // =COUNTIF(Tabela1[Valor],">15") → 2, both modes.
+        await Assert
+            .That(Num(OnTableGrid(new CountIf([Valor, new StringValue(">15")]))))
+            .IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task Sum_OfComparisonOverAnUnresolvableTable_IsRef()
+    {
+        // Tabela1[#Totals] over a table with no totals row — the ONE unresolvable structured reference the
+        // oracle accepts at entry. The build arm wraps its Error in a SingletonArrayOperand, a 1x1 array that
+        // broadcasts over every position (Broadcasting rule 1), so the error reaches every element instead of
+        // being masked into a #VALUE! dimension mismatch.
+        //
+        // Item 21 asks for this test under the name Count_…_IsRef. COUNT is NOT #REF! — measured, both
+        // modes: COUNT is 0 and COUNTA is 1, because each consumer does with an error-valued argument what it
+        // does with any error (ruling R2). SUM is the one that reports the code, so SUM names the test and
+        // COUNT/COUNTA are pinned beside it at their own numbers.
+        //
+        // Every row here answered the same BEFORE the arms, by the opaque-scalar broadcast the arms replaced.
+        // That is the point: these are the rows that say the SingletonArrayOperand path reproduces them, and
+        // they are the guard on the "1x1 broadcasts everywhere" rule the build arm relies on.
+        // =SUM((Tabela1[#Totals]<>"")*1) → #REF!, =COUNT(…) → 0, =COUNTA(…) → 1
+        await Assert
+            .That(OnTableGrid(new Sum([Times(NotBlank(NoTotalsRow), Number(1))])))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NotBlank(NoTotalsRow), Number(1))]))))
+            .IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnTableGrid(new CountA([Times(NotBlank(NoTotalsRow), Number(1))]))))
+            .IsEqualTo(1.0);
+
+        // =SUM(Tabela1[#Totals]*A1:A3) → #REF! and =COUNT(…) → 0: the 1x1 error against a 3x1 range is the
+        // broadcast, NOT the shape mismatch it would be if the operand reported its own extent as a refusal.
+        await Assert
+            .That(OnTableGrid(new Sum([Times(NoTotalsRow, Literal)])))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NoTotalsRow, Literal)]))))
+            .IsEqualTo(0.0);
+
+        // =SUM(IF(Tabela1[#Totals]>0,1,0)) → #REF! and =SUM(ROW(Tabela1[#Totals])) → #REF! (the ROW arm's
+        // own error, through ResolvePositionRange's Scalar degradation — no arm of its own).
+        await Assert
+            .That(OnTableGrid(new Sum([new If([Above(NoTotalsRow, 0), Number(1), Number(0)])])))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnTableGrid(new Sum([new Row([NoTotalsRow])])))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task AnIfBranchHoldingAStructuredReference_IsTheTablesRange()
+    {
+        // A TableReference branch is a BARE REFERENCE branch, so ProbeBranches skips it — neither counted nor
+        // refused — and the taken branch reaches the consumer as the table's reference VALUE. That is the
+        // oracle's answer for a table, in both modes: 60, 60, 3, 0 and 3. All five already answered it before
+        // this task's arms, so these are regression pins on an untouched path, not fixes.
+        //
+        // It is NOT the literal range's answer here: SUM(IF(TRUE,Data!B2:B4,0)) is #VALUE! on this build
+        // against the oracle's 60 (sweep item 32, "IF returns a reference"), and COUNTIF of the same IF is 0
+        // against 3. A table behaves like a defined NAME at this site, not like the literal: re-measured on
+        // this build, a name bound to Data!$B$2:$B$4 answers 60, 60, 3, 0 and 3 to these same five shapes.
+        // Do not "align" the rows below with the literal range's divergence.
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new If([new BooleanValue(true), Valor, Number(0)])]))))
+            .IsEqualTo(60.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Sum([
+                            new If([new BooleanValue(true), Valor, new Sequence([Number(3)])]),
+                        ])
+                    )
+                )
+            )
+            .IsEqualTo(60.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Rows([
+                            new If([new BooleanValue(true), Valor, new Sequence([Number(3)])]),
+                        ])
+                    )
+                )
+            )
+            .IsEqualTo(3.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Sum([
+                            Times(new If([new BooleanValue(false), Valor, Number(0)]), Literal),
+                        ])
+                    )
+                )
+            )
+            .IsEqualTo(0.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new CountIf([
+                            new If([new BooleanValue(true), Valor, Number(0)]),
+                            new StringValue(">0"),
+                        ])
+                    )
+                )
+            )
+            .IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task TheProducers_TakeAStructuredReferenceAsTheirSource()
+    {
+        // FILTER/SORT/UNIQUE recurse through the same Probe/TryBuildOperand pair, so a table column is a
+        // producer SOURCE the day the arms land. Measured before them: SUM(FILTER(…)) 60 and ROWS 3 — the
+        // whole, UNFILTERED column, a plausible number with no error to announce it. Oracle, both modes:
+        // 50, 2, 60, 3.
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new Filter([Valor, Above(Valor, 15)])]))))
+            .IsEqualTo(50.0);
+        await Assert
+            .That(Num(OnTableGrid(new Rows([new Filter([Valor, Above(Valor, 15)])]))))
+            .IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new Sort([Valor, Number(1), Number(-1)])]))))
+            .IsEqualTo(60.0);
+        await Assert.That(Num(OnTableGrid(new Rows([new Unique([ItemColumn])])))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task AStructuredReferenceAsALetBinding_StaysAReferenceValue()
+    {
+        // Phase 11c's first new binding site, measured for a table for the first time here. A TableReference
+        // is a bare reference NODE, so ArrayBindings.Capture takes NamedReferences.CaptureValue's path and
+        // binds the reference VALUE (Phase 11a Rule A) — it never becomes an array binding, and so
+        // Binding.TopLeft's scalar reading never applies to one. ArrayBindings.Shape mirrors that on the
+        // probe side by resolving the node through the virtual TryResolveReference.
+        //
+        // Consequence: every read of the name is a read of the range, and all five rows already answered the
+        // oracle before this task's arms (60, 120, 3, 9, 2 — both modes), with the literal-range twin equal
+        // on every one. These are regression pins for a site nobody had measured, not fixes.
+        var v = new NameReference("v");
+
+        // =SUM(LET(v,Tabela1[Valor],v)) → 60
+        await Assert.That(Num(OnTableGrid(new Sum([new Let([v, Valor, v])])))).IsEqualTo(60.0);
+
+        // =SUM(LET(v,Tabela1[Valor],v*2)) → 120, the body streaming the bound range element by element
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new Let([v, Valor, Times(v, Number(2))])]))))
+            .IsEqualTo(120.0);
+
+        // =COUNT(LET(v,Tabela1[Valor],(v<>"")*1)) → 3, and =SUM(LET(v,Tabela1[Valor],ROW(v))) → 9
+        await Assert
+            .That(Num(OnTableGrid(new Count([new Let([v, Valor, Times(NotBlank(v), Number(1))])]))))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new Let([v, Valor, new Row([v])])]))))
+            .IsEqualTo(9.0);
+
+        // =COUNTIF(LET(v,Tabela1[Valor],v),">15") → 2: a range binding in a criteria slot is not refused
+        await Assert
+            .That(Num(OnTableGrid(new CountIf([new Let([v, Valor, v]), new StringValue(">15")]))))
+            .IsEqualTo(2.0);
+
+        // An UNRESOLVABLE table binding: =SUM(LET(v,Tabela1[#Totals],v*2)) → #REF!, the node's own error
+        // carried through the binding rather than a #VALUE! from a failed capture.
+        await Assert
+            .That(OnTableGrid(new Sum([new Let([v, NoTotalsRow, Times(v, Number(2))])])))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task AStructuredReferenceUnderUnaryPlus_IsTheTablesRange()
+    {
+        // Phase 11c's third new binding site. Unary + is Excel's reference-preserving no-op, and
+        // IsBareReferenceNode answers for its OPERAND, so +Tabela1[Valor] is still a REFERENCE at a
+        // consumer's top level (SUM 60, COUNTIF 2, ISREF TRUE — all three already true before the arms) and
+        // TRANSPARENT below an operator or a lift, where the arms are what make the operand an array.
+        var plus = new UnaryOperation(UnaryOperator.Plus, Valor);
+
+        // =SUM(+Tabela1[Valor]) → 60, =COUNTIF(+Tabela1[Valor],">15") → 2, =ISREF(+Tabela1[Valor]) → TRUE
+        await Assert.That(Num(OnTableGrid(new Sum([plus])))).IsEqualTo(60.0);
+        await Assert
+            .That(Num(OnTableGrid(new CountIf([plus, new StringValue(">15")]))))
+            .IsEqualTo(2.0);
+        await Assert.That(OnTableGrid(new IsRef([plus])) as bool?).IsTrue();
+
+        // Below a lift or an operator the + disappears and the column streams: =SUM(-(+Tabela1[Valor]))
+        // → -60, =SUM((+Tabela1[Valor])*2) → 120, =SUM(LEN(+Tabela1[Item])) → 3,
+        // =COUNT((+Tabela1[Valor]<>"")*1) → 3. All four were #VALUE! or 1 before the arms.
+        await Assert
+            .That(Num(OnTableGrid(new Sum([new UnaryOperation(UnaryOperator.Negate, plus)]))))
+            .IsEqualTo(-60.0);
+        await Assert.That(Num(OnTableGrid(new Sum([Times(plus, Number(2))])))).IsEqualTo(120.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Sum([new Len([new UnaryOperation(UnaryOperator.Plus, ItemColumn)])])
+                    )
+                )
+            )
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NotBlank(plus), Number(1))]))))
+            .IsEqualTo(3.0);
+
+        // An unresolvable table under the + keeps its own code: =SUM((+Tabela1[#Totals])*2) → #REF!
+        await Assert
+            .That(
+                OnTableGrid(
+                    new Sum([Times(new UnaryOperation(UnaryOperator.Plus, NoTotalsRow), Number(2))])
+                )
+            )
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task AStructuredReferenceAsAChooseBranch_IsTheChosenRange_AndAnOperatorOverItDivergesLikeARange()
+    {
+        // Phase 11c's second new binding site. A chosen bare-reference branch is carried as a reference VALUE
+        // (Choose's own scalar path, through ArrayBindings.Capture), so a table column reaches the consumer
+        // as its range: =SUM(CHOOSE(1,Tabela1[Valor])) → 60, =ROWS(…) → 3, =COUNTIF(…,">15") → 2, all three
+        // the oracle's answer in both modes and all three already true before this task's arms.
+        var chosen = new Choose([Number(1), Valor]);
+
+        await Assert.That(Num(OnTableGrid(new Sum([chosen])))).IsEqualTo(60.0);
+        await Assert.That(Num(OnTableGrid(new Rows([chosen])))).IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnTableGrid(new CountIf([chosen, new StringValue(">15")]))))
+            .IsEqualTo(2.0);
+
+        // THE TWO DIVERGENT ROWS, pinned with both numbers. Put the CHOOSE under an operator and
+        // ProbeBranches' rule for a bare-reference branch — neither counted nor refused, so the CHOOSE is not
+        // an array — makes the whole expression the scalar path's own answer:
+        //   =SUM(CHOOSE(1,Tabela1[Valor])*2)      this build #VALUE!   oracle 120 CSE (#VALUE! PLAIN)
+        //   =COUNT((CHOOSE(1,Tabela1[Valor])<>"")*1) this build 1      oracle 3 CSE (0 PLAIN)
+        // This is NOT table-specific and this task does not fix it: the literal range asserted beside each
+        // row answers identically (measured). It is the "IF/CHOOSE returns a reference"
+        // seam (sweep item 32) at the CHOOSE branch. The pins exist so that whoever closes that seam finds
+        // the table rows here and moves both halves together.
+        await Assert
+            .That(OnTableGrid(new Sum([Times(chosen, Number(2))])))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(OnTableGrid(new Sum([Times(new Choose([Number(1), ValorRange]), Number(2))])))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(Num(OnTableGrid(new Count([Times(NotBlank(chosen), Number(1))]))))
+            .IsEqualTo(1.0);
+        await Assert
+            .That(
+                Num(
+                    OnTableGrid(
+                        new Count([Times(NotBlank(new Choose([Number(1), ValorRange])), Number(1))])
+                    )
+                )
+            )
+            .IsEqualTo(1.0);
     }
 }
