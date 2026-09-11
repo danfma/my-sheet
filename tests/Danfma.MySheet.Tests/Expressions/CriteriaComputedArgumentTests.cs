@@ -25,10 +25,11 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// <c>#DIV/0!</c> for AVERAGEIF) and a paired form raises the length mismatch (<c>#VALUE!</c>). The
 /// <b>must-not-move</b> pins are GREEN today and must stay green: they prove the gate is exactly
 /// <c>ArrayEvaluation.TryStream</c>'s predicate (a non-reference node the mini-CSE would stream) and nothing
-/// wider — a scalar-conditioned <c>IF</c>, <c>CHOOSE</c>, <c>OFFSET</c>, a name, a cell, a bare scalar, a
-/// refused open range and either half of a <c>LET</c> all keep their current answers. The refused open range
-/// and both <c>LET</c> halves are ARRAYS that still reach a scan collapsed, so they are the standing limits of
-/// the rule rather than decoration: see <c>PositionalRange.Open</c>'s doc.
+/// wider — a scalar-conditioned <c>IF</c>, <c>CHOOSE</c>, <c>OFFSET</c>, a name, a cell, a bare scalar and a
+/// refused open range all keep their current answers. The refused open range is an ARRAY that still reaches
+/// a scan collapsed, so it is the standing limit of the rule rather than decoration: see
+/// <c>PositionalRange.Open</c>'s doc. Either half of a <c>LET</c> was the other standing limit until Phase 11c
+/// (array bindings) flipped <see cref="LetBoundComputedArray_InARangeSlot_IsRefused"/> from 0 to <c>#REF!</c>.
 /// </para>
 /// </summary>
 public class CriteriaComputedArgumentTests
@@ -295,26 +296,37 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
-    public async Task LetBoundComputedArray_InARangeSlot_IsUnchanged_KnownDivergence()
+    public async Task LetBoundComputedArray_InARangeSlot_IsRefused()
     {
-        // PRE-EXISTING DIVERGENCE, measured identical on main (5f9d1ac) and on this branch: this phase
-        // neither caused it nor fixes it, and it is pinned so closing it is a deliberate edit.
+        // Aspose 26.6.0, measured 2026-09-10 and re-measured 2026-09-11 (ArrayBindingTests' probe), plain /
+        // array-entered: #VALUE! / #REF! for all four rows — the same split every COMPUTED array in a range
+        // slot shows (this file's header), so the CSE column, #REF!, is the target.
         //
-        // Rule B's gate is `!IsBareReferenceNode(argument) && IsArrayEligible(argument, context)`, and a LET
-        // escapes it from BOTH sides. LET(...) written in the slot is a Let NODE, which ArrayEvaluation's
-        // shape probe treats as an opaque scalar, so it is not array-eligible; a LET-BOUND NAME in the slot
-        // IS a reference node, which IsBareReferenceNode admits by design (Rule A's top-level rule), and its
-        // binding was already collapsed to one scalar by NamedReferences.CaptureValue, which evaluates a
-        // non-range binding rather than capturing a reference. Either way the argument reaches
-        // PositionalRange.Open as a single #VALUE! element and the scan is empty — the same silent 0 the gate
-        // removed everywhere it can see. Aspose 26.6.0, measured 2026-09-10, plain / array-entered:
-        // #VALUE! / #REF! for all four rows.
-        //
-        // This is the first shape a Phase 7 user writes — LET(f,FILTER(...),COUNTIF(f,...)) lands on the
-        // second row — so Phase 7's LET routing correction (its item M1) owns it, not the criteria gate.
-        await Assert.That(Num(OnGrid("=COUNTIF(LET(r,A1:A3,r*1),\">0\")"))).IsEqualTo(0.0);
-        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,COUNTIF(r,\">0\"))"))).IsEqualTo(0.0);
-        await Assert.That(Num(OnGrid("=SUMIF(LET(r,A1:A3,r*1),\">0\")"))).IsEqualTo(0.0);
-        await Assert.That(Num(OnGrid("=LET(r,A1:A3*1,SUMIF(r,\">0\"))"))).IsEqualTo(0.0);
+        // Pinned at 0 by Phase 11a as a PRE-EXISTING DIVERGENCE (measured identical on main at 5f9d1ac and
+        // on that branch), flipped to #REF! by Phase 11c (array bindings): 0 → #REF! for every row. What made
+        // it 0: Rule B's gate is `!IsBareReferenceNode(argument) && IsArrayEligible(argument, context)`, and
+        // a LET escaped it from BOTH sides. LET(...) written in the slot was a Let NODE the shape probe
+        // treated as an opaque scalar, so it was not array-eligible; a LET-BOUND NAME in the slot was a
+        // reference node IsBareReferenceNode admitted by design (Rule A's top-level rule), and its binding
+        // had already been collapsed to one scalar by NamedReferences.CaptureValue, which evaluated a
+        // non-range binding rather than capturing a reference. Either way the argument reached
+        // PositionalRange.Open as a single #VALUE! element and the scan was empty — the same silent 0 the
+        // gate removed everywhere it could see. Phase 11c makes a Let node array-eligible and makes the
+        // bare-reference predicate context-aware (a name bound to an array is not a reference), so the gate
+        // sees both shapes and refuses them. The producer twin of these rows —
+        // LET(f,FILTER(...),COUNTIF(f,...)) — is DynamicArrayTests.ALetBoundProducer_StreamsWhole_… and
+        // ArrayBindingTests.
+        await Assert
+            .That(OnGrid("=COUNTIF(LET(r,A1:A3,r*1),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=LET(r,A1:A3*1,COUNTIF(r,\">0\"))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=SUMIF(LET(r,A1:A3,r*1),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=LET(r,A1:A3*1,SUMIF(r,\">0\"))"))
+            .IsEqualTo(ErrorValue.Reference);
     }
 }

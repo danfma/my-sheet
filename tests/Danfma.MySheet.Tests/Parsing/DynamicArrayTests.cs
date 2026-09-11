@@ -772,36 +772,28 @@ public class DynamicArrayTests
     }
 
     [Test]
-    public async Task ALetBoundProducer_InACriteriaSlot_IsAKnownLimitHandedOverByPhase11a()
+    public async Task ALetBoundProducer_StreamsWhole_AndIsRefusedInACriteriaSlot()
     {
-        // THE FIRST FORMULA A USER OF THIS PHASE WILL WRITE, and a standing limit rather than a fresh
-        // bug: Rule B's gate is "not a bare reference node AND array-eligible", and a LET escapes it from
-        // BOTH sides — LET(...) in the slot is an opaque scalar to the shape probe, and a LET-BOUND name
-        // in the slot is a bare NameReference. Phase 11a pinned the measurable half at today's value
-        // (CriteriaComputedArgumentTests:298-318: COUNTIF(LET(r,A1:A3,r*1),">0") = 0, re-measured 0 on
-        // this build, against the oracle's #VALUE! plain / #REF! CSE) and handed the producer half to
-        // this phase's LET routing correction (M1), which nobody else owns.
+        // THE FIRST FORMULA A USER OF THIS PHASE WILL WRITE. Oracle 26.6.0, measured 2026-09-10 and
+        // re-measured 2026-09-11 (ArrayBindingTests' probe, both entry modes agreeing on every row): #REF!
+        // for the COUNTIF row — a producer in a criteria range slot is refused whether or not a LET binding
+        // stands between them — and 14 / 2 for the SUM and ROWS rows, because a LET binding carries the
+        // ARRAY to its consumers, evaluated once. Phase 11c (array bindings) owns all three:
+        // ArrayBindingTests pins the full family (LET, CHOOSE, unary '+', a defined name) and this test is
+        // the first-formula pin that stays here, next to the producers it exercises.
         //
-        // Oracle 26.6.0, 2026-09-10: #REF! in BOTH modes for the COUNTIF row, and 14 / 2 in both modes for
-        // the SUM and ROWS rows. So on the ORACLE a LET-bound producer works everywhere except the criteria
-        // slot — but that is a statement about the oracle, and it is NOT what this engine does.
-        //
-        // OBSERVED ON THIS BUILD, all three rows, re-measured 2026-09-10 after registration (item 19's
-        // task): the COUNTIF row is 1, the SUM row is 5 and the ROWS row is 1. ALL THREE ARE RED, under
-        // ONE cause — `NamedReferences.CaptureValue`'s fall-through evaluates the binding as an ordinary
-        // scalar expression before any array gate can see it, so `FILTER(A1:A3,A1:A3>0)` collapses to its
-        // top-left 5 and every consumer of `f` then works on a single element: COUNTIF([5],">0") = 1,
-        // SUM([5]) = 5, ROWS([5]) = 1. The COUNTIF row is simply the one whose assertion runs first.
-        //
-        // An earlier version of this comment recorded "0 for the COUNTIF row and #NAME? for the other two"
-        // (the pre-registration reading) and said only the COUNTIF row would stay red, which reads as a
-        // promise that the SUM and ROWS rows go green when the producers land. They do not, and nobody had
-        // checked: those two rows are unreachable behind the first assertion's failure. Corrected here
-        // rather than left as a reassurance.
-        //
-        // The three EXPECTED values are deliberately left at the oracle's, because M1's arm through
-        // Let/Choose/unary-plus is what makes all three pass at once and it is a work item in this phase,
-        // not a documented limitation. This is the phase's ONE standing red pin.
+        // HISTORY — why this was the ONE deliberately red pin Phase 7 shipped. Rule B's gate is "not a bare
+        // reference node AND array-eligible", and a LET escaped it from BOTH sides: LET(...) in the slot was
+        // an opaque scalar to the shape probe, and a LET-BOUND name in the slot was a bare NameReference
+        // whose binding `NamedReferences.CaptureValue`'s fall-through had already evaluated as an ordinary
+        // scalar, so `FILTER(A1:A3,A1:A3>0)` collapsed to its top-left 5 and every consumer of `f` worked on
+        // one element: COUNTIF([5],">0") = 1, SUM([5]) = 5, ROWS([5]) = 1 — all three rows red under one
+        // cause, silently. Phase 11a had pinned the operator half of the same limit at today's value
+        // (CriteriaComputedArgumentTests, `LET(r,A1:A3*1,…)` = 0 against the oracle's #REF! CSE) and handed
+        // the producer half to Phase 7's LET routing item (M1), which chose to leave these three expected
+        // values at the oracle's rather than pin the collapse — a work item, not a documented limitation.
+        // Phase 11c is that work item; the Phase 11a pins flipped to #REF! in the same commit that renamed
+        // this test.
         await Assert
             .That(Calc("=LET(f,FILTER(A1:A3,A1:A3>0),COUNTIF(f,\">0\"))", Grid))
             .IsEqualTo(ErrorValue.Reference);
