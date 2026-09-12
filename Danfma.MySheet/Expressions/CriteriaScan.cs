@@ -245,8 +245,11 @@ internal struct PositionalRange
         // name's #NAME?, an unresolvable structured reference's #REF!, 1/0's #DIV/0! — and, for every
         // other node, every code but #VALUE!, because a #VALUE! from a reference-valued computation is
         // the COLLAPSE ARTIFACT of forcing a range into a scalar read, not the node's own error: the
-        // refused shapes (IF(TRUE,A1:A3,B1:B3), the cost-guard-refused A:A*1) stream it as the one
-        // non-matching element and answer their pinned 0.
+        // cost-guard-refused A:A*1 still streams it as the one non-matching element and answers its pinned
+        // 0. (The other refused shape this comment used to name — IF(TRUE,A1:A3,B1:B3) — no longer reaches
+        // the collapse at all: sweep item 32 made an all-bare-reference-branch IF a reference at this top
+        // level, so the Reference arm of the switch below reads the taken branch's range and COUNTIF
+        // answers the oracle's 2.)
         var computed = argument.Evaluate(context);
 
         if (computed.TryGetError(out var slotError) && IsOwnSlotError(argument, slotError, context))
@@ -354,8 +357,10 @@ internal struct PositionalRange
     /// <item>what propagates is an unresolvable name's #NAME?, an unresolvable structured reference's
     /// #REF!, 1/0's #DIV/0! — and, for every other node, every code but #VALUE!, because a #VALUE! from a
     /// reference-valued computation is the COLLAPSE ARTIFACT of forcing a range into a scalar read, not
-    /// the node's own error: the refused shapes (IF(TRUE,A1:A3,B1:B3), the cost-guard-refused A:A*1)
-    /// stream it as the one non-matching element and answer their pinned 0.</item>
+    /// the node's own error: the cost-guard-refused <c>SUMIF(A:A*1,"&gt;0")</c> still streams it as the one
+    /// non-matching element and answers its pinned 0. (Since sweep item 32 the other shape this list used
+    /// to name — a scalar-conditioned <c>IF</c> over bare references — reaches the fallback as a
+    /// REFERENCE, which the switch's <c>Reference</c> arm reads as the taken branch's range.)</item>
     /// </list>
     /// </summary>
     internal static bool IsOwnSlotError(

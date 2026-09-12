@@ -96,16 +96,12 @@ internal static class ArrayBindings
     /// sees them: a range node, a name bound to one, a reference-returning function such as <c>OFFSET</c>) or
     /// an opaque blank, which the <see cref="NameReference"/> arms read as exactly the shape the captured
     /// value would have — a scalar's own value never matters to a probe. This is the same resolution
-    /// <c>ResolveNameShape</c> applies to a formula-defined name, with the same blind spot: a node that passes
-    /// a child's reference value out of <c>Evaluate</c> without answering <c>TryResolveReference</c> itself
-    /// (<c>IF(TRUE,MyName,0)</c> over a range-bound name) is an opaque scalar to the probe and a range-bound
-    /// name to the build. The probe is then MORE conservative than the build, never the reverse, so a
-    /// consumer that probed "not an array" keeps the scalar path it takes today — measured and pinned in
-    /// <c>ArrayBindingTests</c> (<c>AChainedRebindingOfAnIfOverARangeName_…</c>): <c>SUM(LET(a,IF(TRUE,
-    /// Rng,0),b,a,b*1))</c> stays <c>#VALUE!</c> and <c>COUNTIF</c> of the same Let stays 0 (the oracle
-    /// answers 14, and <c>#REF!</c> array-entered), while the build side answers the oracle's 14 for
-    /// <c>LET(a,IF(TRUE,Rng,0),b,a,SUM(b*1))</c> and 32 for the Let under <c>*B1:B3</c>. The seam closes
-    /// with the "IF returns a reference" decision (sweep item 32).
+    /// <c>ResolveNameShape</c> applies to a formula-defined name. The one blind spot this doc used to
+    /// record — a node that passes a child's reference value out of <c>Evaluate</c> without answering
+    /// <c>TryResolveReference</c> itself — is closed as of sweep item 32: a scalar-condition <c>IF</c>
+    /// over bare-reference branches now carries its taken branch's reference out of <c>Evaluate</c> AND
+    /// answers <c>TryResolveReference</c> with it, so both sides of a binding see the same range
+    /// (<c>LET(a,IF(TRUE,Rng,0),b,a,b*1)</c> streams <c>b</c>'s cells on the probe side too).
     /// </summary>
     public static Binding Shape(Expression expression, EvaluationContext context)
     {

@@ -303,11 +303,12 @@ public class CriteriaComputedArgumentTests
     [Test]
     public async Task ReferenceReturningShapes_InARangeSlot_AreUntouched()
     {
-        // Aspose 26.6.0: 2 / 2, 2 / 2, 2 / 2 (plain / array-entered). The scalar-conditioned IF is item 9's
-        // (IF returning its branch's REFERENCE, dropped to Phase 11): MySheet answers 0 there today and the
-        // gate must not touch it — a scalar-conditioned IF is an opaque scalar, not array-eligible. CHOOSE
-        // and OFFSET already return references and are read as ranges.
-        await Assert.That(Num(OnGrid("=COUNTIF(IF(TRUE,A1:A3,B1:B3),\">0\")"))).IsEqualTo(0.0);
+        // Aspose 26.6.0: 2 / 2 on all three rows (plain / array-entered). The scalar-conditioned IF row
+        // arrived here pinned at MySheet's 0 and CLOSED as sweep item 32 (was 0, now the oracle's 2, both
+        // modes): an all-bare-reference-branch IF is a reference at this top level — the gate excludes it
+        // and the fallback reads the taken branch's range. CHOOSE and OFFSET already returned references
+        // and are read as ranges.
+        await Assert.That(Num(OnGrid("=COUNTIF(IF(TRUE,A1:A3,B1:B3),\">0\")"))).IsEqualTo(2.0);
         await Assert.That(Num(OnGrid("=COUNTIF(CHOOSE(1,A1:A3,B1:B3),\">0\")"))).IsEqualTo(2.0);
         await Assert.That(Num(OnGrid("=COUNTIF(OFFSET(A1,0,0,3,1),\">0\")"))).IsEqualTo(2.0);
     }

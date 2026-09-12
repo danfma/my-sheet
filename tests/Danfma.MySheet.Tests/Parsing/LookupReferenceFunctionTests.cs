@@ -34,12 +34,29 @@ public class LookupReferenceFunctionTests
         }
     }
 
+    // O mesmo fixture de Calc, lido pela BORDA da célula (a interseção implícita que o Excel aplica).
+    private static object? Cell(string formula, string at, params (string Id, object Value)[] cells)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+
+        Fill(sheet, cells);
+        sheet[at] = ExpressionParser.Parse(formula, sheet);
+
+        return workbook.GetCellValue("Sheet1", at).AsObject();
+    }
+
     // --- CHOOSE — golden: página oficial "CHOOSE function" (fc5c184f-cb62-4ec7-a46e-38653b98f5bc) ---
 
     [Test]
     public async Task Choose_ReturnsTheNthValue()
     {
-        // =CHOOSE(2,A2,A3,A4,A5) -> "2nd"; =CHOOSE(4,B2,B3,B4,B5) -> "Bolts" (exemplos da página).
+        // =CHOOSE(2,A2,A3,A4,A5) -> "2nd"; =CHOOSE(4,B2,B3,B4,B5) -> "Bolts" (exemplos da página). As of
+        // sweep item 32 a chosen BARE-REFERENCE branch (these two cells included) is carried out of
+        // Evaluate as the reference it resolves to — the same value a chosen RANGE already flowed — so the
+        // user-visible answer is read where Excel's rule lives, through the cell boundary's implicit
+        // intersection (the same path =CHOOSE(1,A1:A3) is pinned on in CellBoundaryIntersectionTests). A
+        // branch that is a bare scalar still evaluates directly.
         (string, object)[] cells =
         [
             ("A2", "1st"),
@@ -52,8 +69,8 @@ public class LookupReferenceFunctionTests
             ("B5", "Bolts"),
         ];
 
-        await Assert.That(Calc("=CHOOSE(2,A2,A3,A4,A5)", cells)).IsEqualTo("2nd");
-        await Assert.That(Calc("=CHOOSE(4,B2,B3,B4,B5)", cells)).IsEqualTo("Bolts");
+        await Assert.That(Cell("=CHOOSE(2,A2,A3,A4,A5)", "H20", cells)).IsEqualTo("2nd");
+        await Assert.That(Cell("=CHOOSE(4,B2,B3,B4,B5)", "H20", cells)).IsEqualTo("Bolts");
 
         // =CHOOSE(3,"Wide",115,"world",8) -> "world" (exemplo da página).
         await Assert.That(Calc("=CHOOSE(3,\"Wide\",115,\"world\",8)")).IsEqualTo("world");

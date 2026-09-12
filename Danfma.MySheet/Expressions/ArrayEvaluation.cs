@@ -288,6 +288,23 @@ internal static class ArrayEvaluation
     ///
     /// <para>There is no context-free overload: every gate runs where a context exists, and a LET binding
     /// does not exist before evaluation, so a caller without one has no name to ask about.</para>
+    ///
+    /// <para>A SCALAR-CONDITION selector — a 2-or-3-argument <c>IF</c>, a <c>CHOOSE</c> — whose branches
+    /// could hand a reference back (some branch IS a bare reference node and NO branch is a computed array)
+    /// is itself a bare reference at a consumer's top level: whichever branch the condition takes, the
+    /// selector denotes a reference, and every gate that shares this predicate keeps it on the reference
+    /// path (the criteria family reads the taken branch's range, <c>INDEX</c>/<c>ROWS</c>/<c>ISREF</c>
+    /// resolve it, <c>SUM</c> expands it) — while BELOW an operator or a lift the probe counts the
+    /// bare-reference branch (<see cref="ProbeBranches"/>), which is what makes the selector's array lift
+    /// like the literal range it denotes: <c>SUM(CHOOSE(1,B1:B3)*2)</c> and
+    /// <c>SUM(IF(TRUE,B1:B3,0)*2)</c> lift to the branch's cells doubled against <c>#VALUE!</c> plain, the
+    /// entry-mode split every operator
+    /// over a range shows (Aspose.Cells 26.6.0, 2026-09-11, both modes, sweep item 32). A computed branch
+    /// (a producer, an operator over a range — anything its own probe answers IsArray for) keeps the
+    /// predicate's answer FALSE so the node stays array-eligible and streams: the oracle reads a computed
+    /// array in a range slot as #REF!, not as a reference. An ARRAY-condition <c>IF</c> is never admitted
+    /// (its element-wise zip carries VALUES, not the reference), which is what keeps
+    /// <c>COUNTIF(IF(A1:A3&gt;4,A1:A3,B1:B3),"&gt;0")</c> at its pinned #REF!.</para>
     /// </summary>
     internal static bool IsBareReferenceNode(Expression expression, EvaluationContext context) =>
         expression switch
@@ -298,8 +315,42 @@ internal static class ArrayEvaluation
                 plus.Operand,
                 context
             ),
+            If ifNode
+                when ifNode.Arguments.Length is 2 or 3
+                    && !IsArrayEligible(ifNode.Arguments[0], context)
+                    && BranchesDenoteAReference(ifNode.Arguments.AsSpan(1), context) => true,
+            Choose choose
+                when choose.Arguments.Length >= 2
+                    && BranchesDenoteAReference(choose.Arguments.AsSpan(1), context) => true,
             _ => expression is Reference,
         };
+
+    // The branch half of the selector arms above: SOME branch is a bare reference node and NONE is a
+    // computed array (a branch that is not itself a bare reference must probe as a non-array — a producer
+    // or an operator over a range keeps the selector on the stream path, where the criteria family and the
+    // other top-level gates refuse it). CHOOSE's first argument is its index, never a branch, so both
+    // callers pass Arguments.AsSpan(1).
+    private static bool BranchesDenoteAReference(
+        ReadOnlySpan<Expression> branches,
+        EvaluationContext context
+    )
+    {
+        var anyBare = false;
+
+        foreach (var branch in branches)
+        {
+            if (IsBareReferenceNode(branch, context))
+            {
+                anyBare = true;
+            }
+            else if (Probe(branch, context).IsArray)
+            {
+                return false;
+            }
+        }
+
+        return anyBare;
+    }
 
     // The pure-shape twin of TryBuildOperand: decides, WITHOUT evaluating the expression, whether the build
     // would succeed (Succeeds — no refused open range on the eligible path) and whether the result is an array
@@ -416,9 +467,11 @@ internal static class ArrayEvaluation
             }
 
             // An IF is an array when its CONDITION is one (the element-wise zip) or when a BRANCH is a
-            // computed array (a scalar condition then selects that branch whole). The two halves are one
-            // arm because both branches are probed either way: a refused branch refuses the IF under
-            // either kind of condition. See ProbeBranches for why a bare-reference branch does not count.
+            // computed array — or, since sweep item 32, when a SCALAR condition would select a
+            // bare-reference branch that streams (its cells ARE the selector's array). The two halves are
+            // one arm because both branches are probed either way: under an array condition a refused
+            // branch refuses the IF; under a scalar condition a bare-reference branch's refusal does not
+            // (the untaken one is never touched). See ProbeBranches.
             case If ifNode when ifNode.Arguments.Length is 2 or 3:
             {
                 var condition = Probe(ifNode.Arguments[0], context);
@@ -441,12 +494,13 @@ internal static class ArrayEvaluation
             }
 
             // CHOOSE picks ONE branch by an index that is always a scalar, so it is an array on exactly the
-            // rule a SCALAR-condition IF follows: when any BRANCH is a computed array. Hence the same
-            // ProbeBranches with conditionIsArray:false — the index is never an array, so a bare-reference
-            // branch is neither counted nor probed here (CHOOSE keeps carrying a chosen range as a
-            // reference; see TryBuildChoose). Reachable because CHOOSE is Entry<Choose> — Consumes — so the
-            // lift arm above does not take it. A malformed CHOOSE (no branch at all) falls to `default` and
-            // stays the opaque scalar its own Evaluate answers.
+            // rule a SCALAR-condition IF follows: when any BRANCH is a computed array — or a bare-reference
+            // branch that would stream (sweep item 32; the build resolves its capture to the cells). Hence
+            // the same ProbeBranches with conditionIsArray:false. At a consumer's TOP level a CHOOSE whose
+            // branches all denote references is itself a bare reference (IsBareReferenceNode's Choose arm),
+            // so this array answer is read only under an operator or a lift. Reachable because CHOOSE is
+            // Entry<Choose> — Consumes — so the lift arm above does not take it. A malformed CHOOSE (no
+            // branch at all) falls to `default` and stays the opaque scalar its own Evaluate answers.
             case Choose choose when choose.Arguments.Length >= 2:
                 return ProbeBranches(choose.Arguments.AsSpan(1), context, conditionIsArray: false);
 
@@ -477,21 +531,27 @@ internal static class ArrayEvaluation
     // means. CHOOSE passes conditionIsArray:false because its index is always a scalar; everything below
     // that names "the condition" is IF's.
     //
-    // A bare reference NODE (a range, a defined name, an open range) is skipped outright: neither counted
-    // nor refused. Whether IF(TRUE,A1:A3,0) hands its consumer the RANGE is the "IF returns a reference"
-    // question, which the criteria family's gate (CriteriaScan.RejectComputedArray) and the cell-boundary
-    // rule both pin at today's answers; keeping every bare-reference branch outside the array path keeps
-    // that answer independent of what the OTHER branch holds — SUM(IF(TRUE,A1:A3,0)) and
-    // SUM(IF(TRUE,A1:A3,SEQUENCE(3))) are both #VALUE! (the oracle says 14 for both), SUM(IF(TRUE,Rng,…))
-    // is 14 through the reference value If.Evaluate carries, and an open range in the UNTAKEN branch
-    // costs nothing (SUM(IF(FALSE,A:A,0)*B1:B3) stays 0). TryBuildScalarConditionIf is the other half of
-    // that rule: a taken bare-reference branch on the eligible path DECLINES rather than streams.
+    // A bare reference NODE is not counted as a COMPUTED array, but under a SCALAR condition a branch that
+    // would STREAM is counted plain: the build hands the taken branch's resolved rectangle back
+    // (TryBuildScalarConditionIf streams it, TryBuildChoose resolves its capture), which is what makes the
+    // selector's array behave like the literal range it denotes — SUM(IF(TRUE,A1:A3,0)) is 14,
+    // SUM(IF(TRUE,MyName,0)*2) lifts, SUM(CHOOSE(1,Tabela1[Valor])*2) is 120 CSE, sweep item 32. Whether it
+    // is PROBED depends on the condition, because that is what decides how many branches the build touches:
+    //   - ARRAY condition: the build zips, so it builds BOTH branches through TryBuildOperand. A refusal
+    //     there must refuse the probe too, or Probe promises an array the build cannot deliver and the
+    //     consumer falls back and re-evaluates the condition — a volatile drawn twice. Found by the phase's
+    //     final review on IF(RAND()>A1:A3,B:B,0). The branch is never COUNTED: the element-wise selection
+    //     carries values, not the reference.
+    //   - SCALAR condition (and every CHOOSE): the build touches ONE branch, and TryBuildScalarConditionIf
+    //     answers a TAKEN bare reference by streaming the rectangle it resolves to and an open range with
+    //     the loud 1x1 #VALUE! WrapScalar gives it. So a refusable reference in the UNTAKEN branch must
+    //     cost nothing, which is what the oracle says: SUM(IF(FALSE,MyColumn,0)*B1:B3) is 0, and refusing
+    //     it here would make it #VALUE! — a bare branch is probed but its refusal is not propagated.
     //
-    // CHOOSE's own chosen bare-reference branch does NOT decline — it streams the cells of the range it
-    // carries (TryBuildChoose), because CHOOSE's scalar path has captured a chosen range as a reference
-    // VALUE since Onda 3 and the oracle agrees (SUM(CHOOSE(1,A1:A3,FILTER(…))) is 14, ROWS of it 3). That
-    // asymmetry with IF is a difference between the two functions' own scalar paths, not a second rule here:
-    // this method still declines to COUNT any bare-reference branch, for either node.
+    // At a consumer's TOP level the selector itself is a bare reference when its branches all denote one
+    // (IsBareReferenceNode's If/Choose arms), so the gates keep it on the reference path and this counting
+    // is only read below an operator or a lift, or when a sibling branch is a computed array and the node
+    // streams (SUM(IF(TRUE,A1:A3,SEQUENCE(3))) = 14 builds the taken reference branch here).
     //
     // The probe cannot know which branch a scalar condition will TAKE without evaluating it, so it answers
     // for the union: IF(FALSE,SEQUENCE(3),0) is an array here, and the build keeps the promise by handing
@@ -507,20 +567,21 @@ internal static class ArrayEvaluation
 
         foreach (var branch in branches)
         {
-            // A bare reference is never COUNTED toward IsArray — that is the "IF returns a reference"
-            // question, which this method declines to answer. Whether it is PROBED depends on the condition,
-            // because that is what decides how many branches the build touches:
-            //   - ARRAY condition: the build zips, so it builds BOTH branches through TryBuildOperand. A
-            //     refusal there must refuse the probe too, or Probe promises an array the build cannot
-            //     deliver and the consumer falls back and re-evaluates the condition — a volatile drawn
-            //     twice. Found by the phase's final review on IF(RAND()>A1:A3,B:B,0).
-            //   - SCALAR condition (and every CHOOSE): the build touches ONE branch, and
-            //     TryBuildScalarConditionIf answers an open range with the loud 1x1 #VALUE! WrapScalar gives
-            //     it rather than refusing. So a refusable reference in the UNTAKEN branch must cost nothing,
-            //     which is what the oracle says: SUM(IF(FALSE,MyColumn,0)*B1:B3) is 0, and probing it here
-            //     would make it #VALUE!.
-            if (IsBareReferenceNode(branch, context) && !conditionIsArray)
+            if (IsBareReferenceNode(branch, context))
             {
+                var bareProbe = Probe(branch, context);
+
+                if (!conditionIsArray)
+                {
+                    isArray |= bareProbe.Succeeds && bareProbe.IsArray;
+                    continue;
+                }
+
+                if (!bareProbe.Succeeds)
+                {
+                    return (false, false);
+                }
+
                 continue;
             }
 
@@ -528,11 +589,6 @@ internal static class ArrayEvaluation
             if (!probe.Succeeds)
             {
                 return (false, false);
-            }
-
-            if (IsBareReferenceNode(branch, context))
-            {
-                continue;
             }
 
             isArray |= probe.IsArray;
@@ -1204,36 +1260,33 @@ internal static class ArrayEvaluation
     //
     // So every path now returns true with an operand, and the Probe's promise (IsArrayEligible == the build
     // yields an array) holds in three cases rather than two:
-    //   - NOT array-eligible (no computed-array branch — ProbeBranches): the taken branch is evaluated as
-    //     the scalar If.Evaluate would have produced, unchanged from before.
+    //   - NOT array-eligible (no counted branch — ProbeBranches): the taken branch is evaluated as the
+    //     scalar If.Evaluate would have produced — BranchValue, the shared reading — unchanged from before.
     //   - Eligible, and the taken branch builds as an array: that operand IS the IF's operand.
     //   - Eligible, and the taken branch yields a SCALAR — IF(FALSE,SEQUENCE(3),0), an error condition, a
-    //     branch-less IF's FALSE, or a bare reference — the scalar is handed back through WrapScalar as a 1x1
-    //     array, never a ScalarOperand, so the consumer that probed "array" cannot fall back and re-draw.
-    //     A 1x1 broadcasts like the scalar it holds, so no consumer reads it differently.
+    //     branch-less IF's FALSE, or a single-cell reference — the scalar is handed back through WrapScalar
+    //     as a 1x1 array, never a ScalarOperand, so the consumer that probed "array" cannot fall back and
+    //     re-draw. A 1x1 broadcasts like the scalar it holds, so no consumer reads it differently.
     //
-    // WrapScalar is what keeps a bare-reference branch answering what it answered before, WITHOUT deciding
-    // the "IF returns a reference" question: it reproduces the scalar path's own answer once instead of
-    // twice, and the asymmetry between a name and a bare range is not a choice made here — it falls out of
-    // what each node's Evaluate returns. RangeReference.Evaluate is #VALUE! (a plain error, so a 1x1 error),
-    // while NameReference.Evaluate carries a reference value, which WrapScalar resolves through BuildRange
-    // exactly as SelectionProducers.TryBuildSource already does for INDIRECT/OFFSET. Measured on this build:
-    // SUM(IF(TRUE,A1:A3,0)) and SUM(IF(TRUE,A1:A3,SEQUENCE(3))) are both #VALUE! and ROWS of the second is
-    // #VALUE! (the oracle says 14, 14 and 3 — sweep item 32, unmoved); SUM(IF(TRUE,MyName,0)) and
-    // SUM(IF(TRUE,MyName,SEQUENCE(3))) are both 14; an OPEN range resolves to the loud 1x1 #VALUE! its
-    // shape always gets (SUM(IF(TRUE,MyColumn,SEQUENCE(3)))), and in the UNTAKEN branch it still costs
-    // nothing (SUM(IF(FALSE,MyColumn,0)*B1:B3) = 0, SUM(IF(TRUE,SEQUENCE(3),MyColumn)) = 6).
-    // One row MOVED with the fix and moved toward the oracle: a single-cell name in the mixed shape,
-    // SUM(IF(TRUE,MyCell,SEQUENCE(3))) over a text cell, went #VALUE! -> 0, which is the oracle's answer.
-    // Its plain twin SUM(IF(TRUE,MyCell,0)) stays #VALUE! because it is not array-eligible at all.
+    // WrapScalar is what keeps a bare-reference branch answering through ONE rule — BranchValue below, the
+    // resolution If.Evaluate itself performs: the branch's resolved reference (a range streams its cells
+    // through BuildRange, a single cell its value, an open range the loud 1x1 #VALUE!), never the collapse
+    // #VALUE! a bare range's own Evaluate gives. Sweep item 32 decided the "IF returns a reference" question
+    // for the bare-branch shape, so the eligible path and the scalar path (If.Evaluate → BranchValue) hand
+    // back the SAME reference: SUM(IF(TRUE,A1:A3,0)) is 14, ROWS(IF(TRUE,A1:A3,SEQUENCE(3))) is 3,
+    // SUM(IF(TRUE,MyCell,0)) is 0 (A2 holds text — the referenced-cell rule skips it), and an OPEN range
+    // resolves to the loud 1x1 #VALUE! its shape always gets (SUM(IF(TRUE,MyColumn,SEQUENCE(3)))), while in
+    // the UNTAKEN branch it still costs nothing (SUM(IF(FALSE,MyColumn,0)*B1:B3) = 0,
+    // SUM(IF(TRUE,SEQUENCE(3),MyColumn)) = 6).
     //
     // WHAT THIS METHOD DOES NOT PROMISE. A gate that keys on the PROBE rather than on the built operand sees
     // "array" and refuses before any of the above runs, so a bare-reference branch is NOT interchangeable
-    // with a scalar sibling for those consumers. Measured, and pinned: COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),
-    // ">0") is #REF! while COUNTIF(IF(TRUE,A1:A3,0),">0") is 0 (the oracle answers 2 for both), and
-    // COUNTBLANK of the same pair is #REF! against 0 (the oracle answers 1). An earlier version of this
-    // comment claimed the decline "answers exactly what it answers with a scalar sibling"; for the criteria
-    // family and COUNTBLANK that was false, and it is the probe, not the build, that makes it so.
+    // with a scalar sibling for those consumers when a COMPUTED sibling makes the node array-eligible:
+    // COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),">0") is #REF! and COUNTBLANK of it #REF! where the oracle answers
+    // 2 and 0 (Aspose.Cells 26.6.0, 2026-09-11, both modes) — the criteria family's refusal of a computed
+    // array in a range slot, sweep item 31's decision. The PLAIN shape (no computed sibling) never reaches
+    // this method from those gates at all: the selector is a bare reference there (IsBareReferenceNode's
+    // If/Choose arms) and the criteria family reads the taken branch's range (COUNTIF 2, COUNTBLANK 0).
     private static bool TryBuildScalarConditionIf(
         If ifNode,
         ComputedValue conditionValue,
@@ -1263,13 +1316,31 @@ internal static class ArrayEvaluation
 
         if (!isArray)
         {
-            operand = new ScalarOperand(branch.Evaluate(context));
+            operand = new ScalarOperand(BranchValue(branch, context));
             return true;
         }
 
         if (IsBareReferenceNode(branch, context))
         {
-            operand = WrapScalar(branch.Evaluate(context), context);
+            // The taken bare-reference branch streams the rectangle it resolves to — the operand the
+            // literal range would have built — instead of WrapScalar'ing the branch's own Evaluate (a bare
+            // RANGE node has no scalar value; its #VALUE! was the collapse artifact sweep item 32 removes).
+            // An open range resolves to itself (boundOpenRanges:false) so WrapScalar's `_ =>` arm keeps the
+            // loud 1x1 #VALUE! its shape always gets (SUM(IF(TRUE,MyColumn,SEQUENCE(3))) stays #VALUE!), a
+            // single cell keeps its value, and a missing-sheet name streams its per-element #REF! exactly
+            // like the literal. Resolve-before-evaluate also keeps ONE branch read: the resolution the
+            // scalar If.Evaluate path performs is the same one.
+            operand = WrapScalar(
+                NamedReferences.TryResolveReference(
+                    branch,
+                    context,
+                    out var resolved,
+                    boundOpenRanges: false
+                )
+                    ? ComputedValue.Reference(resolved)
+                    : branch.Evaluate(context),
+                context
+            );
             return true;
         }
 
@@ -1283,6 +1354,23 @@ internal static class ArrayEvaluation
         return true;
     }
 
+    // The value a scalar-condition IF hands back for its taken branch — shared by the eligible build (the
+    // !isArray wrap above) and by If.Evaluate (If.cs): a BARE-REFERENCE branch carries the reference it
+    // resolves to (the same reference value a range-bound name already flowed out of Evaluate), so
+    // range-aware consumers expand its cells, the criteria family reads the range, the cell boundary
+    // intersects it and a single-cell branch reaches the referenced-cell rule. Anything else evaluates
+    // exactly as before.
+    internal static ComputedValue BranchValue(Expression branch, EvaluationContext context) =>
+        IsBareReferenceNode(branch, context)
+        && NamedReferences.TryResolveReference(
+            branch,
+            context,
+            out var resolved,
+            boundOpenRanges: false
+        )
+            ? ComputedValue.Reference(resolved)
+            : branch.Evaluate(context);
+
     // CHOOSE on the eligible path, the branch-picking twin of TryBuildScalarConditionIf: the index is
     // evaluated ONCE here (unlike IF's condition, which the caller has already built — CHOOSE's index is
     // never an operand) and only the CHOSEN branch is touched, exactly as Choose.Evaluate does. The index
@@ -1292,12 +1380,13 @@ internal static class ArrayEvaluation
     // volatility lesson). Measured, both entry modes: CHOOSE(1/0,FILTER(…)) is #DIV/0! and
     // CHOOSE(3,FILTER(…)) is #VALUE!, bare and under SUM alike.
     //
-    // The chosen branch goes through ArrayBindings.Capture — the SAME capture Choose.Evaluate makes of it,
-    // read as the OPERAND here and as its top-left there — which is what keeps a chosen bare RANGE carrying
-    // its cells where a scalar-condition IF's branch does not: SUM(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0))) is
-    // 14 and ROWS of it is 3 (Aspose.Cells 26.6.0, 2026-09-11, H20, both modes), against the #VALUE! the IF
-    // shape answers there (sweep item 32). That is CHOOSE's own scalar path since Onda 3 — a chosen range is
-    // captured as a reference VALUE — built once instead of twice, not a new rule.
+    // The chosen branch is read through Choose.CaptureChosen — the SAME reading Choose.Evaluate makes, as
+    // the OPERAND here (the capture) and as the scalar there — which is what keeps a chosen bare RANGE
+    // carrying its cells: SUM(CHOOSE(1,A1:A3,FILTER(A1:A3,A1:A3>0))) is 14 and ROWS of it is 3 (Aspose.Cells
+    // 26.6.0, 2026-09-11, H20, both modes). Since sweep item 32 both selectors agree on the bare-reference
+    // branch — the IF build streams it the same way (TryBuildScalarConditionIf) — and what remains
+    // CHOOSE-specific is only its top-level reference reading, which IsBareReferenceNode's Choose arm keeps
+    // on the reference path exactly as the predicate's Plus arm does for unary '+'.
     private static bool TryBuildChoose(
         Choose choose,
         EvaluationContext context,
@@ -1316,20 +1405,20 @@ internal static class ArrayEvaluation
             return true;
         }
 
-        var captured = ArrayBindings.Capture(chosen, context);
-
         // Not eligible (no branch is a computed array): the build must yield a non-array, and the scalar it
-        // yields is what Choose.Evaluate would have answered for this branch — its capture's top-left — with
-        // the index still drawn exactly once.
+        // yields is what Choose.Evaluate would have answered for this branch — the chosen bare-reference
+        // branch's REFERENCE or its capture's top-left, through the one shared reading — with the index
+        // still drawn exactly once.
         if (!isArray)
         {
-            operand = new ScalarOperand(captured.TopLeft);
+            operand = new ScalarOperand(Choose.CaptureChosen(chosen, context));
             return true;
         }
 
         // Eligible: the built branch IS the CHOOSE's operand. A captured reference VALUE resolves to the
         // cells it denotes and anything else comes back as a 1x1 — never a ScalarOperand, so a consumer that
         // probed "array" cannot fall back into Choose.Evaluate and draw the index again.
+        var captured = ArrayBindings.Capture(chosen, context);
         operand = captured.Operand ?? WrapScalar(captured.Value, context);
         return true;
     }

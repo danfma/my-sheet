@@ -374,8 +374,9 @@ Detalhes:
   o `@` puramente em termos de linha e coluna, sem nenhum termo de planilha; esse caso entre planilhas não
   foi verificado no Excel.)*
 - **Tudo o que denota uma referência segue a mesma tabela**, não apenas um intervalo literal — `=MyName`,
-  `=INDIRECT("MyName")`, `=OFFSET(A1,0,0,3,1)`, `=CHOOSE(1,A1:A3)`, `=+A1:A3` e `=LET(x,A1:A3,x)` todos
-  sofrem a interseção. Antes desta regra eles armazenavam um valor do tipo referência que todo acessador
+  `=INDIRECT("MyName")`, `=OFFSET(A1,0,0,3,1)`, `=CHOOSE(1,A1:A3)`, `=+A1:A3`, `=LET(x,A1:A3,x)` e, desde
+  que a varredura fechou o item 32, `=IF(TRUE,A1:A3,B1)` (uma condição escalar sobre um ramo de referência
+  pura) todos sofrem a interseção. Antes desta regra eles armazenavam um valor do tipo referência que todo acessador
   tipado lia de volta como branco.
 - **Dentro de uma fórmula nada muda.** `=SUM(A1:A3)` continua sendo uma soma sobre três células: quem decide
   o que uma referência multicélula significa é o *consumidor*, não a célula. Só uma referência que sobrevive
@@ -745,9 +746,11 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   esquerdo em todas elas (`-5`, `5`). As duas colunas medidas no Aspose.Cells 26.6.0, 2026-09-10. O `#VALUE!`
   de hoje está fixado por teste para que fechar essa lacuna seja deliberado, e o teste que a fixa agora
   carrega a mesma medição por linha em vez da afirmação anterior de que a forma digitada é `#VALUE!` em
-  qualquer lugar. (3) Um `IF(range…)` ou uma comparação de
-  intervalo sozinhos são `#VALUE!` pelo mesmo motivo do caso (2) — `=IF(B2:B5="Show",1,0)` e
-  `=IF(TRUE,A1:A3,B1)` sozinhas são erros — uma inconsistência conhecida com o caso (1) ao lado. Em todos os
+  qualquer lugar. (3) Um `IF` com condição de ARRAY, ou uma comparação de intervalo, é `#VALUE!` pelo mesmo
+  motivo do caso (2) — `=IF(B2:B5="Show",1,0)` sozinha é um erro. Um `IF` sob condição ESCALAR cujo ramo é
+  uma referência pura não é um destes: ele carrega a referência do ramo para fora, então sofre a interseção
+  como o caso (1) — `=IF(TRUE,A1:A3,B1)` é o elemento da linha 2 em `C2` e `A3` em `C3` (Aspose.Cells
+  26.6.0, 2026-09-11, entrada digitada), a mesma tabela em que `=CHOOSE(1,A1:A3)` já está. Em todos os
   casos, envolver a expressão em um consumidor funciona: `=SUM(LEN(A1:A3))` nessa mesma célula é `3` para
   `A1:A3` = 5, 0 e 9 (um caractere cada). Arrays continuam existindo apenas como *argumentos* e como o
   superior esquerdo colapsado de um produtor, nunca como o valor multicélula de uma célula: o cache por célula
@@ -804,11 +807,13 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   exatamente como o array a que está vinculado — `COUNTIF(ProdName,">0")` é `#REF!`,
   [mais abaixo](#intervalos-nomeados)), então `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` e
   `COUNTIF(OFFSET(A1,0,0,3,1),">0")` dão `2`, como
-  no oráculo nos dois modos. Três formas são **desvios deliberados**, cada uma fixada como tal em
+  no oráculo nos dois modos — e, desde que a varredura fechou o item 32, também dá um `IF` de condição
+  escalar cujos ramos são referências puras: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` é `2` aqui agora, a
+  resposta do oráculo nos *dois* modos de entrada (chegou fixado no `0` do MySheet, uma divergência
+  registrada que era da varredura). Duas formas permanecem
+  **desvios deliberados**, cada uma fixada como tal em
   `CriteriaComputedArgumentTests`, deixadas para a varredura de compatibilidade:
-  `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` dá `0` aqui, onde o oráculo responde `2` nos *dois* modos de entrada —
-  um `IF` de condição escalar aqui é um escalar opaco em vez da referência do seu ramo, e fechar isso é item
-  da própria varredura, deliberadamente fora desta regra; `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`
+  `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`
   onde o oráculo responde `#REF!` nos dois modos (um *escalar* puro em slot de intervalo, forma que nenhum
   produtor de array assume); e `SUMIF(A:A*1,">0")` dá `0` onde o oráculo responde `#REF!` nos dois modos (a
   guarda de custo recusa um operando de coluna inteira, então o argumento nunca é elegível a array e a
@@ -842,9 +847,13 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   `SUM(IF(TRUE,A1:C3*2,0))` é 90 sobre `A1:C3` = 1…9, coincidindo com a coluna dele inserida como array
   (`#VALUE!` digitado). A exceção é um ramo que é um **intervalo puro**: `SUM(IF(TRUE,A1:C3,0))` é `#VALUE!`
   aqui, onde o Excel responde 45 nos dois modos, deliberadamente intocado porque mexer nisso responderia
-  "o `IF` devolve uma referência?" para essa única forma enquanto as irmãs dela ficam sem resposta. Está
-  registrado para a varredura de compatibilidade e fixado como lacuna. Tudo medido no Aspose.Cells 26.6.0,
-  2026-09-10.
+  (`#VALUE!` digitado). Um ramo que é uma **referência pura** é lido como a referência que ele denota — o
+  item 32 da varredura fechou a última lacuna aqui: `SUM(IF(TRUE,A1:C3,0))` é 45 sobre `A1:C3` = 1…9, a
+  resposta do Excel nos *dois* modos de entrada (medido em 2026-09-11; chegou fixado em `#VALUE!`),
+  `SUM(IF(TRUE,MyCell,0))` sobre um nome de célula única lê a célula pela regra de célula referenciada
+  (texto ignorado: 0), e sob um operador o ramo se eleva como o intervalo literal ao lado —
+  `SUM(IF(TRUE,B1:B3,0)*2)` responde as células do ramo duplicadas (`#VALUE!` digitado, a divisão que todo
+  operador sobre um intervalo mostra). Tudo medido no Aspose.Cells 26.6.0.
 
 **Divergências conhecidas.** Cada uma delas está fixada por teste como uma *lacuna*, e não afirmada como a
 regra do Excel, de modo que fechar qualquer uma é sempre uma edição deliberada; a única entrada sem teste que

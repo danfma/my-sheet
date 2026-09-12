@@ -1200,35 +1200,42 @@ public class MiniCseConsumerTests
     }
 
     [Test]
-    public async Task ABareReferenceBranch_UnderAScalarConditionIf_IsUnmovedAndStillDiverges()
+    public async Task ABareReferenceBranch_UnderAScalarConditionIf_StreamsTheTakenBranchsRange()
     {
-        // Task 8 item 3, the guard: the fix must NOT answer the "IF returns a reference" question, which
-        // three sweep items own together. ProbeBranches skips a bare-reference branch outright — neither
-        // counted as an array nor refused — so every row here answers exactly what it answered before the
-        // fix, verified by running both builds side by side. The oracle disagrees with all four, and gives
-        // the SAME answer in both entry modes:
-        //     SUM(IF(TRUE,A1:A3,0))                MySheet #VALUE!   oracle 14
-        //     SUM(IF(TRUE,A1:A3,SEQUENCE(3)))      MySheet #VALUE!   oracle 14
-        //     ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))     MySheet #VALUE!   oracle 3
-        //     SUM(IF(TRUE,MyCell,0))               MySheet #VALUE!   oracle 0   (A2 holds text)
-        // The MIXED shape is the one that would have leaked. If a bare-reference branch counted as an array
-        // whenever its SIBLING is a producer, the reference question would be answered for that shape only
-        // (14) and left open for the plain one (#VALUE!) — a half-decision. So the build DECLINES instead,
-        // and the consumer's scalar path answers what it answers with a scalar sibling.
-        await Assert.That(OnPositionGrid("=SUM(IF(TRUE,A1:A3,0))")).IsEqualTo(ErrorValue.NotValue);
-        await Assert
-            .That(OnPositionGrid("=SUM(IF(TRUE,A1:A3,SEQUENCE(3)))"))
-            .IsEqualTo(ErrorValue.NotValue);
-        await Assert
-            .That(OnPositionGrid("=ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))"))
-            .IsEqualTo(ErrorValue.NotValue);
-        await Assert.That(OnPositionGrid("=SUM(IF(TRUE,MyCell,0))")).IsEqualTo(ErrorValue.NotValue);
+        // Sweep item 32, shape 1 — the four rows Task 8 pinned as unmoved divergences, CLOSED. A bare-reference
+        // branch of a scalar-condition IF carries the reference it resolves to (the same reference value a
+        // range-bound name already flowed out of If.Evaluate), so the consumer reads the TAKEN branch's cells.
+        // The old values came from the branch collapsing to RangeReference.Evaluate's #VALUE! — the collapse
+        // artifact, not content. Oracle Aspose.Cells 26.6.0, 2026-09-11, own probe copy, the SAME answer in
+        // BOTH entry modes (plain / CSE) on this fixture:
+        //     SUM(IF(TRUE,A1:A3,0))                was #VALUE!   now 14    oracle 14 / 14
+        //     SUM(IF(TRUE,A1:A3,SEQUENCE(3)))      was #VALUE!   now 14    oracle 14 / 14
+        //     ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))     was #VALUE!   now 3     oracle 3 / 3
+        //     SUM(IF(TRUE,MyCell,0))               was #VALUE!   now 0     oracle 0 / 0  (A2 holds text —
+        //     the single-cell reference reaches the referenced-cell rule, which skips text)
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,A1:A3,0))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,A1:A3,SEQUENCE(3)))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnPositionGrid("=ROWS(IF(TRUE,A1:A3,SEQUENCE(3)))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyCell,0))"))).IsEqualTo(0.0);
 
-        // A defined NAME over a range is a bare reference node too, and it is the row proving the decline is
-        // not a regression: If.Evaluate's own reference value already answered 14, and it still does, with
-        // and without a producer sibling. A2 holds text, so 14 is 5 + 9. Both 14 on the oracle.
+        // The rest of the measured family (oracle 26.6.0, 2026-09-11, both modes agreeing on every row).
+        // Shape questions the four rows could not answer: the plain branch (no producer sibling), COUNT,
+        // ROWS of the plain shape, the untaken branch costing nothing, and the FALSE-branch-taken mirror.
+        await Assert.That(Num(OnPositionGrid("=ROWS(IF(TRUE,A1:A3,0))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT(IF(TRUE,A1:A3,0))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT(IF(TRUE,A1:A3,SEQUENCE(3)))"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(FALSE,A1:A3,0))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnPositionGrid("=ROWS(IF(TRUE,MyCell,0))"))).IsEqualTo(1.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT(IF(TRUE,MyCell,0))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(FALSE,SEQUENCE(3),A1:A3))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnPositionGrid("=ROWS(IF(FALSE,SEQUENCE(3),A1:A3))"))).IsEqualTo(3.0);
+
+        // A defined NAME over a range was already the reference (If.Evaluate carried its reference value
+        // before this fix): the rows proving the rule extends the name shape to the literal, not the other
+        // way around. A2 holds text, so 14 is 5 + 9. All three 14 / 3 / 2 on the oracle, both modes.
         await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyName,0))"))).IsEqualTo(14.0);
-        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyName,SEQUENCE(3)))"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnPositionGrid("=ROWS(IF(TRUE,MyName,0))"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT(IF(TRUE,MyName,0))"))).IsEqualTo(2.0);
 
         // The cost guard survives in both directions: an OPEN range in the UNTAKEN branch is never resolved,
         // whether the taken side is a scalar or a producer. Measured 0 and 6 on the oracle (ARRAY-ENTERED;
@@ -1243,35 +1250,80 @@ public class MiniCseConsumerTests
             .That(OnPositionGrid("=SUM(IF(TRUE,MyColumn,SEQUENCE(3)))"))
             .IsEqualTo(ErrorValue.NotValue);
 
-        // The ONE row the volatility fix moved, and it moved toward the oracle: a single-cell name in the
-        // MIXED shape now answers through WrapScalar's CellReference arm, so A2's text reaches SUM and is
-        // skipped, giving 0 — which is the oracle's answer in both modes. Its plain twin above stays
-        // #VALUE! because it is not array-eligible at all and never enters this path.
+        // The single-cell name in the MIXED shape keeps its oracle answer (0) through the same reference the
+        // plain shape now carries.
         await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,MyCell,SEQUENCE(3)))"))).IsEqualTo(0.0);
     }
 
     [Test]
-    public async Task AGateKeyedOnTheProbe_RefusesABareReferenceBranch_WhereAScalarSiblingIsAccepted()
+    public async Task TheTakenBareReferenceBranch_LiftsUnderAnOperator_LikeTheLiteralRangeBesideIt()
     {
-        // Task 8's comment used to claim a bare-reference branch "answers exactly what it answers with a
-        // scalar sibling". The phase's final review measured that false for the two consumers whose gate
-        // keys on the PROBE rather than on the built operand: the probe says "array" because the SIBLING is
-        // a producer, so the gate refuses before the branch is ever built. The answer itself is not wrong —
-        // it is the same #REF! those gates give any computed array — but the two forms are NOT
-        // interchangeable, and the oracle agrees with neither of them.
-        //
-        // Aspose.Cells 26.6.0, 2026-09-10, both entry modes: the oracle answers 2 for both COUNTIF rows and
-        // 1 for both COUNTBLANK rows. Our scalar-sibling answers (0 and 0) are the criteria family's own
-        // recorded divergence, owned by the sweep; what this test pins is that the MIXED form differs from
-        // the plain one, which is the part Task 8 introduced.
+        // Sweep item 32, shape 2's rule at the IF branch and the CHOOSE twin: a reference-valued branch under
+        // an OPERATOR lifts to its cells like a syntactic range beside it (the CSE rule the mini-CSE
+        // implements inside a function argument). Oracle 26.6.0, 2026-09-11, own probe copy on THIS fixture
+        // (B1:B3 = 7, 8, 4, text-free on purpose: over A1:A3 the lifted "x"*2 element is #VALUE! and SUM
+        // folds it — pinned below as the text control) — PLAIN #VALUE! and CSE the number on every lifting
+        // row, the entry-mode split every operator over a range shows; the CSE column is the target.
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(TRUE,B1:B3,0)*2)"))).IsEqualTo(38.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT((IF(TRUE,B1:B3,0)<>\"\")*1)"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(-IF(TRUE,B1:B3,0))"))).IsEqualTo(-19.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(CHOOSE(1,B1:B3)*2)"))).IsEqualTo(38.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT((CHOOSE(1,B1:B3)<>\"\")*1)"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnPositionGrid("=SUM(-CHOOSE(1,B1:B3))"))).IsEqualTo(-19.0);
+
+        // The UNTAKEN branch does not lift: the oracle answers 0 in both modes, the scalar 0 the condition
+        // selects times the sibling range.
+        await Assert.That(Num(OnPositionGrid("=SUM(IF(FALSE,B1:B3,0)*2)"))).IsEqualTo(0.0);
+
+        // ROWS over the lift is the shape (3), and the text controls stay #VALUE!: a lifted element times a
+        // text cell is #VALUE!, and a single-cell reference does not lift at all (oracle #VALUE! / #VALUE!).
+        await Assert.That(Num(OnPositionGrid("=ROWS(IF(TRUE,B1:B3,0)*1)"))).IsEqualTo(3.0);
+        await Assert.That(Num(OnPositionGrid("=ROWS(CHOOSE(1,B1:B3)*1)"))).IsEqualTo(3.0);
+        await Assert
+            .That(OnPositionGrid("=SUM(IF(TRUE,A1:A3,0)*2)"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(OnPositionGrid("=SUM(IF(TRUE,MyCell,0)*2)"))
+            .IsEqualTo(ErrorValue.NotValue);
+        await Assert
+            .That(OnPositionGrid("=SUM(CHOOSE(1,MyCell)*2)"))
+            .IsEqualTo(ErrorValue.NotValue);
+
+        // The single-cell CHOOSE branch reads through the referenced-cell rule like the IF one: the cell's
+        // text is skipped by SUM/COUNT instead of collapsing SUM to a direct-text #VALUE! (oracle 0 / 0).
+        await Assert.That(Num(OnPositionGrid("=SUM(CHOOSE(1,MyCell))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnPositionGrid("=COUNT(CHOOSE(1,MyCell))"))).IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task TheCriteriaFamily_ReadsAnAllBareReferenceBranchSelector_AsItsRange()
+    {
+        // Sweep item 32's criteria half: a scalar-condition IF (or CHOOSE) whose branches are all bare
+        // references carries the taken branch's REFERENCE, so the criteria family's range slot reads the
+        // range instead of refusing a computed array or collapsing it. Oracle 26.6.0, 2026-09-11, both modes:
+        //     COUNTIF(IF(TRUE,A1:A3,0),">0")       was 0     now 2     oracle 2 / 2   (closed)
+        //     COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),">0")  #REF! unchanged   oracle 2 / 2 — STILL divergent:
+        //         a computed sibling keeps the node array-eligible, and the gate's refusal of a computed
+        //         array in a range slot is item 31's decision, not this rule's.
+        //     COUNTBLANK(IF(TRUE,A1:A3,0))         0 unchanged          oracle 0 / 0 on this fixture
+        //         (A2 holds text, so there is no blank to count — the phase's old comment claimed the oracle
+        //         says 1 here; measured FALSE, 0 in both modes).
+        //     COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))  #REF! unchanged   oracle 0 / 0 — item 31's row too.
+        await Assert.That(Num(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,0),\">0\")"))).IsEqualTo(2.0);
         await Assert
             .That(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),\">0\")"))
             .IsEqualTo(ErrorValue.Reference);
-        await Assert.That(Num(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,0),\">0\")"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,0))"))).IsEqualTo(0.0);
         await Assert
             .That(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))"))
             .IsEqualTo(ErrorValue.Reference);
-        await Assert.That(Num(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,0))"))).IsEqualTo(0.0);
+
+        // The other top-level consumers that resolve their argument see the reference too (oracle both
+        // modes): SMALL selects from the referenced cells, INDEX returns the addressed cell's value, and
+        // ISREF answers TRUE.
+        await Assert.That(Num(OnPositionGrid("=SMALL(IF(TRUE,A1:A3,0),1)"))).IsEqualTo(5.0);
+        await Assert.That(OnPositionGrid("=INDEX(IF(TRUE,A1:A3,0),2)")).IsEqualTo("x");
+        await Assert.That(OnPositionGrid("=ISREF(IF(TRUE,A1:A3,0))") as bool?).IsTrue();
     }
 
     [Test]
@@ -2006,24 +2058,25 @@ public class MiniCseConsumerTests
             .That(Num(OnTableGrid(new CountIf([chosen, new StringValue(">15")]))))
             .IsEqualTo(2.0);
 
-        // THE TWO DIVERGENT ROWS, pinned with both numbers. Put the CHOOSE under an operator and
-        // ProbeBranches' rule for a bare-reference branch — neither counted nor refused, so the CHOOSE is not
-        // an array — makes the whole expression the scalar path's own answer:
-        //   =SUM(CHOOSE(1,Tabela1[Valor])*2)      this build #VALUE!   oracle 120 CSE (#VALUE! PLAIN)
-        //   =COUNT((CHOOSE(1,Tabela1[Valor])<>"")*1) this build 1      oracle 3 CSE (0 PLAIN)
-        // This is NOT table-specific and this task does not fix it: the literal range asserted beside each
-        // row answers identically (measured). It is the "IF/CHOOSE returns a reference"
-        // seam (sweep item 32) at the CHOOSE branch. The pins exist so that whoever closes that seam finds
-        // the table rows here and moves both halves together.
+        // THE SEAM ROWS, CLOSED with both numbers (sweep item 32, shape 2). Under an OPERATOR a
+        // reference-valued CHOOSE branch lifts to its cells like the syntactic range beside it — the
+        // literal-range twins answer identically, so the rule is generic to the branch type, not
+        // table-specific. Oracle 26.6.0, 2026-09-11, own probe copy:
+        //   =SUM(CHOOSE(1,Tabela1[Valor])*2)          was #VALUE!   now 120   oracle 120 CSE (#VALUE! PLAIN)
+        //   =SUM(CHOOSE(1,ValorRange)*2)              was #VALUE!   now 120   oracle 120 CSE (#VALUE! PLAIN)
+        //   =COUNT((CHOOSE(1,Tabela1[Valor])<>"")*1)  was 1         now 3     oracle 3 CSE (0 PLAIN)
+        //   =COUNT((CHOOSE(1,ValorRange)<>"")*1)      was 1         now 3     oracle 3 CSE (0 PLAIN)
+        // The PLAIN column is #VALUE!/0 because a bare range under an operator is implicitly intersected
+        // there; the mini-CSE implements the CSE rule inside a function argument, which is the target.
+        await Assert.That(Num(OnTableGrid(new Sum([Times(chosen, Number(2))])))).IsEqualTo(120.0);
         await Assert
-            .That(OnTableGrid(new Sum([Times(chosen, Number(2))])))
-            .IsEqualTo(ErrorValue.NotValue);
-        await Assert
-            .That(OnTableGrid(new Sum([Times(new Choose([Number(1), ValorRange]), Number(2))])))
-            .IsEqualTo(ErrorValue.NotValue);
+            .That(
+                Num(OnTableGrid(new Sum([Times(new Choose([Number(1), ValorRange]), Number(2))])))
+            )
+            .IsEqualTo(120.0);
         await Assert
             .That(Num(OnTableGrid(new Count([Times(NotBlank(chosen), Number(1))]))))
-            .IsEqualTo(1.0);
+            .IsEqualTo(3.0);
         await Assert
             .That(
                 Num(
@@ -2032,7 +2085,7 @@ public class MiniCseConsumerTests
                     )
                 )
             )
-            .IsEqualTo(1.0);
+            .IsEqualTo(3.0);
     }
 
     // === Phase 5 T4's extra item: the guard's own counterfactual =========================================

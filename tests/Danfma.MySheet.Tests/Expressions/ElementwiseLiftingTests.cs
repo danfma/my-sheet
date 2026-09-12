@@ -882,7 +882,7 @@ public class ElementwiseLiftingTests
     {
         // The explicit half of the guard, and the COMPLEMENT to the executable oracle above. The sweep sees
         // most of these now; the ones it cannot see (the shapes, the reference tests, the type code, the
-        // whole-population folds — the 22 pinned by name in
+        // whole-population folds — the 21 pinned by name in
         // NoConsumesEntry_IsBlindToTheProbe_AndNamedNowhere) answer the SAME thing for every rectangle in
         // every slot, so scalar-blindness holds for them while they are still range-aware, and being named
         // here is the only defence they have. IF and RANDBETWEEN are design exclusions (IF owns a dedicated
@@ -1099,10 +1099,16 @@ public class ElementwiseLiftingTests
         // half. Pinning the names says out loud which 22 entries the sweep cannot see and therefore depend
         // ENTIRELY on being named above — and it fails, naming the newcomer, if a change to the probe or to
         // the registry adds one.
+        //
+        // IF left this roster with sweep item 32: a scalar-condition IF over a bare-reference branch now
+        // carries the reference out of Evaluate, so the sweep's behavioral probe DISTINGUISHES the
+        // rectangles handed to it (branch position, arity 3) instead of answering the same collapse
+        // #VALUE! for every one. It stays named in
+        // TheShapeAndPositionAndCriteriaFamilies_StayConsumes above — the classification never moved.
         await Assert
             .That(string.Join(", ", blind.Order(StringComparer.Ordinal)))
             .IsEqualTo(
-                "AND, AREAS, FORECAST, FORECAST.LINEAR, FORMULATEXT, IF, INDIRECT, IRR, ISFORMULA, "
+                "AND, AREAS, FORECAST, FORECAST.LINEAR, FORMULATEXT, INDIRECT, IRR, ISFORMULA, "
                     + "ISREF, LET, MIRR, OFFSET, OR, PERCENTILE.EXC, PROB, RANDBETWEEN, SEQUENCE, SHEET, "
                     + "TRIMMEAN, TYPE, XNPV"
             );

@@ -517,24 +517,22 @@ public class ArrayBindingTests
     }
 
     [Test]
-    [Arguments("=SUM(LET(a,IF(TRUE,Rng,0),b,a,b*1))", "#VALUE!")]
-    [Arguments("=COUNTIF(LET(a,IF(TRUE,Rng,0),b,a,b*1),\">0\")", "0")]
-    public async Task AChainedRebindingOfAnIfOverARangeName_IsOpaqueToTheProbe_KnownDivergence(
+    [Arguments("=SUM(LET(a,IF(TRUE,Rng,0),b,a,b*1))", "14")]
+    [Arguments("=COUNTIF(LET(a,IF(TRUE,Rng,0),b,a,b*1),\">0\")", "#REF!")]
+    public async Task AChainedRebindingOfAnIfOverARangeName_ResolvesInTheProbesScopeToo(
         string formula,
         string oracle
     )
     {
-        // KNOWN DIVERGENCE, unchanged by Phase 11c (measured identical on 6ad7cea, before the Let arm):
+        // CLOSED by sweep item 32 (both rows arrived RED pinned at the pre-fix answers #VALUE! and 0):
         // the oracle (26.6.0, 2026-09-11, own probe copy) answers 14 in BOTH modes for the first row and
-        // #VALUE! plain / #REF! CSE for the second; the engine answers #VALUE! and 0. The probe's stand-in
-        // for a binding resolves reference-ness through TryResolveReference, which IF does not answer, so
-        // a is a scalar in the probe's scope, the Let is "not an array" to the consumer's gate, and the
-        // consumer keeps its scalar path (SUM evaluates the Let: a reference value times 1 is #VALUE!) or
-        // its cursor (COUNTIF opens the one collapsed element: 0). The probe is only ever MORE conservative
-        // than the build here, never the reverse — the reason the invariant "eligible iff the build is an
-        // array" is not broken in the direction a consumer could observe as a double evaluation. Owned by
-        // the "IF returns a reference" question (sweep item 32), not by this phase; a pin so the seam
-        // ArrayBindings.Shape documents is not a silent one.
+        // #VALUE! plain / #REF! CSE for the second, and the engine now answers 14 and #REF!. Once IF carries
+        // its taken branch's reference out of Evaluate AND answers TryResolveReference with it, the probe's
+        // stand-in for a binding resolves reference-ness exactly like the build (Shape's old blind spot — a
+        // node that passes a child's reference value out of Evaluate without answering TryResolveReference —
+        // is gone), so `a` is a range-bound name in BOTH scopes: b rebinds it and b*1 streams its cells (14),
+        // while the Let node the consumer gate sees is array-eligible and the criteria family refuses it
+        // (#REF!, the CSE column's answer, which the mini-CSE implements everywhere).
         await Assert.That(WithRng(formula)).IsEqualTo(Oracle(oracle));
     }
 

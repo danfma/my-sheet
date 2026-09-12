@@ -21,9 +21,30 @@ public sealed partial record Choose(Expression[] Arguments) : Function
     // =CHOOSE(1,A1:A3*2) is 10 (Aspose.Cells 26.6.0, 2026-09-11, H20 — the second in the array-entered
     // column, where plain entry answers #VALUE!), against the #VALUE! CaptureValue's own reading gave the
     // operator. A CONSUMER of the same node streams the whole array instead, through
-    // ArrayEvaluation.TryBuildChoose.
+    // ArrayEvaluation.TryBuildChoose. Since sweep item 32 the chosen BARE-REFERENCE branch carries the
+    // reference it resolves to (<see cref="CaptureChosen"/>) — the single-cell shape included, whose
+    // referenced-cell rule (text skipped: SUM 0) the plain value reading used to collapse.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        TryChoose(context, out var chosen) ?? ArrayBindings.Capture(chosen, context).TopLeft;
+        TryChoose(context, out var chosen) ?? CaptureChosen(chosen, context);
+
+    /// <summary>
+    /// The chosen branch's value, shared by <see cref="Evaluate"/> and the mini-CSE's <c>Choose</c> arm's
+    /// scalar wrap (<c>ArrayEvaluation.TryBuildChoose</c>) so the two cannot drift: a BARE-REFERENCE branch
+    /// resolves to the reference it denotes (boundOpenRanges:false, so an open range stays itself and the
+    /// consumers' expansion rules apply) and anything else goes through
+    /// <see cref="ArrayBindings.Capture"/>'s top-left exactly as before — a chosen PRODUCER still reads as
+    /// its first element.
+    /// </summary>
+    internal static ComputedValue CaptureChosen(Expression chosen, EvaluationContext context) =>
+        ArrayEvaluation.IsBareReferenceNode(chosen, context)
+        && NamedReferences.TryResolveReference(
+            chosen,
+            context,
+            out var resolved,
+            boundOpenRanges: false
+        )
+            ? ComputedValue.Reference(resolved)
+            : ArrayBindings.Capture(chosen, context).TopLeft;
 
     /// <summary>
     /// The index rule, shared by <see cref="Evaluate"/> and the mini-CSE's <c>Choose</c> arm

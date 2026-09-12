@@ -362,7 +362,8 @@ Details:
   purely in terms of row and column with no sheet term; this cross-sheet case was not checked against
   Excel.)*
 - **Everything that denotes a reference follows the same table**, not only a literal range — `=MyName`,
-  `=INDIRECT("MyName")`, `=OFFSET(A1,0,0,3,1)`, `=CHOOSE(1,A1:A3)`, `=+A1:A3` and `=LET(x,A1:A3,x)` all
+  `=INDIRECT("MyName")`, `=OFFSET(A1,0,0,3,1)`, `=CHOOSE(1,A1:A3)`, `=+A1:A3`, `=LET(x,A1:A3,x)` and, since
+  the sweep closed item 32, `=IF(TRUE,A1:A3,B1)` (a scalar condition over a bare-reference branch) all
   intersect. Before this rule they stored a reference-kind value that every typed accessor read back as
   blank.
 - **Inside a formula nothing changes.** `=SUM(A1:A3)` is still a sum over three cells: the *consumer*, not
@@ -710,9 +711,12 @@ The guard tests are precise about which of those two mistakes each one catches:
   and `=ROUND(A1:A3,0)` is 5, 0, 9 and `#VALUE!` in those same cells; array-entered it takes the top-left in
   every cell (`-5`, `5`). Both columns measured on Aspose.Cells 26.6.0, 2026-09-10. Today's `#VALUE!` is
   pinned so closing that gap has to be deliberate, and the pinning test now carries the same per-row
-  measurement rather than the older claim that the plain form is `#VALUE!` everywhere. (3) A bare `IF(range…)` or range comparison is `#VALUE!` for the same reason as (2) —
-  `=IF(B2:B5="Show",1,0)` and `=IF(TRUE,A1:A3,B1)` on their own are errors — a known inconsistency with case
-  (1) beside it. In every case, wrapping the expression in a consumer works: `=SUM(LEN(A1:A3))` in that same
+  measurement rather than the older claim that the plain form is `#VALUE!` everywhere. (3) A bare `IF` with
+  an ARRAY condition, or a range comparison, is `#VALUE!` for the same reason as (2) — `=IF(B2:B5="Show",1,0)`
+  on its own is an error. An `IF` under a SCALAR condition whose branch is a bare reference is not one of
+  these: it carries the branch's reference out, so it intersects like case (1) does — `=IF(TRUE,A1:A3,B1)` is
+  the row-2 element in `C2` and `A3` in `C3` (Aspose.Cells 26.6.0, 2026-09-11, plain entry), the same table
+  `=CHOOSE(1,A1:A3)` is already on. In every case, wrapping the expression in a consumer works: `=SUM(LEN(A1:A3))` in that same
   cell is `3` for `A1:A3` = 5, 0, 9 (one character each). Arrays still exist only as *arguments* and as a
   producer's collapsed top-left, never as a multi-cell cell value: the per-cell cache stays strictly scalar
   and there is no spill. This does **not** contradict
@@ -765,11 +769,11 @@ The guard tests are precise about which of those two mistakes each one catches:
   stay ranges (a name bound to a **computed array** is refused instead, exactly like the array it is bound
   to — `COUNTIF(ProdName,">0")` is `#REF!`, [below](#named-ranges)), so
   `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` and `COUNTIF(OFFSET(A1,0,0,3,1),">0")` are `2`, as on the oracle in
-  both modes. Three shapes are **deliberate deviations**, each pinned as one in
-  `CriteriaComputedArgumentTests`, left for the compatibility sweep: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is
-  `0` here where the oracle answers `2` in *both* entry modes — a scalar-conditioned `IF` is an opaque scalar
-  here rather than its branch's reference, and closing that is the sweep's own item, deliberately not part of
-  this rule; `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes
+  both modes — and so, since the sweep closed item 32, is a scalar-conditioned `IF` whose branches are bare
+  references: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `2` here now, the oracle's answer in *both* entry
+  modes (it arrived pinned at MySheet's `0`, a recorded divergence the sweep owned). Two shapes remain
+  **deliberate deviations**, each pinned as one in
+  `CriteriaComputedArgumentTests`, left for the compatibility sweep: `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes
   (a bare *scalar* in a range slot, a shape no array producer takes); and `SUMIF(A:A*1,">0")` is `0` where the
   oracle answers `#REF!` in both modes (the cost guard refuses a whole-column operand, so the argument is
   never array-eligible and the gate never sees it). A `LET` in this slot, from either side of its binding,
@@ -798,10 +802,12 @@ The guard tests are precise about which of those two mistakes each one catches:
   producer, a lifted call or an operator result — so `SUM(IF(TRUE,SEQUENCE(3),0))` is 6 and
   `ROWS(IF(TRUE,SEQUENCE(3),0))` is 3, matching Excel in *both* entry modes, and
   `SUM(IF(TRUE,A1:C3*2,0))` is 90 over `A1:C3` = 1…9, matching its array-entered column (`#VALUE!` typed).
-  The exception is a branch that is a **bare range**: `SUM(IF(TRUE,A1:C3,0))` is `#VALUE!` here where Excel
-  answers 45 in both modes, deliberately left alone because moving it would answer "does `IF` return a
-  reference?" for that one shape while its siblings stay unanswered. It is recorded for the compatibility
-  sweep and pinned as a gap. All measured on Aspose.Cells 26.6.0, 2026-09-10.
+  A branch that is a **bare reference** is read as the reference it denotes — the sweep's item 32 closed the
+  last gap here: `SUM(IF(TRUE,A1:C3,0))` is 45 over `A1:C3` = 1…9, Excel's answer in *both* entry modes
+  (measured 2026-09-11; it arrived pinned at `#VALUE!`), `SUM(IF(TRUE,MyCell,0))` over a single-cell name
+  reads the cell through the referenced-cell rule (text skipped: 0), and under an operator the branch lifts
+  like the literal range beside it — `SUM(IF(TRUE,B1:B3,0)*2)` answers the branch's cells doubled
+  (`#VALUE!` typed, the split every operator over a range shows). All measured on Aspose.Cells 26.6.0.
 
 **Known divergences.** Each of these is pinned by a test as a *gap*, not asserted as Excel's rule, so closing
 one is always a deliberate edit; the single entry with no pin says so in its own words. Excel here means

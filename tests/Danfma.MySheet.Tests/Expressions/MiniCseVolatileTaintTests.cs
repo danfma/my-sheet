@@ -323,6 +323,10 @@ public class MiniCseVolatileTaintTests
         //
         // So the assertion is over the SET of answers across seeds, and what makes it able to fail is the
         // third bucket: 1 must never appear. 200 seeds is enough — the defect hit one seed in four.
+        // Sweep item 32 moved the bare-range branch's own answer: the IF now carries the reference and the
+        // SUM around it expands its cells (14), where it used to fold the collapse #VALUE! — so both sets
+        // are {"14", "6"} now. The double-draw guard itself is unchanged: the build still touches the taken
+        // branch ONCE with the condition value it was handed.
         var range = new HashSet<string>();
         var name = new HashSet<string>();
 
@@ -332,10 +336,10 @@ public class MiniCseVolatileTaintTests
             name.Add(Answer(seed, "=SUM(IF(RAND()<0.5,Rng,SEQUENCE(3)))"));
         }
 
-        // A1:A3 is 5, 0, 9. The reference branch is #VALUE! for a bare range and 14 for the name (the
-        // scalar path's own answers, reproduced ONCE by WrapScalar); the producer branch is 6. A collapsed
-        // producer would be "1" and a collapsed range would be "5".
-        await Assert.That(range.OrderBy(x => x).ToArray()).IsEquivalentTo(["#VALUE!", "6"]);
+        // A1:A3 is 5, 0, 9. The reference branch answers 14 for the bare range and the name alike (SUM
+        // expands the reference the IF carries, one draw of the condition); the producer branch is 6. A
+        // collapsed producer would be "1" and a collapsed range would be "5".
+        await Assert.That(range.OrderBy(x => x).ToArray()).IsEquivalentTo(["14", "6"]);
         await Assert.That(name.OrderBy(x => x).ToArray()).IsEquivalentTo(["14", "6"]);
 
         // Both branches being producers never reached the declining path, which is exactly why an earlier

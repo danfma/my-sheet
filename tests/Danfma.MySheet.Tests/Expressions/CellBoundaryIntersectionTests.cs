@@ -201,21 +201,23 @@ public class CellBoundaryIntersectionTests
     }
 
     [Test]
-    public async Task ComputedArrayInACell_StaysValueError_WhereABareRangeIntersects()
+    public async Task AnIfOverABareReferenceBranch_IntersectsLikeTheReferenceItCarries()
     {
-        // The boundary intersects a REFERENCE, and a computed array is not one: IF returns the taken
-        // branch's own Evaluate — RangeReference.Evaluate's #VALUE! — so NamedReferences.CaptureValue (which
-        // only looks at the TOP node) never sees a reference and there is nothing to intersect. The array
-        // half of Excel's rule, which would collapse a computed array to its top-left value, has no producer
-        // here and is deliberately absent (see ImplicitIntersection's summary).
+        // Sweep item 32, shape 1 at the cell boundary (both numbers on every moved row). IF under a scalar
+        // condition now carries the taken branch's REFERENCE out of Evaluate — the same value CHOOSE and a
+        // range-bound name already flowed — so the boundary intersects it exactly like those. Oracle
+        // Aspose.Cells 26.6.0, 2026-09-11, own probe copy: PLAIN intersects (the formula cell's ROW picks
+        // the element — the value at row 2's position, 9 at row 3) and the 1x1 CSE entry takes the top-left;
+        // the PLAIN column is the boundary rule this engine implements. On THIS fixture A2 is the
+        // deliberate 0, which is what the row-2 intersection reads back.
         //
-        // MiniCseConsumerTests.DryCell_IfArray_StaysValueError pins the same rule on the direct
-        // Expression.Evaluate path, which never crosses the cell boundary; this is the CELL path, the only
-        // one where an intersection could have happened.
-        await Assert.That(InCell("C3", "=IF(TRUE,A1:A3,B1)")).IsEqualTo(ErrorValue.NotValue);
-
-        // The same formula CELL, so the two answers differ by the node kind alone and not by position: the
-        // bare range there intersects to A3.
+        //     =IF(TRUE,A1:A3,B1) @C2   was #VALUE!   now 0   oracle: the row-2 element plain / top-left CSE
+        //     =IF(TRUE,A1:A3,B1) @C3   was #VALUE!   now 9   oracle: 9 plain / 5 CSE (A2 was text there)
+        //
+        // The same formula CELL as the bare-range control below, so the two answers differ by nothing but
+        // the node kind: the bare range there intersects to A3.
+        await Assert.That(InCell("C2", "=IF(TRUE,A1:A3,B1)")).IsEqualTo(0.0);
+        await Assert.That(InCell("C3", "=IF(TRUE,A1:A3,B1)")).IsEqualTo(9.0);
         await Assert.That(InCell("C3", "=A1:A3")).IsEqualTo(9.0);
     }
 
