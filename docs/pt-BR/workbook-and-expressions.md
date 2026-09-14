@@ -902,9 +902,12 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   [mais abaixo](#intervalos-nomeados)), então `COUNTIF(CHOOSE(1,A1:A3,B1:B3),">0")` e
   `COUNTIF(OFFSET(A1,0,0,3,1),">0")` dão `2`, como
   no oráculo nos dois modos — e, desde que a varredura fechou o item 32, também dá um `IF` de condição
-  escalar cujos ramos são referências puras: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` é `2` aqui agora, a
-  resposta do oráculo nos *dois* modos de entrada (chegou fixado no `0` do MySheet, uma divergência
-  registrada que era da varredura). Duas formas permanecem
+   escalar cujos ramos são referências puras: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` é `2` aqui agora, a
+   resposta do oráculo nos *dois* modos de entrada (chegou fixado no `0` do MySheet, uma divergência
+   registrada que era da varredura). Um `IF` de **condição-array** em um slot de intervalo é resolvido pelo
+   primeiro elemento da condição e contribui o ramo de referência selecionado:
+   `COUNTIF(IF(A1:A3>0,A1:A3),">0")` é `2`. Um array computado selecionado continua recusado:
+   `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` é `#REF!`. Duas formas permanecem
   **desvios deliberados**, cada uma fixada como tal em
   `CriteriaComputedArgumentTests`, deixadas para a varredura de compatibilidade:
   `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`
