@@ -112,16 +112,17 @@ Rules:
   `#N/A`, case-insensitively (`#ref!` reads the same as `#REF!`) — as a primary expression, evaluating to
   that error directly: `=#REF!`, `=SUM(#REF!)`, `=-#N/A`. `#REF!` is the one literal the oracle
   (Aspose.Cells 26.7.0) writes into a formula on its own, for a broken reference; the other six reach
-  formula text only when someone types them. A loaded `.xlsx` carrying an error literal re-evaluates
-  instead of degrading (see [Excel interop → Loading](excel-interop.md#loading-excelfileload)). `#REF!`
+  formula text only when someone types them. A loaded `.xlsx` carrying an accepted error-literal form
+  re-evaluates instead of degrading (see [Excel interop → Loading](excel-interop.md#loading-excelfileload)). `#REF!`
   alone plays a reference role: it is the only literal accepted as a `:` range endpoint (`A1:#REF!`,
   `SUM(A1:#REF!)`) and after a sheet qualifier's `!` (`Sheet1!#REF!`) — every other error literal in
   either position is a syntax error, matching the oracle (`A1:#N/A` and `Sheet1!#N/A` do not parse).
-  `#REF!` also stands in for a DELETED sheet's own qualifier, consuming whatever reference-shaped text is
-  glued directly after it with no `!` needed — `=#REF!A1`, `=SUM(#REF!A1:A3)` and `=#REF!#REF!` all
-  evaluate to `#REF!`, the oracle's own spelling once a referenced sheet is deleted; an ordinary operator
-  (`=#REF!A1+1`) or terminator is never absorbed. `#GETTING_DATA`, `#SPILL!` and `#CALC!` are not accepted
-  as literals either (the oracle rejects typing them, though it can produce them), even though `#CALC!` is
+  `#REF!` also stands in for a DELETED sheet's own qualifier. A cell-shaped endpoint glued directly after
+  it collapses to `#REF!` (`=#REF!A1`, `=#REF!A1:B2`); a boolean, defined name or structured reference is
+  parsed as its own expression after the discarded prefix (`=#REF!TRUE`, `=#REF!MyName`,
+  `=#REF!Tabela1[Valor]`). A function call or another sheet qualifier after the prefix is rejected. An
+  ordinary operator (`=#REF!A1+1`) or terminator is never absorbed. `#GETTING_DATA`, `#SPILL!` and
+  `#CALC!` are not accepted as literals either (the oracle rejects typing them, though it can produce them), even though `#CALC!` is
   a real error this engine can hold and propagate (see [Computed values](computed-value.md)).
 - **Formula text written back drops what a qualifier or a deleted reference carried.** `FORMULATEXT` and a
   Formulas-mode export answer `=#REF!` for `=Sheet1!#REF!` and `=#REF!+1` for a genuinely broken

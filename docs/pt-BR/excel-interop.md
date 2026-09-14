@@ -134,7 +134,8 @@ decide se registra, coleta ou ignora cada aviso.
 `UnparsableFormula` é o aviso que vale a pena escutar em arquivos do mundo real: a célula mantém o valor
 que o Excel tinha em cache, mas **perde a fórmula**, então deixa de reagir a mudanças nas entradas.
 Referências estruturadas que resolvem contra uma tabela carregada agora fazem o parse **e** avaliam, e uma
-fórmula contendo um **literal de erro** do Excel também (`#REF!`, `#N/A`, `#DIV/0!`, …) — `#REF!` é o
+fórmula contendo uma forma aceita de **literal de erro** do Excel também (`#REF!`, `#N/A`, `#DIV/0!`, …) —
+`#REF!` é o
 único que o oráculo (Aspose.Cells 26.7.0) grava sozinho no texto da fórmula, para uma referência quebrada
 ou o próprio qualificador de uma planilha deletada (`#REF!A1`); os outros seis só chegam ao texto da
 fórmula quando alguém os digita — então `=SUM(#REF!)`, `=Sheet1!#REF!` e `=#REF!A1` igualmente agora

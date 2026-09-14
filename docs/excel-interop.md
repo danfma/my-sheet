@@ -126,8 +126,8 @@ whether to log, collect, or ignore each warning.
 
 `UnparsableFormula` is the one worth wiring up on real-world files: the cell keeps the value Excel cached
 but **loses its formula**, so it no longer reacts to input changes. Structured references that resolve
-against a loaded table parse **and** evaluate now, and so does a formula containing an Excel **error
-literal** (`#REF!`, `#N/A`, `#DIV/0!`, …) — `#REF!` is the one the oracle (Aspose.Cells 26.7.0) writes
+against a loaded table parse **and** evaluate now, and so does a formula containing an accepted Excel **error
+literal form** (`#REF!`, `#N/A`, `#DIV/0!`, …) — `#REF!` is the one the oracle (Aspose.Cells 26.7.0) writes
 into formula text on its own, for a broken reference or a deleted sheet's own qualifier (`#REF!A1`); the
 other six reach formula text only when someone types them — so `=SUM(#REF!)`, `=Sheet1!#REF!` and
 `=#REF!A1` alike now load, re-evaluate and keep reacting to input changes instead of freezing at the

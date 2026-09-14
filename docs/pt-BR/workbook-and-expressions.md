@@ -118,16 +118,17 @@ Regras:
   `#NUM!`, `#N/A`, sem diferenciar maiúsculas/minúsculas (`#ref!` lê como `#REF!`) — como uma expressão
   primária, avaliando diretamente para aquele erro: `=#REF!`, `=SUM(#REF!)`, `=-#N/A`. `#REF!` é o único
   literal que o oráculo (Aspose.Cells 26.7.0) grava sozinho numa fórmula, para uma referência quebrada; os
-  outros seis só chegam ao texto da fórmula quando alguém os digita. Um `.xlsx` carregado com um literal de
-  erro reavalia em vez de degradar (veja [Interop com Excel →
+  outros seis só chegam ao texto da fórmula quando alguém os digita. Um `.xlsx` carregado com uma forma aceita
+  de literal de erro reavalia em vez de degradar (veja [Interop com Excel →
   Carregando](excel-interop.md#carregando-excelfileload)). Só `#REF!` desempenha um papel de referência:
   é o único literal aceito como extremidade de intervalo `:` (`A1:#REF!`, `SUM(A1:#REF!)`) e depois do
   `!` de um qualificador de planilha (`Sheet1!#REF!`) — qualquer outro literal de erro em qualquer uma
   das duas posições é erro de sintaxe, igual ao oráculo (`A1:#N/A` e `Sheet1!#N/A` não passam pelo
-  parse). `#REF!` também substitui o próprio qualificador de uma planilha DELETADA, consumindo qualquer
-  texto no formato de referência colado logo depois dele sem precisar de `!` — `=#REF!A1`,
-  `=SUM(#REF!A1:A3)` e `=#REF!#REF!` avaliam todos para `#REF!`, a própria grafia do oráculo quando uma
-  planilha referenciada é deletada; um operador comum (`=#REF!A1+1`) ou um terminador nunca é absorvido.
+  parse). `#REF!` também substitui o próprio qualificador de uma planilha DELETADA. Uma extremidade no formato
+  de célula colada logo depois dele colapsa para `#REF!` (`=#REF!A1`, `=#REF!A1:B2`); um booleano, nome definido
+  ou referência estruturada é interpretado como sua própria expressão depois que o prefixo é descartado
+  (`=#REF!TRUE`, `=#REF!MyName`, `=#REF!Tabela1[Valor]`). Uma chamada de função ou outro qualificador de
+  planilha depois do prefixo é rejeitado. Um operador comum (`=#REF!A1+1`) ou um terminador nunca é absorvido.
   `#GETTING_DATA`, `#SPILL!` e `#CALC!` também não são aceitos como literais (o oráculo rejeita
   digitá-los, embora consiga produzi-los), mesmo `#CALC!` sendo um erro real que este engine consegue
   guardar e propagar (veja [Valores computados](computed-value.md)).
