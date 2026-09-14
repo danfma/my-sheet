@@ -80,6 +80,13 @@ public class CriteriaComputedArgumentTests
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
+    private static object? OnTextGrid(string formula)
+    {
+        var (workbook, sheet) = Grid();
+        sheet["A2"] = new Danfma.MySheet.Expressions.StringValue("x");
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
     private static double Num(object? value) => value is double d ? d : double.NaN;
 
     // ================================================================================================
@@ -285,7 +292,8 @@ public class CriteriaComputedArgumentTests
     [Test]
     public async Task CriteriaFamily_AcceptsAnArrayConditionedReferenceSelector()
     {
-        // Aspose.Cells 26.7.0 CSE answers shown below; MySheet previously returned #REF! for every row.
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Aspose.Cells 26.7.0 CSE. Every row was #REF! -> its listed CSE
+        // value after the criteria gate began selecting the reference branch from the first condition element.
         await Assert.That(Num(OnGrid("=COUNTIF(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(2.0);
         await Assert.That(Num(OnGrid("=SUMIF(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(14.0);
         await Assert.That(Num(OnGrid("=AVERAGEIF(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(7.0);
@@ -295,6 +303,70 @@ public class CriteriaComputedArgumentTests
             .That(Num(OnGrid("=AVERAGEIFS(B1:B3,IF(A1:A3>0,A1:A3),\">0\")")))
             .IsEqualTo(2.0);
         await Assert.That(Num(OnGrid("=COUNTIF(IF(A1:A3>4,A1:A3,B1:B3),\">0\")"))).IsEqualTo(2.0);
+    }
+
+    [Test]
+    [Arguments("=COUNTIF(IF(A1:A3>0,A1:A3),\">0\")", 2.0)]
+    [Arguments("=SUMIF(IF(A1:A3>0,A1:A3),\">0\")", 14.0)]
+    [Arguments("=COUNTIF(IF(A1:A3>4,A1:A3,B1:B3),\">0\")", 2.0)]
+    [Arguments("=COUNTIFS(IF(A1:A3>0,A1:A3),\">0\")", 2.0)]
+    [Arguments("=SUMIFS(B1:B3,IF(A1:A3>0,A1:A3),\">0\")", 4.0)]
+    [Arguments("=AVERAGEIF(IF(A1:A3>0,A1:A3),\">0\")", 7.0)]
+    [Arguments("=AVERAGEIFS(B1:B3,IF(A1:A3>0,A1:A3),\">0\")", 2.0)]
+    public async Task CriteriaFamily_ArrayConditionedSelector_TextCellFixture(
+        string formula,
+        double expected
+    )
+    {
+        // A1:A3=5,"x",9 and B1:B3=1,2,3; Aspose.Cells 26.7.0 CSE. Each row was #REF! -> expected:
+        // text compares greater than zero, so the selected A reference retains all three positions.
+        await Assert.That(Num(OnTextGrid(formula))).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task CriteriaFamily_ArrayConditionedSelector_CoversEveryRangeSlot()
+    {
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Aspose.Cells 26.7.0 CSE. These were #REF! -> 3, 1, 0, 4:
+        // the selected reference is accepted in max/min, COUNTBLANK, and the SUMIFS value-range slot.
+        await Assert
+            .That(Num(OnGrid("=MAXIFS(IF(A1:A3>0,B1:B3,A1:A3),A1:A3,\">0\")")))
+            .IsEqualTo(3.0);
+        await Assert
+            .That(Num(OnGrid("=MINIFS(IF(A1:A3>0,B1:B3,A1:A3),A1:A3,\">0\")")))
+            .IsEqualTo(1.0);
+        await Assert.That(Num(OnGrid("=COUNTBLANK(IF(A1:A3>0,A1:A3,B1:B3))"))).IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnGrid("=SUMIFS(IF(A1:A3>0,B1:B3,A1:A3),A1:A3,\">0\")")))
+            .IsEqualTo(4.0);
+    }
+
+    [Test]
+    public async Task CriteriaFamily_ArrayConditionedSelector_EvaluatesAVolatileConditionOnce()
+    {
+        // 200 seeded evaluations. A1:A3=5,0,9 / B1:B3=1,2,3; a single TICK selects A (2 matches) or B
+        // (3 matches). A second condition evaluation would increment draws past one and is rejected directly.
+        for (var seed = 0; seed < 200; seed++)
+        {
+            var (workbook, sheet) = Grid();
+            var draws = 0;
+            var first = seed % 2 == 0;
+            workbook.RegisterFunction(
+                "TICK",
+                (_, _) =>
+                {
+                    draws++;
+                    return first ? 1 : 0;
+                }
+            );
+
+            var result = ExpressionParser
+                .Parse("=COUNTIF(IF(TICK()>0,A1:A3,B1:B3),\">0\")", sheet)
+                .Evaluate(workbook)
+                .AsObject();
+
+            await Assert.That(Num(result)).IsEqualTo(first ? 2.0 : 3.0);
+            await Assert.That(draws).IsEqualTo(1);
+        }
     }
 
     [Test]

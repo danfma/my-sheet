@@ -63,6 +63,22 @@ public class LetFunctionTests
         return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
     }
 
+    private static object? CalcOnThreeByThreeGrid(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new NumberValue(5);
+        sheet["A2"] = new NumberValue(0);
+        sheet["A3"] = new NumberValue(9);
+        sheet["B1"] = new NumberValue(1);
+        sheet["B2"] = new NumberValue(2);
+        sheet["B3"] = new NumberValue(3);
+        sheet["C1"] = new NumberValue(10);
+        sheet["C2"] = new NumberValue(20);
+        sheet["C3"] = new NumberValue(30);
+        return ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+    }
+
     [Test]
     [Arguments("=LET(r,A2:C2,SUM(r))", 60.0)]
     [Arguments("=LET(r,A1:C1,MATCH(\"b\",r,0))", 2.0)]
@@ -88,6 +104,8 @@ public class LetFunctionTests
     [Test]
     public async Task Let_BoundReference_ReturnedByTheBody_RemainsAReference()
     {
+        // A1:C3=5,0,9 / 1,2,3 / 10,20,30; Aspose.Cells 26.7.0 PLAIN/CSE. The focused ROWS pin was
+        // 1 -> 3 after LET began returning its bound reference instead of its scalar top-left value.
         foreach (
             var (formula, expected) in new (string Formula, object Expected)[]
             {
@@ -105,6 +123,44 @@ public class LetFunctionTests
         {
             await Assert.That(CalcOnGrid(formula)).IsEqualTo(expected);
         }
+    }
+
+    [Test]
+    [Arguments("=ROWS(LET(x,A1:A3,x))", 3.0)]
+    [Arguments("=COLUMNS(LET(x,A1:A3,x))", 1.0)]
+    [Arguments("=ROW(LET(x,A1:A3,x))", 1.0)]
+    [Arguments("=AREAS(LET(x,A1:A3,x))", 1.0)]
+    [Arguments("=ISREF(LET(x,A1:A3,x))", true)]
+    [Arguments("=SUM(LET(x,A1:A3,x))", 14.0)]
+    [Arguments("=ROWS(LET(x,A1:C3,x))", 3.0)]
+    [Arguments("=COLUMNS(LET(x,A1:C3,x))", 3.0)]
+    [Arguments("=ROW(LET(x,A1:C3,x))", 1.0)]
+    [Arguments("=AREAS(LET(x,A1:C3,x))", 1.0)]
+    [Arguments("=ISREF(LET(x,A1:C3,x))", true)]
+    [Arguments("=SUM(LET(x,A1:C3,x))", 80.0)]
+    [Arguments("=ROWS(LET(x,A1:A3,y,x,y))", 3.0)]
+    [Arguments("=SUM(LET(x,A1:A3,y,x,y))", 14.0)]
+    public async Task Let_BoundReference_MatchesTheBindingThreeByThreeMatrix(
+        string formula,
+        object expected
+    )
+    {
+        // Exact Item39 fixture A1:C3=5,0,9 / 1,2,3 / 10,20,30; Aspose.Cells 26.7.0 PLAIN/CSE agree.
+        await Assert.That(CalcOnThreeByThreeGrid(formula)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("=ROWS(LET(x,A1:A3,LET(y,x,y)))", 3.0)]
+    [Arguments("=SUM(LET(x,A1:A3,CHOOSE(1,x)))", 14.0)]
+    [Arguments("=ROWS(LET(r,A1:C3,INDEX(r,0,1)))", 3.0)]
+    [Arguments("=SUM(LET(r,A1:A3,OFFSET(r,0,0)))", 14.0)]
+    public async Task Let_BoundReference_ComposesWithReferenceReturningForms(
+        string formula,
+        double expected
+    )
+    {
+        // Exact Item39 3x3 fixture; Aspose.Cells 26.7.0 PLAIN/CSE agree, retaining LET's reference identity.
+        await Assert.That(CalcOnThreeByThreeGrid(formula) as double?).IsEqualTo(expected);
     }
 
     [Test]
