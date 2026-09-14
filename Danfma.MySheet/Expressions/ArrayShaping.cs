@@ -7,10 +7,12 @@ namespace Danfma.MySheet.Expressions;
 /// <remarks>
 /// <para><b>Invariant.</b> An <see cref="ArrayOperand"/> handed back by
 /// <see cref="IArrayProducer.TryBuildArrayOperand"/> has <c>IsArray</c> and
-/// <c>Rows &gt;= 1 &amp;&amp; Columns &gt;= 1</c>. An EMPTY result — nothing kept by <c>FILTER</c>, nothing
-/// left by <c>UNIQUE(…, exactly_once)</c> — is a 1x1 <see cref="SingletonArrayOperand"/> carrying the error
-/// (<c>#CALC!</c>, once the error set has it; a bad <c>SEQUENCE</c> size is a 1x1 <c>#VALUE!</c> the same
-/// way), NEVER a 0-extent array. A 1x1 SOURCE is likewise wrapped in a singleton, because
+/// <c>Rows &gt;= 1 &amp;&amp; Columns &gt;= 1</c> along everything it PRODUCED: an EMPTY result — nothing
+/// kept by <c>FILTER</c>, nothing left by <c>UNIQUE(…, exactly_once)</c>, nothing to sort — is a 1x1
+/// <see cref="SingletonArrayOperand"/> carrying the error (<c>#CALC!</c>, once the error set has it; a bad
+/// <c>SEQUENCE</c> size is a 1x1 <c>#VALUE!</c> the same way), NEVER a 0-extent array. The one zero extent a
+/// result may carry is INHERITED, not produced: a selection along the COLUMNS axis of a zero-row source keeps
+/// that source's 0 rows (see the last paragraph). A 1x1 SOURCE is likewise wrapped in a singleton, because
 /// <see cref="ScalarOperand"/> reports 0x0 and can never be a result (blocker B1).</para>
 ///
 /// <para><b>What breaks if it is violated</b> (measured on this tree, pinned in
@@ -31,14 +33,20 @@ namespace Danfma.MySheet.Expressions;
 /// (Aspose.Cells 26.6.0, 2026-09-14), which no 1x1 could give. <c>ShapeFold</c> tracks whether it has seen
 /// an array with its own flag, never with <c>Rows == 0</c>, so it folds the zero-row operand like any other:
 /// against a 1-row or 1-column extent it stays empty, against a larger one the larger extent wins and every
-/// position is uncovered (<c>#N/A</c>). A producer that reads such a source still hands back a result
-/// under this invariant — <c>FILTER</c>/<c>UNIQUE</c> keep nothing and <c>SORT</c> has nothing to sort, so
-/// each answers the <c>#CALC!</c> singleton.</para>
+/// position is uncovered (<c>#N/A</c>). A producer that reads such a source hands back a result under this
+/// invariant through <c>SelectionProducers.Select</c>: along the source's ROWS there is no candidate, so the
+/// selection is empty and the answer is the <c>#CALC!</c> singleton (<c>FILTER(T[Valor],T[Valor]&gt;0)</c>,
+/// <c>SORT(T[Valor])</c>, <c>UNIQUE(T[Valor])</c>); along its COLUMNS the selection is not empty, and the
+/// result keeps the columns it selected and the source's zero rows — the oracle's answer (Aspose.Cells 26.6.0,
+/// 2026-09-14, both modes: <c>ROWS(FILTER(T[#Data],T[#Headers]&lt;&gt;"Item"))</c> 0, <c>COLUMNS</c> 2,
+/// <c>SUM</c> 0, <c>INDEX(…,1,1)</c> <c>#REF!</c>; <c>COLUMNS(UNIQUE(T[#Data],TRUE))</c> 1). Before that
+/// narrowing the column selection THREW this invariant's exception out of <c>Evaluate</c>.</para>
 ///
 /// <para><b>Enforced, not aspirational.</b> <see cref="RequireProducerShape"/> throws at construction —
 /// once per build, never per element, in every configuration (a <c>Debug.Assert</c> is compiled out of the
-/// Release build the gates run) — and <see cref="AxisSelectionOperand"/> calls it; every producer-owned
-/// operand class (<c>SequenceOperand</c>) must call it too. <see cref="SingletonArrayOperand"/> is 1x1 by
+/// Release build the gates run) — <see cref="AxisSelectionOperand"/> calls its selection twin
+/// <see cref="RequireNonEmptySelection"/>, and every producer-owned operand class (<c>SequenceOperand</c>) must
+/// call it too. <see cref="SingletonArrayOperand"/> is 1x1 by
 /// construction. <c>ArrayProducerContractTests</c> violates the rule and fails.</para>
 /// </remarks>
 internal static class ArrayShaping
@@ -48,6 +56,23 @@ internal static class ArrayShaping
     /// invariant every producer operand is constructed under (see the type remarks). The exception names
     /// the rule, so a violating producer fails loudly at build time instead of streaming nothing.
     /// </summary>
+    /// <summary>
+    /// Throws unless a selection keeps at least one position — the invariant along the axis an
+    /// <see cref="AxisSelectionOperand"/> SELECTS. The extent across that axis is the source's and is not
+    /// checked here: a zero-row source keeps its zero rows across a column selection (see the type remarks).
+    /// </summary>
+    public static void RequireNonEmptySelection(int length)
+    {
+        if (length < 1)
+        {
+            throw new InvalidOperationException(
+                "A producer's selection must keep at least one position (Rows >= 1 && Columns >= 1 along the "
+                    + "selected axis), got an empty selection: an empty result is a 1x1 SingletonArrayOperand "
+                    + "carrying the error, never a 0-extent array."
+            );
+        }
+    }
+
     public static void RequireProducerShape(int rows, int columns)
     {
         if (rows < 1 || columns < 1)
@@ -142,7 +167,12 @@ internal sealed class AxisSelectionOperand : ArrayOperand
                 ? (selection.Length, source.Columns)
                 : (source.Rows, selection.Length);
 
-        ArrayShaping.RequireProducerShape(_rows, _columns);
+        // The invariant is about the SELECTION: at least one position kept (an empty result is the 1x1 error
+        // singleton — SelectionProducers.Select). The extent across the axis is the source's own, and a
+        // zero-row SOURCE (sweep item 33's empty reference, or a selection over one) keeps its zero rows
+        // across a column selection, which is the oracle's answer: ROWS(FILTER(T[#Data],T[#Headers]<>"Item"))
+        // is 0 and COLUMNS 2 over a header-only table.
+        ArrayShaping.RequireNonEmptySelection(selection.Length);
 
         var extent = axis is ArrayAxis.Rows ? source.Rows : source.Columns;
 

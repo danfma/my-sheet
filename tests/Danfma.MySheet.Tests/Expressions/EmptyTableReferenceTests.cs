@@ -441,6 +441,197 @@ public class EmptyTableReferenceTests
             .IsEqualTo(expected);
     }
 
+    // === A selection over a zero-row source (fix wave: BUG 1 and BUG 2) ===================================
+    //
+    // A selection along the COLUMNS axis of a zero-row source — FILTER with a row include, UNIQUE/SORT with
+    // by_col — keeps its columns and the source's zero rows. Before the fix every such row THREW
+    // InvalidOperationException out of Evaluate (the producer-shape guard rejected the 0-row result); at
+    // c6fde1f they were #REF!. The oracle keeps the zero-row result (primed, both modes; sentinel in brackets):
+    //   FILTER(T[Valor],TRUE)                               0 [7]         ROWS 0 [1]    SUM 0 [7]
+    //   FILTER(T[#Data],T[#Headers]<>"Item")                0 [7]         ROWS 0 [1]    COLUMNS 2 [2]
+    //     COUNT 0 [2], INDEX(…,1,1) #REF! [7], SUM(…*1) 0 [12]
+    //   FILTER(FILTER(T[#Data],…<>"Item"),TRUE)             ROWS #VALUE! (a 1x1 include against a 0x2 source)
+    //   FILTER(T[#Data],T[#Headers]="none")                 ROWS #CALC!; with "e" → "e"
+    //   UNIQUE(T[Valor],TRUE)                               0 [7]         ROWS 0 [1]
+    //   UNIQUE(T[#Data],TRUE)                               THREW inside Aspose ["z"]; COLUMNS 1 [3], ROWS 0 [1]
+    //   UNIQUE(T[#Data],TRUE,TRUE)                          THREW inside Aspose
+    //   COLUMNS(UNIQUE(FILTER(T[#Data],…<>"Item"),TRUE))    2 — the oracle contradicts its own direct row (1):
+    //                                                       zero-row columns have equal (empty) keys, so 1
+    //   SORT(FILTER(T[#Data],…<>"Item"))                    0, ROWS 0 — MySheet: an empty SELECTION is the
+    //                                                       #CALC! singleton, as for SORT(T[Valor]) above
+    //   SORT(T[#Data],1,1,TRUE)                             #VALUE! (sort_index past a zero-row cross extent)
+    //   SEQUENCE(ROWS(T[Valor]))                            #VALUE! (a zero size)
+    // A cell showing a zero-row result has no top-left: #N/A, the uncovered-position rule (the oracle's 0 / 7
+    // there reads the cell under the header, a registered defect).
+    [Test]
+    [Arguments("=FILTER(Tabela1[Valor],TRUE)", "#N/A")]
+    [Arguments("=ROWS(FILTER(Tabela1[Valor],TRUE))", "0")]
+    [Arguments("=SUM(FILTER(Tabela1[Valor],TRUE))", "0")]
+    [Arguments("=FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\")", "#N/A")]
+    [Arguments("=ROWS(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"))", "0")]
+    [Arguments("=COLUMNS(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"))", "2")]
+    [Arguments("=COUNT(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"))", "0")]
+    [Arguments("=INDEX(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"),1,1)", "#REF!")]
+    [Arguments("=SUM(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\")*1)", "0")]
+    [Arguments("=ROWS(FILTER(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"),TRUE))", "#VALUE!")]
+    [Arguments("=ROWS(FILTER(Tabela1[#Data],Tabela1[#Headers]=\"none\"))", "#CALC!")]
+    [Arguments("=FILTER(Tabela1[#Data],Tabela1[#Headers]=\"none\",\"e\")", "\"e\"")]
+    [Arguments("=UNIQUE(Tabela1[Valor],TRUE)", "#N/A")]
+    [Arguments("=ROWS(UNIQUE(Tabela1[Valor],TRUE))", "0")]
+    [Arguments("=UNIQUE(Tabela1[#Data],TRUE)", "#N/A")]
+    [Arguments("=COLUMNS(UNIQUE(Tabela1[#Data],TRUE))", "1")]
+    [Arguments("=ROWS(UNIQUE(Tabela1[#Data],TRUE))", "0")]
+    [Arguments("=UNIQUE(Tabela1[#Data],TRUE,TRUE)", "#CALC!")]
+    [Arguments("=COLUMNS(UNIQUE(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"),TRUE))", "1")]
+    [Arguments("=SORT(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"))", "#CALC!")]
+    [Arguments("=SORT(Tabela1[#Data],1,1,TRUE)", "#VALUE!")]
+    [Arguments("=SEQUENCE(ROWS(Tabela1[Valor]))", "#VALUE!")]
+    public async Task ASelectionOverAZeroRowSource_NeverThrows_AndKeepsTheZeroRows(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // The same selections with a value under the header: the zero-row result never reaches it (the oracle's
+    // 7 / 1 / 12 there are the registered sentinel defect).
+    [Test]
+    [Arguments("=SUM(FILTER(Tabela1[Valor],TRUE))", "0")]
+    [Arguments("=ROWS(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\"))", "0")]
+    [Arguments("=SUM(FILTER(Tabela1[#Data],Tabela1[#Headers]<>\"Item\")*1)", "0")]
+    [Arguments("=FILTER(Tabela1[Valor],TRUE)", "#N/A")]
+    public async Task ASelectionOverAZeroRowSource_NeverReadsTheRowUnderTheHeader(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula, Shape.Sentinel)).IsEqualTo(expected);
+    }
+
+    // === SUMPRODUCT compares a zero-row shape (fix wave: RISK 1) ==========================================
+    //
+    // A zero-row rectangle HAS a shape (0 x its columns); it is not the "no shape known" of a name or a
+    // scalar. Oracle, primed, both modes: SUMPRODUCT(T[Valor]*1,T[#Data]*1) and SUMPRODUCT(T[Valor],T[#Data])
+    // #VALUE! (0x1 against 0x3, like SUMPRODUCT(A1:A3*1,A1:B3*1) #VALUE!), SUMPRODUCT(T[Valor]*1,T[Qtd]*1)
+    // and SUMPRODUCT(T[#Data]*1,T[#Data]*1) 0. Before the fix MySheet answered 0 for all four.
+    [Test]
+    [Arguments("=SUMPRODUCT(Tabela1[Valor]*1,Tabela1[#Data]*1)", "#VALUE!")]
+    [Arguments("=SUMPRODUCT(Tabela1[Valor],Tabela1[#Data])", "#VALUE!")]
+    [Arguments("=SUMPRODUCT(Tabela1[Valor]*1,Tabela1[Qtd]*1)", "0")]
+    [Arguments("=SUMPRODUCT(Tabela1[#Data]*1,Tabela1[#Data]*1)", "0")]
+    public async Task SumProduct_ComparesAZeroRowShape(string formula, string expected)
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // === The top-left of an empty binding (fix wave: NIT 4) ===============================================
+    //
+    // Not made consistent, because the oracle does not ask for it (primed, PLAIN / CSE, sentinel identical
+    // for ROW): LET(x,ROW(T[Valor]),x) 2 / 1 — ROW's value is the reference's anchor row, a number whatever
+    // the height, and MySheet's 2 is the plain column (the CSE 1 is the header row) — while
+    // LET(x,T[Valor]*2,x) #VALUE! / 0 [#VALUE! / 14] has no element to read, so MySheet's top-left of the
+    // empty operator array is #N/A (the CSE 0 / 14 reads the cell under the header, a registered defect).
+    // SUM(LET(x,ROW(T[Valor]),x)) is 3 / 3 on the oracle — the row-number vector of the normalized inverted
+    // rectangle {1,2}, a header read — and 0 here: the empty band has no row number to sum.
+    [Test]
+    [Arguments("=LET(x,ROW(Tabela1[Valor]),x)", "2")]
+    [Arguments("=LET(x,Tabela1[Valor]*2,x)", "#N/A")]
+    [Arguments("=SUM(LET(x,ROW(Tabela1[Valor]),x))", "0")]
+    public async Task TheTopLeftOfAnEmptyBinding_FollowsWhatTheBindingHolds(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // === A header-only table that grows (fix wave: RISK 2) ================================================
+    //
+    // A structured reference over an empty band has no cell dependency (DependencyExtractor keeps it
+    // always-dirty), and a redefinition bumps the definitions version, so a dependent recomputes when the
+    // table grows — through the recalculation engine (a full fallback) and through InvalidateCache (a
+    // definition alone evicts nothing, so the memo is stale until then, as the Tables docs state).
+    [Test]
+    public async Task AHeaderOnlyTable_ThatGrows_RecomputesItsDependents_ThroughTheEngine()
+    {
+        var workbook = GrowingTable();
+        workbook.ComputeAll();
+        var engine = workbook.CreateRecalculationEngine();
+
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("0");
+        await Assert.That(Display(workbook.GetCellValue("Main", "B2"))).IsEqualTo("0");
+
+        workbook.DefineTable("Tabela1", "Data", "A1:A3", ["Valor"]);
+        var result = engine.Recalculate([]);
+
+        await Assert.That(result.Mode).IsEqualTo(RecalculationMode.FullFallback);
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("42");
+        await Assert.That(Display(workbook.GetCellValue("Main", "B2"))).IsEqualTo("2");
+    }
+
+    [Test]
+    public async Task AHeaderOnlyTable_ThatGrows_RecomputesItsDependents_ThroughInvalidateCache()
+    {
+        var workbook = GrowingTable();
+
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("0");
+
+        workbook.DefineTable("Tabela1", "Data", "A1:A3", ["Valor"]);
+
+        // A definition evicts nothing: the memoized 0 is still served until the cache is invalidated.
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("0");
+
+        workbook.InvalidateCache();
+
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("42");
+        await Assert.That(Display(workbook.GetCellValue("Main", "B2"))).IsEqualTo("2");
+    }
+
+    // MySheet tables do not grow on their own: a value typed directly under the header of a table that is
+    // still header-only is outside it, so SUM stays 0 through the engine and through a full invalidation. (The
+    // oracle's read of that cell — SUM 7 over a value under the header — is the registered sentinel defect.)
+    [Test]
+    public async Task AValueTypedUnderTheHeader_OfAStillHeaderOnlyTable_LeavesItsDependentsAtZero()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        var main = workbook.Sheets.Add("Main");
+        data["A1"] = new StringValue("Valor");
+        workbook.DefineTable("Tabela1", "Data", "A1:A1", ["Valor"]);
+        main["B1"] = ExpressionParser.Parse("=SUM(Tabela1[Valor])", main);
+        workbook.ComputeAll();
+        var engine = workbook.CreateRecalculationEngine();
+
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("0");
+
+        data["A2"] = new NumberValue(10);
+        engine.Recalculate([new CellRef("Data", "A2")]);
+
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("0");
+
+        workbook.InvalidateCache();
+
+        await Assert.That(Display(workbook.GetCellValue("Main", "B1"))).IsEqualTo("0");
+    }
+
+    // Data!A1 = "Valor" over A2 = 10 and A3 = 32, registered header-only (A1:A1); Main!B1 = SUM of the column,
+    // B2 = ROWS of the data band.
+    private static Workbook GrowingTable()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        var main = workbook.Sheets.Add("Main");
+        data["A1"] = new StringValue("Valor");
+        data["A2"] = new NumberValue(10);
+        data["A3"] = new NumberValue(32);
+        workbook.DefineTable("Tabela1", "Data", "A1:A1", ["Valor"]);
+        main["B1"] = ExpressionParser.Parse("=SUM(Tabela1[Valor])", main);
+        main["B2"] = ExpressionParser.Parse("=ROWS(Tabela1[#Data])", main);
+
+        return workbook;
+    }
+
     // === The ABSENT singleton still errors ================================================================
     //
     // [#Totals] on a table with no totals row is a region that does not exist, not an empty one. Measured on

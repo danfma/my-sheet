@@ -120,7 +120,7 @@ public sealed partial record Filter(Expression[] Arguments) : Function, IArrayPr
             }
 
             return keepAll
-                ? new AxisSelectionOperand(
+                ? SelectionProducers.Select(
                     source,
                     axis,
                     SelectionProducers.Everything(source, axis)
@@ -147,7 +147,7 @@ public sealed partial record Filter(Expression[] Arguments) : Function, IArrayPr
 
         return kept.Count == 0
             ? IfEmpty(context, Error.Calc)
-            : new AxisSelectionOperand(source, axis, kept.ToArray());
+            : SelectionProducers.Select(source, axis, kept.ToArray());
     }
 
     // The empty result: if_empty when given (built only now — an error there is never read otherwise),

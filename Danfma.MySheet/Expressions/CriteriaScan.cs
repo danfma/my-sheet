@@ -272,6 +272,15 @@ internal struct PositionalRange
             UnionReference union => new PositionalRange(
                 union.ExpandComputedValues(context).ToList()
             ),
+            // Sweep item 33: a zero-row reference (a header-only table's data band) has no cell but DOES have a
+            // shape, 0 x its columns — which SUMPRODUCT's dimension rule reads (SUMPRODUCT(T[Valor],T[#Data]) is
+            // #VALUE! on the oracle, 0x1 against 0x3).
+            _ when computed.TryGetReference(out var reference)
+                    && reference is EmptyRangeReference empty => new PositionalRange(
+                Array.Empty<ComputedValue>(),
+                0,
+                empty.ColumnCount
+            ),
             _ => computed.Kind == ComputedValueKind.Reference
                 ? new PositionalRange(computed.EnumerateValues(context).ToList())
                 : new PositionalRange([computed]),

@@ -1483,10 +1483,12 @@ internal static class ArrayEvaluation
     // sets the shape; every further array folds in per axis through Broadcasting.Axis — an extent of 1
     // defers to the other operand, two larger extents take the maximum. "No array seen yet" is an explicit
     // flag rather than a (0, 0) sentinel because Axis(0, 1) is 0: a (0, 0) accumulator folding a 1xN first
-    // operand would yield a 0-row extent — an empty stream, SUM = 0, silently. (Phase 10 also assumed the
-    // flag would one day carry a legitimate 0-row array from an empty FILTER; Phase 7 forbids that shape
-    // instead — ArrayShaping's invariant makes an empty producer result a 1x1 singleton, so this fold does
-    // not expect a 0 extent from any operand; ArrayProducerContractTests shows what a 0x1 would do.)
+    // operand would yield a 0-row extent — an empty stream, SUM = 0, silently. A LEGITIMATE 0 extent does reach
+    // this fold since sweep item 33: a zero-row reference's EmptyRangeOperand, and a column selection over one
+    // (FILTER(T[#Data],T[#Headers]<>"Item"), 0x2). The flag is what keeps it a real shape: Axis(0, 1) is 0, so a
+    // zero-row operand against a 1-row one stays empty, and against a larger extent the larger one wins and
+    // every position is uncovered. An EMPTY producer result is still never 0-extent — ArrayShaping's invariant
+    // makes it a 1x1 singleton (ArrayProducerContractTests shows what an empty 0x1 result would do).
     //
     // Which positions of the folded extent an operand covers is decided at READ time by that operand's own
     // At() through Broadcasting.TryProject: an uncovered position answers #N/A there, so the node's body

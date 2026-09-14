@@ -140,4 +140,17 @@ internal static class SelectionProducers
     }
 
     public static SingletonArrayOperand Singleton(Error error) => new(ComputedValue.Error(error));
+
+    /// <summary>
+    /// The ONE place a selection becomes a producer's result: an EMPTY selection — every candidate discarded,
+    /// or no candidate at all along a zero-row source's rows — is the 1x1 <c>#CALC!</c> singleton, Excel's
+    /// empty-array error; any other selection is an <see cref="AxisSelectionOperand"/>, which keeps the
+    /// source's extent across the axis even when that extent is a zero-row source's 0 (sweep item 33:
+    /// <c>FILTER(T[#Data],T[#Headers]&lt;&gt;"Item")</c> is 0 rows x 2 columns on the oracle). <c>FILTER</c>
+    /// checks its own empty result first, because it answers <c>if_empty</c> there.
+    /// </summary>
+    public static ArrayOperand Select(ArrayOperand source, ArrayAxis axis, int[] selection) =>
+        selection.Length == 0
+            ? Singleton(Error.Calc)
+            : new AxisSelectionOperand(source, axis, selection);
 }

@@ -48,7 +48,7 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
 
             // Adopt the first rectangle seen; once one is known this leaves it alone, so every later shaped
             // argument is judged against that same rectangle.
-            if (knownRows == 0)
+            if (knownColumns == 0)
             {
                 knownRows = ranges[a].Rows;
                 knownColumns = ranges[a].Columns;
@@ -82,19 +82,23 @@ public sealed partial record SumProduct(Expression[] Arguments) : Function
         return ComputedValue.Number(total);
     }
 
-    // Does `other` agree with the rectangle already known to be required (rows x columns, 0/0 = none known
-    // yet)? The documented rule is about DIMENSIONS, not the cell count: "The array arguments must have the
-    // same dimensions. If they do not, SUMPRODUCT returns the #VALUE! error value." A 3x1 column and a 1x3
+    // Does `other` agree with the rectangle already known to be required (rows x columns, 0 columns = none
+    // known yet)? The documented rule is about DIMENSIONS, not the cell count: "The array arguments must have
+    // the same dimensions. If they do not, SUMPRODUCT returns the #VALUE! error value." A 3x1 column and a 1x3
     // row hold the same three cells and are still #VALUE! in Excel, so the count check alone is not enough.
-    // Either side being 0 rows means its rectangle is UNKNOWN — no known shape yet, or an argument that has
-    // none at all (an open range, a union, a defined name or a scalar, all served without bounds) — and an
-    // unknown shape is judged by count alone rather than rejected, so SUMPRODUCT(MyName,(A1:A3<>0)*1) stays
+    // Either side having 0 COLUMNS means its rectangle is UNKNOWN — no known shape yet, or an argument that has
+    // none at all (an open range, a union, a defined name or a scalar, all served without bounds). The marker
+    // is the column count, not the row count, because a ZERO-ROW rectangle is a real shape (sweep item 33: a
+    // header-only table's data band is 0 x its columns, and SUMPRODUCT(T[Valor]*1,T[#Data]*1) — 0x1 against
+    // 0x3 — is #VALUE! on the oracle, both modes, where rows-as-marker answered 0); every known rectangle has at
+    // least one column. An unknown shape is judged by count alone rather than rejected, so
+    // SUMPRODUCT(MyName,(A1:A3<>0)*1) stays
     // legal as in Excel. DEVIATION from Excel, accepted deliberately (P0): the converse also holds, so a
     // GENUINE orientation mismatch is accepted whenever every argument on one side of it is shapeless —
     // SUMPRODUCT(MyName,A1:C1) with a 3x1 MyName computes instead of erroring, because nothing here knows
     // MyName's rectangle. Only a shape the engine can see is enforced.
     private static bool SameShape(int rows, int columns, in PositionalRange other) =>
-        rows == 0 || other.Rows == 0 || (rows == other.Rows && columns == other.Columns);
+        columns == 0 || other.Columns == 0 || (rows == other.Rows && columns == other.Columns);
 }
 
 [MemoryPackable]

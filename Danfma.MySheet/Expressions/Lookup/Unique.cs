@@ -129,9 +129,10 @@ public sealed partial record Unique(Expression[] Arguments) : Function, IArrayPr
             }
         }
 
-        return kept.Count == 0
-            ? SelectionProducers.Singleton(Error.Calc)
-            : new AxisSelectionOperand(source, axis, kept.ToArray());
+        // Nothing kept is the #CALC! singleton (Select). By column over a zero-row source every column's key is
+        // empty and therefore equal, so the columns collapse to the first one: 0 rows x 1 column, the oracle's
+        // COLUMNS(UNIQUE(T[#Data],TRUE)) 1 over a header-only table.
+        return SelectionProducers.Select(source, axis, kept.ToArray());
     }
 
     // Key equality as the type remarks state it: same kind, same value, text ordinal, blank its own value,
