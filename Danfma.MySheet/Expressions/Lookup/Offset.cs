@@ -165,25 +165,43 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             width = (int)w;
         }
 
-        startColumn = baseColumn + (int)columns;
-        startRow = baseRow + (int)rows;
+        var targetColumn = (long)baseColumn + (long)columns;
+        var targetRow = (long)baseRow + (long)rows;
+        var targetHeight = (long)height;
+        var targetWidth = (long)width;
 
-        if (height < 0)
+        if (targetHeight < 0)
         {
-            startRow += height + 1;
-            height = -height;
+            targetRow += targetHeight + 1;
+            targetHeight = -targetHeight;
         }
 
-        if (width < 0)
+        if (targetWidth < 0)
         {
-            startColumn += width + 1;
-            width = -width;
+            targetColumn += targetWidth + 1;
+            targetWidth = -targetWidth;
         }
 
-        if (startColumn < 1 || startRow < 1)
+        var endColumn = targetColumn + targetWidth - 1;
+        var endRow = targetRow + targetHeight - 1;
+        if (
+            targetColumn < 1
+            || targetColumn > OpenRangeReference.GridMaxColumn
+            || targetRow < 1
+            || targetRow > OpenRangeReference.GridMaxRow
+            || endColumn < 1
+            || endColumn > OpenRangeReference.GridMaxColumn
+            || endRow < 1
+            || endRow > OpenRangeReference.GridMaxRow
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }
+
+        startColumn = (int)targetColumn;
+        startRow = (int)targetRow;
+        height = (int)targetHeight;
+        width = (int)targetWidth;
 
         // Zero is #REF!; a negative size extends from the displaced origin in the opposite direction.
         if ((hasHeight && height == 0) || (hasWidth && width == 0))

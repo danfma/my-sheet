@@ -496,6 +496,37 @@ public class ReferenceFunctionTests
     }
 
     [Test]
+    [Arguments("=SUM(OFFSET(A1048576,1,0,-2,1))")]
+    [Arguments("=SUM(OFFSET(XFD1,0,1,1,-2))")]
+    [Arguments("=SUM(OFFSET(A1048576,1,0,1,1))")]
+    public async Task Offset_TargetOutsideTheGrid_IsAReferenceError(string formula)
+    {
+        // Empty fixture, formula away from the target. Aspose.Cells 26.7.0 PLAIN/CSE: #REF!/#REF!.
+        // MySheet previously returned 0 for all three out-of-grid targets.
+        var (workbook, sheet) = Grid();
+
+        await Assert
+            .That(ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject())
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task Offset_NegativeWindowEndingAtBottomEdge_RemainsValid()
+    {
+        // Empty fixture. Aspose.Cells 26.7.0 PLAIN/CSE: 0/0.
+        var (workbook, sheet) = Grid();
+
+        await Assert
+            .That(
+                ExpressionParser
+                    .Parse("=SUM(OFFSET(A1048576,0,0,-2,1))", sheet)
+                    .Evaluate(workbook)
+                    .AsObject() as double?
+            )
+            .IsEqualTo(0.0);
+    }
+
+    [Test]
     public async Task XLookup_ApproximateModes()
     {
         var (workbook, sheet) = Grid(
