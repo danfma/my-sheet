@@ -272,16 +272,23 @@ internal struct PositionalRange
             argument = tableRange;
         }
 
-        if (
-            NamedReferences.TryResolveReferenceReturningNode(
-                argument,
-                context,
-                out var selectedReference,
-                out _
-            ) == NamedReferences.ReferenceReturningNodeResolution.Resolved
-        )
+        var referenceReturningNode = NamedReferences.TryResolveReferenceReturningNode(
+            argument,
+            context,
+            out var selectedReference,
+            out var unresolvedValue
+        );
+        if (referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Resolved)
         {
             argument = selectedReference;
+        }
+        else if (
+            referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Unresolved
+        )
+        {
+            return new PositionalRange(
+                unresolvedValue.TryGetError(out var error) ? error : Error.Ref
+            );
         }
 
         if (snapshot is not null)
@@ -447,6 +454,77 @@ internal struct PositionalRange
         bool validateMissingSheet = false
     )
     {
+        var referenceReturningNode = NamedReferences.TryResolveReferenceReturningNode(
+            argument,
+            context,
+            out var selectedReference,
+            out var unresolvedValue
+        );
+        if (
+            referenceReturningNode
+            is NamedReferences.ReferenceReturningNodeResolution.Resolved
+                or NamedReferences.ReferenceReturningNodeResolution.Unresolved
+        )
+        {
+            route = SelectorRoute.Structural;
+            if (
+                referenceReturningNode
+                == NamedReferences.ReferenceReturningNodeResolution.Unresolved
+            )
+            {
+                selected = null!;
+                error = unresolvedValue.TryGetError(out var unresolvedError)
+                    ? unresolvedError
+                    : Error.Ref;
+                return false;
+            }
+
+            if (
+                validateMissingSheet
+                && ReferenceGuard.MissingSheet(selectedReference, context) is { } missing
+            )
+            {
+                selected = null!;
+                error = missing;
+                return false;
+            }
+
+            selected = selectedReference;
+            error = null;
+            return true;
+        }
+
+        if (argument is Logical.Let let && ContainsXLookup(let))
+        {
+            if (
+                let.TryBind(context, CaptureSelectorBinding, out var scope)
+                && let.Arguments[^1].TryResolveReference(scope, out var boundReference)
+                && boundReference is not null
+            )
+            {
+                if (
+                    validateMissingSheet
+                    && ReferenceGuard.MissingSheet(boundReference, scope) is { } missing
+                )
+                {
+                    selected = null!;
+                    route = SelectorRoute.Structural;
+                    error = missing;
+                    return false;
+                }
+
+                selected = boundReference;
+                route = SelectorRoute.Structural;
+                error = null;
+                return true;
+            }
+
+            selected = null!;
+            route = SelectorRoute.Structural;
+            error = ReferenceGuard.MissingSheet(argument, context) ?? Error.Ref;
+            return false;
+        }
+
         Reference? resolvedReference = null;
         var resolvesAsReference = NamedReferences.TryResolveReference(
             argument,
@@ -511,6 +589,23 @@ internal struct PositionalRange
         return false;
     }
 
+    private static ArrayBindings.Binding CaptureSelectorBinding(
+        Expression expression,
+        EvaluationContext context
+    ) =>
+        NamedReferences.TryResolveReferenceReturningNode(
+            expression,
+            context,
+            out var reference,
+            out _
+        ) == NamedReferences.ReferenceReturningNodeResolution.Resolved
+            ? new ArrayBindings.Binding(ComputedValue.Reference(reference))
+            : ArrayBindings.Capture(expression, context);
+
+    private static bool ContainsXLookup(Expression expression) =>
+        expression is Lookup.XLookup
+        || expression is Logical.Let let && let.Arguments.Any(ContainsXLookup);
+
     private static SelectorRoute ClassifySelectorRoute(
         Expression argument,
         bool resolvesAsReference
@@ -566,6 +661,11 @@ internal struct PositionalRange
         if (argument is Lookup.Choose)
         {
             return SelectorRoute.ElementWise;
+        }
+
+        if (argument is Lookup.XLookup)
+        {
+            return SelectorRoute.Structural;
         }
 
         if (

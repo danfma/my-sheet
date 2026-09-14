@@ -59,6 +59,28 @@ public class XLookupReferenceReadingTests
         string expected
     ) => await Assert.That(Evaluate(formula, missFixture: true)).IsEqualTo(expected);
 
+    // Aspose.Cells 26.7.0 PLAIN/CSE agree. Before this fix, reference-only readers re-evaluated
+    // scalar fallbacks as ranges: COUNTIF returned 0/1 and SUMIF returned 0 instead of the slot error.
+    [Test]
+    [Arguments("=COUNTIF(XLOOKUP(9,A1:A3,B1:C3,0),\">0\")", "#REF!")]
+    [Arguments("=COUNTIF(XLOOKUP(9,A1:A3,B1:C3,E1),\">0\")", "#REF!")]
+    [Arguments("=SUMIF(XLOOKUP(9,A1:A3,B1:C3,0),\">0\")", "#REF!")]
+    [Arguments("=AGGREGATE(9,6,XLOOKUP(9,A1:A3,B1:C3,0))", "#VALUE!")]
+    [Arguments("=SUBTOTAL(9,XLOOKUP(9,A1:A3,B1:C3,0))", "#VALUE!")]
+    [Arguments("=SUM(OFFSET(XLOOKUP(9,A1:A3,B1:C3,0),0,0))", "#REF!")]
+    [Arguments("=COUNTIF(XLOOKUP(9,A1:A3,B1:C3,\"nf\"),\">0\")", "#REF!")]
+    [Arguments("=COUNTIF(XLOOKUP(9,A1:A3,B1:C3,NA()),\">0\")", "#N/A")]
+    public async Task ScalarFallback_InAReferenceOnlySlot_ReportsTheMeasuredSlotError(
+        string formula,
+        string expected
+    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    [Test]
+    public async Task LetBoundXLookup_InACriteriaSlot_KeepsTheStructuralRoute() =>
+        await Assert
+            .That(Evaluate("=COUNTIF(LET(r,XLOOKUP(2,A1:A3,B1:C3),r),\">0\")"))
+            .IsEqualTo("2");
+
     [Test]
     [Arguments("=COUNTIF(XLOOKUP(TICK(),A1:A3,B1:C3),\">0\")", "2")]
     [Arguments("=AGGREGATE(9,6,XLOOKUP(TICK(),A1:A3,B1:C3))", "220")]

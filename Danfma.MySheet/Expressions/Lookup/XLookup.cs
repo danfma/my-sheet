@@ -10,27 +10,29 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
     // search_mode: 1 first-to-last, -1 last-to-first (binary modes not supported).
     // The match engine itself is shared with XMATCH and LOOKUP (see LookupMatching).
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        Evaluate(context, asReference: false, out _);
+        Evaluate(context, asReference: false, out _, out _);
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
-        return TryResolveReferenceResult(context, out reference, out _);
+        return TryResolveReferenceResult(context, out reference, out _, out _);
     }
 
     internal bool TryResolveReferenceResult(
         EvaluationContext context,
         out Reference reference,
-        out ComputedValue unresolvedValue
+        out ComputedValue unresolvedValue,
+        out bool matched
     )
     {
         if (!ReturnsReference(context))
         {
             reference = null!;
             unresolvedValue = default;
+            matched = false;
             return false;
         }
 
-        var result = Evaluate(context, asReference: true, out _);
+        var result = Evaluate(context, asReference: true, out _, out matched);
         if (result.TryGetReference(out var resolvedReference))
         {
             reference = resolvedReference!;
@@ -58,7 +60,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
     internal bool TryBuildSelection(EvaluationContext context, out ArrayOperand operand)
     {
-        _ = Evaluate(context, asReference: true, out var selected);
+        _ = Evaluate(context, asReference: true, out var selected, out _);
         operand = selected!;
         return selected is not null;
     }
@@ -76,7 +78,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             return true;
         }
 
-        var value = Evaluate(context, asReference: true, out _);
+        var value = Evaluate(context, asReference: true, out _, out _);
         if (value.TryGetReference(out var reference))
         {
             operand = reference switch
@@ -96,10 +98,12 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
     private ComputedValue Evaluate(
         EvaluationContext context,
         bool asReference,
-        out ArrayOperand? selected
+        out ArrayOperand? selected,
+        out bool matched
     )
     {
         selected = null;
+        matched = false;
         // A missing-sheet lookup/return array is a structural #REF! — distinct from an empty array over an
         // existing sheet, which stays #N/A. Guard before enumerating so it is not swallowed as empty.
         if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
@@ -190,6 +194,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             {
                 if (ValueCoercion.AreEqual(lookupValues.Current, lookup))
                 {
+                    matched = true;
                     return returnArray.Select(position, lookupAxis, asReference, out selected);
                 }
 
@@ -211,6 +216,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
         if (match >= 0)
         {
+            matched = true;
             return returnArray.Select(match, lookupAxis, asReference, out selected);
         }
 

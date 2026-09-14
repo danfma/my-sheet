@@ -64,16 +64,21 @@ internal static class AggregateCodes
         NestedSkip skip
     )
     {
-        if (
-            NamedReferences.TryResolveReferenceReturningNode(
-                argument,
-                context,
-                out var selectedReference,
-                out _
-            ) == NamedReferences.ReferenceReturningNodeResolution.Resolved
-        )
+        var referenceReturningNode = NamedReferences.TryResolveReferenceReturningNode(
+            argument,
+            context,
+            out var selectedReference,
+            out var unresolvedValue
+        );
+        if (referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Resolved)
         {
             argument = selectedReference;
+        }
+        else if (
+            referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Unresolved
+        )
+        {
+            return unresolvedValue.TryGetError(out var error) ? error : Error.Value;
         }
 
         switch (argument)

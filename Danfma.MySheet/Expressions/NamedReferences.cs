@@ -182,8 +182,20 @@ internal static class NamedReferences
             return ReferenceReturningNodeResolution.NotApplicable;
         }
 
-        return xlookup.TryResolveReferenceResult(context, out reference, out unresolvedValue)
-            ? ReferenceReturningNodeResolution.Resolved
+        if (
+            xlookup.TryResolveReferenceResult(
+                context,
+                out reference,
+                out unresolvedValue,
+                out var matched
+            )
+        )
+        {
+            return ReferenceReturningNodeResolution.Resolved;
+        }
+
+        return matched
+            ? ReferenceReturningNodeResolution.NonReferenceSelection
             : ReferenceReturningNodeResolution.Unresolved;
     }
 
@@ -259,6 +271,7 @@ internal static class NamedReferences
     {
         NotApplicable,
         Resolved,
+        NonReferenceSelection,
         Unresolved,
     }
 

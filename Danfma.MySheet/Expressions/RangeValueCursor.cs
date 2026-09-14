@@ -134,16 +134,23 @@ internal struct RangeValueCursor
             argument = tableRange;
         }
 
-        if (
-            NamedReferences.TryResolveReferenceReturningNode(
-                argument,
-                context,
-                out var selectedReference,
-                out _
-            ) == NamedReferences.ReferenceReturningNodeResolution.Resolved
-        )
+        var referenceReturningNode = NamedReferences.TryResolveReferenceReturningNode(
+            argument,
+            context,
+            out var selectedReference,
+            out var unresolvedValue
+        );
+        if (referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Resolved)
         {
             argument = selectedReference;
+        }
+        else if (
+            referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Unresolved
+        )
+        {
+            return new RangeValueCursor(
+                unresolvedValue.TryGetError(out var error) ? error : Error.Ref
+            );
         }
 
         switch (argument)
