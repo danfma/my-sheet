@@ -7,6 +7,16 @@ public sealed partial record Index(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        if (
+            Arguments[0] is XLookup xlookup
+            && xlookup.TryResolveReference(context, out var xlookupReference)
+            && xlookupReference is not null
+            && RangeBounds.TryFrom(xlookupReference, out var xlookupBounds)
+        )
+        {
+            return IndexIntoRange(xlookupReference, xlookupBounds, context);
+        }
+
         // Mini-CSE array-argument forms (the array is a computed vector, not a reference):
         //   • ROW of a whole/one-sided-open column is the IDENTITY row vector [top, top+1, …]; INDEX(…,n)
         //     returns its n-th worksheet row number WITHOUT materializing the grid-less column (the K1

@@ -42,8 +42,8 @@ public class LookupCompatibilitySweepTests
             workbook.DefineTable("Tabela1", "Data", "A1:C4", ["Item", "Valor", "Qtd"]);
         }
 
-        var expression = ExpressionParser.Parse(formula, main);
-        var value = expression.Evaluate(new EvaluationContext(workbook, "Main", "AZ5000"));
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+        var value = workbook.GetCellValue("Main", "AZ5000");
 
         if (value.TryGetError(out var error))
         {
@@ -114,4 +114,54 @@ public class LookupCompatibilitySweepTests
         string formula,
         string expected
     ) => await Assert.That(Evaluate(formula, withTable: true)).IsEqualTo(expected);
+
+    // Fixture: A1:A3 = 1,2,3; B1:B3 = 10,20,30; C1:C3 = 100,200,300; formula at AZ5000.
+    // Aspose.Cells 26.7.0 PLAIN / CSE agree on every expected value below. Before this fix, the
+    // non-first vertical selections returned the row-major second element (100) instead of row 2's first
+    // element (20); reverse with a duplicate returned row 2's 20 instead of row 3's 30.
+    [Test]
+    [Arguments("=XLOOKUP(2,A1:A3,B1:C3)", "20")]
+    [Arguments("=XLOOKUP(2,E1:G1,E2:G3)", "20")]
+    [Arguments("=XLOOKUP(2,A1:A3,B1:C3,,0,-1)", "30", true)]
+    [Arguments("=XLOOKUP(2.5,A1:A3,B1:C3,,-1)", "20")]
+    [Arguments("=XLOOKUP(2,A1:A3,B1:C3,,0,2)", "20")]
+    [Arguments("=INDEX(XLOOKUP(2,A1:A3,B1:C3),1,2)", "200")]
+    [Arguments("=SUM(XLOOKUP(2,A1:A3,B1:C3))", "220")]
+    [Arguments("=XLOOKUP(2,A:A,B:C)", "20")]
+    public async Task XLookup_MapsTheMatchPositionAlongTheLookupAxis(
+        string formula,
+        string expected,
+        bool duplicate = false
+    )
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["A1"] = new NumberValue(1);
+        main["A2"] = new NumberValue(2);
+        main["A3"] = new NumberValue(duplicate ? 2 : 3);
+        main["B1"] = new NumberValue(10);
+        main["B2"] = new NumberValue(20);
+        main["B3"] = new NumberValue(30);
+        main["C1"] = new NumberValue(100);
+        main["C2"] = new NumberValue(200);
+        main["C3"] = new NumberValue(300);
+        main["E1"] = new NumberValue(1);
+        main["F1"] = new NumberValue(2);
+        main["G1"] = new NumberValue(3);
+        main["E2"] = new NumberValue(10);
+        main["F2"] = new NumberValue(20);
+        main["G2"] = new NumberValue(30);
+        main["E3"] = new NumberValue(100);
+        main["F3"] = new NumberValue(200);
+        main["G3"] = new NumberValue(300);
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        var value = workbook.GetCellValue("Main", "AZ5000");
+        var actual =
+            value.TryGetError(out var error) ? error.ToString()
+            : value.TryGetNumber(out var number) ? number.ToString(CultureInfo.InvariantCulture)
+            : value.Kind.ToString();
+
+        await Assert.That(actual).IsEqualTo(expected);
+    }
 }

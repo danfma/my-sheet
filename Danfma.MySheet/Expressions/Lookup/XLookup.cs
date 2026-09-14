@@ -9,7 +9,16 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
     // match_mode: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
     // search_mode: 1 first-to-last, -1 last-to-first (binary modes not supported).
     // The match engine itself is shared with XMATCH and LOOKUP (see LookupMatching).
-    public override ComputedValue Evaluate(EvaluationContext context)
+    public override ComputedValue Evaluate(EvaluationContext context) =>
+        Evaluate(context, asReference: false);
+
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
+    {
+        var result = Evaluate(context, asReference: true);
+        return result.TryGetReference(out reference);
+    }
+
+    private ComputedValue Evaluate(EvaluationContext context, bool asReference)
     {
         // A missing-sheet lookup/return array is a structural #REF! — distinct from an empty array over an
         // existing sheet, which stays #N/A. Guard before enumerating so it is not swallowed as empty.
@@ -90,16 +99,20 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(searchError);
         }
 
+        var lookupAxis = lookupIsColumn ? ArrayAxis.Rows : ArrayAxis.Columns;
+
         if ((int)matchMode == 0 && searchMode >= 0)
         {
             using var lookupValues = lookupArray.Values().GetEnumerator();
-            using var returnValues = returnArray.Values().GetEnumerator();
-            while (lookupValues.MoveNext() && returnValues.MoveNext())
+            var position = 0;
+            while (lookupValues.MoveNext())
             {
                 if (ValueCoercion.AreEqual(lookupValues.Current, lookup))
                 {
-                    return returnValues.Current;
+                    return returnArray.Select(position, lookupAxis, asReference);
                 }
+
+                position++;
             }
 
             return NotFound(context);
@@ -117,7 +130,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         if (match >= 0)
         {
-            return returnArray.Values().ElementAt(match);
+            return returnArray.Select(match, lookupAxis, asReference);
         }
 
         return NotFound(context);
@@ -175,12 +188,6 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return true;
         }
 
-        if (ArrayEvaluation.TryEvaluateStream(argument, context, out var stream))
-        {
-            array = new LookupArray(null, stream, stream.Rows, stream.Columns, context);
-            return true;
-        }
-
         if (
             NamedReferences.TryResolveReference(
                 argument,
@@ -210,6 +217,12 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
                 );
                 return true;
             }
+        }
+
+        if (ArrayEvaluation.TryEvaluateStream(argument, context, out var stream))
+        {
+            array = new LookupArray(null, stream, stream.Rows, stream.Columns, context);
+            return true;
         }
 
         array = default;
@@ -245,6 +258,100 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             {
                 yield return value;
             }
+        }
+
+        public ComputedValue Select(int position, ArrayAxis axis, bool asReference)
+        {
+            if (reference is not null)
+            {
+                if (
+                    NamedReferences.TryResolveReference(
+                        reference,
+                        context,
+                        out var resolved,
+                        boundOpenRanges: false
+                    )
+                )
+                {
+                    return SelectReference(resolved, position, axis, asReference);
+                }
+            }
+
+            var index = axis is ArrayAxis.Rows ? position * Columns : position;
+            return stream.ElementAt(index);
+        }
+
+        private ComputedValue SelectReference(
+            Reference resolved,
+            int position,
+            ArrayAxis axis,
+            bool asReference
+        )
+        {
+            if (resolved is OpenRangeReference open)
+            {
+                var row = axis is ArrayAxis.Rows ? open.AbsoluteRow(position + 1) : 0;
+                var column = axis is ArrayAxis.Columns ? open.AbsoluteColumn(position + 1) : 0;
+                var selectedOpen = SelectOpenReference(open, row, column);
+                if (asReference)
+                {
+                    return ComputedValue.Reference(selectedOpen);
+                }
+
+                return selectedOpen switch
+                {
+                    RangeReference range => range.CellComputedValueAt(context, 1, 1),
+                    OpenRangeReference selectedRange => selectedRange
+                        .ExpandComputedValues(context)
+                        .FirstOrDefault(ComputedValue.Blank),
+                    _ => ComputedValue.Error(Error.Value),
+                };
+            }
+
+            if (!RangeBounds.TryFrom(resolved, out var bounds))
+            {
+                return ComputedValue.Error(Error.Value);
+            }
+
+            var top = axis is ArrayAxis.Rows ? bounds.TopRow + position : bounds.TopRow;
+            var bottom = axis is ArrayAxis.Rows ? top : bounds.BottomRow;
+            var left = axis is ArrayAxis.Columns ? bounds.LeftColumn + position : bounds.LeftColumn;
+            var right = axis is ArrayAxis.Columns ? left : bounds.RightColumn;
+            var sheetName = resolved switch
+            {
+                RangeReference range => range.SheetName,
+                EmptyRangeReference empty => empty.SheetName,
+                CellReference cell => cell.SheetName,
+                _ => context.SheetName ?? string.Empty,
+            };
+            var selected = new RangeReference(
+                new CellAddress(left, top).ToId(),
+                new CellAddress(right, bottom).ToId(),
+                sheetName
+            );
+
+            return asReference && (selected.RowCount > 1 || selected.ColumnCount > 1)
+                ? ComputedValue.Reference(selected)
+                : selected.CellComputedValueAt(context, 1, 1);
+        }
+
+        private static Reference SelectOpenReference(OpenRangeReference open, int row, int column)
+        {
+            int? rowMin = row == 0 ? open.RowMin : row;
+            int? rowMax = row == 0 ? open.RowMax : row;
+            int? colMin = column == 0 ? open.ColMin : column;
+            int? colMax = column == 0 ? open.ColMax : column;
+
+            if (rowMin is { } r0 && rowMax is { } r1 && colMin is { } c0 && colMax is { } c1)
+            {
+                return new RangeReference(
+                    new CellAddress(c0, r0).ToId(),
+                    new CellAddress(c1, r1).ToId(),
+                    open.SheetName
+                );
+            }
+
+            return new OpenRangeReference(colMin, colMax, rowMin, rowMax, open.SheetName);
         }
     }
 }

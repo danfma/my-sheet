@@ -124,6 +124,23 @@ internal static class NumericAggregation
                     break;
 
                 default:
+                    if (
+                        argument is Lookup.XLookup xlookup
+                        && xlookup.TryResolveReference(context, out var xlookupReference)
+                    )
+                    {
+                        foreach (
+                            var cellValue in ComputedValue
+                                .Reference(xlookupReference!)
+                                .EnumerateValues(context)
+                        )
+                        {
+                            AddReferenced(cellValue, ref fold, ref error);
+                        }
+
+                        break;
+                    }
+
                     // Mini-CSE: an array-eligible argument — IF(range=…,…), a range comparison,
                     // ROW/COLUMN of a range or of a name that stands for one, a name-built array — folds
                     // element-by-element with RANGE semantics (logicals/text ignored, so the FALSE of a
