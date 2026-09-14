@@ -159,6 +159,11 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
                 return value;
             }
 
+            if (value.TryGetError(out _))
+            {
+                return DirectErrorCellTable(context);
+            }
+
             return LookupScalarTable(value, context);
         }
 
@@ -347,6 +352,20 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         return lookup.TryGetError(out _) || !ValueCoercion.AreEqual(tableValue, lookup)
             ? ComputedValue.Error(Error.NA)
             : tableValue;
+    }
+
+    private ComputedValue DirectErrorCellTable(EvaluationContext context)
+    {
+        var approximate = true;
+        if (
+            Arguments.Length == 4
+            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
+        )
+        {
+            return ComputedValue.Error(modeError);
+        }
+
+        return approximate ? Arguments[1].Evaluate(context) : ComputedValue.Error(Error.NA);
     }
 }
 

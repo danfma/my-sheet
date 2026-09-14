@@ -207,4 +207,27 @@ public class LookupValueErrorCellTests
     {
         await Assert.That(InCell(formula)).IsEqualTo(expected);
     }
+
+    // Direct error table A1, Aspose.Cells 26.7.0 PLAIN / CSE: FALSE mode is #N/A for indexes 0, 1 and 2;
+    // TRUE mode is #DIV/0! for indexes 1 and 2. Before this fix MySheet returned #VALUE!, #N/A, #REF!,
+    // #N/A and #REF! respectively. Named ErrCell retains its separate CSE-selected #DIV/0! precedence.
+    [Test]
+    [Arguments("=VLOOKUP(1,A1,0,FALSE)", "#N/A")]
+    [Arguments("=VLOOKUP(1,A1,1,FALSE)", "#N/A")]
+    [Arguments("=VLOOKUP(1,A1,2,FALSE)", "#N/A")]
+    [Arguments("=VLOOKUP(1,A1,1,TRUE)", "#DIV/0!")]
+    [Arguments("=VLOOKUP(1,A1,2,TRUE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(1,A1,0,FALSE)", "#N/A")]
+    [Arguments("=HLOOKUP(1,A1,1,FALSE)", "#N/A")]
+    [Arguments("=HLOOKUP(1,A1,2,FALSE)", "#N/A")]
+    [Arguments("=HLOOKUP(1,A1,1,TRUE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(1,A1,2,TRUE)", "#DIV/0!")]
+    [Arguments("=VLOOKUP(1,ErrCell,1,FALSE)", "#DIV/0!")]
+    [Arguments("=VLOOKUP(1,ErrCell,2,FALSE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(1,ErrCell,1,FALSE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(1,ErrCell,2,FALSE)", "#DIV/0!")]
+    public async Task DirectAndNamedErrorTables_KeepTheirMeasuredPrecedence(
+        string formula,
+        string expected
+    ) => await Assert.That(InCell(formula)).IsEqualTo(expected);
 }
