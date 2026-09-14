@@ -509,6 +509,24 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
+    public async Task NestedLetCriteriaRoutes_PreserveStructuralAndElementWiseSemantics()
+    {
+        // A1:A3=5,0,9; Ghost is absent. Aspose.Cells 26.7.0 PLAIN/CSE respectively: the missing-sheet
+        // structural route is #REF!/#REF!, both valid and lazy controls are 2/2, and the CHOOSE route is 0/0.
+        // MySheet previously returned 0 instead of #REF! for the nested structural route.
+        await Assert
+            .That(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,LET(t,r,t)),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Num(OnGrid("=COUNTIF(LET(r,A1:A3,LET(t,r,t)),\">0\")"))).IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,LET(t,A1:A3,t)),\">0\")")))
+            .IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,LET(t,r,CHOOSE(1,t))),\">0\")")))
+            .IsEqualTo(0.0);
+    }
+
+    [Test]
     public async Task ElementWiseMissingSheetCriteriaSelector_FollowsCseAndStaysEmpty()
     {
         // A1:A3=5,0,9; Ghost is absent. Aspose.Cells 26.7.0 CSE is 0 for every selected missing-sheet

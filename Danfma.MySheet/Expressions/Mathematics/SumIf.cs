@@ -68,10 +68,11 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         // The sum_range slot takes a reference too: SUMIF(A1:A3,">0",B1:B3*1) is #REF!, not a silent 0.
         var sumRangeArgument = Arguments[2];
         if (
-            !PositionalRange.TrySelectIfReference(
+            !PositionalRange.TryResolveSelectorReference(
                 sumRangeArgument,
                 context,
                 out var selectedSumRange,
+                out _,
                 out var sumRangeSelectionError,
                 validateMissingSheet: true
             )

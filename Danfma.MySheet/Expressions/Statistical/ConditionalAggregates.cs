@@ -79,10 +79,11 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         // The average_range slot takes a reference too: AVERAGEIF(A1:A3,">0",B1:B3*1) is #REF!, not #DIV/0!.
         var averageRangeArgument = Arguments[2];
         if (
-            !PositionalRange.TrySelectIfReference(
+            !PositionalRange.TryResolveSelectorReference(
                 averageRangeArgument,
                 context,
                 out var selectedAverageRange,
+                out _,
                 out var averageRangeSelectionError,
                 validateMissingSheet: true
             )

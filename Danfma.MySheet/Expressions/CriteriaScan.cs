@@ -391,28 +391,12 @@ internal struct PositionalRange
         bool validateSelectedMissingSheet = false
     )
     {
-        // A LET whose body directly returns a bound name preserves that reference structurally in a criteria
-        // slot. Validate the final resolved reference once so a missing sheet is #REF!, rather than letting
-        // the value walk degrade it into per-cell errors that the fold ignores. Do not widen this to a LET
-        // whose body is IF/CHOOSE: those selectors are element-wise in CSE and intentionally stay on the
-        // existing empty-scan path when their selected reference names a missing sheet.
         if (
-            argument is Logical.Let { Arguments: var letArguments }
-            && letArguments.Length > 0
-            && letArguments[^1] is NameReference
-            && NamedReferences.TryResolveReference(argument, context, out var letReference)
-            && ReferenceGuard.MissingSheet(letReference, context) is { } letMissing
-        )
-        {
-            range = default;
-            return letMissing;
-        }
-
-        if (
-            TrySelectIfReference(
+            TryResolveSelectorReference(
                 argument,
                 context,
                 out var selected,
+                out _,
                 out var selectionError,
                 validateSelectedMissingSheet
             )
@@ -439,25 +423,28 @@ internal struct PositionalRange
     }
 
     /// <summary>
-    /// Resolves the selected branch of an IF when it is a reference. Array conditions use their first
-    /// element, matching the criteria-family range-slot rule; scalar conditions retain IF's single-draw
-    /// condition cache. A selected computed array remains ineligible for reference-only slots.
+    /// Resolves an IF/LET/CHOOSE selector to its final selected reference and classifies the route used to
+    /// reach it. Plain references are deliberately not selectors, preserving their existing range semantics.
     /// </summary>
-    public static bool TrySelectIfReference(
+    public static bool TryResolveSelectorReference(
         Expression argument,
         EvaluationContext context,
         out Expression selected,
+        out SelectorRoute route,
         out Error? error,
         bool validateMissingSheet = false
     )
     {
+        route = ClassifySelectorRoute(argument);
         if (
-            validateMissingSheet
-            && argument is Logical.If or Logical.Let or Lookup.Choose
+            route != SelectorRoute.NotASelector
             && NamedReferences.TryResolveReference(argument, context, out var resolvedReference)
         )
         {
-            if (ReferenceGuard.MissingSheet(resolvedReference, context) is { } missing)
+            if (
+                (validateMissingSheet || route == SelectorRoute.Structural)
+                && ReferenceGuard.MissingSheet(resolvedReference, context) is { } missing
+            )
             {
                 selected = null!;
                 error = missing;
@@ -507,6 +494,73 @@ internal struct PositionalRange
         selected = null!;
         error = Error.Ref;
         return false;
+    }
+
+    private static SelectorRoute ClassifySelectorRoute(Expression argument) =>
+        argument is Logical.If or Logical.Let or Lookup.Choose
+            ? ClassifySelectedRoute(
+                argument,
+                new Dictionary<string, SelectorRoute>(StringComparer.OrdinalIgnoreCase)
+            )
+            : SelectorRoute.NotASelector;
+
+    private static SelectorRoute ClassifySelectedRoute(
+        Expression argument,
+        Dictionary<string, SelectorRoute> bindings
+    )
+    {
+        if (argument is Logical.Let let)
+        {
+            if (let.Arguments.Length < 3 || let.Arguments.Length % 2 == 0)
+            {
+                return SelectorRoute.NotASelector;
+            }
+
+            var nestedBindings = new Dictionary<string, SelectorRoute>(bindings, bindings.Comparer);
+            for (var i = 0; i < let.Arguments.Length - 1; i += 2)
+            {
+                if (let.Arguments[i] is not NameReference name)
+                {
+                    return SelectorRoute.NotASelector;
+                }
+
+                nestedBindings[name.Name] = ClassifySelectedRoute(
+                    let.Arguments[i + 1],
+                    nestedBindings
+                );
+            }
+
+            return ClassifySelectedRoute(let.Arguments[^1], nestedBindings);
+        }
+
+        if (argument is Logical.If)
+        {
+            return SelectorRoute.ElementWise;
+        }
+
+        if (argument is Lookup.Choose)
+        {
+            return SelectorRoute.ElementWise;
+        }
+
+        if (
+            argument is NameReference nameReference
+            && bindings.TryGetValue(nameReference.Name, out var boundRoute)
+        )
+        {
+            return boundRoute;
+        }
+
+        return argument is Reference or NameReference
+            ? SelectorRoute.Structural
+            : SelectorRoute.NotASelector;
+    }
+
+    public enum SelectorRoute
+    {
+        NotASelector,
+        Structural,
+        ElementWise,
     }
 
     /// <summary>
