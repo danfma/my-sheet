@@ -186,6 +186,35 @@ internal static class ReferencePosition
     }
 
     /// <summary>
+    /// The lookup VALUE slot's rule, the one site MATCH, XMATCH and XLOOKUP share: the lookup value's error
+    /// leads the scan when it is the argument's OWN error (<see cref="PositionalRange.IsOwnSlotError"/> — an
+    /// unresolved name's <c>#NAME?</c>, <c>1/0</c>'s <c>#DIV/0!</c>) OR the argument denotes a single CELL that
+    /// holds it — a cell reference, an anchored cell, a name bound to one. A value slot is not a range slot:
+    /// the cell's value IS the lookup value, so its error is not "content" the way an error cell inside a
+    /// criteria range is (which is all <see cref="PositionalRange.IsOwnSlotError"/> was written for, and why
+    /// reusing it alone lost the approximate path's propagation). Measured on Aspose.Cells 26.6.0 and 26.7.0
+    /// (2026-09-14, PLAIN and array-entered, identical): over A1 = <c>=1/0</c>, <c>MATCH(A1,A1)</c> on every
+    /// match type, <c>XMATCH(A1,B1:B3)</c> and <c>XLOOKUP(A1,B1:B3,C1:C3)</c> — even with an
+    /// <c>if_not_found</c> — are <c>#DIV/0!</c>, as are VLOOKUP/HLOOKUP/LOOKUP, which check the value's error
+    /// unconditionally. A RANGE in the value slot stays out: its <c>#VALUE!</c> is the collapse artifact
+    /// (<c>SUM(MATCH(A1:A3,A1:A3,0))</c>, ElementwiseLiftingTests' known divergence).
+    /// </summary>
+    /// <remarks>The resolution runs only after the value turned out to be an error.</remarks>
+    public static bool IsLookupValueError(
+        Expression argument,
+        ComputedValue lookup,
+        EvaluationContext context
+    ) =>
+        lookup.TryGetError(out var error)
+        && (
+            PositionalRange.IsOwnSlotError(argument, error, context)
+            || (
+                NamedReferences.TryResolveReference(argument, context, out var reference)
+                && reference is CellReference
+            )
+        );
+
+    /// <summary>
     /// What a reference-requiring function returns for an argument it could NOT resolve to a reference: the
     /// argument's OWN error when it has one (<c>#NAME?</c> for an unknown name, <c>#REF!</c> for a failed
     /// <c>INDIRECT</c>/<c>OFFSET</c>), otherwise <paramref name="fallback"/>. Excel propagates the argument's

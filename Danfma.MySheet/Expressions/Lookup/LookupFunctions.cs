@@ -434,14 +434,12 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
 
         var lookup = Arguments[0].Evaluate(context);
 
-        // Sweep item 34(b), the VALUE slot: the lookup's own error leads the scan (the oracle answers
-        // #NAME? for XMATCH(NoSuch,A1:A3)) instead of the not-found #N/A. IsOwnSlotError keeps a range
-        // lookup's collapse #VALUE! (a range has no scalar value) out of the rule — that artifact is
-        // content, and the scan answers #N/A on it exactly as before.
-        if (
-            lookup.TryGetError(out var lookupError)
-            && PositionalRange.IsOwnSlotError(Arguments[0], lookupError, context)
-        )
+        // Sweep item 34(b), the VALUE slot: the lookup's error leads the scan (the oracle answers #NAME? for
+        // XMATCH(NoSuch,A1:A3), and #DIV/0! for XMATCH(A1,B1:B3) over an error cell) instead of the not-found
+        // #N/A. ReferencePosition.IsLookupValueError keeps a range lookup's collapse #VALUE! (a range has no
+        // scalar value) out of the rule — that artifact is content, and the scan answers #N/A on it exactly
+        // as before.
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context))
         {
             return lookup;
         }

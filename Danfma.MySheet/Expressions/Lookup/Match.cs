@@ -35,15 +35,13 @@ public sealed partial record Match(Expression[] Arguments) : Function
         }
 
         // Sweep item 34(b), both slots in one place (after the match-type parse, whose own coercion error
-        // keeps its precedence): the lookup VALUE's own error leads the scan on both match-type paths —
-        // the approximate path always propagated it, the exact path now follows suit — and when the
-        // lookup ARRAY's node does not resolve, the node's OWN error leads instead of the not-found
-        // #N/A (#NAME? for an unknown name, the node's #REF! for an unresolvable structured reference;
-        // the oracle answers the error on every one of these shapes, both entry modes).
-        if (
-            lookup.TryGetError(out var lookupError)
-            && PositionalRange.IsOwnSlotError(Arguments[0], lookupError, context)
-        )
+        // keeps its precedence): the lookup VALUE's error leads the scan on both match-type paths — its own
+        // error, or a single cell's that holds one (ReferencePosition.IsLookupValueError: MATCH(A1,A1) over
+        // A1 = =1/0 is #DIV/0! for every match type on Aspose.Cells 26.6.0 and 26.7.0) — and when the lookup
+        // ARRAY's node does not resolve, the node's OWN error leads instead of the not-found #N/A (#NAME? for
+        // an unknown name, the node's #REF! for an unresolvable structured reference; the oracle answers the
+        // error on every one of these shapes, both entry modes).
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context))
         {
             return lookup;
         }
