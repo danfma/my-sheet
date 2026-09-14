@@ -390,57 +390,16 @@ internal struct PositionalRange
         out PositionalRange range
     )
     {
-        if (argument is Logical.If ifNode)
+        if (TrySelectIfReference(argument, context, out var selected, out var selectionError))
         {
-            if (ArrayEvaluation.IsArrayEligible(ifNode.Arguments[0], context))
-            {
-                var firstCondition = ArrayEvaluation.FirstElement(ifNode.Arguments[0], context);
-                if (
-                    firstCondition.CoerceToBoolAllowingTextWords(out var condition) is
-                    { } conditionError
-                )
-                {
-                    range = default;
-                    return conditionError;
-                }
+            range = Open(selected, context);
+            return range.SlotError;
+        }
 
-                var selected =
-                    condition ? ifNode.Arguments[1]
-                    : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
-                    : null;
-
-                if (selected is not null && ArrayEvaluation.IsBareReferenceNode(selected, context))
-                {
-                    range = Open(selected, context);
-                    return range.SlotError;
-                }
-            }
-            else if (
-                context
-                    .EvaluateConditionOnce(ifNode.Arguments[0])
-                    .CoerceToBoolAllowingTextWords(out var condition) is
-                { } conditionError
-            )
-            {
-                range = default;
-                return conditionError;
-            }
-            else
-            {
-                var selected =
-                    condition ? ifNode.Arguments[1]
-                    : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
-                    : null;
-
-                if (selected is not null && ArrayEvaluation.IsBareReferenceNode(selected, context))
-                {
-                    range = Open(selected, context);
-                    return range.SlotError;
-                }
-            }
-
+        if (selectionError is { } error)
+        {
             range = default;
-            return Error.Ref;
+            return error;
         }
 
         if (RejectComputedArray(argument, context) is { } rejected)
@@ -451,6 +410,51 @@ internal struct PositionalRange
 
         range = Open(argument, context);
         return range.SlotError;
+    }
+
+    /// <summary>
+    /// Resolves the selected branch of an IF when it is a reference. Array conditions use their first
+    /// element, matching the criteria-family range-slot rule; scalar conditions retain IF's single-draw
+    /// condition cache. A selected computed array remains ineligible for reference-only slots.
+    /// </summary>
+    public static bool TrySelectIfReference(
+        Expression argument,
+        EvaluationContext context,
+        out Expression selected,
+        out Error? error
+    )
+    {
+        if (argument is not Logical.If ifNode)
+        {
+            selected = null!;
+            error = null;
+            return false;
+        }
+
+        var conditionValue = ArrayEvaluation.IsArrayEligible(ifNode.Arguments[0], context)
+            ? ArrayEvaluation.FirstElement(ifNode.Arguments[0], context)
+            : context.EvaluateConditionOnce(ifNode.Arguments[0]);
+        if (conditionValue.CoerceToBoolAllowingTextWords(out var condition) is { } conditionError)
+        {
+            selected = null!;
+            error = conditionError;
+            return false;
+        }
+
+        var branch =
+            condition ? ifNode.Arguments[1]
+            : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
+            : null;
+        if (branch is not null && ArrayEvaluation.IsBareReferenceNode(branch, context))
+        {
+            selected = branch;
+            error = null;
+            return true;
+        }
+
+        selected = null!;
+        error = Error.Ref;
+        return false;
     }
 
     /// <summary>

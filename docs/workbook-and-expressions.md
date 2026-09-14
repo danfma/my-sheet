@@ -857,8 +857,11 @@ The guard tests are precise about which of those two mistakes each one catches:
    references: `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` is `2` here now, the oracle's answer in *both* entry
    modes (it arrived pinned at MySheet's `0`, a recorded divergence the sweep owned). An **array-conditioned**
    `IF` in a range slot is resolved from its first condition element and contributes the selected reference branch:
-   `COUNTIF(IF(A1:A3>0,A1:A3),">0")` is `2`. A selected computed array remains refused:
-   `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` is `#REF!`. Two shapes remain
+   `COUNTIF(IF(A1:A3>0,A1:A3),">0")` is `2`. The same selection applies to `SUMIF` and `AVERAGEIF`'s
+   sum/average-range slot before its selected reference is resized: with `A1:A3=5,0,9` and `B1:B3=1,2,3`,
+   `SUMIF(A1:A3,">0",IF(A1:A3>0,B1,A1))` is `4`. A selected computed array remains refused:
+   `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` and `SUMIF(A1:A3,">0",IF(TRUE,SEQUENCE(3),B1:B3))` are
+   `#REF!`. Two shapes remain
   **deliberate deviations**, each pinned as one in
   `CriteriaComputedArgumentTests`, left for the compatibility sweep: `COUNTIF(5,">0")` and `COUNTIF(A1*1,">0")` are `1` where the oracle answers `#REF!` in both modes
   (a bare *scalar* in a range slot, a shape no array producer takes); and `SUMIF(A:A*1,">0")` is `0` where the

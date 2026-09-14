@@ -370,6 +370,55 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
+    public async Task SumifAndAverageif_SumRangeAcceptsAnIfReferenceSelector()
+    {
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Aspose.Cells 26.7.0, one formula per workbook. PLAIN/CSE:
+        // the array-conditioned rows are #VALUE!/2 and #VALUE!/4, while scalar and selected-reference
+        // rows agree at 4. A selected computed array is #REF!/#REF!. The mini-CSE follows CSE: before
+        // this pin all accepted rows were #REF!, including the smaller selected B1 reference that resizes.
+        await Assert
+            .That(Num(OnGrid("=AVERAGEIF(A1:A3,\">0\",IF(A1:A3>0,B1:B3,A1:A3))")))
+            .IsEqualTo(2.0);
+        await Assert.That(Num(OnGrid("=SUMIF(A1:A3,\">0\",IF(TRUE,B1:B3,A1:A3))"))).IsEqualTo(4.0);
+        await Assert
+            .That(Num(OnGrid("=SUMIF(A1:A3,\">0\",IF(TRUE,B1:B3,SEQUENCE(3)))")))
+            .IsEqualTo(4.0);
+        await Assert
+            .That(OnGrid("=SUMIF(A1:A3,\">0\",IF(TRUE,SEQUENCE(3),B1:B3))"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(Num(OnGrid("=SUMIF(A1:A3,\">0\",IF(A1:A3>0,B1,A1))"))).IsEqualTo(4.0);
+    }
+
+    [Test]
+    public async Task Sumif_SumRangeIfReferenceSelector_EvaluatesAVolatileConditionOnce()
+    {
+        // 200 seeded evaluations. A single TICK selects B (SUMIF=4) or A (SUMIF=14); a probe and a
+        // second selection would increment draws past one. This pins the shared selector path's contract.
+        for (var seed = 0; seed < 200; seed++)
+        {
+            var (workbook, sheet) = Grid();
+            var draws = 0;
+            var first = seed % 2 == 0;
+            workbook.RegisterFunction(
+                "TICK",
+                (_, _) =>
+                {
+                    draws++;
+                    return first ? 1 : 0;
+                }
+            );
+
+            var result = ExpressionParser
+                .Parse("=SUMIF(A1:A3,\">0\",IF(TICK()>0,B1:B3,A1:A3))", sheet)
+                .Evaluate(workbook)
+                .AsObject();
+
+            await Assert.That(Num(result)).IsEqualTo(first ? 4.0 : 14.0);
+            await Assert.That(draws).IsEqualTo(1);
+        }
+    }
+
+    [Test]
     public async Task CriteriaFamily_AcceptsAMixedSelectorOnlyWhenItChoosesAReference()
     {
         // Measured on Aspose.Cells 26.7.0, one formula per workbook, PLAIN/CSE respectively:

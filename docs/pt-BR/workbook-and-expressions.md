@@ -906,8 +906,11 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
    resposta do oráculo nos *dois* modos de entrada (chegou fixado no `0` do MySheet, uma divergência
    registrada que era da varredura). Um `IF` de **condição-array** em um slot de intervalo é resolvido pelo
    primeiro elemento da condição e contribui o ramo de referência selecionado:
-   `COUNTIF(IF(A1:A3>0,A1:A3),">0")` é `2`. Um array computado selecionado continua recusado:
-   `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` é `#REF!`. Duas formas permanecem
+    `COUNTIF(IF(A1:A3>0,A1:A3),">0")` é `2`. A mesma seleção se aplica ao slot de intervalo de soma/média
+    de `SUMIF` e `AVERAGEIF` antes de redimensionar a referência selecionada: com `A1:A3=5,0,9` e
+    `B1:B3=1,2,3`, `SUMIF(A1:A3,">0",IF(A1:A3>0,B1,A1))` é `4`. Um array computado selecionado continua
+    recusado: `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` e
+    `SUMIF(A1:A3,">0",IF(TRUE,SEQUENCE(3),B1:B3))` são `#REF!`. Duas formas permanecem
   **desvios deliberados**, cada uma fixada como tal em
   `CriteriaComputedArgumentTests`, deixadas para a varredura de compatibilidade:
   `COUNTIF(5,">0")` e `COUNTIF(A1*1,">0")` dão `1`

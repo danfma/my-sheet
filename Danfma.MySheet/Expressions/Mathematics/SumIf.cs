@@ -66,13 +66,36 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         }
 
         // The sum_range slot takes a reference too: SUMIF(A1:A3,">0",B1:B3*1) is #REF!, not a silent 0.
-        if (PositionalRange.RejectComputedArray(Arguments[2], context) is { } computedSumRange)
+        var sumRangeArgument = Arguments[2];
+        if (
+            !PositionalRange.TrySelectIfReference(
+                sumRangeArgument,
+                context,
+                out var selectedSumRange,
+                out var sumRangeSelectionError
+            )
+        )
         {
-            return ComputedValue.Error(computedSumRange);
+            if (sumRangeSelectionError is { } error)
+            {
+                return ComputedValue.Error(error);
+            }
+
+            if (
+                PositionalRange.RejectComputedArray(sumRangeArgument, context) is
+                { } computedSumRange
+            )
+            {
+                return ComputedValue.Error(computedSumRange);
+            }
+        }
+        else
+        {
+            sumRangeArgument = selectedSumRange;
         }
 
         var sumRange = PositionalRange.OpenResized(
-            Arguments[2],
+            sumRangeArgument,
             context,
             range.Rows,
             range.Columns

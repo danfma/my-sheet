@@ -77,13 +77,36 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         }
 
         // The average_range slot takes a reference too: AVERAGEIF(A1:A3,">0",B1:B3*1) is #REF!, not #DIV/0!.
-        if (PositionalRange.RejectComputedArray(Arguments[2], context) is { } computedAverageRange)
+        var averageRangeArgument = Arguments[2];
+        if (
+            !PositionalRange.TrySelectIfReference(
+                averageRangeArgument,
+                context,
+                out var selectedAverageRange,
+                out var averageRangeSelectionError
+            )
+        )
         {
-            return ComputedValue.Error(computedAverageRange);
+            if (averageRangeSelectionError is { } error)
+            {
+                return ComputedValue.Error(error);
+            }
+
+            if (
+                PositionalRange.RejectComputedArray(averageRangeArgument, context) is
+                { } computedAverageRange
+            )
+            {
+                return ComputedValue.Error(computedAverageRange);
+            }
+        }
+        else
+        {
+            averageRangeArgument = selectedAverageRange;
         }
 
         var averageRange = PositionalRange.OpenResized(
-            Arguments[2],
+            averageRangeArgument,
             context,
             range.Rows,
             range.Columns
