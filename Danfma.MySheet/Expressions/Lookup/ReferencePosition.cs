@@ -190,8 +190,8 @@ internal static class ReferencePosition
     /// leads the scan when it is the argument's OWN error (<see cref="PositionalRange.IsOwnSlotError"/> — an
     /// unresolved name's <c>#NAME?</c>, <c>1/0</c>'s <c>#DIV/0!</c>) OR the argument denotes a single CELL that
     /// holds it — a cell reference, an anchored cell, a name bound to one, OR (final-review fix wave, finding
-    /// I4, pre-existing) a 1x1 RANGE: static (<c>A1:A1</c>, a name bound to <c>$A$1:$A$1</c>) or DYNAMIC
-    /// (<c>ErrCell:ErrCell</c>, resolved through <see cref="DynamicRange"/> at evaluation time). A value slot
+    /// I4, pre-existing) a static or resolved 1x1 RANGE (<c>A1:A1</c>, or a name bound to
+    /// <c>$A$1:$A$1</c>). A value slot
     /// is not a range slot: the cell's value IS the lookup value, so its error is not "content" the way an
     /// error cell inside a criteria range is (which is all <see cref="PositionalRange.IsOwnSlotError"/> was
     /// written for, and why reusing it alone lost the approximate path's propagation). Measured on
@@ -209,9 +209,8 @@ internal static class ReferencePosition
     /// evaluated to: a genuine <see cref="CellReference"/> argument already agrees with
     /// <paramref name="lookup"/> (its own <c>Evaluate</c> dereferences the cell), but a 1x1
     /// <see cref="RangeReference"/> (<c>A1:A1</c>) collapses <paramref name="lookup"/> to an unconditional
-    /// <c>#VALUE!</c> (sweep item 32) and a 1x1 resolved through <see cref="DynamicRange"/>
-    /// (<c>ErrCell:ErrCell</c>) wraps it as a Reference-kind value that is not even an error — neither
-    /// dereferences into the one cell the way a plain <see cref="CellReference"/>'s own <c>Evaluate</c> does.
+    /// <c>#VALUE!</c> (sweep item 32), so it does not dereference into the one cell the way a plain
+    /// <see cref="CellReference"/>'s own <c>Evaluate</c> does.
     /// </param>
     public static bool IsLookupValueError(
         Expression argument,

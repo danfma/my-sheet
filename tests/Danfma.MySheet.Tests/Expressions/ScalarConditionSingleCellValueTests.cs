@@ -97,6 +97,7 @@ public class ScalarConditionSingleCellValueTests
     [Arguments("=ISBLANK(IF(TRUE,F1,0))", "TRUE")]
     [Arguments("=N(IF(TRUE,A1,0))", "5")]
     [Arguments("=IF(TRUE,E2,0)+1", "#DIV/0!")]
+    [Arguments("=IF(TRUE,ErrCell,0)+1", "#DIV/0!")]
     public async Task AnInspectionOrErrorHandlingFunction_OverTheSingleCellBranch_SeesItsValue(
         string formula,
         string expected
