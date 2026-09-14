@@ -18,6 +18,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         var matchType = 1.0;
 
+        OpenRangeReference? open = null;
         if (
             Arguments.Length == 3
             && Arguments[2].Evaluate(context).CoerceToNumber(out matchType) is { } typeError
@@ -57,10 +58,10 @@ public sealed partial record Match(Expression[] Arguments) : Function
                 context,
                 out var arrayReference,
                 boundOpenRanges: false
-            ) && arrayReference is OpenRangeReference open
+            ) && arrayReference is OpenRangeReference openReference
         )
         {
-            return MatchOverOpenRange(open, lookup, matchType, context);
+            open = openReference;
         }
 
         // Serve the lookup array from the Layer-2 range cache when the argument is a big populated range:
@@ -68,8 +69,13 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // reproduces this scan's result bit for bit. A small range (or a non-range argument) streams the
         // memoized cells positionally (no materialized vector) via RangeValueCursor.
         var snapshot = Arguments[1] is Reference reference
-            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            ? context.Workbook.TryGetRangeSnapshot(open ?? reference, context)
             : null;
+
+        if (open is not null && snapshot is null)
+        {
+            return MatchOverOpenRange(open, lookup, matchType, context);
+        }
 
         if (matchType == 0)
         {
@@ -80,7 +86,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
                 switch (snapshot.TryExactPosition(lookup, out var hashPosition))
                 {
                     case ExactMatchOutcome.Found:
-                        return ComputedValue.Number(hashPosition);
+                        return ComputedValue.Number(snapshot.SourcePosition(hashPosition));
                     case ExactMatchOutcome.NotFound:
                         return ComputedValue.Error(Error.NA);
                 }
@@ -136,7 +142,9 @@ public sealed partial record Match(Expression[] Arguments) : Function
                     ? snapshot.ApproximateAscendingPosition(lookup)
                     : snapshot.ApproximateDescendingPosition(lookup);
 
-            return indexed >= 1 ? ComputedValue.Number(indexed) : ComputedValue.Error(Error.NA);
+            return indexed >= 1
+                ? ComputedValue.Number(snapshot.SourcePosition(indexed))
+                : ComputedValue.Error(Error.NA);
         }
 
         // `snapshot` is guaranteed null here (a non-null snapshot always returns above), so threading it

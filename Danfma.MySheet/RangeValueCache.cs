@@ -109,6 +109,7 @@ internal sealed class RangeSnapshot
     /// second copy of values that already live in <see cref="SheetValueStore"/>; for an open range it stays the
     /// materialized list (its enumeration order comes from the structural index, not arithmetic).</summary>
     public IReadOnlyList<ComputedValue> Values { get; }
+    private readonly IReadOnlyList<int>? _sourcePositions;
 
     private readonly Lazy<ExactIndex> _exact;
     private readonly Lazy<SortedIndex> _sorted;
@@ -116,9 +117,13 @@ internal sealed class RangeSnapshot
     private readonly Lazy<SortedNumbers> _sortedNumbers;
     private readonly ConcurrentDictionary<AggregateKind, ComputedValue> _aggregates = new();
 
-    private RangeSnapshot(IReadOnlyList<ComputedValue> values)
+    private RangeSnapshot(
+        IReadOnlyList<ComputedValue> values,
+        IReadOnlyList<int>? sourcePositions = null
+    )
     {
         Values = values;
+        _sourcePositions = sourcePositions;
         _exact = new Lazy<ExactIndex>(BuildExact);
         _sorted = new Lazy<SortedIndex>(BuildSorted);
         _numericEquality = new Lazy<NumericEqualityMap>(BuildNumericEquality);
@@ -126,6 +131,9 @@ internal sealed class RangeSnapshot
     }
 
     public int Count => Values.Count;
+
+    public int SourcePosition(int populatedPosition) =>
+        _sourcePositions is null ? populatedPosition : _sourcePositions[populatedPosition - 1];
 
     /// <summary>Materializes the snapshot from a range reference, reusing the exact enumeration order and the
     /// memoized cell values the consuming functions already see (so the linear-fallback path is identical).</summary>
@@ -143,17 +151,21 @@ internal sealed class RangeSnapshot
                 return new RangeSnapshot(BuildRectangleView(rectangle, context));
 
             case OpenRangeReference open:
-                // Open ranges expose only their POPULATED cells (count unknown up front, order = the structural
-                // index's, not arithmetic) — no cheap position<->(col,row) inverse exists (it would need an
-                // auxiliary per-covered-column offset table read through the structural index), so the List
-                // path is kept.
+                // Retain each populated cell's declared-origin position beside its value, so positional
+                // consumers can use the shared accelerators without confusing an ordinal with a coordinate.
                 var values = new List<ComputedValue>();
-                foreach (var value in open.ExpandComputedValues(context))
+                var positions = new List<int>();
+                var workbook = context.Workbook;
+                var handle = workbook.ResolveDenseHandle(open.SheetName);
+                foreach (var (column, row) in open.PopulatedCells(context))
                 {
-                    values.Add(value);
+                    values.Add(workbook.GetCellValueDense(handle, open.SheetName, column, row));
+                    positions.Add(
+                        open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row)
+                    );
                 }
 
-                return new RangeSnapshot(values);
+                return new RangeSnapshot(values, positions);
 
             default:
                 return new RangeSnapshot(Array.Empty<ComputedValue>());

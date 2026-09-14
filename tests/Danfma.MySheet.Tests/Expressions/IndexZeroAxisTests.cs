@@ -287,6 +287,7 @@ public class IndexZeroAxisTests
         // Column 5 of the whole row $5:$10 is the ABSOLUTE column E (only E..H happen to be populated),
         // not "the 5th populated column" (there are only 4) — the distinction WholeColumnConsumerTests'
         // Index_WholeColumn_ByAbsolutePosition also pins, over a fixture where the two readings diverge.
+        // Expected value changed #REF! -> 45: open-range INDEX now addresses absolute column E.
         await Assert.That(Num(Eval(IdxFixture(), "=SUM(INDEX($5:$10,0,5))"))).IsEqualTo(45.0);
     }
 
@@ -310,6 +311,7 @@ public class IndexZeroAxisTests
                     )
                 )
             )
+            // Expected value changed 1 -> 3: the INDEX reference now lifts element-wise under operators.
             .IsEqualTo(3.0);
     }
 }

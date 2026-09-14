@@ -10,9 +10,9 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// column A / row 1 when that side is open — never the POPULATED bounding box's own corner
 /// (<c>OpenRangeReference.ToBoundedRange</c>). <c>MATCH</c>/<c>XMATCH</c> return the absolute position;
 /// <c>INDEX(open,r,c)</c> addresses absolute rows/columns; <c>ROW</c>/<c>COLUMN</c>/<c>COUNTA</c> of the
-/// result follow automatically once <c>INDEX</c> is correct. The performance model is unchanged: every
-/// path here still visits only POPULATED cells through the structural index
-/// (<see cref="OpenRangeReference.PopulatedCells"/>), never the whole grid.
+/// result follow automatically once <c>INDEX</c> is correct. <c>INDEX</c>/<c>OFFSET</c> translate coordinates
+/// arithmetically; <c>MATCH</c>/<c>XMATCH</c> visit only POPULATED cells through the structural index and
+/// retain their source positions. No path materializes the whole grid.
 ///
 /// <para>Oracle: Aspose.Cells 26.7.0, one formula per workbook, 2026-09-14, PLAIN and CSE agreeing on
 /// every row measured. The "corpus" fixture mirrors the downstream consumer's own idiom:
@@ -67,6 +67,84 @@ public class OpenRangePositionalTests
         // "x" sits at C4 — absolute column C, the 3rd column — not position 1 (the only POPULATED cell
         // MATCH would otherwise count as the first).
         await Assert.That(Num(Eval(CorpusFixture(), "=MATCH(\"x\",$4:$4,0)"))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    [Arguments("=XMATCH(30,$4:$4,0,1)", 3.0)]
+    [Arguments("=XMATCH(30,$4:$4,0,-1)", 7.0)]
+    [Arguments("=XMATCH(30,$4:$4,0,2)", 5.0)]
+    [Arguments("=XMATCH(30,$4:$4,0,-2)", 5.0)]
+    [Arguments("=XMATCH(35,$4:$4,-1,1)", 5.0)]
+    [Arguments("=XMATCH(35,$4:$4,1,1)", 7.0)]
+    [Arguments("=XMATCH(\"a*\",$4:$4,2,1)", 3.0)]
+    [Arguments("=XMATCH(\"a*\",$4:$4,2,-1)", 7.0)]
+    public async Task XMatch_OverAWholeRow_ReturnsTheAbsoluteColumnPosition(
+        string formula,
+        double expected
+    )
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        if (formula.Contains("a*"))
+        {
+            sheet["C4"] = new StringValue("alpha");
+            sheet["E4"] = new StringValue("beta");
+            sheet["G4"] = new StringValue("atom");
+        }
+        else if (
+            formula.Contains("XMATCH(35")
+            || formula.EndsWith(",2)")
+            || formula.EndsWith(",-2)")
+        )
+        {
+            sheet["C4"] = new NumberValue(20);
+            sheet["E4"] = new NumberValue(30);
+            sheet["G4"] = new NumberValue(40);
+        }
+        else
+        {
+            sheet["C4"] = new NumberValue(30);
+            sheet["E4"] = new NumberValue(25);
+            sheet["G4"] = new NumberValue(30);
+        }
+
+        await Assert.That(Num(Eval(workbook, formula))).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("=XMATCH(30,C:C,0,1)", 3.0)]
+    [Arguments("=XMATCH(30,C:C,0,-1)", 7.0)]
+    [Arguments("=XMATCH(35,C:C,-1,1)", 5.0)]
+    [Arguments("=XMATCH(35,C:C,1,1)", 7.0)]
+    [Arguments("=XMATCH(\"a*\",C:C,2,1)", 3.0)]
+    [Arguments("=XMATCH(\"a*\",C:C,2,-1)", 7.0)]
+    public async Task XMatch_OverAWholeColumn_ReturnsTheAbsoluteRowPosition(
+        string formula,
+        double expected
+    )
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        if (formula.Contains("a*"))
+        {
+            sheet["C3"] = new StringValue("alpha");
+            sheet["C5"] = new StringValue("beta");
+            sheet["C7"] = new StringValue("atom");
+        }
+        else if (formula.Contains("XMATCH(35"))
+        {
+            sheet["C3"] = new NumberValue(20);
+            sheet["C5"] = new NumberValue(30);
+            sheet["C7"] = new NumberValue(40);
+        }
+        else
+        {
+            sheet["C3"] = new NumberValue(30);
+            sheet["C5"] = new NumberValue(25);
+            sheet["C7"] = new NumberValue(30);
+        }
+
+        await Assert.That(Num(Eval(workbook, formula))).IsEqualTo(expected);
     }
 
     [Test]

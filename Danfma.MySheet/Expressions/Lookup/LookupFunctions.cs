@@ -469,6 +469,19 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return unresolved;
         }
 
+        OpenRangeReference? open = null;
+        if (
+            NamedReferences.TryResolveReference(
+                Arguments[1],
+                context,
+                out var arrayReference,
+                boundOpenRanges: false
+            ) && arrayReference is OpenRangeReference openReference
+        )
+        {
+            open = openReference;
+        }
+
         var array = ArgumentFlattening.ExpandCached(Arguments[1], context, out var snapshot);
 
         var matchMode = 0.0;
@@ -496,7 +509,7 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             switch (snapshot.TryExactPosition(lookup, out var hashPosition))
             {
                 case ExactMatchOutcome.Found:
-                    return ComputedValue.Number(hashPosition);
+                    return ComputedValue.Number(snapshot.SourcePosition(hashPosition));
                 case ExactMatchOutcome.NotFound:
                     return ComputedValue.Error(Error.NA);
             }
@@ -510,7 +523,26 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             reverse: searchMode < 0
         );
 
-        return match >= 0 ? ComputedValue.Number(match + 1) : ComputedValue.Error(Error.NA);
+        if (match < 0)
+        {
+            return ComputedValue.Error(Error.NA);
+        }
+
+        var populatedPosition = match + 1;
+        if (snapshot is not null)
+        {
+            return ComputedValue.Number(snapshot.SourcePosition(populatedPosition));
+        }
+
+        if (open is not null)
+        {
+            var (column, row) = open.PopulatedCells(context).ElementAt(match);
+            return ComputedValue.Number(
+                open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row)
+            );
+        }
+
+        return ComputedValue.Number(populatedPosition);
     }
 }
 

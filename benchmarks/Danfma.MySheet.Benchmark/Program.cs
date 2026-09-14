@@ -54,6 +54,13 @@ if (args.Contains("--range-cache-admission"))
     return;
 }
 
+// Coordinate-aware MATCH/XMATCH cache gate: `dotnet run -c Release -- --open-range-match`.
+if (args.Contains("--open-range-match"))
+{
+    OpenRangeMatchHarness.Run();
+    return;
+}
+
 // Índice estrutural vitalício do 3.0 (Fase 2): `dotnet run -c Release -- --structural-index-lifetime`.
 if (args.Contains("--structural-index-lifetime"))
 {
