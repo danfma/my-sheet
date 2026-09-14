@@ -435,11 +435,14 @@ internal struct PositionalRange
         bool validateMissingSheet = false
     )
     {
-        route = ClassifySelectorRoute(argument);
-        if (
-            route != SelectorRoute.NotASelector
-            && NamedReferences.TryResolveReference(argument, context, out var resolvedReference)
-        )
+        Reference? resolvedReference = null;
+        var resolvesAsReference = NamedReferences.TryResolveReference(
+            argument,
+            context,
+            out resolvedReference
+        );
+        route = ClassifySelectorRoute(argument, resolvesAsReference);
+        if (route != SelectorRoute.NotASelector && resolvedReference is not null)
         {
             if (
                 (validateMissingSheet || route == SelectorRoute.Structural)
@@ -496,16 +499,25 @@ internal struct PositionalRange
         return false;
     }
 
-    private static SelectorRoute ClassifySelectorRoute(Expression argument) =>
-        argument is Logical.If or Logical.Let or Lookup.Choose
-            ? ClassifySelectedRoute(
+    private static SelectorRoute ClassifySelectorRoute(
+        Expression argument,
+        bool resolvesAsReference
+    ) =>
+        argument switch
+        {
+            Logical.If or Logical.Let or Lookup.Choose => ClassifySelectedRoute(
                 argument,
+                resolvesAsReference,
                 new Dictionary<string, SelectorRoute>(StringComparer.OrdinalIgnoreCase)
-            )
-            : SelectorRoute.NotASelector;
+            ),
+            Reference or NameReference => SelectorRoute.NotASelector,
+            _ when resolvesAsReference => SelectorRoute.Structural,
+            _ => SelectorRoute.NotASelector,
+        };
 
     private static SelectorRoute ClassifySelectedRoute(
         Expression argument,
+        bool resolvesAsReference,
         Dictionary<string, SelectorRoute> bindings
     )
     {
@@ -526,11 +538,12 @@ internal struct PositionalRange
 
                 nestedBindings[name.Name] = ClassifySelectedRoute(
                     let.Arguments[i + 1],
+                    resolvesAsReference,
                     nestedBindings
                 );
             }
 
-            return ClassifySelectedRoute(let.Arguments[^1], nestedBindings);
+            return ClassifySelectedRoute(let.Arguments[^1], resolvesAsReference, nestedBindings);
         }
 
         if (argument is Logical.If)
@@ -551,7 +564,7 @@ internal struct PositionalRange
             return boundRoute;
         }
 
-        return argument is Reference or NameReference
+        return argument is Reference or NameReference || resolvesAsReference
             ? SelectorRoute.Structural
             : SelectorRoute.NotASelector;
     }

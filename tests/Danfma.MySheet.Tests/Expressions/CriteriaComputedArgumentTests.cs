@@ -527,6 +527,48 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
+    [Arguments("=COUNTIF(LET(r,INDEX(Ghost!A1:B3,0,1),r),\">0\")")]
+    [Arguments("=SUMIF(A1:A3,\">0\",LET(r,INDEX(Ghost!B1:C3,0,1),r))")]
+    [Arguments("=COUNTIF(LET(r,OFFSET(Ghost!A1,0,0,3,1),r),\">0\")")]
+    [Arguments("=SUMIF(A1:A3,\">0\",LET(r,OFFSET(Ghost!B1,0,0,3,1),r))")]
+    public async Task LetChainsEndingInReferenceReturningFunctions_PreserveStructuralSemantics(
+        string formula
+    )
+    {
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Ghost is absent. Aspose.Cells 26.7.0 PLAIN/CSE:
+        // #REF!/#REF! for the four missing-sheet rows. MySheet previously returned 0 for all four.
+        await Assert.That(OnGrid(formula)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    [Arguments("=COUNTIF(INDEX(Ghost!A1:B3,0,1),\">0\")")]
+    [Arguments("=SUMIF(A1:A3,\">0\",OFFSET(Ghost!B1,0,0,3,1))")]
+    public async Task BareReferenceReturningFunctions_ValidateTheirMissingSheet(string formula)
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE is #REF!/#REF!. Contrary to the round-six brief's control
+        // assumption, MySheet returned 0 before this fix, so these controls are behavioral pins too.
+        await Assert.That(OnGrid(formula)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task LetChainsEndingInReferenceReturningFunctions_KeepTheirControls()
+    {
+        // Valid controls are 2/2 and 4/4. The nested missing-sheet chain is #REF!/#REF!.
+        await Assert.That(Num(OnGrid("=COUNTIF(LET(r,INDEX(A1:B3,0,1),r),\">0\")"))).IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnGrid("=SUMIF(A1:A3,\">0\",LET(r,OFFSET(B1,0,0,3,1),r))")))
+            .IsEqualTo(4.0);
+        await Assert
+            .That(OnGrid("=COUNTIF(LET(r,INDEX(Ghost!A1:B3,0,1),LET(t,r,t)),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+
+        // CHOOSE met on the route stays element-wise: Aspose PLAIN/CSE is 0/0.
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(LET(r,CHOOSE(1,Ghost!A1:A3),r),\">0\")")))
+            .IsEqualTo(0.0);
+    }
+
+    [Test]
     public async Task ElementWiseMissingSheetCriteriaSelector_FollowsCseAndStaysEmpty()
     {
         // A1:A3=5,0,9; Ghost is absent. Aspose.Cells 26.7.0 CSE is 0 for every selected missing-sheet
