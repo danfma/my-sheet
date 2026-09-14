@@ -82,6 +82,14 @@ public class XLookupReferenceReadingTests
             .IsEqualTo("2");
 
     [Test]
+    [Arguments("=SUM(OFFSET(XLOOKUP(2,A1:A3,B1:C3),0,0,-1,1))", "20")]
+    [Arguments("=SUM(OFFSET(XLOOKUP(3,A1:A3,B1:C3),0,0,-2,2))", "550")]
+    public async Task SelectedReference_PreservesNegativeOffsetGeometry(
+        string formula,
+        string expected
+    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    [Test]
     [Arguments("=COUNTIF(XLOOKUP(TICK(),A1:A3,B1:C3),\">0\")", "2")]
     [Arguments("=AGGREGATE(9,6,XLOOKUP(TICK(),A1:A3,B1:C3))", "220")]
     public async Task ReferenceReaders_EvaluateVolatileXLookupOnce(string formula, string expected)
