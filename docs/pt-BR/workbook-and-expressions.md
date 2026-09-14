@@ -413,9 +413,11 @@ Detalhes:
   branco.
 - **Dentro de uma fórmula nada muda.** `=SUM(A1:A3)` continua sendo uma soma sobre três células: quem decide
   o que uma referência multicélula significa é o *consumidor*, não a célula. Só uma referência que sobrevive
-  como valor final da célula sofre a interseção. Consumidores escalares de informação/erro (`ISERROR`, `N`,
-  `IFERROR`, `ISNUMBER`) aplicam a mesma interseção pela posição da linha ao argumento de referência antes de
-  inspecioná-lo, tanto para intervalos literais quanto para colunas de tabela.
+  como valor final da célula sofre a interseção. Consumidores escalares de informação/erro (`ISBLANK`,
+  `ISERR`, `ISERROR`, `ISLOGICAL`, `ISNA`, `ISNONTEXT`, `ISNUMBER`, `ISTEXT`, `N`, `IFERROR`, `IFNA`) aplicam
+  a mesma interseção pela posição de linha/coluna ao argumento de referência antes de inspecioná-lo, tanto
+  para intervalos literais, colunas de tabela, nomes definidos, intervalos abertos e referências na mesma
+  planilha ou entre planilhas.
 - **O caminho direto de `Expression.Evaluate` continua produzindo `#VALUE!`.**
   `ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook)` não tem célula de fórmula com a qual
   intersectar. A regra vive em `Workbook.EvaluateCell`, que é o ponto de estrangulamento único de toda
@@ -485,7 +487,9 @@ superior permanece uma referência, portanto `ROWS(INDEX(E5:H10,0,1))` é `6` e
 O `OFFSET` também herda da base cada dimensão omitida. Portanto `OFFSET(A1:A3,0,0)` continua 3x1, enquanto
 `OFFSET(A1:A3,0,0,2)` é a janela explícita 2x1. O MySheet reporta deliberadamente essa janela coerente para
 `ROWS`/`COLUMNS`; o Aspose.Cells 26.7.0 reporta ali as dimensões da base, mesmo enquanto `SUM` e `COUNT` leem
-a janela explicitamente redimensionada, um resultado internamente contraditório do oráculo.
+a janela explicitamente redimensionada, um resultado internamente contraditório do oráculo. Altura ou largura
+zero é `#REF!`; uma altura negativa se estende para cima e uma largura negativa se estende para a esquerda a
+partir da origem deslocada, usando o tamanho absoluto (`SUM(OFFSET(A3,0,0,-2,1))` = 5 sobre A1:A3 = 1,2,3).
 
 Uma banda vazia (o `[#Data]` de uma tabela só-cabeçalho, o `EmptyRangeReference` de zero linhas do item 33
 da varredura) segue a mesma regra com a MESMA maquinaria: `SUM(INDEX(Tabela1[Valor],0,1))` e

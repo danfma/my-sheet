@@ -397,9 +397,10 @@ Details:
   they stored a reference-kind value that every typed accessor read back as blank.
 - **Inside a formula nothing changes.** `=SUM(A1:A3)` is still a sum over three cells: the *consumer*, not
   the cell, decides what a multi-cell reference means. Only a reference that survives as the cell's final
-  value is intersected. Scalar information/error consumers (`ISERROR`, `N`, `IFERROR`, `ISNUMBER`) apply
-  the same row-position intersection to their reference argument before inspecting it, for literal ranges
-  and table columns alike.
+  value is intersected. Scalar information/error consumers (`ISBLANK`, `ISERR`, `ISERROR`, `ISLOGICAL`,
+  `ISNA`, `ISNONTEXT`, `ISNUMBER`, `ISTEXT`, `N`, `IFERROR`, `IFNA`) apply the same row/column-position
+  intersection to their reference argument before inspecting it, for literal ranges, table columns,
+  defined names, open ranges, and same- or cross-sheet references alike.
 - **The direct `Expression.Evaluate` path still yields `#VALUE!`.**
   `ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook)` has no formula cell to intersect against.
   The rule lives in `Workbook.EvaluateCell`, which is the single choke point of every cell read
@@ -461,7 +462,9 @@ top-level argument remains a reference, so `ROWS(INDEX(E5:H10,0,1))` is `6` and
 `OFFSET` also inherits each omitted dimension from its base. Thus `OFFSET(A1:A3,0,0)` remains 3x1,
 whereas `OFFSET(A1:A3,0,0,2)` is the explicit 2x1 window. MySheet deliberately reports that coherent
 window to `ROWS`/`COLUMNS`; Aspose.Cells 26.7.0 reports the base's dimensions there even while `SUM` and
-`COUNT` read the explicitly resized window, an internally contradictory oracle result.
+`COUNT` read the explicitly resized window, an internally contradictory oracle result. A zero height or
+width is `#REF!`; a negative height extends upward and a negative width extends leftward from the displaced
+origin, using the absolute size (`SUM(OFFSET(A3,0,0,-2,1))` = 5 over A1:A3 = 1,2,3).
 
 An empty band (a header-only table's `[#Data]`, sweep item 33's zero-row `EmptyRangeReference`) follows the
 same rule with the SAME machinery: `SUM(INDEX(Tabela1[Valor],0,1))` and `ROWS(INDEX(Tabela1[#Data],0,1))`
