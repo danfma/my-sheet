@@ -159,9 +159,16 @@ public class EmptyTableReferenceTests
     [Arguments("=XLOOKUP(1,Tabela1[Valor],Tabela1[Qtd],\"nf\")", "\"nf\"")]
     [Arguments("=COUNTIF(Tabela1[Valor],\">0\")", "0")]
     [Arguments("=COUNTIF(Tabela1[Valor],\"\")", "0")]
-    // The three rows that prove the criteria family's 0 comes from an EMPTY stream: a stream of one error
-    // element (what the reference's own #VALUE! would be if a consumer ever read it) matches "<>" and
-    // "#VALUE!", so these would answer 1 — the oracle answers 0 / 0 (primed; the sentinel "<>" is 1, a defect).
+    // Final-review fix wave, minor M2: the claim that used to sit here — that a stream of one error element
+    // (what the reference's own #VALUE! would be if a consumer ever read it) "matches '<>' and '#VALUE!', so
+    // these would answer 1" — was FALSE, measured: over a fixture holding a genuine error cell, an error
+    // element matches NEITHER criterion (COUNTIF over it with "<>" counts it as 2 of 3, unchanged whether the
+    // third slot is empty or an error; with "#DIV/0!" it counts 0 either way). The row above,
+    // COUNTIF(Tabela1[Valor],"") = 0, is the ONE live guard: an error element DOES match the empty criterion
+    // (a genuinely empty stream never would), which is the row the M2 mutation (an EMPTY-stream arm forced to
+    // yield the reference's own #VALUE! as one element) actually turns red. The two rows below do not guard
+    // anything — they would answer 0 whichever way the mutation went — and only pin the ordinary answer (the
+    // oracle answers 0 / 0 for both, primed; the sentinel row's "<>" is 1, an unrelated, unfixed defect).
     [Arguments("=COUNTIF(Tabela1[Valor],\"<>\")", "0")]
     [Arguments("=COUNTIF(Tabela1[Valor],\"#VALUE!\")", "0")]
     [Arguments("=COUNTIFS(Tabela1[Valor],\"<>\")", "0")]
@@ -539,6 +546,45 @@ public class EmptyTableReferenceTests
     [Arguments("=LET(x,Tabela1[Valor]*2,x)", "#N/A")]
     [Arguments("=SUM(LET(x,ROW(Tabela1[Valor]),x))", "0")]
     public async Task TheTopLeftOfAnEmptyBinding_FollowsWhatTheBindingHolds(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // Final-review fix wave, minor M3 (Important, unpinned before this): the BARE (non-LET) forms of the same
+    // shape as the NIT 4 pin above. =ROW(Tabela1[Valor]) alone is 2 (the anchor row, pinned elsewhere in this
+    // file); by the ruling's own classification ("an answer reachable from the zero-row reference at its
+    // anchor with the function's own semantics is MATCHED") that 2 is not a header read, so MAX/SUM of it
+    // should carry through — but the branch answers 0 for both. This is a DIFFERENT shape from the LET one
+    // above (SUM(LET(x,ROW(T),x)) 0, oracle 3/3, the inverted rectangle's header-row vector {1,2}): MAX/SUM
+    // applied directly never go through a LET binding's array-eligible capture. Oracle (core fixture, primed):
+    // MAX(ROW(Tabela1[Valor])) 2 in all four columns; SUM(ROW(Tabela1[Valor])) 2 PLAIN / 3 CSE. Registered for
+    // the controller; not fixed here.
+    [Test]
+    [Arguments("=MAX(ROW(Tabela1[Valor]))", "0")]
+    [Arguments("=SUM(ROW(Tabela1[Valor]))", "0")]
+    public async Task ABareAggregateOfRowOverAnEmptyBand_IsZero_ARecordedDivergence(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // Final-review fix wave, minor M4: unmeasured folds over the empty band, registered — no code changes.
+    // None of the five crashes; none was in the fix wave's brief's own matrix. Oracle (core fixture, PLAIN =
+    // CSE, primed): DEVSQ(Tabela1[Valor]) 0, XNPV(0.1,Tabela1[Valor],Tabela1[Qtd]) 0,
+    // PERCENTRANK(Tabela1[Valor],1) #N/A, SUMX2MY2(Tabela1[Valor],Tabela1[Qtd]) #DIV/0!, SHEET(Tabela1[Valor])
+    // 2 (pre-existing: SHEET does not resolve a structured reference over a NON-empty table on main either).
+    [Test]
+    [Arguments("=DEVSQ(Tabela1[Valor])", "#NUM!")]
+    [Arguments("=XNPV(0.1,Tabela1[Valor],Tabela1[Qtd])", "#NUM!")]
+    [Arguments("=PERCENTRANK(Tabela1[Valor],1)", "#NUM!")]
+    [Arguments("=SUMX2MY2(Tabela1[Valor],Tabela1[Qtd])", "0")]
+    [Arguments("=SHEET(Tabela1[Valor])", "#REF!")]
+    public async Task AnUnmeasuredFoldOverAnEmptyBand_DoesNotCrash_ARecordedDivergence(
         string formula,
         string expected
     )

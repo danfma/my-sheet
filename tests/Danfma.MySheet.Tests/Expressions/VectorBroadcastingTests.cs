@@ -326,6 +326,18 @@ public class VectorBroadcastingTests
         await Assert.That(Num(OnGrid("=SUM(IF(E5:G5>10,A1:C3,0))"))).IsEqualTo(33.0);
     }
 
+    // Final-review fix wave, minor M6: docs/workbook-and-expressions.md:806 (and the pt-BR twin) cite
+    // "SUM(IF(TRUE,A1:C3,0)) is 45 over A1:C3 = 1…9, Excel's answer in both entry modes" as sweep item 32's
+    // last-closed gap, but no test carried that literal formula — the example X becomes an [Arguments] of
+    // the test, per tasks/lessons.md. A SCALAR-condition (TRUE) selector's bare-reference branch streams the
+    // whole A1:C3 = 1+2+…+9 = 45 (item 32, ArrayEvaluation.BranchValue), the same on both engines and both
+    // entry modes.
+    [Test]
+    public async Task If_UnderAScalarCondition_StreamsTheWholeBranch_TheDocsCitedExample()
+    {
+        await Assert.That(Num(OnGrid("=SUM(IF(TRUE,A1:C3,0))"))).IsEqualTo(45.0);
+    }
+
     [Test]
     public async Task If_FoldsTheBranchShapeIntoItsOwnExtent()
     {

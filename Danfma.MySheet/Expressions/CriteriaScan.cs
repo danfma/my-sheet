@@ -374,6 +374,13 @@ internal struct PositionalRange
     /// to name — a scalar-conditioned <c>IF</c> over bare references — reaches the fallback as a
     /// REFERENCE, which the switch's <c>Reference</c> arm reads as the taken branch's range.)</item>
     /// </list>
+    ///
+    /// <para>Final-review fix wave, minor M7 (pre-existing, not fixed here): the <c>#VALUE!</c> exclusion
+    /// also hides a GENUINE <c>#VALUE!</c> when the node's own collapse IS the real answer, not an
+    /// artifact — <c>COUNTIF(IF("x",A1:A3,0),">0")</c> is 0 here (and on main) where the oracle answers
+    /// <c>#VALUE!</c> in both entry modes: <c>IF</c>'s condition slot does not accept an arbitrary string,
+    /// so <c>"x"</c> is a genuine coercion error, not a reference-valued computation's collapse. The rule
+    /// cannot tell the two apart from <paramref name="slotError"/> alone.</para>
     /// </summary>
     internal static bool IsOwnSlotError(
         Expression argument,
@@ -393,9 +400,13 @@ internal struct PositionalRange
 
     /// <summary>The next cell in position order (column-major, matching the materialized expansion exactly —
     /// the row-major array backing is transposed here to agree). Every parallel cursor is advanced once per
-    /// position so they stay aligned. Unreachable on the error-carrying range (its <see cref="Count"/> is 0
-    /// and every consumer surfaces <see cref="SlotError"/> first); kept total for the same one-element
-    /// semantics as <see cref="RangeValueCursor.MoveNext"/>.</summary>
+    /// position so they stay aligned. Final-review fix wave, minor M1: this sentence used to claim the
+    /// error-carrying range's slot is "unreachable … (its Count is 0)" — false on both counts, measured
+    /// against the constructor two paragraphs above (<see cref="Count"/> is 1, not 0, deliberately — see its
+    /// comment) and against this method's own FIRST branch below, which reads <see cref="SlotError"/>
+    /// directly: a consumer that surfaces it first (the criteria family) never reaches here, but one that
+    /// does not (SUMPRODUCT's opt-in factory) calls this ONE time and gets the error back as its single
+    /// element — the same one-element fallback <see cref="RangeValueCursor.MoveNext"/> gives a scalar.</summary>
     public ComputedValue Next()
     {
         if (_slotError is { } slotError)
