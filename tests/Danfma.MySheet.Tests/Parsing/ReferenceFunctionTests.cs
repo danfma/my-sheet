@@ -460,7 +460,7 @@ public class ReferenceFunctionTests
     [Arguments("=ROWS(OFFSET(A3,0,0,-2,1))", 2.0)]
     [Arguments("=SUM(OFFSET(A3,0,0,-2,1))", 5.0)]
     [Arguments("=COLUMNS(OFFSET(B1,0,0,1,-2))", 2.0)]
-    [Arguments("=SUM(OFFSET(B1,0,0,1,-2))", 5.0)]
+    [Arguments("=SUM(OFFSET(B1,0,0,1,-2))", 1.0)]
     [Arguments("=SUM(OFFSET(A3,-1,0,-2,1))", 3.0)]
     [Arguments("=ROWS(OFFSET(A:A,2,0,-2,1))", 2.0)]
     [Arguments("=SUM((OFFSET(A3,0,0,-2,1))*2)", 10.0)]
@@ -470,7 +470,7 @@ public class ReferenceFunctionTests
             ("A1", N(1)),
             ("A2", N(2)),
             ("A3", N(3)),
-            ("B1", N(4)),
+            ("B1", T("a")),
             ("B2", N(5)),
             ("B3", N(6))
         );
