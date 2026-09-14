@@ -352,14 +352,13 @@ an open axis and the **exact structural count** on a bounded axis:
 | `COLUMNS(A:A)` | `1`                                         | `1`        |
 | `ROWS(1:5)`    | `5` (structural)                            | `5`        |
 
-**Reference consumers.** Where a concrete range is required — `VLOOKUP`/`HLOOKUP` (table), `INDEX`,
-`OFFSET` (base) — an open range resolves to the **populated bounding box** within its limits; `AREAS`
-counts it as one area and `ISREF` reports `true`. So `VLOOKUP(2, A:B, 2)` and `INDEX(A:A, 3)` work.
-`INDEX`'s `row_num`/`column_num` — zero included, see the next section — count within that SAME bounded
-box, not the grid: `INDEX($5:$10, 0, 5)` over a whole-row base populated only in columns E:H is `#REF!`
-here (column 5 of the 4-column box), where Excel's ungridded column 5 is the absolute column E. A
-**documented deviation**, not a bug in the zero form specifically — a non-zero `INDEX($5:$10, 2, 5)` hits
-the identical box-relative counting.
+**Reference consumers.** `VLOOKUP`/`HLOOKUP` (table) resolve an open range to the **populated bounding
+box** within its limits; `AREAS` counts it as one area and `ISREF` reports `true`. So `VLOOKUP(2, A:B, 2)`
+works. Positional readers keep the open range instead: `INDEX`'s `row_num`/`column_num` — zero included,
+see the next section — count from the range's own declared origin (column A or row 1 on an open side), as
+does `OFFSET`'s base. Thus `INDEX($5:$10, 0, 5)` over a whole-row base populated only in columns E:H reads
+absolute column E, and `MATCH("x",$4:$4,0)` returns `3` when "x" is in C4. They translate through the
+populated structural index without materializing a full row or column.
 
 **Out of scope.** Spatial intersection of two open ranges is not modeled.
 
@@ -429,9 +428,8 @@ one-row range takes it as `column_num`.
 wider is `ComputedValue.Reference(...)` — so every reference-aware consumer sees a real range, with no
 per-consumer change:
 
-- aggregates and counts — `SUM`, `COUNT`, `COUNTA`, `SUMPRODUCT` (with no operator over the bare `INDEX`
-  result — see the registered gap below), `AGGREGATE` (both its reference and its array form), the
-  `COUNTIF`/`SUMIF`/`COUNTIFS` range slot;
+- aggregates and counts — `SUM`, `COUNT`, `COUNTA`, `SUMPRODUCT`, `AGGREGATE` (both its reference and its
+  array form), the `COUNTIF`/`SUMIF`/`COUNTIFS` range slot;
 - reference readers — `ROWS`, `COLUMNS`, `ROW`, `COLUMN`, `AREAS`, `ISREF`;
 - lookups and nesting — `MATCH`'s lookup array, a nested `INDEX(INDEX(range,0,1),2,1)`, an `OFFSET` base, a
   `:` range endpoint (`INDEX(range,0,1):A3`);
@@ -449,32 +447,16 @@ one of `INDEX`'s own `row_num`/`column_num` arguments twice if `INDEX` used it �
 dedicated arm instead resolves exactly once and reports every outcome — a genuine rectangle, a resolved
 single cell, or an argument `INDEX` could not resolve at all — as a one-element array at the probe stage
 already, so `SUM(ROW(INDEX(E5:H10,0,MATCH(7,E7:H7,0))))`-shaped corpus idioms and the plain scalar case both
-cost one evaluation, not two. A **bare** `INDEX(range,0,n)` used directly as an operand — not wrapped in
-`ROW`/`COLUMN` — has no such arm and is not array-eligible, so a comparison or arithmetic operator reading it
-directly (rather than through `ROW`/`COLUMN`, or through a consumer that reads the whole reference's cells,
-like `SUM`) keeps its `#VALUE!` scalar answer even inside an "always array" function like `SUMPRODUCT` or
-`AGGREGATE`'s array form; see the registered gap below.
+cost one evaluation, not two. A **bare** reference-returning `INDEX(range,0,n)` or multi-cell `OFFSET` used
+under a comparison or arithmetic operator in an array context lifts element by element like the literal range
+it denotes: `SUMPRODUCT((INDEX(E5:H10,0,1)>6)*1)` and its `OFFSET` equivalent are both `4`. A bare
+top-level argument remains a reference, so `ROWS(INDEX(E5:H10,0,1))` is `6` and
+`COUNTIF(OFFSET(E5,0,0,3,1),">0")` is `2`.
 
 An empty band (a header-only table's `[#Data]`, sweep item 33's zero-row `EmptyRangeReference`) follows the
 same rule with the SAME machinery: `SUM(INDEX(Tabela1[Valor],0,1))` and `ROWS(INDEX(Tabela1[#Data],0,1))`
 are both `0` (Aspose, primed core — see [Tables](#tables)), because selecting "row 0" of a zero-row band is
 still a zero-row band, narrowed to one column.
-
-**Registered gaps, not fixed by this item** (`tests/Danfma.MySheet.Tests/Expressions/IndexZeroAxisTests.cs`,
-both numbers):
-
-- **A whole-row/column open base counts a column/row by POPULATED position, not the absolute grid
-  position** — the SAME [populated-bounding-box convention](#whole-column-and-whole-row-references) every
-  `INDEX`/`VLOOKUP`/`OFFSET` base already uses for an open range, zero-argument or not:
-  `SUM(INDEX($5:$10,0,5))` over a base populated only in columns E:H is `#REF!` here (column 5 of that
-  4-column box), where Excel's ungridded column 5 is the absolute column E (`45`).
-- **A bare `INDEX(...)` result is not array-eligible under a comparison/arithmetic operator**, so a shape
-  like `AGGREGATE(15,6,(ROW(INDEX(r,0,1))-ROW(INDEX(INDEX(r,0,1),1,1))+1)/((INDEX(r,0,1)<>"")*(INDEX(r,0,1)
-  >6)),1)` — whose denominator compares the bare reference elementwise — keeps whatever MySheet's OWN
-  evaluation of the comparison gives (measured: `1`), against the oracle's `3`. Making a bare `INDEX` result
-  array-eligible everywhere an operator could reach it would also change EVERY existing, non-zero
-  `INDEX(range,n)` used as a bare consumer argument today (e.g. `NumericAggregation.Fold`'s
-  referenced-vs-direct split for a cell holding text) — a blast radius outside this item's scope.
 
 ## Implicit array arguments
 

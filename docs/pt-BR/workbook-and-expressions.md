@@ -365,14 +365,14 @@ da grade (`ROWS(A:A)` = 1.048.576). Um modelo sem grade não tem essa grade, ent
 | `COLUMNS(A:A)` | `1`                                                         | `1`        |
 | `ROWS(1:5)`    | `5` (estrutural)                                            | `5`        |
 
-**Consumidores de referência.** Onde um intervalo concreto é exigido — `VLOOKUP`/`HLOOKUP` (tabela),
-`INDEX`, `OFFSET` (base) — um intervalo aberto resolve para a **caixa delimitadora populada** dentro de
-seus limites; `AREAS` conta como uma área e `ISREF` reporta `true`. Assim, `VLOOKUP(2, A:B, 2)` e
-`INDEX(A:A, 3)` funcionam. O `row_num`/`column_num` do `INDEX` — incluindo zero, veja a seção seguinte —
-conta dentro dessa MESMA caixa limitada, não da grade: `INDEX($5:$10, 0, 5)` sobre uma base de linha
-inteira populada só nas colunas E:H é `#REF!` aqui (coluna 5 da caixa de 4 colunas), onde a coluna 5
-absoluta do Excel sem grade é a coluna E. Um **desvio documentado**, não um defeito específico da forma
-zero — um `INDEX($5:$10, 2, 5)` sem zero sofre a mesma contagem relativa à caixa.
+**Consumidores de referência.** `VLOOKUP`/`HLOOKUP` (tabela) resolvem um intervalo aberto para a **caixa
+delimitadora populada** dentro de seus limites; `AREAS` conta como uma área e `ISREF` reporta `true`. Assim,
+`VLOOKUP(2, A:B, 2)` funciona. Leitores posicionais mantêm o intervalo aberto: o `row_num`/`column_num` do
+`INDEX` — incluindo zero, veja a seção seguinte — conta a partir da origem declarada do próprio intervalo
+(coluna A ou linha 1 num lado aberto), assim como a base do `OFFSET`. Portanto,
+`INDEX($5:$10, 0, 5)` sobre uma base de linha inteira populada só nas colunas E:H lê a coluna E absoluta, e
+`MATCH("x",$4:$4,0)` devolve `3` quando "x" está em C4. Eles traduzem pelo índice estrutural populado sem
+materializar uma linha ou coluna inteira.
 
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 
@@ -449,9 +449,8 @@ O `INDEX.Evaluate` espelha a própria divisão do `OFFSET.Evaluate`: um resultad
 diretamente, e qualquer coisa mais larga é `ComputedValue.Reference(...)` — então todo consumidor que aceita
 referências vê um intervalo de verdade, sem nenhuma mudança por consumidor:
 
-- agregados e contagens — `SUM`, `COUNT`, `COUNTA`, `SUMPRODUCT` (sem operador sobre o resultado NU do
-  `INDEX` — veja a lacuna registrada abaixo), `AGGREGATE` (tanto na forma de referência quanto na de array),
-  o slot de intervalo de `COUNTIF`/`SUMIF`/`COUNTIFS`;
+- agregados e contagens — `SUM`, `COUNT`, `COUNTA`, `SUMPRODUCT`, `AGGREGATE` (tanto na forma de referência
+  quanto na de array), o slot de intervalo de `COUNTIF`/`SUMIF`/`COUNTIFS`;
 - leitores de referência — `ROWS`, `COLUMNS`, `ROW`, `COLUMN`, `AREAS`, `ISREF`;
 - buscas e aninhamento — o array de busca do `MATCH`, um `INDEX(INDEX(range,0,1),2,1)` aninhado, uma base de
   `OFFSET`, a extremidade de um intervalo `:` (`INDEX(range,0,1):A3`);
@@ -471,35 +470,17 @@ dedicado resolve exatamente uma vez e reporta todo resultado — um retângulo d
 resolvida, ou um argumento que o `INDEX` não conseguiu resolver — como um array de um elemento já na etapa
 de sondagem, então tanto idiomas do corpus na forma
 `SUM(ROW(INDEX(E5:H10,0,MATCH(7,E7:H7,0))))` quanto o caso escalar comum custam uma avaliação, não duas. Um
-`INDEX(range,0,n)` **nu**, usado diretamente como operando — não envolto em `ROW`/`COLUMN` — não tem esse
-braço e não é elegível para array, então uma comparação ou operador aritmético que o lê diretamente (em vez
-de por `ROW`/`COLUMN`, ou por um consumidor que lê as células da referência inteira, como o `SUM`) mantém sua
-resposta escalar `#VALUE!` mesmo dentro de uma função "sempre array" como o `SUMPRODUCT` ou a forma de array
-do `AGGREGATE`; veja a lacuna registrada abaixo.
+`INDEX(range,0,n)` que retorna referência ou um `OFFSET` multicélula, usado sob uma comparação ou operador
+aritmético em contexto de array, eleva elemento a elemento como o intervalo literal que denota:
+`SUMPRODUCT((INDEX(E5:H10,0,1)>6)*1)` e seu equivalente com `OFFSET` são ambos `4`. Um argumento nu de nível
+superior permanece uma referência, portanto `ROWS(INDEX(E5:H10,0,1))` é `6` e
+`COUNTIF(OFFSET(E5,0,0,3,1),">0")` é `2`.
 
 Uma banda vazia (o `[#Data]` de uma tabela só-cabeçalho, o `EmptyRangeReference` de zero linhas do item 33
 da varredura) segue a mesma regra com a MESMA maquinaria: `SUM(INDEX(Tabela1[Valor],0,1))` e
 `ROWS(INDEX(Tabela1[#Data],0,1))` são ambos `0` (Aspose, núcleo primado — veja [Tabelas](#tabelas)), porque
 selecionar "linha 0" de uma banda de zero linhas continua sendo uma banda de zero linhas, estreitada a uma
 coluna.
-
-**Lacunas registradas, não corrigidas por este item**
-(`tests/Danfma.MySheet.Tests/Expressions/IndexZeroAxisTests.cs`, os dois números):
-
-- **Uma base aberta de linha/coluna inteira conta uma coluna/linha pela posição POPULADA, não pela posição
-  absoluta da grade** — a MESMA
-  [convenção de caixa delimitadora populada](#referências-de-coluna-e-linha-inteira) que todo `INDEX`/
-  `VLOOKUP`/`OFFSET` já usa para um intervalo aberto, com zero ou sem: `SUM(INDEX($5:$10,0,5))` sobre uma
-  base populada só nas colunas E:H é `#REF!` aqui (coluna 5 dessa caixa de 4 colunas), onde a coluna 5
-  absoluta do Excel sem grade é a coluna E (`45`).
-- **Um resultado NU do `INDEX(...)` não é elegível para array sob um operador de comparação/aritmética**,
-  então uma forma como `AGGREGATE(15,6,(ROW(INDEX(r,0,1))-ROW(INDEX(INDEX(r,0,1),1,1))+1)/((INDEX(r,0,1)<>"")
-  *(INDEX(r,0,1)>6)),1)` — cujo denominador compara a referência nua elemento a elemento — mantém o que
-  quer que a PRÓPRIA avaliação da comparação pelo MySheet dê (medido: `1`), contra o `3` do oráculo. Tornar
-  um resultado nu do `INDEX` elegível para array em todo lugar que um operador pudesse alcançá-lo também
-  mudaria TODO `INDEX(range,n)` sem zero, já existente, usado como argumento nu de um consumidor hoje (por
-  exemplo, a divisão referenciado-vs-direto do `NumericAggregation.Fold` para uma célula com texto) — um
-  raio de impacto fora do escopo deste item.
 
 ## Argumentos implícitos de array
 
