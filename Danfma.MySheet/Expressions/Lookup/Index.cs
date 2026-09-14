@@ -93,20 +93,23 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return ComputedValue.Error(firstError);
         }
 
-        var row = Arguments.Length == 2 ? 1 : (int)first;
-        var column = Arguments.Length == 2 ? (int)first : 1;
+        var rowValue = Arguments.Length == 2 ? 1 : first;
+        var columnValue = Arguments.Length == 2 ? first : 1;
 
         if (Arguments.Length == 3)
         {
-            if (Arguments[2].Evaluate(context).CoerceToNumber(out var third) is { } thirdError)
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out columnValue) is { } thirdError)
             {
                 return ComputedValue.Error(thirdError);
             }
-
-            column = (int)third;
         }
 
-        return row is 0 or 1 && column is 0 or 1 ? value : ComputedValue.Error(Error.Ref);
+        if (ValidateAxes(1, 1, rowValue, columnValue, out _, out _) is { } error)
+        {
+            return error;
+        }
+
+        return value;
     }
 
     // The concrete-range form, split out of Evaluate so the resolution arm above can hand the resolved
@@ -188,10 +191,29 @@ public sealed partial record Index(Expression[] Arguments) : Function
             columnValue = 1;
         }
 
+        return ValidateAxes(
+            bounds.RowCount,
+            bounds.ColumnCount,
+            rowValue,
+            columnValue,
+            out row,
+            out column
+        );
+    }
+
+    private static ComputedValue? ValidateAxes(
+        int rowCount,
+        int columnCount,
+        double rowValue,
+        double columnValue,
+        out int row,
+        out int column
+    )
+    {
         row = (int)rowValue;
         column = (int)columnValue;
 
-        if (row < 0 || column < 0 || row > bounds.RowCount || column > bounds.ColumnCount)
+        if (row < 0 || column < 0 || row > rowCount || column > columnCount)
         {
             return ComputedValue.Error(row < 0 || column < 0 ? Error.Value : Error.Ref);
         }

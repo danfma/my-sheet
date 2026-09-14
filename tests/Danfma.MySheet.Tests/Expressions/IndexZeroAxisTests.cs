@@ -46,6 +46,21 @@ public class IndexZeroAxisTests
         return workbook;
     }
 
+    private static Workbook ThreeByThreeFixture()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        var value = 1;
+
+        foreach (var row in Enumerable.Range(1, 3))
+        foreach (var column in new[] { "A", "B", "C" })
+        {
+            sheet[$"{column}{row}"] = new NumberValue(value++);
+        }
+
+        return workbook;
+    }
+
     private static Workbook OneRowFixture()
     {
         var workbook = new Workbook();
@@ -90,6 +105,30 @@ public class IndexZeroAxisTests
     }
 
     private static double? Num(object? value) => value as double?;
+
+    // Aspose.Cells 26.7.0 returns #VALUE! for a negative truncated axis, including a 1x1 table;
+    // before this fix the scalar path returned #REF!. Positive indices past the extent remain #REF!.
+    [Test]
+    [Arguments("=INDEX(A1,-1)", "#VALUE!")]
+    [Arguments("=INDEX(A1,1,-1)", "#VALUE!")]
+    [Arguments("=INDEX(A1,2)", "#REF!")]
+    [Arguments("=INDEX(A1:C3,-1,1)", "#VALUE!")]
+    [Arguments("=SUM(INDEX(A1:C3,-0.5,1))", "12")]
+    public async Task NegativeAxes_UseTheSameValidationForSingleAndMultiCellTables(
+        string formula,
+        string expected
+    )
+    {
+        var value = Eval(ThreeByThreeFixture(), formula);
+        var actual = value switch
+        {
+            ErrorValue error => error.ErrorCode,
+            double number => number.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            _ => value?.ToString() ?? "null",
+        };
+
+        await Assert.That(actual).IsEqualTo(expected);
+    }
 
     // === Column form: INDEX(E5:H10,0,1) = column E, E5:E10 = [5,6,7,8,9,10] ===============================
 
