@@ -32,24 +32,45 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return valueError;
         }
 
-        if (ArraySlotError(Arguments[1], context, Error.NA) is { } lookupArrayError)
+        if (
+            Arguments[1] is not IArrayProducer
+            && ArraySlotError(Arguments[1], context, Error.NA) is { } lookupArrayError
+        )
         {
             return lookupArrayError;
         }
 
-        if (ArraySlotError(Arguments[2], context, Error.Value) is { } returnArrayError)
+        if (
+            Arguments[2] is not IArrayProducer
+            && ArraySlotError(Arguments[2], context, Error.Value) is { } returnArrayError
+        )
         {
             return returnArrayError;
         }
 
-        if (!ArraysShareLookupAxis(Arguments[1], Arguments[2], context))
+        if (!TryBindArray(Arguments[1], context, out var lookupArray))
         {
             return ComputedValue.Error(Error.Value);
         }
 
-        var lookupSnapshot = Arguments[1] is Reference lookupReference
-            ? context.Workbook.TryGetRangeSnapshot(lookupReference, context)
-            : null;
+        if (!TryBindArray(Arguments[2], context, out var returnArray))
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        var lookupIsColumn = lookupArray.Columns == 1;
+        var lookupIsRow = lookupArray.Rows == 1;
+        if (
+            (!lookupIsColumn && !lookupIsRow)
+            || (
+                lookupIsColumn
+                    ? lookupArray.Rows != returnArray.Rows
+                    : lookupArray.Columns != returnArray.Columns
+            )
+        )
+        {
+            return ComputedValue.Error(Error.Value);
+        }
 
         var matchMode = 0.0;
         if (
@@ -69,71 +90,34 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(searchError);
         }
 
-        // Non-admitted forward exact (the default, and by far the most common shape): stream the lookup and
-        // return arrays as parallel cursors, advancing in lockstep and stopping at the shorter. This
-        // reproduces the linear engine's [0, min(count)) bound and its returnArray[match] pairing bit for bit
-        // — the matched position's return cell IS the cursor's parallel value — while materializing neither
-        // vector. The admitted lookup keeps the O(1) hash path below.
-        if ((int)matchMode == 0 && searchMode >= 0 && lookupSnapshot is null)
+        if ((int)matchMode == 0 && searchMode >= 0)
         {
-            // `lookupSnapshot` is null here (the `is null` guard above), so threading it through — rather
-            // than letting Open re-probe Arguments[1] — keeps this the lookup range's first, streaming read
-            // instead of an eager second-use admission. Arguments[2] (the return array) was never probed, so
-            // its cursor keeps the ordinary self-probing overload.
-            var lookupCursor = RangeValueCursor.Open(Arguments[1], context, lookupSnapshot);
-            var returnCursor = RangeValueCursor.Open(Arguments[2], context);
-
-            while (
-                lookupCursor.MoveNext(out var candidate) && returnCursor.MoveNext(out var result)
-            )
+            using var lookupValues = lookupArray.Values().GetEnumerator();
+            using var returnValues = returnArray.Values().GetEnumerator();
+            while (lookupValues.MoveNext() && returnValues.MoveNext())
             {
-                if (ValueCoercion.AreEqual(candidate, lookup))
+                if (ValueCoercion.AreEqual(lookupValues.Current, lookup))
                 {
-                    return result;
+                    return returnValues.Current;
                 }
             }
 
             return NotFound(context);
         }
 
-        var lookupArray =
-            lookupSnapshot?.Values
-            ?? (IReadOnlyList<ComputedValue>)
-                ArgumentFlattening.ExpandComputedValues(Arguments[1], context);
-        var returnArray = ArgumentFlattening.ExpandCached(Arguments[2], context, out _);
-
-        var count = Math.Min(lookupArray.Count, returnArray.Count);
-
-        // Forward exact (the default) → O(1) via the value→first-position hash, but only when the whole
-        // lookup array is covered by the return array (so the hashed position is a valid return index — the
-        // linear engine only scans the shared [0, count) prefix). Every other case keeps LookupMatching.
-        if (
-            (int)matchMode == 0
-            && searchMode >= 0
-            && lookupSnapshot is not null
-            && lookupSnapshot.Count <= returnArray.Count
-        )
-        {
-            switch (lookupSnapshot.TryExactPosition(lookup, out var hashPosition))
-            {
-                case ExactMatchOutcome.Found:
-                    return returnArray[hashPosition - 1];
-                case ExactMatchOutcome.NotFound:
-                    return NotFound(context);
-            }
-        }
+        var values = lookupArray.Values().ToArray();
 
         var match = LookupMatching.FindMatch(
             lookup,
-            lookupArray,
-            count,
+            values,
+            values.Length,
             (int)matchMode,
             reverse: searchMode < 0
         );
 
         if (match >= 0)
         {
-            return returnArray[match];
+            return returnArray.Values().ElementAt(match);
         }
 
         return NotFound(context);
@@ -167,34 +151,100 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         return argument is NameReference ? ComputedValue.Error(fallback) : null;
     }
 
-    private static bool ArraysShareLookupAxis(
-        Expression lookupArgument,
-        Expression returnArgument,
-        EvaluationContext context
+    private static bool TryBindArray(
+        Expression argument,
+        EvaluationContext context,
+        out LookupArray array
     )
     {
-        if (
-            !NamedReferences.TryResolveReference(
-                lookupArgument,
-                context,
-                out var lookupReference,
-                boundOpenRanges: false
-            )
-            || !NamedReferences.TryResolveReference(
-                returnArgument,
-                context,
-                out var returnReference,
-                boundOpenRanges: false
-            )
-            || !RangeBounds.TryFrom(lookupReference, out var lookupBounds)
-            || !RangeBounds.TryFrom(returnReference, out var returnBounds)
-        )
+        if (argument is IArrayProducer producer)
         {
+            producer.TryBuildArrayOperand(context, out var operand);
+            var producerStream = new ArrayEvaluation.ArrayStream(
+                operand,
+                operand.Rows,
+                operand.Columns
+            );
+            array = new LookupArray(
+                null,
+                producerStream,
+                producerStream.Rows,
+                producerStream.Columns,
+                context
+            );
             return true;
         }
 
-        return lookupBounds.RowCount >= lookupBounds.ColumnCount
-            ? lookupBounds.RowCount == returnBounds.RowCount
-            : lookupBounds.ColumnCount == returnBounds.ColumnCount;
+        if (ArrayEvaluation.TryEvaluateStream(argument, context, out var stream))
+        {
+            array = new LookupArray(null, stream, stream.Rows, stream.Columns, context);
+            return true;
+        }
+
+        if (
+            NamedReferences.TryResolveReference(
+                argument,
+                context,
+                out var reference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            if (reference is OpenRangeReference open)
+            {
+                var rows = (open.RowMax ?? OpenRangeReference.GridMaxRow) - (open.RowMin ?? 1) + 1;
+                var columns =
+                    (open.ColMax ?? OpenRangeReference.GridMaxColumn) - (open.ColMin ?? 1) + 1;
+                array = new LookupArray(argument, default, rows, columns, context);
+                return true;
+            }
+
+            if (RangeBounds.TryFrom(reference, out var bounds))
+            {
+                array = new LookupArray(
+                    argument,
+                    default,
+                    bounds.RowCount,
+                    bounds.ColumnCount,
+                    context
+                );
+                return true;
+            }
+        }
+
+        array = default;
+        return false;
+    }
+
+    private readonly struct LookupArray(
+        Expression? reference,
+        ArrayEvaluation.ArrayStream stream,
+        int rows,
+        int columns,
+        EvaluationContext context
+    )
+    {
+        public int Rows { get; } = rows;
+        public int Columns { get; } = columns;
+        public int Length => Rows * Columns;
+
+        public IEnumerable<ComputedValue> Values()
+        {
+            if (reference is null)
+            {
+                foreach (var value in stream)
+                {
+                    yield return value;
+                }
+
+                yield break;
+            }
+
+            var cursor = RangeValueCursor.Open(reference, context);
+            while (cursor.MoveNext(out var value))
+            {
+                yield return value;
+            }
+        }
     }
 }

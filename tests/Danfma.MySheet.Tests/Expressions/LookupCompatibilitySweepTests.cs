@@ -42,8 +42,8 @@ public class LookupCompatibilitySweepTests
             workbook.DefineTable("Tabela1", "Data", "A1:C4", ["Item", "Valor", "Qtd"]);
         }
 
-        main["AZ5000"] = ExpressionParser.Parse(formula, main);
-        var value = workbook.GetCellValue("Main", "AZ5000");
+        var expression = ExpressionParser.Parse(formula, main);
+        var value = expression.Evaluate(new EvaluationContext(workbook, "Main", "AZ5000"));
 
         if (value.TryGetError(out var error))
         {
@@ -68,6 +68,42 @@ public class LookupCompatibilitySweepTests
     [Arguments("=XLOOKUP(9,A1:A3,B1:B2,\"nf\")", "#VALUE!")]
     public async Task XLookup_RequiresMatchingLookupAxis(string formula, string expected) =>
         await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    // Fixture: A1:A3 = 5,0,9; B1:B3 = 1,2,3; C1:C3 = 10,20,30; formula at AZ5000.
+    // Aspose.Cells 26.7.0 PLAIN / CSE agree: mismatched axes and 2D lookup arrays are #VALUE!,
+    // while equal computed vertical and horizontal vectors execute and return their first element.
+    // Before this fix every computed row below returned 0 and each 2D row returned 10 in MySheet.
+    [Test]
+    [Arguments("=XLOOKUP(1,SEQUENCE(3),B1:B2)", "#VALUE!")]
+    [Arguments("=XLOOKUP(5,A1:A3,SEQUENCE(2))", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(3),SEQUENCE(2))", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(3),SEQUENCE(3))", "1")]
+    [Arguments("=XLOOKUP(5,A1:B2,C1:C2)", "#VALUE!")]
+    [Arguments("=XLOOKUP(5,A1:B2,C1:D2)", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(1,3),B1:C1)", "#VALUE!")]
+    [Arguments("=XLOOKUP(5,A1:C1,SEQUENCE(1,2))", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(1,3),SEQUENCE(1,2))", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(1,3),SEQUENCE(1,3))", "1")]
+    public async Task XLookup_ValidatesAndExecutesReferenceOrComputedShapes(
+        string formula,
+        string expected
+    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    [Test]
+    public async Task XLookup_ComputedOperands_AreBuiltExactlyOnce()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        var draws = 0;
+        workbook.RegisterFunction("TICK", (_, _) => ++draws);
+
+        var value = ExpressionParser
+            .Parse("=XLOOKUP(1,SEQUENCE(3,1,TICK(),0),SEQUENCE(3))", sheet)
+            .Evaluate(new EvaluationContext(workbook, "Main", "AZ5000"));
+
+        await Assert.That(draws).IsEqualTo(1);
+        await Assert.That(value).IsEqualTo(ComputedValue.Number(1));
+    }
 
     [Test]
     [Arguments("=XLOOKUP(1,NoSuch,B1:B3)", "#N/A")]
