@@ -154,7 +154,12 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         if (reference is CellReference cell)
         {
             var value = cell.Evaluate(context);
-            return value.TryGetError(out _) ? value : ComputedValue.Error(Error.NA);
+            if (Arguments[1] is NameReference && value.TryGetError(out _))
+            {
+                return value;
+            }
+
+            return LookupScalarTable(value, context);
         }
 
         // Bounds are resolved ONCE here, not re-parsed on every column of the linear fallback scan below. This
@@ -312,6 +317,16 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
+
+        var approximate = true;
+        if (
+            Arguments.Length == 4
+            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
+        )
+        {
+            return ComputedValue.Error(modeError);
+        }
+
         return lookup.TryGetError(out _) || !ValueCoercion.AreEqual(tableValue, lookup)
             ? ComputedValue.Error(Error.NA)
             : tableValue;

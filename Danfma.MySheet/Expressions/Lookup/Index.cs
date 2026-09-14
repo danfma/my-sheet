@@ -46,7 +46,13 @@ public sealed partial record Index(Expression[] Arguments) : Function
         {
             if (reference is CellReference cell)
             {
-                return cell.Evaluate(context);
+                var value = cell.Evaluate(context);
+                if (Arguments[0] is NameReference && value.TryGetError(out _))
+                {
+                    return value;
+                }
+
+                return IndexIntoScalar(value, context);
             }
 
             if (reference is OpenRangeReference open)
@@ -68,6 +74,29 @@ public sealed partial record Index(Expression[] Arguments) : Function
         }
 
         return Arguments[0].Evaluate(context);
+    }
+
+    private ComputedValue IndexIntoScalar(ComputedValue value, EvaluationContext context)
+    {
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
+        {
+            return ComputedValue.Error(firstError);
+        }
+
+        var row = Arguments.Length == 2 ? 1 : (int)first;
+        var column = Arguments.Length == 2 ? (int)first : 1;
+
+        if (Arguments.Length == 3)
+        {
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out var third) is { } thirdError)
+            {
+                return ComputedValue.Error(thirdError);
+            }
+
+            column = (int)third;
+        }
+
+        return row is 0 or 1 && column is 0 or 1 ? value : ComputedValue.Error(Error.Ref);
     }
 
     // The concrete-range form, split out of Evaluate so the resolution arm above can hand the resolved
