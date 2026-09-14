@@ -1302,21 +1302,17 @@ public class MiniCseConsumerTests
         // references carries the taken branch's REFERENCE, so the criteria family's range slot reads the
         // range instead of refusing a computed array or collapsing it. Oracle 26.6.0, 2026-09-11, both modes:
         //     COUNTIF(IF(TRUE,A1:A3,0),">0")       was 0     now 2     oracle 2 / 2   (closed)
-        //     COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),">0")  #REF! unchanged   oracle 2 / 2 — STILL divergent:
-        //         a computed sibling keeps the node array-eligible, and the gate's refusal of a computed
-        //         array in a range slot is item 31's decision, not this rule's.
+        //     COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),">0")  was #REF! now 2   oracle 2 / 2 (item 31)
         //     COUNTBLANK(IF(TRUE,A1:A3,0))         0 unchanged          oracle 0 / 0 on this fixture
         //         (A2 holds text, so there is no blank to count — the phase's old comment claimed the oracle
         //         says 1 here; measured FALSE, 0 in both modes).
-        //     COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))  #REF! unchanged   oracle 0 / 0 — item 31's row too.
+        //     COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))  was #REF! now 0   oracle 0 / 0 (item 31)
         await Assert.That(Num(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,0),\">0\")"))).IsEqualTo(2.0);
         await Assert
             .That(OnPositionGrid("=COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),\">0\")"))
-            .IsEqualTo(ErrorValue.Reference);
+            .IsEqualTo(2.0);
         await Assert.That(Num(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,0))"))).IsEqualTo(0.0);
-        await Assert
-            .That(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))"))
-            .IsEqualTo(ErrorValue.Reference);
+        await Assert.That(OnPositionGrid("=COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))")).IsEqualTo(0.0);
 
         // The other top-level consumers that resolve their argument see the reference too (oracle both
         // modes): SMALL selects from the referenced cells, INDEX returns the addressed cell's value, and

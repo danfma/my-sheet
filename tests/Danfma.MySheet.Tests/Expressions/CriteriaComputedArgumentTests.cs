@@ -283,14 +283,39 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
-    public async Task Countif_OverAnArrayConditionedIf_IsRef()
+    public async Task CriteriaFamily_AcceptsAnArrayConditionedReferenceSelector()
     {
-        // SILENT [0]. Aspose 26.6.0: #VALUE! plain / 2 array-entered — the array-entered 2 is the M7
-        // first-element artifact (the IF collapses to its first branch's reference), which the union/M7
-        // ruling already refuses to reproduce; the gate rejects the array-eligible IF like every other
-        // computed array rather than imitating that artifact.
+        // Aspose.Cells 26.7.0 CSE answers shown below; MySheet previously returned #REF! for every row.
+        await Assert.That(Num(OnGrid("=COUNTIF(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnGrid("=SUMIF(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(14.0);
+        await Assert.That(Num(OnGrid("=AVERAGEIF(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(7.0);
+        await Assert.That(Num(OnGrid("=COUNTIFS(IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(2.0);
+        await Assert.That(Num(OnGrid("=SUMIFS(B1:B3,IF(A1:A3>0,A1:A3),\">0\")"))).IsEqualTo(4.0);
         await Assert
-            .That(OnGrid("=COUNTIF(IF(A1:A3>4,A1:A3,B1:B3),\">0\")"))
+            .That(Num(OnGrid("=AVERAGEIFS(B1:B3,IF(A1:A3>0,A1:A3),\">0\")")))
+            .IsEqualTo(2.0);
+        await Assert.That(Num(OnGrid("=COUNTIF(IF(A1:A3>4,A1:A3,B1:B3),\">0\")"))).IsEqualTo(2.0);
+    }
+
+    [Test]
+    public async Task CriteriaFamily_AcceptsAMixedSelectorOnlyWhenItChoosesAReference()
+    {
+        // Measured on Aspose.Cells 26.7.0, one formula per workbook, PLAIN/CSE respectively:
+        // TRUE/ref/producer and FALSE/producer/ref are 2/2 (COUNTIF) and 0/0 (COUNTBLANK). Reversing the
+        // selected branch gives #REF!/#REF!. MySheet previously returned #REF! for all eight shapes.
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),\">0\")")))
+            .IsEqualTo(2.0);
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(IF(FALSE,SEQUENCE(3),A1:A3),\">0\")")))
+            .IsEqualTo(2.0);
+        await Assert.That(Num(OnGrid("=COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))"))).IsEqualTo(0.0);
+        await Assert.That(Num(OnGrid("=COUNTBLANK(IF(FALSE,SEQUENCE(3),A1:A3))"))).IsEqualTo(0.0);
+        await Assert
+            .That(OnGrid("=COUNTIF(IF(FALSE,A1:A3,SEQUENCE(3)),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),\">0\")"))
             .IsEqualTo(ErrorValue.Reference);
     }
 

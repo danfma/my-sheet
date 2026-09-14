@@ -384,6 +384,75 @@ internal struct PositionalRange
         return Open(argument, context);
     }
 
+    public static Error? OpenCriteria(
+        Expression argument,
+        EvaluationContext context,
+        out PositionalRange range
+    )
+    {
+        if (argument is Logical.If ifNode)
+        {
+            if (ArrayEvaluation.IsArrayEligible(ifNode.Arguments[0], context))
+            {
+                var firstCondition = ArrayEvaluation.FirstElement(ifNode.Arguments[0], context);
+                if (
+                    firstCondition.CoerceToBoolAllowingTextWords(out var condition) is
+                    { } conditionError
+                )
+                {
+                    range = default;
+                    return conditionError;
+                }
+
+                var selected =
+                    condition ? ifNode.Arguments[1]
+                    : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
+                    : null;
+
+                if (selected is not null && ArrayEvaluation.IsBareReferenceNode(selected, context))
+                {
+                    range = Open(selected, context);
+                    return range.SlotError;
+                }
+            }
+            else if (
+                context
+                    .EvaluateConditionOnce(ifNode.Arguments[0])
+                    .CoerceToBoolAllowingTextWords(out var condition) is
+                { } conditionError
+            )
+            {
+                range = default;
+                return conditionError;
+            }
+            else
+            {
+                var selected =
+                    condition ? ifNode.Arguments[1]
+                    : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
+                    : null;
+
+                if (selected is not null && ArrayEvaluation.IsBareReferenceNode(selected, context))
+                {
+                    range = Open(selected, context);
+                    return range.SlotError;
+                }
+            }
+
+            range = default;
+            return Error.Ref;
+        }
+
+        if (RejectComputedArray(argument, context) is { } rejected)
+        {
+            range = default;
+            return rejected;
+        }
+
+        range = Open(argument, context);
+        return range.SlotError;
+    }
+
     /// <summary>
     /// The criteria family's range-slot gate: <c>#REF!</c> for an argument that is not a bare reference NODE
     /// yet the mini-CSE would stream as an array, and <c>null</c> (open the cursor as usual) for everything
@@ -565,12 +634,13 @@ internal struct CriteriaScan
             return missing;
         }
 
-        if (PositionalRange.RejectComputedArray(arguments[0], context) is { } computedValueRange)
+        if (
+            PositionalRange.OpenCriteria(arguments[0], context, out var valueRange) is
+            { } computedValueRange
+        )
         {
             return computedValueRange;
         }
-
-        var valueRange = PositionalRange.Open(arguments[0], context);
 
         // Sweep item 34(a): the slot's own error leads the length validation — the oracle answers the
         // error, not the paired form's #VALUE! mismatch (measured, both entry modes).
@@ -587,14 +657,12 @@ internal struct CriteriaScan
         for (var p = 0; p < pairCount; p++)
         {
             if (
-                PositionalRange.RejectComputedArray(arguments[1 + (p * 2)], context) is
+                PositionalRange.OpenCriteria(arguments[1 + (p * 2)], context, out var range) is
                 { } computedRange
             )
             {
                 return computedRange;
             }
-
-            var range = PositionalRange.Open(arguments[1 + (p * 2)], context);
 
             // Sweep item 34(a) again: every criteria range slot propagates the same way, before the
             // length comparison its Count would feed.
@@ -644,12 +712,13 @@ internal struct CriteriaScan
 
         for (var p = 0; p < pairCount; p++)
         {
-            if (PositionalRange.RejectComputedArray(arguments[p * 2], context) is { } computedRange)
+            if (
+                PositionalRange.OpenCriteria(arguments[p * 2], context, out var range) is
+                { } computedRange
+            )
             {
                 return computedRange;
             }
-
-            var range = PositionalRange.Open(arguments[p * 2], context);
 
             // Sweep item 34(a): the slot's own error leads the length validation here too.
             if (range.SlotError is { } countOnlySlotError)

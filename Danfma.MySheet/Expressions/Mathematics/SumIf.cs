@@ -43,18 +43,9 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         // (PositionalRange.RejectComputedArray carries the rule and the oracle columns). It sits BELOW the
         // snapshot fast path on purpose — a computed array is not a Reference, so it never has a snapshot and
         // the fast path above cannot see one.
-        if (PositionalRange.RejectComputedArray(Arguments[0], context) is { } computedRange)
+        if (PositionalRange.OpenCriteria(Arguments[0], context, out var range) is { } computedRange)
         {
             return ComputedValue.Error(computedRange);
-        }
-
-        var range = PositionalRange.Open(Arguments[0], context, snapshot);
-
-        // Sweep item 34(a): an error-valued range argument propagates its own error instead of streaming
-        // it as the one element the criteria discards (a silent 0 where the oracle answers the error).
-        if (range.SlotError is { } rangeSlotError)
-        {
-            return ComputedValue.Error(rangeSlotError);
         }
 
         if (Arguments.Length < 3)

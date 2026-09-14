@@ -52,24 +52,16 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
         // rest of the family applies (PositionalRange.RejectComputedArray carries the rule and the oracle
         // columns). Below the snapshot branch on purpose: a computed array is not a Reference, so it never
         // has a snapshot and that branch cannot claim it.
-        if (PositionalRange.RejectComputedArray(Arguments[0], context) is { } computedRange)
+        if (PositionalRange.OpenCriteria(Arguments[0], context, out var range) is { } computedRange)
         {
             return ComputedValue.Error(computedRange);
         }
 
         var count = 0;
-        var cursor = RangeValueCursor.Open(Arguments[0], context, snapshot);
 
-        // Sweep item 34(a): an error-valued range argument propagates its own error (the oracle answers
-        // #NAME? for an unresolved name, #DIV/0! for 1/0 and #REF! for an unresolvable structured
-        // reference) instead of streaming it as the one element the criteria discards — a silent 0.
-        if (cursor.SlotError is { } slotError)
+        for (var i = 0; i < range.Count; i++)
         {
-            return ComputedValue.Error(slotError);
-        }
-
-        while (cursor.MoveNext(out var value))
-        {
+            var value = range.Next();
             if (criteria.Matches(value))
             {
                 count++;
