@@ -95,6 +95,10 @@ public class CellBoundaryIntersectionTests
     }
 
     [Test]
+    [Arguments("ISERROR({0})", false, true)]
+    [Arguments("N({0})", 0.0, "#VALUE!")]
+    [Arguments("IFERROR({0},\"err\")", 0.0, "err")]
+    [Arguments("ISNUMBER({0})", true, false)]
     [Arguments("ISERR({0})", false, true)]
     [Arguments("ISNA({0})", false, false)]
     [Arguments("IFNA({0},\"na\")", 0.0, "#VALUE!")]
@@ -118,7 +122,11 @@ public class CellBoundaryIntersectionTests
         var openFormula = "=" + string.Format(format, "A:A");
         var openOutside =
             format.StartsWith("ISBLANK", StringComparison.Ordinal) ? true
-            : format.StartsWith("IFNA", StringComparison.Ordinal) ? 0.0
+            : format.StartsWith("ISNUMBER", StringComparison.Ordinal) ? false
+            : format.StartsWith("N(", StringComparison.Ordinal)
+            || format.StartsWith("IFERROR", StringComparison.Ordinal)
+            || format.StartsWith("IFNA", StringComparison.Ordinal)
+                ? 0.0
             : inside;
         await Assert.That(InCell("H2", openFormula)).IsEqualTo(inside);
         await Assert.That(InCell("H20", openFormula)).IsEqualTo(openOutside);
@@ -127,7 +135,12 @@ public class CellBoundaryIntersectionTests
         await Assert.That(InCell("H2", crossSheetFormula, "Sheet2")).IsEqualTo(inside);
         await Assert.That(InCell("H20", crossSheetFormula, "Sheet2")).IsEqualTo(Expected(outside));
 
-        var tableInside = inside is double ? 10.0 : inside;
+        var tableInside =
+            format.StartsWith("N(", StringComparison.Ordinal)
+            || format.StartsWith("IFERROR", StringComparison.Ordinal)
+            || format.StartsWith("IFNA", StringComparison.Ordinal)
+                ? 10.0
+                : inside;
         var workbook = TableFixture();
         var main = workbook["Main"];
         main["H2"] = ExpressionParser.Parse("=" + string.Format(format, "Tabela1[Valor]"), main);
