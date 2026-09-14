@@ -461,10 +461,20 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Files:* `Danfma.MySheet/Expressions/Logical/If.cs`, `CriteriaScan.cs`, the criteria test files, both docs twins
       *Why:* Phase 11a deliberately dropped the `IF`-reference item as not blocking, and this measurement shows the
       criteria family is where it actually bites.
+      **Contact from item 32 (2026-09-11, both modes):** the MIXED selector stays refused at the gate —
+      `COUNTIF(IF(TRUE,A1:A3,SEQUENCE(3)),">0")` and `COUNTBLANK(IF(TRUE,A1:A3,SEQUENCE(3)))` are `#REF!` here
+      against the oracle's 2 / 0, because a computed sibling keeps the node array-eligible. Recorded beside the
+      pins in `MiniCseConsumerTests.TheCriteriaFamily_ReadsAnAllBareReferenceBranchSelector_AsItsRange`. Owned by
+      [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 4.
 
 ## Controller additions after Phase 7's Task 8 (2026-09-10)
 
-- [ ] **32.** The `IF`-returns-a-reference question also bites under a SCALAR condition, and item 31's "decide the
+- [x] **32.** **CLOSED-BY [sweep 32-33-34](../excel-compatibility-sweep-32-33-34.md), Phase 2 — DELIVERED 2026-09-11 (`a8ef927`).**
+      One rule: a scalar-condition `IF`/`CHOOSE` whose branches are bare references carries the taken branch's
+      reference. `SUM(IF(TRUE,A1:A3,0))` 14, `SUM(IF(TRUE,A1:A3,SEQUENCE(3)))` 14, `ROWS(…)` 3 and
+      `SUM(IF(TRUE,MyCell,0))` 0 now match the oracle in both modes, as do the CHOOSE seam
+      (`SUM(CHOOSE(1,Tabela1[Valor])*2)` 120 CSE) and `COUNTIF(IF(TRUE,A1:A3,B1:B3),">0")` 2. The one residual,
+      the MIXED selector at the criteria gate, is item 31's and is recorded there. *Original record:* The `IF`-returns-a-reference question also bites under a SCALAR condition, and item 31's "decide the
       three together" is now four. Phase 7's Task 8 made a scalar-condition `IF` stream a computed-array branch, and
       deliberately left a BARE-REFERENCE branch outside that path, so these rows stand as measured divergences
       (Aspose.Cells 26.6.0, 2026-09-10, the oracle giving the SAME answer in BOTH entry modes):
@@ -482,12 +492,104 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* Task 8 fixed the SILENT half of the scalar-condition `IF` defect (a producer collapsing to its
       top-left) and left the LOUD half, which is a deliberate, reviewable boundary rather than an oversight.
 
-- [ ] **33.** A structured reference over a table with ZERO data rows (header-only, `ref="A1:C1"`) is an EMPTY reference on the oracle — `SUM(Tabela1[Valor])` 0, `ROWS` 0, `COUNT` 0, `ISREF` TRUE, `AVERAGE` `#DIV/0!`, `INDEX(…,1,1)` `#REF!`, `FILTER(…)` `#CALC!` (Aspose.Cells 26.6.0, 2026-09-11, both modes) — and MySheet answers `#REF!` by Phase 5's ruling R1, because the engine has no zero-extent reference node and Excel's UI cannot create the shape. Reopening it means an empty-reference representation touching every consumer that pattern-matches `RangeReference`; `Table.TryGetRegion` already carries the `Empty` outcome so the switch is one arm per consumer.
+- [x] **33.** **CLOSED-BY [sweep 32-33-34](../excel-compatibility-sweep-32-33-34.md), Phase 3 — DELIVERED 2026-09-14 (`0acb66a`, `e998533`, `09b8a0a`).**
+      Option (a) of ruling R1: `TableReference.TryResolve` maps `TableRegionOutcome.Empty` to a runtime-only
+      `EmptyRangeReference` (zero rows, anchored at the row after the header); `Absent` stays `#REF!`. Not a
+      MemoryPack union member (count 328, wire unchanged); the committed `f7-header-only` fixture evaluates end to
+      end and survives Save/Load. Measured while closing it: the oracle's answers over a header-only table depend on
+      EVALUATION ORDER (an earlier formula resolving the same reference changes COUNTA, CONCAT, COUNTBLANK, FILTER,
+      SUMPRODUCT); MySheet follows the order-independent zero-row reading, and the cold / value-under-the-header rows
+      are registered oracle defects (epic ledger). Rows blocked by pre-existing ordinary-range gaps became items
+      35-39. Re-measured on Aspose.Cells 26.7.0 before the merge: zero differences. *Original record:* A structured reference over a table with ZERO data rows (header-only, `ref="A1:C1"`) is an EMPTY reference on the oracle — `SUM(Tabela1[Valor])` 0, `ROWS` 0, `COUNT` 0, `ISREF` TRUE, `AVERAGE` `#DIV/0!`, `INDEX(…,1,1)` `#REF!`, `FILTER(…)` `#CALC!` (Aspose.Cells 26.6.0, 2026-09-11, both modes) — and MySheet answers `#REF!` by Phase 5's ruling R1, because the engine has no zero-extent reference node and Excel's UI cannot create the shape. Reopening it means an empty-reference representation touching every consumer that pattern-matches `RangeReference`; `Table.TryGetRegion` already carries the `Empty` outcome so the switch is one arm per consumer.
       *Files:* `Table.cs`, `TableReference.cs`, every `RangeReference` consumer, both docs twins
       *Why:* A deliberate structural divergence, recorded so it is a decision and not a drift.
-- [ ] **34.** The criteria family's RANGE slot silently accepts an error-valued argument: `COUNTIF(NoSuch,">0")` is 0 here and `#NAME?` on the oracle, `COUNTIF(1/0,">0")` is `#DIV/0!` there, and with Phase 5 `COUNTIF(Tabela1[#Totals],">0")` is 0 here against `#REF!` (both modes). One general arm in `PositionalRange.Open`'s fallback: an error-valued argument in the range slot propagates. Phase 5 pins the table instance with both numbers and hands the rule here. **Widened by Phase 5's T2 (measured 2026-09-11, both entry modes agreeing): it is `COUNTIF`, `SUMIF` AND `COUNTBLANK`, all three answering 0 where the oracle answers `#REF!`** — the original line named only `COUNTIF`. T2 also measured a SECOND consumer class in the same family: a consumer that resolves its own reference argument overwrites the node's error, so over an unknown table `VLOOKUP` and `INDEX` answer `#REF!` and `MATCH` answers `#N/A` where the oracle answers `#NAME?`, and the same holds for an unknown defined NAME (`VLOOKUP(1,UnknownName,1)` is `#REF!` while `SUM(UnknownName)` is `#NAME?`). Pinned as `AResolvingConsumer_OverAnUnknownTable_ReportsItsOwnCode_ADivergence`; the fix is one rule for the name class, not a table-specific arm.
+- [x] **34.** **CLOSED-BY [sweep 32-33-34](../excel-compatibility-sweep-32-33-34.md), Phase 1 — DELIVERED 2026-09-11 (`a542f56`, `5975c63`).**
+      Two rules, no per-consumer arms: (a) an argument whose OWN value is an error propagates from the criteria
+      family's range slot (`PositionalRange.Open`'s fallback + the `RangeValueCursor` mirror, guarded by
+      `IsOwnSlotError`), with `COUNT` 0 / `COUNTA` 1 proven untouched by mutation; (b) the resolving consumers
+      (VLOOKUP, HLOOKUP, INDEX, MATCH, XMATCH, OFFSET, LOOKUP, FORMULATEXT) return the node's own error through
+      `ReferencePosition.TryUnresolvedError`. MATCH over `Tabela1[#Totals]` was measured `#N/A` here, not the `#REF!`
+      the recorded rows implied; it now answers the node's `#REF!`. The pre-merge fix `5975c63` extended the lookups
+      to a lookup VALUE that is a single cell holding an error (MATCH, XMATCH, XLOOKUP, exact and approximate): it
+      restored `MATCH(A1,A1)` (a regression rule (b) had introduced, caught by a corpus-derived probe) and closed a
+      downstream consumer's `MATCH(A1,A1,0)` `#N/A` (oracle `#DIV/0!`, 26.6.0 and 26.7.0). Residuals: items 40 and 41.
+      *Original record:* The criteria family's RANGE slot silently accepts an error-valued argument: `COUNTIF(NoSuch,">0")` is 0 here and `#NAME?` on the oracle, `COUNTIF(1/0,">0")` is `#DIV/0!` there, and with Phase 5 `COUNTIF(Tabela1[#Totals],">0")` is 0 here against `#REF!` (both modes). One general arm in `PositionalRange.Open`'s fallback: an error-valued argument in the range slot propagates. Phase 5 pins the table instance with both numbers and hands the rule here. **Widened by Phase 5's T2 (measured 2026-09-11, both entry modes agreeing): it is `COUNTIF`, `SUMIF` AND `COUNTBLANK`, all three answering 0 where the oracle answers `#REF!`** — the original line named only `COUNTIF`. T2 also measured a SECOND consumer class in the same family: a consumer that resolves its own reference argument overwrites the node's error, so over an unknown table `VLOOKUP` and `INDEX` answer `#REF!` and `MATCH` answers `#N/A` where the oracle answers `#NAME?`, and the same holds for an unknown defined NAME (`VLOOKUP(1,UnknownName,1)` is `#REF!` while `SUM(UnknownName)` is `#NAME?`). Pinned as `AResolvingConsumer_OverAnUnknownTable_ReportsItsOwnCode_ADivergence`; the fix is one rule for the name class, not a table-specific arm.
       *Files:* `Danfma.MySheet/Expressions/PositionalRange.cs`, `CriteriaComputedArgumentTests.cs`
       *Why:* Pre-existing for every defined name; not table-specific.
+
+## Controller additions after the sweep 32-33-34 epic (2026-09-14)
+
+All owned by [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), whose Phase 0 measured every row below on
+Aspose.Cells 26.6.0 and 26.7.0 (identical, PLAIN and CSE; table in that epic's ledger, `phase0-oracle.md`). Items
+35-39 are gaps on ORDINARY ranges that item 33's empty reference inherits; each is pinned with both numbers in
+`EmptyTableReferenceTests.TheRowsThatDependOnAnOrdinaryRangeGap_KeepTheEnginesAnswer`.
+
+- [ ] **35.** `SUMIF` does not resize its sum range to the criteria range's shape: `SUMIF(A1:A3,">0",B1)` is 4 / 4
+      there and 1 here. Over a header-only table with a value directly under the header,
+      `SUMIF(A1:A3,">0",Tabela1[Valor])` is 7 there and 0 here.
+      *Files:* `SumIf` / `AverageIf`, `CriteriaScan.cs`
+      *Why:* Excel's documented sum-range resize; a fix moves every non-table `SUMIF` with a short sum range.
+- [ ] **36.** `OFFSET` with height/width omitted does not inherit the base's size: `ROWS(OFFSET(A1:A3,0,0))` 3 / 3
+      there, 1 here; `SUM(OFFSET(A1:A3,0,0))` 14 / 14 there, 5 here. Empty table: `ROWS(OFFSET(Tabela1[Valor],0,0))`
+      0 there, 1 here. The oracle contradicts itself on the EXPLICIT form: `ROWS(OFFSET(A1:A3,0,0,2))` is 3 there
+      while `SUM` 5 and `COUNT` 2 prove a two-row window; ruled a registered oracle defect, MySheet follows one
+      coherent window (explicit size when given, else the base's).
+      *Files:* `Danfma.MySheet/Expressions/Lookup/Offset.cs`
+      *Why:* silent wrong numbers on an ordinary range, found only because the empty reference exposed it.
+- [ ] **37.** `INDEX` with row or column 0 (the whole column / row) is `#REF!` here: `SUM(INDEX(A1:A3,0,1))` 14 / 14
+      there. Empty table: `SUM(INDEX(Tabela1[Valor],0,1))` and `ROWS(INDEX(Tabela1[#Data],0,1))` 0 there. This is a
+      downstream consumer's largest open divergence ("Bug 6", 7,194 formulas): `COUNT(INDEX(r,0,1))` is silently 0
+      here and every `AGGREGATE` over `INDEX(r,0,MATCH(…))` is `#REF!`.
+      *Files:* `Index` (`LookupFunctions.cs`)
+      *Why:* a common Excel idiom, unsupported rather than divergent, and it blocks `AGGREGATE` in real workbooks.
+- [ ] **38.** `XLOOKUP` never checks that its lookup and return arrays agree in size: `XLOOKUP(5,A1:A3,B1:B2)` is
+      `#VALUE!` / `#VALUE!` there and 1 here (`XLOOKUP(9,…)` `#VALUE!` there, `#N/A` here). Empty table:
+      `XLOOKUP(5,A1:A3,Tabela1[Valor])` `#VALUE!` there, `#N/A` here; with an `if_not_found` of "nf", `#VALUE!` there
+      and "nf" here.
+      *Files:* `XLookup`
+      *Why:* found by item 33's matrix; decide with item 40, which touches the same slots.
+- [ ] **39.** `ROWS` of a `LET` whose body is a bound bare reference answers 1: `ROWS(LET(x,A1:A3,x))` 3 / 3 there.
+      Empty table: `ROWS(LET(x,Tabela1[Valor],x))` 0 there, 1 here.
+      *Files:* `Let`, `ReferencePosition.cs`, `Rows.cs`
+      *Why:* the "a LET returns a reference" question item 32 left open; Phase 11c's top-level pins bound it.
+- [ ] **40.** `XLOOKUP`'s ARRAY slots over an unresolvable argument split per slot on the oracle: over an unknown NAME
+      it answers its own `#N/A` (lookup array) / `#VALUE!` (return array), but over `Tabela1[#Totals]` (no totals row)
+      the node's `#REF!`. MySheet answers `#N/A` for both: `XLOOKUP(1,Tabela1[#Totals],B1:B3)` `#REF!` there, `#N/A`
+      here; `XLOOKUP(1,A1:A3,NoSuch)` `#VALUE!` there, `#N/A` here.
+      *Files:* `XLookup`, `MissingSheetReferenceTests.XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo`
+      *Why:* item 34's rule (b) could not cover it without a per-slot arm, which that item forbade.
+- [ ] **41.** A resolving consumer over an argument that is not a reference keeps its own fallback code:
+      `VLOOKUP(1,5,1)` is `#N/A` there and `#REF!` here; `VLOOKUP(1,ErrCell,1)` over a single-cell name on a `#DIV/0!`
+      cell is `#DIV/0!` there and `#REF!` here; `VLOOKUP(1,1/0,1)` is mode-split there (`#DIV/0!` plain, `#N/A` CSE)
+      and `#DIV/0!` here.
+      *Files:* `VLookup.cs`, `ReferencePosition.cs`
+      *Why:* measured by item 34's implementer outside that item's rule; recorded so it is owned.
+- [ ] **42.** `ISERROR` / `N` / `IFERROR` over a multi-cell reference read differently by reference KIND in MySheet
+      only. The oracle applies ONE rule to a literal range and a table column (PLAIN: row-position implicit
+      intersection, `ISERROR(A1:A3)` FALSE at H2 and TRUE at H20, `N` 2 / `#VALUE!`; CSE: the first element), while
+      MySheet takes the plain column over a literal range but the CSE reading over a table reference. Ruling: the
+      table reference converges on the literal-range convention.
+      *Files:* `InformationFunctions.cs`, the implicit-intersection path
+      *Why:* an internal inconsistency, not an oracle question.
+- [ ] **43.** MySheet cannot PARSE an error literal in formula text. `=#REF!`, `=SUM(#REF!)`, `=IF(ISNA(#N/A),1,0)`,
+      `MATCH(#REF!,#REF!,0)`, `MATCH(1,#REF!,0)`, `IFNA(MATCH(#REF!,#REF!,0),"na")` and `COUNTIF(#REF!,#REF!)` all throw
+      `ParseException` here; the oracle evaluates them (`#REF!` / 1, PLAIN and CSE). Excel writes a broken reference
+      into formula text as `#REF!`, so a real `.xlsx` holding one degrades to its cached value through
+      `UnparsableFormula` and loses the formula.
+      *Files:* the tokenizer / `ExpressionParser`, the formula-text printer, the xlsx loader tests, both docs twins
+      *Why:* found by the divergence probe built over a downstream consumer's corpus log.
+- [ ] **44.** A lookup ARRAY slot over a lifted computation: `MATCH(5,A1:A3*1,0)` is `#VALUE!` here, equal to the oracle's PLAIN
+      column, but the oracle's CSE column lifts it to 1. `MATCH(5,LET(x,A1:A3*1,x),0)` is already 1 here. Pinned in
+      `LiftedLookupArraySlotTests`.
+- [ ] **45.** `ROW` over a header-only band inside an aggregate: `MAX(ROW(Tabela1[Valor]))` / `SUM(...)` are 0 here, 2 on the oracle.
+- [ ] **46.** Folds over a header-only band: `DEVSQ`, `XNPV`, `PERCENTRANK`, `SUMX2MY2` and `SHEET` differ from the oracle (pinned
+      with both numbers, sweep 32-34 final review M4).
+- [ ] **47.** `UnionReference` never expands a table area: `SUM((Tabela1[Valor],A1:A3))` is 14 here, 74 on the oracle.
+- [ ] **48.** Formula-text write-back drops a sheet qualifier on `#REF!` (`=Other!#REF!+1` → `=#REF!+1`) and the reference after
+      a deleted-sheet `#REF!` (`=#REF!A1` → `=#REF!`). The value matches the oracle; documented by item 43's phase.
+- [ ] **49.** Error criteria in the criteria family: `COUNTIF(B1:B3,#N/A)` is 2 here, 1 on the oracle; `SUMIF(…,NA(),…)` is 4 vs 1;
+      `SUMPRODUCT(A1:A3,INDIRECT("zz"))` is `#VALUE!` vs `#REF!`.
+- [ ] **50.** A NAME on both sides of `:` (`ErrCell:ErrCell`) mis-parses as an open range with a garbage column number.
 
 **An oracle limitation found while measuring the above, recorded so nobody re-measures it:** array-entered
 `ROWS(IF(FALSE,SEQUENCE(3)))` makes `Workbook.CalculateFormula()` throw
