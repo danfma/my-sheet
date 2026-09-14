@@ -81,56 +81,55 @@ public class ConditionalAggregationTests
     }
 
     [Test]
-    public async Task SumIf_MismatchedSumRangeSize_UsesShorterLength()
+    public async Task SumIf_ResizesSumRangeFromItsTopLeft()
     {
-        // SUMIF (unlike SUMIFS) never validates equal lengths: range and sum_range are zipped positionally
-        // up to the SHORTER length (Math.Min), not Excel's offset-from-sum_range's-corner reshaping. This is
-        // MySheet's existing, frozen contract — the streaming refactor (PositionalRange) must reproduce it
-        // exactly. A3 (=3, matches ">0") is never read because sum_range B1:B2 runs out first.
-        await Assert
-            .That(
-                Calc(
-                    "=SUMIF(A1:A3,\">0\",B1:B2)",
-                    N("A1", 1),
-                    N("A2", 2),
-                    N("A3", 3),
-                    N("B1", 10),
-                    N("B2", 20)
-                ) as double?
-            )
-            .IsEqualTo(30.0);
+        // Aspose.Cells 26.7.0 gives 4 for B1, B1:B2 and B1:C1: SUMIF resizes from the supplied
+        // sum_range's top-left to the 3x1 criteria-range shape. MySheet previously truncated to the
+        // supplied shape (1 for B1, 3 for B1:B2 and 1 for B1:C1 on this discriminating fixture).
+        foreach (var sumRange in new[] { "B1", "B1:B2", "B1:C1" })
+        {
+            await Assert
+                .That(
+                    Calc(
+                        $"=SUMIF(A1:A3,\">0\",{sumRange})",
+                        N("A1", 5),
+                        N("A2", 0),
+                        N("A3", 9),
+                        N("B1", 1),
+                        N("B2", 2),
+                        N("B3", 3),
+                        N("C1", 10)
+                    ) as double?
+                )
+                .IsEqualTo(4.0);
+        }
 
-        // The reverse shape (sum_range LONGER than range) truncates the same way, from the value-range side.
+        // B3 is resized to B3:B5. The cells beyond the used area are ordinary blanks, so only B3 adds 3.
         await Assert
             .That(
-                Calc(
-                    "=SUMIF(A1:A2,\">0\",B1:B3)",
-                    N("A1", 1),
-                    N("A2", 2),
-                    N("B1", 10),
-                    N("B2", 20),
-                    N("B3", 30)
-                ) as double?
+                Calc("=SUMIF(A1:A3,\">0\",B3)", N("A1", 5), N("A2", 0), N("A3", 9), N("B3", 3))
+                    as double?
             )
-            .IsEqualTo(30.0);
+            .IsEqualTo(3.0);
     }
 
     [Test]
-    public async Task AverageIf_MismatchedAverageRangeSize_UsesShorterLength()
+    public async Task AverageIf_ResizesAverageRangeFromItsTopLeft()
     {
-        // Same frozen Math.Min contract as SUMIF, mirrored for AVERAGEIF's separate implementation.
+        // Aspose.Cells 26.7.0 gives 2; MySheet previously read only B1 and gave 1.
         await Assert
             .That(
                 Calc(
                     "=AVERAGEIF(A1:A3,\">0\",B1:B2)",
-                    N("A1", 1),
-                    N("A2", 2),
-                    N("A3", 3),
-                    N("B1", 10),
-                    N("B2", 20)
+                    N("A1", 5),
+                    N("A2", 0),
+                    N("A3", 9),
+                    N("B1", 1),
+                    N("B2", 2),
+                    N("B3", 3)
                 ) as double?
             )
-            .IsEqualTo(15.0);
+            .IsEqualTo(2.0);
     }
 
     [Test]

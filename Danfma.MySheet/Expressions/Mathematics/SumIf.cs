@@ -80,7 +80,12 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
             return ComputedValue.Error(computedSumRange);
         }
 
-        var sumRange = PositionalRange.Open(Arguments[2], context);
+        var sumRange = PositionalRange.OpenResized(
+            Arguments[2],
+            context,
+            range.Rows,
+            range.Columns
+        );
 
         // Sweep item 34(a): the sum_range slot propagates the same way.
         if (sumRange.SlotError is { } sumRangeSlotError)

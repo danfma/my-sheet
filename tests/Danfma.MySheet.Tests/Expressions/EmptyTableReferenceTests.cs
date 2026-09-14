@@ -326,6 +326,9 @@ public class EmptyTableReferenceTests
     [Arguments("=ROWS(Tabela1[#Data])", "0")]
     [Arguments("=COLUMNS(Tabela1[#Data])", "3")]
     [Arguments("=INDEX(Tabela1[Valor],1,1)", "#REF!")]
+    // SUMIF resizes the zero-row sum range from its B2 anchor to A1:A3's 3x1 shape. This was 0 before
+    // item 35; Aspose.Cells 26.7.0 gives 7 in both modes on the sentinel fixture.
+    [Arguments("=SUMIF(A1:A3,\">0\",Tabela1[Valor])", "7")]
     public async Task TheEmptyReferenceIsAnchoredUnderTheHeader(string formula, string expected)
     {
         await Assert.That(InCell(formula, Shape.Sentinel)).IsEqualTo(expected);
@@ -422,8 +425,6 @@ public class EmptyTableReferenceTests
     //   OFFSET's omitted height/width are 1, not the base's size
     //                                    [ROWS(OFFSET(A1:A3,0,0)) 3 / 3 vs 1; SUM 14 / 14 vs 5]
     //     ROWS(OFFSET(T[Valor],0,0)) 0 / 0; ROWS(OFFSET(T[Valor],1,0)) 0 / 0; sentinel SUM(OFFSET(T,0,0)) 0 / 0
-    //   SUMIF does not resize sum_range  [SUMIF(A1:A3,">0",B1) 4 / 4 vs 1]
-    //     sentinel SUMIF(A1:A3,">0",T[Valor]) 7 / 7
     //   XLOOKUP does not check the arrays' sizes
     //                                    [XLOOKUP(5,A1:A3,B1:B2) #VALUE! / #VALUE! vs 1]
     //     XLOOKUP(5,A1:A3,T[Valor]) #VALUE! / #VALUE!; with "nf" #VALUE! / #VALUE!
@@ -437,7 +438,6 @@ public class EmptyTableReferenceTests
     [Arguments("=ROWS(OFFSET(Tabela1[Valor],0,0))", false, "1")]
     [Arguments("=ROWS(OFFSET(Tabela1[Valor],1,0))", false, "1")]
     [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0))", true, "7")]
-    [Arguments("=SUMIF(A1:A3,\">0\",Tabela1[Valor])", true, "0")]
     [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor])", false, "#N/A")]
     [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor],\"nf\")", false, "\"nf\"")]
     [Arguments("=ROWS(LET(x,Tabela1[Valor],x))", false, "1")]

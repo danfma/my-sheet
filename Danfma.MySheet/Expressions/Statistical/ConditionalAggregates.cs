@@ -92,7 +92,12 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
             return ComputedValue.Error(computedAverageRange);
         }
 
-        var averageRange = PositionalRange.Open(Arguments[2], context);
+        var averageRange = PositionalRange.OpenResized(
+            Arguments[2],
+            context,
+            range.Rows,
+            range.Columns
+        );
 
         // Sweep item 34(a): the average_range slot propagates the same way.
         if (averageRange.SlotError is { } averageRangeSlotError)

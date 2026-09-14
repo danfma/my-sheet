@@ -155,6 +155,79 @@ internal struct PositionalRange
     }
 
     /// <summary>
+    /// Opens a SUMIF/AVERAGEIF value range after resizing it to the criteria range's rectangular shape,
+    /// anchored at the supplied range's top-left. The multi-criteria *IFS family deliberately does not use
+    /// this path: those functions require equal-sized ranges and return #VALUE! on a mismatch.
+    /// </summary>
+    public static PositionalRange OpenResized(
+        Expression argument,
+        EvaluationContext context,
+        int rows,
+        int columns
+    )
+    {
+        if (
+            rows <= 0
+            || columns <= 0
+            || !NamedReferences.TryResolveReference(
+                argument,
+                context,
+                out var reference,
+                boundOpenRanges: false
+            )
+            || !TryTopLeft(reference, out var sheetName, out var leftColumn, out var topRow)
+        )
+        {
+            return Open(argument, context);
+        }
+
+        return Open(
+            new RangeReference(
+                new CellAddress(leftColumn, topRow).ToId(),
+                new CellAddress(leftColumn + columns - 1, topRow + rows - 1).ToId(),
+                sheetName
+            ),
+            context
+        );
+    }
+
+    private static bool TryTopLeft(
+        Reference reference,
+        out string sheetName,
+        out int column,
+        out int row
+    )
+    {
+        switch (reference)
+        {
+            case CellReference cell:
+                var cellAddress = CellAddress.Parse(cell.Id);
+                sheetName = cell.SheetName;
+                column = cellAddress.Column;
+                row = cellAddress.Row;
+                return true;
+
+            case RangeReference range when range.TryGetBounds(out var bounds):
+                sheetName = range.SheetName;
+                column = bounds.LeftColumn;
+                row = bounds.TopRow;
+                return true;
+
+            case EmptyRangeReference empty:
+                sheetName = empty.SheetName;
+                column = empty.LeftColumn;
+                row = empty.TopRow;
+                return true;
+
+            default:
+                sheetName = string.Empty;
+                column = 0;
+                row = 0;
+                return false;
+        }
+    }
+
+    /// <summary>
     /// Same backing preference as <see cref="Open(Expression, EvaluationContext)"/>, but takes an
     /// ALREADY-resolved snapshot probe instead of running its own. <see cref="Workbook.TryGetRangeSnapshot"/>
     /// is stateful (second-use admission): calling it a SECOND time for the same range within one function
