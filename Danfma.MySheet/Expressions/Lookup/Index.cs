@@ -28,8 +28,27 @@ public sealed partial record Index(Expression[] Arguments) : Function
         // resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an unknown name, the
         // node's #REF! for an unresolvable structured reference) — INDEX's own #REF! stays only for an
         // argument that is merely not a range (a cell, a union).
-        if (NamedReferences.TryResolveReference(Arguments[0], context, out var reference))
+        //
+        // boundOpenRanges: false — sweep item 37 follow-up, ruling (a): an OPEN range (a whole row/column,
+        // $5:$1000, …) stays open here, so IndexIntoOpenRange can address it by ABSOLUTE position (column
+        // A / row 1, not the POPULATED bounding box's own corner that boundOpenRanges: true would collapse
+        // it to — see IndexIntoOpenRange's own remarks). Every other shape (RangeReference,
+        // EmptyRangeReference, a resolved TableReference/name) is unaffected: boundOpenRanges only changes
+        // what happens to an OpenRangeReference.
+        if (
+            NamedReferences.TryResolveReference(
+                Arguments[0],
+                context,
+                out var reference,
+                boundOpenRanges: false
+            )
+        )
         {
+            if (reference is OpenRangeReference open)
+            {
+                return IndexIntoOpenRange(open, context);
+            }
+
             if (!RangeBounds.TryFrom(reference, out var bounds))
             {
                 return ComputedValue.Error(Error.Ref);
@@ -165,6 +184,137 @@ public sealed partial record Index(Expression[] Arguments) : Function
         };
     }
 
+    // The OPEN-base form, sweep item 37 follow-up ruling (a): row_num/column_num address ABSOLUTE grid
+    // positions on an open axis (column A / row 1 when that side has no declared bound), mirroring
+    // OpenRangeReference's own AbsoluteRow/AbsoluteColumn — never the POPULATED bounding box's own corner
+    // ToBoundedRange collapses an open range to, which is a DIFFERENT cell whenever the first populated
+    // column/row is not the sheet's own first one (INDEX($5:$1000,1,3) is C5, "a" — the box-relative
+    // reading before this fix landed on whatever the first POPULATED column was instead). A zero row or
+    // column still selects the whole row/column/area as a REFERENCE, exactly like IndexIntoRange, so
+    // COLUMN/COUNTA/SUM/ROWS of the result all read the SAME absolute rectangle.
+    private ComputedValue IndexIntoOpenRange(OpenRangeReference open, EvaluationContext context)
+    {
+        if (TryComputeOpenAxes(open, context, out var row, out var column) is { } error)
+        {
+            return error;
+        }
+
+        if (row == 0 || column == 0)
+        {
+            return ComputedValue.Reference(BuildOpenAxisReference(open, row, column));
+        }
+
+        return context.Workbook.GetCellValue(
+            open.SheetName,
+            new CellAddress(open.AbsoluteColumn(column), open.AbsoluteRow(row)).ToId()
+        );
+    }
+
+    // The open-range twin of TryComputeAxes: the SAME argument coercion, 2-arg axis rule (IsSingleRow
+    // stands in for bounds.RowCount == 1) and admits-zero bounds check, but validated against the
+    // reference's OWN declared/grid limits (OpenRangeReference.IsRowIndexValid/IsColumnIndexValid) instead
+    // of a closed RangeBounds' RowCount/ColumnCount.
+    private ComputedValue? TryComputeOpenAxes(
+        OpenRangeReference open,
+        EvaluationContext context,
+        out int row,
+        out int column
+    )
+    {
+        row = 0;
+        column = 0;
+
+        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
+        {
+            return ComputedValue.Error(firstError);
+        }
+
+        double rowValue;
+        double columnValue;
+
+        if (Arguments.Length == 3)
+        {
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out columnValue) is { } columnError)
+            {
+                return ComputedValue.Error(columnError);
+            }
+
+            rowValue = first;
+        }
+        else if (open.IsSingleRow)
+        {
+            // A single-row range takes the lone index as a column.
+            rowValue = 1;
+            columnValue = first;
+        }
+        else
+        {
+            rowValue = first;
+            columnValue = 1;
+        }
+
+        row = (int)rowValue;
+        column = (int)columnValue;
+
+        if (row < 0 || column < 0)
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        if (
+            (row != 0 && !open.IsRowIndexValid(row))
+            || (column != 0 && !open.IsColumnIndexValid(column))
+        )
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        return null;
+    }
+
+    // The open-range twin of BuildAxisReference: (0,0) is the reference itself (no new node); a single
+    // zero narrows ONE axis to the absolute row/column given and leaves the OTHER axis exactly as the open
+    // reference already declares it (its own bound, open or not) — so INDEX($5:$1000,0,3) keeps the
+    // DECLARED row bound (5..1000) and narrows only the column, becoming the ordinary RangeReference C5:C1000,
+    // while a zero on an axis that is itself still open after narrowing (e.g. INDEX($5:$1000,3,0), whose
+    // column axis has no declared bound at all) stays an OpenRangeReference.
+    private static Reference BuildOpenAxisReference(OpenRangeReference open, int row, int column)
+    {
+        if (row == 0 && column == 0)
+        {
+            return open;
+        }
+
+        int? rowMin;
+        int? rowMax;
+        int? colMin;
+        int? colMax;
+
+        if (row == 0)
+        {
+            rowMin = open.RowMin;
+            rowMax = open.RowMax;
+            colMin = colMax = open.AbsoluteColumn(column);
+        }
+        else
+        {
+            rowMin = rowMax = open.AbsoluteRow(row);
+            colMin = open.ColMin;
+            colMax = open.ColMax;
+        }
+
+        if (rowMin is { } r0 && rowMax is { } r1 && colMin is { } c0 && colMax is { } c1)
+        {
+            return new RangeReference(
+                new CellAddress(c0, r0).ToId(),
+                new CellAddress(c1, r1).ToId(),
+                open.SheetName
+            );
+        }
+
+        return new OpenRangeReference(colMin, colMax, rowMin, rowMax, open.SheetName);
+    }
+
     // Indexes an element-wise vector row-major (the mini-CSE array form) through the LAZY stream: only the
     // selected element is computed (no ComputedValue[] materialized). Mirrors the concrete-range branch's
     // row/column resolution: a 3-arg call takes (row, column); a 2-arg call maps the lone index to the array's
@@ -282,9 +432,41 @@ public sealed partial record Index(Expression[] Arguments) : Function
         }
 
         if (
-            !NamedReferences.TryResolveReference(Arguments[0], context, out var resolved)
-            || !RangeBounds.TryFrom(resolved, out var bounds)
+            !NamedReferences.TryResolveReference(
+                Arguments[0],
+                context,
+                out var resolved,
+                boundOpenRanges: false
+            )
         )
+        {
+            return false;
+        }
+
+        if (resolved is OpenRangeReference open)
+        {
+            if (TryComputeOpenAxes(open, context, out var openRow, out var openColumn) is not null)
+            {
+                return false;
+            }
+
+            if (openRow == 0 || openColumn == 0)
+            {
+                reference = BuildOpenAxisReference(open, openRow, openColumn);
+                return true;
+            }
+
+            // row and column are both valid here: TryComputeOpenAxes already checked
+            // IsRowIndexValid/IsColumnIndexValid for a non-zero axis before returning null.
+            var openTarget = new CellAddress(
+                open.AbsoluteColumn(openColumn),
+                open.AbsoluteRow(openRow)
+            );
+            reference = new CellReference(openTarget.ToId(), open.SheetName);
+            return true;
+        }
+
+        if (!RangeBounds.TryFrom(resolved, out var bounds))
         {
             return false;
         }

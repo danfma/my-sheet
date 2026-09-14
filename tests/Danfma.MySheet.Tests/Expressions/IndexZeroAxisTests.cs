@@ -258,44 +258,24 @@ public class IndexZeroAxisTests
             .IsEqualTo(1.0);
     }
 
-    // === Registered gaps: the zero-axis fix does not close these — a DIFFERENT, pre-existing engine
-    // convention decides them, exactly like EmptyTableReferenceTests' "Rows that depend on an ordinary-range
-    // gap". Both numbers, oracle Aspose.Cells 26.7.0, measured 2026-09-14, one formula per workbook, PLAIN.
-    //
-    //   • SUM(INDEX($5:$10,0,5)) — a whole-ROW base. INDEX resolves an open range to its POPULATED bounding
-    //     box (NamedReferences.TryResolveReference's boundOpenRanges:true, used by every INDEX/VLOOKUP/OFFSET
-    //     base — see WholeColumnConsumerTests.Index_WholeColumn_ByPopulatedPosition, a DELIBERATE, already-
-    //     shipped convention this item does not touch). Only E..H are populated in row 5..10, so "column 5"
-    //     is the 5th column of that 4-column box — out of bounds — #REF!, where Excel's ungridded column 5
-    //     is the absolute column E (45). Not sweep item 37's gap: the SAME box-relative counting already
-    //     applies to a NON-zero INDEX($5:$10,r,c) (untouched by this fix) and to VLOOKUP/OFFSET over any
-    //     open range.
-    //   • AGGREGATE(15,6,(ROW(INDEX(E5:H10,0,1))-ROW(INDEX(INDEX(E5:H10,0,1),1,1))+1)/((INDEX(E5:H10,0,1)<>"")
-    //     *(INDEX(E5:H10,0,1)>6)),1) — the divergence probe's row 43 (a MYSHEET-CALC-DIVERGENCES.md formula,
-    //     not the plan's own corpus shape, which is CorpusAggregateShape_MatchesTheOracle above and DOES
-    //     match). Its denominator compares a BARE INDEX(...) result (not wrapped in ROW/COLUMN) against ""
-    //     and 6, and needs those comparisons to run ELEMENT-WISE over the 6-cell column even in PLAIN entry
-    //     (Aspose: 3, the SMALL of {3,4,5,6} once the two #DIV/0!s are ignored). Making a BARE INDEX result
-    //     array-eligible everywhere a comparison/operator could reach it is not a narrow fix like ROW/COLUMN's
-    //     own dedicated single-resolution arm (ArrayEvaluation.TryBuildIndexPositionOperand): it would also
-    //     change every EXISTING, non-zero INDEX(range,n) used as a bare consumer argument today (e.g.
-    //     NumericAggregation.Fold's AddDirect-vs-AddReferenced split for a referenced TEXT cell), a change
-    //     with a blast radius well outside "INDEX with row or column 0 returns a reference". Left as MySheet's
-    //     own answer (which, entering this fix, already changed from a stable #REF! to 1 — see checkpoint —
-    //     since INDEX now evaluates to a scalar-broadcast Reference instead of throwing #REF! at Evaluate's
-    //     top). Registered for a future item, not fixed here. The SAME gap surfaces in a second, simpler
-    //     shape — SUMPRODUCT(INDEX(E5:H10,0,1)*1), Aspose 45, MySheet #VALUE! — SUMPRODUCT is another
-    //     "always array, regardless of entry mode" consumer (like AGGREGATE's array form); the bare
-    //     SUMPRODUCT(INDEX(E5:H10,0,1)) with no operator, listed as a required consumer, is unaffected and
-    //     DOES match (ColumnForm_NumericConsumers_MatchTheOracle).
+    // === Sweep item 37 follow-up, ruling (a): a whole-row/column open base addresses ABSOLUTE grid
+    // positions (column A / row 1 origin), not the POPULATED bounding box's own corner
+    // (OpenRangeReference.AbsoluteRow/AbsoluteColumn, Index.IndexIntoOpenRange). Was a registered
+    // divergence (SUM(INDEX($5:$10,0,5)) #REF! against the oracle's 45) until this ruling closed it.
     [Test]
-    public async Task WholeRowOpenBase_KeepsTheEnginesOwnAnswer_ADivergence()
+    public async Task WholeRowOpenBase_AddressesAbsoluteColumns_MatchesTheOracle()
     {
-        await Assert
-            .That(Eval(IdxFixture(), "=SUM(INDEX($5:$10,0,5))"))
-            .IsEqualTo(ErrorValue.Reference);
+        // Column 5 of the whole row $5:$10 is the ABSOLUTE column E (only E..H happen to be populated),
+        // not "the 5th populated column" (there are only 4) — the distinction WholeColumnConsumerTests'
+        // Index_WholeColumn_ByAbsolutePosition also pins, over a fixture where the two readings diverge.
+        await Assert.That(Num(Eval(IdxFixture(), "=SUM(INDEX($5:$10,0,5))"))).IsEqualTo(45.0);
     }
 
+    // === The SAME shape, still unclosed here — needs ruling (b) too (a later commit): the divergence
+    // probe's row 43, a MYSHEET-CALC-DIVERGENCES.md formula whose denominator compares a BARE INDEX(...)
+    // result (not wrapped in ROW/COLUMN) element-wise, distinct from the plan's own corpus shape above
+    // (CorpusAggregateShape_MatchesTheOracle), which already matches with ruling (a) alone. Registered:
+    // MySheet answers 1, the oracle 3.
     [Test]
     public async Task DivergenceProbeRow43Shape_KeepsTheEnginesOwnAnswer_ADivergence()
     {

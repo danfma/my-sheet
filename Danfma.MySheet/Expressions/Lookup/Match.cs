@@ -16,14 +16,6 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         var lookup = Arguments[0].Evaluate(context);
 
-        // Serve the lookup array from the Layer-2 range cache when the argument is a big populated range:
-        // the snapshot is materialized once and every derived accelerator (exact hash, sorted prefix/suffix)
-        // reproduces this scan's result bit for bit. A small range (or a non-range argument) streams the
-        // memoized cells positionally (no materialized vector) via RangeValueCursor.
-        var snapshot = Arguments[1] is Reference reference
-            ? context.Workbook.TryGetRangeSnapshot(reference, context)
-            : null;
-
         var matchType = 1.0;
 
         if (
@@ -50,6 +42,34 @@ public sealed partial record Match(Expression[] Arguments) : Function
         {
             return unresolved;
         }
+
+        // Sweep item 37 follow-up, ruling (a): an OPEN lookup array ($4:$4, $5:$1000, A:A, …) returns an
+        // ABSOLUTE position — column A / row 1 is position 1, never "the Nth POPULATED cell" the ordinary
+        // value-only RangeValueCursor counts (it has no per-cell coordinate to translate, only values).
+        // boundOpenRanges: false keeps it open here instead of collapsing to the populated bounding box's
+        // own corner. Bypasses the snapshot/RangeValueCursor machinery entirely for this shape — it needs
+        // each populated cell's OWN coordinate, which neither carries — but still only ever visits
+        // POPULATED cells via the structural index (OpenRangeReference.PopulatedCells), never the whole
+        // grid, so the "never materialise the full row" contract holds.
+        if (
+            NamedReferences.TryResolveReference(
+                Arguments[1],
+                context,
+                out var arrayReference,
+                boundOpenRanges: false
+            ) && arrayReference is OpenRangeReference open
+        )
+        {
+            return MatchOverOpenRange(open, lookup, matchType, context);
+        }
+
+        // Serve the lookup array from the Layer-2 range cache when the argument is a big populated range:
+        // the snapshot is materialized once and every derived accelerator (exact hash, sorted prefix/suffix)
+        // reproduces this scan's result bit for bit. A small range (or a non-range argument) streams the
+        // memoized cells positionally (no materialized vector) via RangeValueCursor.
+        var snapshot = Arguments[1] is Reference reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
+            : null;
 
         if (matchType == 0)
         {
@@ -143,6 +163,67 @@ public sealed partial record Match(Expression[] Arguments) : Function
             else if (matchType < 0 && comparison >= 0)
             {
                 position = index;
+            }
+        }
+
+        return position >= 1 ? ComputedValue.Number(position) : ComputedValue.Error(Error.NA);
+    }
+
+    // Sweep item 37 follow-up, ruling (a): MATCH over a genuinely OPEN lookup array. Walks
+    // OpenRangeReference.PopulatedCells directly (column/row pairs, not just values) so each visited
+    // cell's OWN absolute position — IsSingleRow selects the COLUMN axis (a whole-ROW array like $4:$4),
+    // otherwise the ROW axis (a whole-COLUMN array) — replaces the ordinal counter the closed-range scan
+    // above uses. Exact (type 0) returns the FIRST match in scan order; approximate keeps the LAST
+    // qualifying position in scan order, mirroring the closed-range linear scan's own rule (Excel's
+    // approximate match is "last element satisfying the condition in array order", not nearest-value).
+    private static ComputedValue MatchOverOpenRange(
+        OpenRangeReference open,
+        ComputedValue lookup,
+        double matchType,
+        EvaluationContext context
+    )
+    {
+        var workbook = context.Workbook;
+        var handle = workbook.ResolveDenseHandle(open.SheetName);
+
+        int PositionOf(int column, int row) =>
+            open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row);
+
+        if (matchType == 0)
+        {
+            foreach (var (column, row) in open.PopulatedCells(context))
+            {
+                var value = workbook.GetCellValueDense(handle, open.SheetName, column, row);
+
+                if (ValueCoercion.AreEqual(value, lookup))
+                {
+                    return ComputedValue.Number(PositionOf(column, row));
+                }
+            }
+
+            return ComputedValue.Error(Error.NA);
+        }
+
+        var position = -1;
+
+        foreach (var (column, row) in open.PopulatedCells(context))
+        {
+            var value = workbook.GetCellValueDense(handle, open.SheetName, column, row);
+
+            if (value.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+            {
+                continue;
+            }
+
+            var comparison = ValueCoercion.Compare(value, lookup);
+
+            if (matchType > 0 && comparison <= 0)
+            {
+                position = PositionOf(column, row);
+            }
+            else if (matchType < 0 && comparison >= 0)
+            {
+                position = PositionOf(column, row);
             }
         }
 

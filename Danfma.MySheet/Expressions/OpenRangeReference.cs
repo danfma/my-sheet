@@ -379,4 +379,45 @@ public sealed partial record OpenRangeReference(
         : TryGetPopulatedBounds(context, out var minColumn, out var maxColumn, out _, out _)
             ? maxColumn - minColumn + 1
         : 0;
+
+    // Excel's own grid edges, standing in for an open Max: an index far past any real data still resolves
+    // to a valid (if unpopulated) absolute cell instead of an arbitrary cutoff. Duplicated from
+    // Parser.ExcelMaxRow/ExcelMaxColumn and Sequence's own MaxRows/MaxColumns (both private to their own
+    // files) rather than centralized — the same two numbers the codebase already keeps in more than one
+    // place.
+    internal const int GridMaxRow = 1_048_576;
+    internal const int GridMaxColumn = 16_384;
+
+    /// <summary>
+    /// Sweep item 37 follow-up, ruling (a): a positional consumer's index counts from THIS reference's own
+    /// declared origin — column A / row 1 when that side is open — never the POPULATED bounding box's own
+    /// corner (<see cref="ToBoundedRange"/>'s corner, which is a DIFFERENT cell whenever the first
+    /// populated column/row is not the very first one). <c>AbsoluteRow</c>/<c>AbsoluteColumn</c> translate
+    /// a 1-based row_num/column_num (INDEX) to the sheet's own coordinate; <c>RowPosition</c>/
+    /// <c>ColumnPosition</c> are the inverse (MATCH's return value, COLUMN/ROW of a cell resolved through
+    /// this reference). <c>IsRowIndexValid</c>/<c>IsColumnIndexValid</c> admit exactly the positions that
+    /// land at or before the DECLARED bound, or — on an open side — at or before the grid's own edge.
+    /// </summary>
+    internal int AbsoluteRow(int rowNum) => (RowMin ?? 1) + rowNum - 1;
+
+    internal int AbsoluteColumn(int colNum) => (ColMin ?? 1) + colNum - 1;
+
+    internal int RowPosition(int absoluteRow) => absoluteRow - (RowMin ?? 1) + 1;
+
+    internal int ColumnPosition(int absoluteColumn) => absoluteColumn - (ColMin ?? 1) + 1;
+
+    internal bool IsRowIndexValid(int rowNum) =>
+        rowNum >= 1 && AbsoluteRow(rowNum) <= (RowMax ?? GridMaxRow);
+
+    internal bool IsColumnIndexValid(int colNum) =>
+        colNum >= 1 && AbsoluteColumn(colNum) <= (ColMax ?? GridMaxColumn);
+
+    /// <summary>
+    /// Single-ROW / single-COLUMN shape, for INDEX's 2-arg axis rule and a 1-D array reading: both limits
+    /// on that axis are DECLARED and equal. An open axis (an unknown extent) is never size-one, mirroring
+    /// the same rule a closed <see cref="RangeBounds"/>'s <c>RowCount</c>/<c>ColumnCount</c> applies.
+    /// </summary>
+    internal bool IsSingleRow => RowMin is { } r0 && RowMax is { } r1 && r0 == r1;
+
+    internal bool IsSingleColumn => ColMin is { } c0 && ColMax is { } c1 && c0 == c1;
 }

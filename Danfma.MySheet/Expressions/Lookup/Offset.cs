@@ -84,7 +84,19 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         // it does not resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an
         // unknown name, the node's #REF! for an unresolvable structured reference) — OFFSET's own #REF!
         // stays only for a base that is merely not a cell/range, and for a target pushed off the grid.
-        if (!NamedReferences.TryResolveReference(Arguments[0], context, out var baseReference))
+        //
+        // boundOpenRanges: false — sweep item 37 follow-up, ruling (a): an open base ($5:$1000, A:A, …)
+        // stays open here, so TryBase's own OpenRangeReference arm reads its ABSOLUTE first cell (column A
+        // / row 1 when that side is open) instead of the POPULATED bounding box's own corner — the same
+        // fix INDEX's open-base form needed, for the same reason (Index.IndexIntoOpenRange's remarks).
+        if (
+            !NamedReferences.TryResolveReference(
+                Arguments[0],
+                context,
+                out var baseReference,
+                boundOpenRanges: false
+            )
+        )
         {
             return ReferencePosition.Unresolved(
                 Arguments[0],
@@ -192,6 +204,15 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 sheetName = empty.SheetName;
                 column = empty.LeftColumn;
                 row = empty.TopRow;
+                return true;
+
+            // Sweep item 37 follow-up, ruling (a): an open base's "first cell" is its ABSOLUTE (row 1,
+            // column A) corner when a side is open, or its declared bound when it is not — the same
+            // AbsoluteRow(1)/AbsoluteColumn(1) INDEX's own open-base form uses.
+            case OpenRangeReference open:
+                sheetName = open.SheetName;
+                column = open.AbsoluteColumn(1);
+                row = open.AbsoluteRow(1);
                 return true;
 
             default:

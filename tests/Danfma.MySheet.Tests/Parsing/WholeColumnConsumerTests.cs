@@ -5,10 +5,15 @@ using static Danfma.MySheet.Expressions.Expression;
 namespace Danfma.MySheet.Tests.Parsing;
 
 /// <summary>
-/// Syntactic consumers over whole-column / whole-row references: VLOOKUP/HLOOKUP table, INDEX, OFFSET
-/// base, AREAS, ISREF resolve through the POPULATED bounding box; ROWS/COLUMNS use the populated extent on
-/// an OPEN axis and the exact structural count on a BOUNDED axis (a documented divergence from Excel's
-/// fixed grid).
+/// Syntactic consumers over whole-column / whole-row references. VLOOKUP/HLOOKUP's table and AREAS/ISREF
+/// resolve through the POPULATED bounding box. INDEX and OFFSET's base address ABSOLUTE positions instead
+/// — column A / row 1 when a side is open, sweep item 37 follow-up ruling (a)
+/// (<see cref="OpenRangeReference.AbsoluteRow"/>/<see cref="OpenRangeReference.AbsoluteColumn"/>): the two
+/// readings coincide whenever data starts at the sheet's own row 1 / column A, which is why
+/// <see cref="Index_WholeColumn_ByAbsolutePosition"/> pins BOTH a fixture where they agree and one where
+/// they do not. ROWS/COLUMNS use the populated extent on an OPEN axis and the exact structural count on a
+/// BOUNDED axis (a documented divergence from Excel's fixed grid) — unrelated to, and unaffected by, the
+/// ruling above (ROWS/COLUMNS report an EXTENT, not a position to translate).
 /// </summary>
 public class WholeColumnConsumerTests
 {
@@ -116,17 +121,31 @@ public class WholeColumnConsumerTests
     }
 
     [Test]
-    public async Task Index_WholeColumn_ByPopulatedPosition()
+    public async Task Index_WholeColumn_ByAbsolutePosition()
     {
+        // Data starting at row 1: absolute row 3 and "the 3rd populated row" are the SAME cell (A3), so
+        // this fixture alone cannot tell the two conventions apart.
         var (workbook, sheet) = Sheet(("A1", Number(10)), ("A2", Number(20)), ("A3", Number(30)));
 
         await Assert.That(Eval("=INDEX(A:A,3)", sheet, workbook) as double?).IsEqualTo(30.0);
+
+        // Data starting at row 5: the two conventions now DIVERGE. Absolute row 3 is A3 (genuinely blank —
+        // this direct Expression.Evaluate path keeps blank AS blank, unlike the cell-boundary never-blank
+        // rule GetCellValue applies); "the 3rd populated row" would have been A7 = 30.
+        // ROW(INDEX(A:A,3)) = 3 pins the ADDRESS unambiguously, independent of what value sits there.
+        var (workbookB, sheetB) = Sheet(("A5", Number(10)), ("A6", Number(20)), ("A7", Number(30)));
+
+        await Assert.That(Eval("=INDEX(A:A,3)", sheetB, workbookB)).IsNull();
+        await Assert.That(Eval("=ROW(INDEX(A:A,3))", sheetB, workbookB) as double?).IsEqualTo(3.0);
     }
 
     [Test]
     public async Task Offset_WholeColumnBase()
     {
-        // OFFSET base A:A resolves to the populated box (A1:A2); offset (row 1, col 0) from its start = A2.
+        // OFFSET's open base is its ABSOLUTE first cell — row 1 of column A, sweep item 37 follow-up
+        // ruling (a) — which happens to be A1 here regardless of population; offset (row 1, col 0) from
+        // there is A2. (Coincides with "the populated box's own top-left" only because data starts at row
+        // 1 — see Index_WholeColumn_ByAbsolutePosition for a fixture where the two conventions diverge.)
         var (workbook, sheet) = Sheet(("A1", Number(10)), ("A2", Number(20)));
 
         await Assert.That(Eval("=OFFSET(A:A,1,0)", sheet, workbook) as double?).IsEqualTo(20.0);
