@@ -34,8 +34,10 @@ public class LookupValueErrorCellTests
         main["A5"] = new NumberValue(5);
         main["A6"] = new NumberValue(0);
         main["A7"] = new NumberValue(9);
+        main["Z1"] = ExpressionParser.Parse("=1/0", main);
         workbook.DefineName("ErrCell", "Main!$A$1");
         workbook.DefineName("ErrRange", "Main!$A$1:$A$1");
+        workbook.DefineName("ErrLookup", "Main!$Z$1");
         main["AZ5000"] = ExpressionParser.Parse(formula, main);
 
         var value = workbook.GetCellValue("Main", "AZ5000");
@@ -227,6 +229,25 @@ public class LookupValueErrorCellTests
     [Arguments("=HLOOKUP(1,ErrCell,1,FALSE)", "#DIV/0!")]
     [Arguments("=HLOOKUP(1,ErrCell,2,FALSE)", "#DIV/0!")]
     public async Task DirectAndNamedErrorTables_KeepTheirMeasuredPrecedence(
+        string formula,
+        string expected
+    ) => await Assert.That(InCell(formula)).IsEqualTo(expected);
+
+    // Fixture addition: A1 is the existing error cell, Z1 = 1/0, and the non-error table cell is B1 = 1.
+    // Aspose.Cells 26.7.0 PLAIN / CSE agree. Before this fix, VLOOKUP/HLOOKUP over B1 returned #N/A for
+    // error lookup values (and #REF! for index 2) instead of propagating #DIV/0!. The #N/A literal and
+    // XLOOKUP twin already agreed with the oracle and guard error identity/shared lookup precedence.
+    [Test]
+    [Arguments("=VLOOKUP(Z1,B1,1,FALSE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(Z1,B1,1,FALSE)", "#DIV/0!")]
+    [Arguments("=VLOOKUP(Z1,B1,1,TRUE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(Z1,B1,1,TRUE)", "#DIV/0!")]
+    [Arguments("=VLOOKUP(#N/A,B1,1,FALSE)", "#N/A")]
+    [Arguments("=VLOOKUP(ErrLookup,B1,1,FALSE)", "#DIV/0!")]
+    [Arguments("=VLOOKUP(Z1,B1,2,FALSE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(Z1,B1,2,FALSE)", "#DIV/0!")]
+    [Arguments("=XLOOKUP(Z1,B1,B1)", "#DIV/0!")]
+    public async Task ErrorLookupValueOverANonErrorScalarTable_LeadsTheLookup(
         string formula,
         string expected
     ) => await Assert.That(InCell(formula)).IsEqualTo(expected);

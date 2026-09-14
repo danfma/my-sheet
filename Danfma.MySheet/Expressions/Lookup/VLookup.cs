@@ -217,6 +217,12 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
     private ComputedValue LookupScalarTable(ComputedValue tableValue, EvaluationContext context)
     {
+        var lookup = Arguments[0].Evaluate(context);
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
+        {
+            return valueError;
+        }
+
         if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
         {
             return ComputedValue.Error(columnError);
@@ -231,8 +237,6 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         {
             return ComputedValue.Error(Error.Ref);
         }
-
-        var lookup = Arguments[0].Evaluate(context);
 
         var approximate = true;
         if (
