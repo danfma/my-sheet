@@ -362,9 +362,10 @@ absolute column E, and `MATCH("x",$4:$4,0)` / `XMATCH("x",$4:$4)` return `3` whe
 and `OFFSET` translate coordinates arithmetically; `MATCH` and `XMATCH` scan only populated cells and retain
 their source coordinates. None materializes a full row or column.
 
-`VLOOKUP` and `HLOOKUP` also accept a scalar as a 1x1 table and return `#N/A` when it does not match.
-`XLOOKUP` validates the lookup axis before searching: the return array must have the same row count for a
-vertical lookup or column count for a horizontal lookup, otherwise it returns `#VALUE!` before applying
+`VLOOKUP` and `HLOOKUP` also accept a scalar or a resolved single cell as a 1x1 table, applying the normal
+index, mode, bounds, and match checks. `XLOOKUP` requires a one-dimensional lookup array and validates the
+same captured reference or computed-array values it searches: the return array must have the same row count
+for a vertical lookup or column count for a horizontal lookup, otherwise it returns `#VALUE!` before applying
 `if_not_found`; the return array may still be wider or taller on its non-search axis.
 
 **Out of scope.** Spatial intersection of two open ranges is not modeled.
