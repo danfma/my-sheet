@@ -252,6 +252,11 @@ public class EmptyTableReferenceTests
     [Arguments("=COUNTA(Tabela1[Valor],1)", "1")]
     [Arguments("=MAX(Tabela1[Valor],-3)", "-3")]
     [Arguments("=AVERAGE(Tabela1[Valor],4)", "4")]
+    // Sweep item 37 (was pinned #REF! in TheRowsThatDependOnAnOrdinaryRangeGap_KeepTheEnginesAnswer, an
+    // inherited gap; INDEX with a zero row/column now returns the empty band ITSELF as a reference, so the
+    // usual empty-reference readings apply — a narrower zero-row band for a multi-column [#Data]).
+    [Arguments("=SUM(INDEX(Tabela1[Valor],0,1))", "0")]
+    [Arguments("=ROWS(INDEX(Tabela1[#Data],0,1))", "0")]
     public async Task OverAHeaderOnlyTable_TheDataBandIsAnEmptyReference(
         string formula,
         string expected
@@ -414,8 +419,6 @@ public class EmptyTableReferenceTests
     // already diverges from the oracle over an ORDINARY range, so the empty reference inherits the engine's
     // answer and the gap is registered as its own sweep item. Oracle PLAIN / CSE, primed (the ordinary-range
     // twin that shows the gap, oracle vs MySheet, in brackets):
-    //   INDEX with row 0 is #REF!        [SUM(INDEX(A1:A3,0,1)) 14 / 14 vs #REF!]
-    //     SUM(INDEX(T[Valor],0,1)) 0 / 0; ROWS(INDEX(T[#Data],0,1)) 0 / 0
     //   OFFSET's omitted height/width are 1, not the base's size
     //                                    [ROWS(OFFSET(A1:A3,0,0)) 3 / 3 vs 1; SUM 14 / 14 vs 5]
     //     ROWS(OFFSET(T[Valor],0,0)) 0 / 0; ROWS(OFFSET(T[Valor],1,0)) 0 / 0; sentinel SUM(OFFSET(T,0,0)) 0 / 0
@@ -427,9 +430,10 @@ public class EmptyTableReferenceTests
     //   ROWS of a LET whose body is a bound bare reference falls back to 1
     //                                    [ROWS(LET(x,A1:A3,x)) 3 / 3 vs 1]
     //     ROWS(LET(x,T[Valor],x)) 0 / 0
+    //   (sweep item 37 closed "INDEX with row 0 is #REF!" — the two rows this bullet used to list moved to
+    //   OverAHeaderOnlyTable_TheDataBandIsAnEmptyReference, now matched: SUM(INDEX(T[Valor],0,1)) 0,
+    //   ROWS(INDEX(T[#Data],0,1)) 0)
     [Test]
-    [Arguments("=SUM(INDEX(Tabela1[Valor],0,1))", false, "#REF!")]
-    [Arguments("=ROWS(INDEX(Tabela1[#Data],0,1))", false, "#REF!")]
     [Arguments("=ROWS(OFFSET(Tabela1[Valor],0,0))", false, "1")]
     [Arguments("=ROWS(OFFSET(Tabela1[Valor],1,0))", false, "1")]
     [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0))", true, "7")]

@@ -432,6 +432,21 @@ internal static class ArrayEvaluation
             case Column { Arguments: [NameReference or Reference] } column:
                 return ProbePosition(column.Arguments[0], context);
 
+            // ROW(INDEX(area,0,n)) / COLUMN(INDEX(area,n,0)) — sweep item 37, the corpus's
+            // AGGREGATE(…,ROW(INDEX(r,0,MATCH(…)))…) idiom. Structural, like an IArrayProducer's own arm
+            // below: no evaluation here, unlike the generic Row/Column arm two lines up, whose
+            // ResolvePositionRange oracle resolves the argument itself (cheap only for a name or a literal
+            // rectangle). INDEX's OWN resolution evaluates its row/column ARGUMENTS, so admitting it to
+            // THAT shared arm would resolve twice — once here, once in the build — drawing a volatile row/
+            // column argument twice (see ResolvePositionRange's remarks on why a reference-returning
+            // FUNCTION is excluded there). This dedicated arm instead defers to ONE resolution in
+            // TryBuildIndexPositionOperand and reports every outcome as "array" here — a resolved single
+            // cell included — the same contract an IArrayProducer's own error/empty result already keeps (a
+            // degenerate one-element array, never a broadcast scalar): see TryBuildIndexPositionOperand.
+            case Row { Arguments: [Lookup.Index] }:
+            case Column { Arguments: [Lookup.Index] }:
+                return (true, true);
+
             // A unary operation is an array exactly when its operand is — all three operators (Phase 11c
             // item 11). '-' and '%' LIFT, applying themselves element by element (UnaryOperand); '+' is
             // TRANSPARENT, contributing nothing of its own, so the build hands the operand's array back
@@ -790,6 +805,25 @@ internal static class ArrayEvaluation
                     out operand
                 );
 
+            // The build twin of Probe's Row{[Index]}/Column{[Index]} arm — see TryBuildIndexPositionOperand.
+            case Row { Arguments: [Lookup.Index index] } indexRow:
+                return TryBuildIndexPositionOperand(
+                    indexRow,
+                    index,
+                    PositionAxis.Row,
+                    context,
+                    out operand
+                );
+
+            case Column { Arguments: [Lookup.Index index] } indexColumn:
+                return TryBuildIndexPositionOperand(
+                    indexColumn,
+                    index,
+                    PositionAxis.Column,
+                    context,
+                    out operand
+                );
+
             // The two lifted shapes, mirroring the Probe arms in the same order and on the same patterns.
             case UnaryOperation unary:
                 return TryBuildUnary(unary, context, out operand);
@@ -851,8 +885,10 @@ internal static class ArrayEvaluation
     // is needed only on the Scalar path, to evaluate itself once.
     //
     // The `default` arm below therefore only ever sees the caller's narrowed set (a defined name, a cell, a
-    // union, a DynamicRange), NEVER a reference-returning function; widening either caller's pattern would
-    // change that, which ResolvePositionRange explains is not free.
+    // union, a DynamicRange), NEVER a reference-returning function; widening either caller's PATTERN would
+    // change that, which ResolvePositionRange explains is not free. Sweep item 37 needed exactly that shape
+    // for INDEX, so it gets its OWN dedicated caller/arm/helper (TryBuildIndexPositionOperand) with a
+    // single-resolution design instead — this method and ResolvePositionRange are unchanged.
     private static bool TryBuildPositionOperand(
         Expression node,
         Expression argument,
@@ -895,6 +931,64 @@ internal static class ArrayEvaluation
                 return true;
             }
         }
+    }
+
+    // ROW(INDEX(area,…))/COLUMN(INDEX(area,…)) — sweep item 37 — resolved with EXACTLY ONE call to
+    // Index.TryResolveReference, unlike TryBuildPositionOperand's generic oracle (ResolvePositionRange),
+    // which is paired with a SEPARATE resolution in Probe (ProbePosition) — fine for a name (a dictionary
+    // lookup) but not for INDEX, whose resolution evaluates its own row/column arguments and would draw a
+    // volatile one of them twice. Probe's Row{[Index]}/Column{[Index]} arm therefore promises "array"
+    // unconditionally and does no resolving of its own; this is the ONE place that actually resolves, and
+    // every outcome — a genuine multi-cell rectangle, a resolved single cell, or an argument INDEX could not
+    // resolve at all — becomes an operand here without a second call:
+    //   • a rectangle (RangeReference/EmptyRangeReference, sweep item 37's zero-row/column form) is the
+    //     usual position vector, exactly like the literal-range fast path above;
+    //   • a resolved CellReference (INDEX's ordinary non-zero form, or the trivial one-cell case of item
+    //     37 itself) reports that one cell's row/column directly — no reference lookup needed, since the
+    //     cell id is already in hand;
+    //   • anything else (INDEX did not resolve to a reference — an unresolvable base, an argument
+    //     coercion error, a bounds miss) falls back to evaluating the ROW/COLUMN node itself, exactly the
+    //     cost ReferencePosition.Row/Column's own fallback already pays for any unresolvable argument
+    //     (unchanged by this fix): TryResolveReference short-circuits before touching the row/column
+    //     arguments whenever INDEX's AREA argument itself does not resolve to a rectangle (see
+    //     Index.TryResolveReference), so this is not a second draw of anything Evaluate is about to draw
+    //     for the first time.
+    // Measured: DrawsOf("=SUM(ROW(INDEX(A1:A3,TICK(),1)))") stays 1 — INDEX resolves to a CellReference,
+    // the second bullet above, no fallback Evaluate call at all.
+    private static bool TryBuildIndexPositionOperand(
+        Expression node,
+        Lookup.Index index,
+        PositionAxis axis,
+        EvaluationContext context,
+        out ArrayOperand operand
+    )
+    {
+        if (index.TryResolveReference(context, out var reference))
+        {
+            if (RangeBounds.TryFrom(reference!, out var bounds))
+            {
+                operand = PositionOperand(bounds, axis);
+                return true;
+            }
+
+            if (reference is CellReference cell)
+            {
+                var address = CellAddress.Parse(cell.Id);
+                // SingletonArrayOperand, never ScalarOperand: Probe's Row{[Index]}/Column{[Index]} arm
+                // promised "array" unconditionally, and a ScalarOperand here would fail TryEvaluateStream's
+                // own operand.IsArray check — sending the caller back to re-evaluate the WHOLE node a
+                // second time (exactly the double draw this design exists to avoid).
+                operand = new SingletonArrayOperand(
+                    ComputedValue.Number(axis is PositionAxis.Row ? address.Row : address.Column)
+                );
+                return true;
+            }
+        }
+
+        // INDEX did not resolve to a reference at all: same reasoning, SingletonArrayOperand so the
+        // promise Probe made holds and no consumer falls back to a second evaluation.
+        operand = new SingletonArrayOperand(node.Evaluate(context));
+        return true;
     }
 
     // The operand over one axis of a resolved rectangle: a VECTOR along that axis (an Nx1 column of row

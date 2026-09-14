@@ -30,12 +30,12 @@ public sealed partial record Index(Expression[] Arguments) : Function
         // argument that is merely not a range (a cell, a union).
         if (NamedReferences.TryResolveReference(Arguments[0], context, out var reference))
         {
-            if (reference is not RangeReference range)
+            if (!RangeBounds.TryFrom(reference, out var bounds))
             {
                 return ComputedValue.Error(Error.Ref);
             }
 
-            return IndexIntoRange(range, context);
+            return IndexIntoRange(reference, bounds, context);
         }
 
         if (ReferencePosition.TryUnresolvedError(Arguments[0], context, out var unresolved))
@@ -47,44 +47,122 @@ public sealed partial record Index(Expression[] Arguments) : Function
     }
 
     // The concrete-range form, split out of Evaluate so the resolution arm above can hand the resolved
-    // rectangle over: index coercion, the 2-arg axis rule and the bounds check are unchanged.
-    private ComputedValue IndexIntoRange(RangeReference range, EvaluationContext context)
+    // rectangle over. A zero row or column (sweep item 37) selects the whole column/row/area as a
+    // REFERENCE rather than a value — mirrors Offset.Evaluate's own reference-vs-1x1-dereference split, so
+    // every reference-aware consumer (SUM, ROWS, ROW, MATCH's lookup array, a nested INDEX, an OFFSET
+    // base, a bare cell's implicit intersection, a ':' range endpoint, …) sees a real range instead of a
+    // materialized value, with no per-consumer change needed.
+    private ComputedValue IndexIntoRange(
+        Reference reference,
+        RangeBounds bounds,
+        EvaluationContext context
+    )
     {
+        if (TryComputeAxes(bounds, context, out var row, out var column) is { } error)
+        {
+            return error;
+        }
+
+        if (row == 0 || column == 0)
+        {
+            return ComputedValue.Reference(BuildAxisReference(reference, bounds, row, column));
+        }
+
+        // row and column are both >= 1 here, so reference is necessarily a RangeReference: an
+        // EmptyRangeReference's RowCount is 0, and TryComputeAxes already rejected any row > 0 against it.
+        return reference is RangeReference range
+            ? range.CellComputedValueAt(context, row, column)
+            : ComputedValue.Error(Error.Ref);
+    }
+
+    // The row_num/column_num resolution INDEX's two reference-consuming paths share (Evaluate's
+    // concrete-range arm and TryResolveReference): argument coercion, the 2-arg axis rule (a single-row
+    // area takes the lone index as a column, otherwise as a row), truncation to an integer (Excel
+    // truncates toward zero, matching Offset's height/width), and the bounds check — now admitting exactly
+    // 0 on either axis (sweep item 37) where it used to require >= 1. Returns the error RESULT to hand
+    // back on failure, or null with (row, column) set on success.
+    private ComputedValue? TryComputeAxes(
+        RangeBounds bounds,
+        EvaluationContext context,
+        out int row,
+        out int column
+    )
+    {
+        row = 0;
+        column = 0;
+
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
         {
             return ComputedValue.Error(firstError);
         }
 
-        double row;
-        double column;
+        double rowValue;
+        double columnValue;
 
         if (Arguments.Length == 3)
         {
-            if (Arguments[2].Evaluate(context).CoerceToNumber(out column) is { } columnError)
+            if (Arguments[2].Evaluate(context).CoerceToNumber(out columnValue) is { } columnError)
             {
                 return ComputedValue.Error(columnError);
             }
 
-            row = first;
+            rowValue = first;
         }
-        else if (range.RowCount == 1)
+        else if (bounds.RowCount == 1)
         {
             // A single-row range takes the lone index as a column.
-            row = 1;
-            column = first;
+            rowValue = 1;
+            columnValue = first;
         }
         else
         {
-            row = first;
-            column = 1;
+            rowValue = first;
+            columnValue = 1;
         }
 
-        if (row < 1 || column < 1 || row > range.RowCount || column > range.ColumnCount)
+        row = (int)rowValue;
+        column = (int)columnValue;
+
+        if (row < 0 || column < 0 || row > bounds.RowCount || column > bounds.ColumnCount)
         {
             return ComputedValue.Error(Error.Ref);
         }
 
-        return range.CellComputedValueAt(context, (int)row, (int)column);
+        return null;
+    }
+
+    // The reference a zero row/column selects: (0,0) is the WHOLE area — the same reference back, no new
+    // node — and each single-zero form narrows one axis to the row_num/column_num given while the other
+    // spans the area's full extent. An EmptyRangeReference only ever reaches the row == 0 (column select)
+    // arm: TryComputeAxes already turned any row > 0 against its zero RowCount into #REF!, so there is no
+    // row to select and the result stays a (narrower) EmptyRangeReference — still zero rows.
+    private static Reference BuildAxisReference(
+        Reference reference,
+        RangeBounds bounds,
+        int row,
+        int column
+    )
+    {
+        if (row == 0 && column == 0)
+        {
+            return reference;
+        }
+
+        var left = row == 0 ? bounds.LeftColumn + column - 1 : bounds.LeftColumn;
+        var right = row == 0 ? left : bounds.RightColumn;
+        var top = column == 0 ? bounds.TopRow + row - 1 : bounds.TopRow;
+        var bottom = column == 0 ? top : bounds.BottomRow;
+
+        return reference switch
+        {
+            EmptyRangeReference empty => new EmptyRangeReference(empty.SheetName, top, left, right),
+            RangeReference range => new RangeReference(
+                new CellAddress(left, top).ToId(),
+                new CellAddress(right, bottom).ToId(),
+                range.SheetName
+            ),
+            _ => reference,
+        };
     }
 
     // Indexes an element-wise vector row-major (the mini-CSE array form) through the LAZY stream: only the
@@ -171,9 +249,13 @@ public sealed partial record Index(Expression[] Arguments) : Function
         return ComputedValue.Number(top + n - 1);
     }
 
-    // Mirrors the concrete-range branch of Evaluate, but yields the target CELL ADDRESS as a Reference
-    // instead of reading its value. Array forms (the mini-CSE vector and the open-column ROW identity) have
-    // no cell address to hand back, so they return false and fall through to normal evaluation elsewhere.
+    // Mirrors the concrete-range branch of Evaluate (via the same TryComputeAxes/BuildAxisReference
+    // helpers), but yields a Reference instead of reading a value: a CELL ADDRESS for a non-zero (row,
+    // column), or the zero-axis REFERENCE itself (sweep item 37) for a zero row or column — which is what
+    // lets a ':' range endpoint (INDEX(r,0,1):A3), an OFFSET base and every other reference-consuming
+    // caller reach it without going through Evaluate's ComputedValue.Reference wrapper. Array forms (the
+    // mini-CSE vector and the open-column ROW identity) have no cell address to hand back, so they return
+    // false and fall through to normal evaluation elsewhere.
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
         reference = null;
@@ -201,50 +283,33 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (
             !NamedReferences.TryResolveReference(Arguments[0], context, out var resolved)
-            || resolved is not RangeReference range
+            || !RangeBounds.TryFrom(resolved, out var bounds)
         )
         {
             return false;
         }
 
-        if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is not null)
+        if (TryComputeAxes(bounds, context, out var row, out var column) is not null)
         {
             return false;
         }
 
-        double row;
-        double column;
-        if (Arguments.Length == 3)
+        if (row == 0 || column == 0)
         {
-            if (Arguments[2].Evaluate(context).CoerceToNumber(out column) is not null)
-            {
-                return false;
-            }
-
-            row = first;
-        }
-        else if (range.RowCount == 1)
-        {
-            row = 1;
-            column = first;
-        }
-        else
-        {
-            row = first;
-            column = 1;
+            reference = BuildAxisReference(resolved, bounds, row, column);
+            return true;
         }
 
-        if (row < 1 || column < 1 || row > range.RowCount || column > range.ColumnCount)
+        // row and column are both >= 1 here, so resolved is necessarily a RangeReference (see
+        // IndexIntoRange's identical reasoning).
+        if (resolved is not RangeReference range)
         {
             return false;
         }
 
         // Mirrors RangeReference.CellComputedValueAt's normalization: StartId is not guaranteed to be the
         // top-left corner (e.g. A3:A1 has StartId="A3"), so the origin is the range's normalized top-left.
-        var target = new CellAddress(
-            range.LeftColumn + (int)column - 1,
-            range.TopRow + (int)row - 1
-        );
+        var target = new CellAddress(range.LeftColumn + column - 1, range.TopRow + row - 1);
         reference = new CellReference(target.ToId(), range.SheetName);
         return true;
     }
