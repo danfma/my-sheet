@@ -413,7 +413,9 @@ Detalhes:
   branco.
 - **Dentro de uma fórmula nada muda.** `=SUM(A1:A3)` continua sendo uma soma sobre três células: quem decide
   o que uma referência multicélula significa é o *consumidor*, não a célula. Só uma referência que sobrevive
-  como valor final da célula sofre a interseção.
+  como valor final da célula sofre a interseção. Consumidores escalares de informação/erro (`ISERROR`, `N`,
+  `IFERROR`, `ISNUMBER`) aplicam a mesma interseção pela posição da linha ao argumento de referência antes de
+  inspecioná-lo, tanto para intervalos literais quanto para colunas de tabela.
 - **O caminho direto de `Expression.Evaluate` continua produzindo `#VALUE!`.**
   `ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook)` não tem célula de fórmula com a qual
   intersectar. A regra vive em `Workbook.EvaluateCell`, que é o ponto de estrangulamento único de toda
@@ -479,6 +481,11 @@ aritmético em contexto de array, eleva elemento a elemento como o intervalo lit
 `SUMPRODUCT((INDEX(E5:H10,0,1)>6)*1)` e seu equivalente com `OFFSET` são ambos `4`. Um argumento nu de nível
 superior permanece uma referência, portanto `ROWS(INDEX(E5:H10,0,1))` é `6` e
 `COUNTIF(OFFSET(E5,0,0,3,1),">0")` é `2`.
+
+O `OFFSET` também herda da base cada dimensão omitida. Portanto `OFFSET(A1:A3,0,0)` continua 3x1, enquanto
+`OFFSET(A1:A3,0,0,2)` é a janela explícita 2x1. O MySheet reporta deliberadamente essa janela coerente para
+`ROWS`/`COLUMNS`; o Aspose.Cells 26.7.0 reporta ali as dimensões da base, mesmo enquanto `SUM` e `COUNT` leem
+a janela explicitamente redimensionada, um resultado internamente contraditório do oráculo.
 
 Uma banda vazia (o `[#Data]` de uma tabela só-cabeçalho, o `EmptyRangeReference` de zero linhas do item 33
 da varredura) segue a mesma regra com a MESMA maquinaria: `SUM(INDEX(Tabela1[Valor],0,1))` e

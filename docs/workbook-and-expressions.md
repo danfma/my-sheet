@@ -397,7 +397,9 @@ Details:
   they stored a reference-kind value that every typed accessor read back as blank.
 - **Inside a formula nothing changes.** `=SUM(A1:A3)` is still a sum over three cells: the *consumer*, not
   the cell, decides what a multi-cell reference means. Only a reference that survives as the cell's final
-  value is intersected.
+  value is intersected. Scalar information/error consumers (`ISERROR`, `N`, `IFERROR`, `ISNUMBER`) apply
+  the same row-position intersection to their reference argument before inspecting it, for literal ranges
+  and table columns alike.
 - **The direct `Expression.Evaluate` path still yields `#VALUE!`.**
   `ExpressionParser.Parse("=A1:A3", sheet).Evaluate(workbook)` has no formula cell to intersect against.
   The rule lives in `Workbook.EvaluateCell`, which is the single choke point of every cell read
@@ -455,6 +457,11 @@ under a comparison or arithmetic operator in an array context lifts element by e
 it denotes: `SUMPRODUCT((INDEX(E5:H10,0,1)>6)*1)` and its `OFFSET` equivalent are both `4`. A bare
 top-level argument remains a reference, so `ROWS(INDEX(E5:H10,0,1))` is `6` and
 `COUNTIF(OFFSET(E5,0,0,3,1),">0")` is `2`.
+
+`OFFSET` also inherits each omitted dimension from its base. Thus `OFFSET(A1:A3,0,0)` remains 3x1,
+whereas `OFFSET(A1:A3,0,0,2)` is the explicit 2x1 window. MySheet deliberately reports that coherent
+window to `ROWS`/`COLUMNS`; Aspose.Cells 26.7.0 reports the base's dimensions there even while `SUM` and
+`COUNT` read the explicitly resized window, an internally contradictory oracle result.
 
 An empty band (a header-only table's `[#Data]`, sweep item 33's zero-row `EmptyRangeReference`) follows the
 same rule with the SAME machinery: `SUM(INDEX(Tabela1[Valor],0,1))` and `ROWS(INDEX(Tabela1[#Data],0,1))`
