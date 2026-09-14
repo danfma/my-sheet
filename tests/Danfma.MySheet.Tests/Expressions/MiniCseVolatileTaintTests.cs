@@ -369,6 +369,53 @@ public class MiniCseVolatileTaintTests
     }
 
     [Test]
+    public async Task ALetBoundScalarConditionSelector_WithAVolatileCondition_IsDrawnOnce()
+    {
+        // THE REGRESSION TEST FOR THE FINAL-REVIEW FIX WAVE'S FINDING I3. A LET binding's expression goes
+        // through TWO SEPARATE walks of the SAME LET node — ArrayBindings.Shape (the probe,
+        // ArrayEvaluation.ProbeLet, reached from IsArrayEligible) and ArrayBindings.Capture (the build,
+        // ArrayEvaluation.TryBuildLet, reached from TryBuildOperand once the probe says eligible) — with NO
+        // state shared between the two calls. For a bare-reference-node selector bound to a name (IF or
+        // CHOOSE), the SHAPE resolves the taken branch through TryResolveReference (which evaluates the
+        // condition/index) and the BUILD resolves it again through Evaluate (which evaluates it a SECOND
+        // time). A volatile condition can draw differently each time: the shape then classifies the binding
+        // as a REFERENCE (say Rng) while the build's own draw picks the SCALAR branch (0) — or vice versa —
+        // and the scalar-scope `b*1` folds a stray reference/scalar mismatch into `#VALUE!`, a THIRD bucket
+        // neither single draw could ever give on its own. Over 200 seeds the set of answers must be exactly
+        // {0, 14} (A1:A3 = 5, 0, 9; the reference branch streams through `b*1` to 14, the 0 branch is 0) —
+        // never `#VALUE!`.
+        var ifRange = new HashSet<string>();
+        var ifName = new HashSet<string>();
+        var chooseName = new HashSet<string>();
+
+        for (var seed = 1; seed <= 200; seed++)
+        {
+            ifRange.Add(Answer(seed, "=SUM(LET(a,IF(RAND()<0.5,A1:A3,0),b,a,b*1))"));
+            ifName.Add(Answer(seed, "=SUM(LET(a,IF(RAND()<0.5,Rng,0),b,a,b*1))"));
+            chooseName.Add(Answer(seed, "=SUM(LET(a,CHOOSE(1+(RAND()<0.5),0,Rng),b,a,b*1))"));
+        }
+
+        await Assert.That(ifRange.OrderBy(x => x).ToArray()).IsEquivalentTo(["0", "14"]);
+        await Assert.That(ifName.OrderBy(x => x).ToArray()).IsEquivalentTo(["0", "14"]);
+        await Assert.That(chooseName.OrderBy(x => x).ToArray()).IsEquivalentTo(["0", "14"]);
+
+        static string Answer(int seed, string formula)
+        {
+            var workbook = new Workbook { RandomSeed = seed };
+            var sheet = workbook.Sheets.Add("Sheet1");
+            sheet["A1"] = new NumberValue(5);
+            sheet["A2"] = new NumberValue(0);
+            sheet["A3"] = new NumberValue(9);
+            workbook.DefineName("Rng", "Sheet1!$A$1:$A$3");
+            sheet["Z1"] = ExpressionParser.Parse(formula, sheet);
+
+            var value = workbook.GetCellValue("Sheet1", "Z1").AsObject();
+
+            return value is ErrorValue error ? error.ErrorCode : value?.ToString() ?? "null";
+        }
+    }
+
+    [Test]
     public async Task AScalarConditionIf_OverAProducer_IsTaintedOnEveryBranchShape()
     {
         // The taint on the path Task 8 added, which had NO volatility coverage at all: every test above this

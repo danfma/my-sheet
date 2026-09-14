@@ -42,6 +42,74 @@ public readonly struct EvaluationContext
 
     private readonly NameScope? _names;
 
+    // Final-review fix wave, finding I3: a scalar-condition selector (IF/CHOOSE) bound to a LET name is
+    // resolved TWICE — ArrayBindings.Shape (the probe, via If.TryResolveReference/Choose's own resolution)
+    // and ArrayBindings.Capture (the build, via If.Evaluate/Choose.Evaluate) each evaluate the CONDITION
+    // independently, because they are two SEPARATE calls to Let.TryBind with no state shared between them.
+    // For a volatile condition (RAND()<0.5) the two draws can disagree, so the probe's shape (built from one
+    // branch) and the build's actual value (drawn from the OTHER branch) mismatch — measured over 200 seeds,
+    // SUM(LET(a,IF(RAND()<0.5,Rng,0),b,a,b*1)) answered #VALUE! in a quarter of them, a third bucket neither
+    // draw alone would ever give. This cache makes the CONDITION sub-expression's evaluation idempotent
+    // WITHIN one cell's evaluation (see If.cs/Choose's TryChoose): the first reader draws it and records the
+    // value here; every later reader of the SAME condition node reuses it instead of redrawing. Reference
+    // identity is the right key — the same source `IF(...)`/`CHOOSE(...)` occurrence is one parsed node
+    // reused by every reader that reaches it during ONE evaluation, and a SharedFormulaSlave's anchored
+    // master tree is likewise one shared node per formula group, not duplicated per slave.
+    //
+    // Scope is exactly what WithCell already establishes for _names: created FRESH per top-level cell
+    // evaluation (Workbook.EvaluateCell's constructor call, and WithCell's own reset — a formula's local
+    // state, including this cache, does not leak into a cell it references) and threaded BY REFERENCE
+    // through every WithName/WithDelta derivation of THAT SAME evaluation, so ArrayBindings.Shape's probe
+    // pass and ArrayBindings.Capture's later build pass — both reached from the SAME top-level Evaluate call
+    // — see the identical cache instance. Allocated eagerly (a small, field-less-until-used wrapper, not a
+    // Dictionary) rather than lazily: a struct copy of a null reference can never become non-null in a
+    // SIBLING copy, so a cache created on first use inside ArrayBindings.Shape would be invisible to the
+    // later, separately-constructed ArrayBindings.Capture call — the exact bug this class exists to close.
+    private readonly ConditionCache _conditions;
+
+    /// <summary>See the remarks on <see cref="EvaluationContext"/>'s <c>_conditions</c> field.</summary>
+    private sealed class ConditionCache
+    {
+        private Dictionary<Expression, ComputedValue>? _values;
+
+        public bool TryGet(Expression condition, out ComputedValue value)
+        {
+            if (_values is not null && _values.TryGetValue(condition, out var cached))
+            {
+                value = cached;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        public void Set(Expression condition, ComputedValue value) =>
+            (
+                _values ??= new Dictionary<Expression, ComputedValue>(
+                    ReferenceEqualityComparer.Instance
+                )
+            )[condition] = value;
+    }
+
+    /// <summary>
+    /// The first reader of <paramref name="condition"/> within this cell's evaluation draws it (its own
+    /// <c>Evaluate</c>, against THIS context) and every later reader of the SAME node — a selector's
+    /// condition resolved once by the probe and again by the build — reuses that draw. See the remarks on
+    /// <see cref="EvaluationContext"/>'s <c>_conditions</c> field.
+    /// </summary>
+    internal ComputedValue EvaluateConditionOnce(Expression condition)
+    {
+        if (_conditions.TryGet(condition, out var cached))
+        {
+            return cached;
+        }
+
+        var value = condition.Evaluate(this);
+        _conditions.Set(condition, value);
+        return value;
+    }
+
     public Workbook Workbook { get; }
     public string? SheetName { get; }
     public string? CellId { get; }
@@ -59,7 +127,15 @@ public readonly struct EvaluationContext
     public int DeltaColumn { get; }
 
     public EvaluationContext(Workbook workbook, string? sheetName = null, string? cellId = null)
-        : this(workbook, sheetName, cellId, names: null, deltaRow: 0, deltaColumn: 0) { }
+        : this(
+            workbook,
+            sheetName,
+            cellId,
+            names: null,
+            deltaRow: 0,
+            deltaColumn: 0,
+            conditions: null
+        ) { }
 
     private EvaluationContext(
         Workbook workbook,
@@ -67,7 +143,8 @@ public readonly struct EvaluationContext
         string? cellId,
         NameScope? names,
         int deltaRow,
-        int deltaColumn
+        int deltaColumn,
+        ConditionCache? conditions
     )
     {
         Workbook = workbook;
@@ -76,15 +153,28 @@ public readonly struct EvaluationContext
         _names = names;
         DeltaRow = deltaRow;
         DeltaColumn = deltaColumn;
+        // A null `conditions` means "start of a fresh top-level evaluation" (the public constructor and
+        // WithCell both pass null), so a new cache is made HERE — the one point that must run before any
+        // WithName/WithDelta derivation copies the reference onward. See the remarks on the field above.
+        _conditions = conditions ?? new ConditionCache();
     }
 
     // LET names are local to a formula and do not leak into referenced cells, so they are dropped here. The
     // shared-formula delta is likewise a property of the ORIGINATING slave cell, not of whatever cell it
     // references, so it resets to 0 here too (this mirrors EvaluateCell's fresh-context behavior for the
     // rare direct caller of WithCell — the normal GetCellValue/GetCellValueDense path never routes through
-    // this method at all, it always goes through EvaluateCell).
+    // this method at all, it always goes through EvaluateCell). The condition cache resets for the same
+    // reason as _names: a referenced cell's own volatile selectors are its own evaluation's business.
     public EvaluationContext WithCell(string sheetName, string cellId) =>
-        new(Workbook, sheetName, cellId, names: null, deltaRow: 0, deltaColumn: 0);
+        new(
+            Workbook,
+            sheetName,
+            cellId,
+            names: null,
+            deltaRow: 0,
+            deltaColumn: 0,
+            conditions: null
+        );
 
     public EvaluationContext WithName(string name, ComputedValue value) =>
         new(
@@ -93,7 +183,8 @@ public readonly struct EvaluationContext
             CellId,
             new NameScope(name, value, operand: null, _names),
             DeltaRow,
-            DeltaColumn
+            DeltaColumn,
+            _conditions
         );
 
     /// <summary>
@@ -109,7 +200,8 @@ public readonly struct EvaluationContext
             CellId,
             new NameScope(name, value: default, operand, _names),
             DeltaRow,
-            DeltaColumn
+            DeltaColumn,
+            _conditions
         );
 
     /// <summary>Binds whichever form <paramref name="binding"/> holds — the one call a binding site makes.</summary>
@@ -123,7 +215,7 @@ public readonly struct EvaluationContext
     /// (still the slave's own cell — only the anchored nodes inside Master read the delta).
     /// </summary>
     public EvaluationContext WithDelta(int deltaRow, int deltaColumn) =>
-        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn);
+        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn, _conditions);
 
     /// <summary>
     /// The nearest SCALAR-form binding of <paramref name="name"/> — a scalar or a captured reference value.

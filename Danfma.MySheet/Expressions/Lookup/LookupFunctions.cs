@@ -70,7 +70,11 @@ public sealed partial record Choose(Expression[] Arguments) : Function
     {
         chosen = null!;
 
-        if (Arguments[0].Evaluate(context).CoerceToNumber(out var index) is { } error)
+        // Final-review fix wave, finding I3: EvaluateConditionOnce (shared with If's condition — see its
+        // remarks on EvaluationContext) memoizes the index draw for THIS node within one cell's evaluation,
+        // so TryResolveReference below (ArrayBindings.Shape's probe) and this method (ArrayBindings.Capture's
+        // build) agree on which branch a VOLATILE index picks instead of drawing it twice, independently.
+        if (context.EvaluateConditionOnce(Arguments[0]).CoerceToNumber(out var index) is { } error)
         {
             return ComputedValue.Error(error);
         }
@@ -89,7 +93,7 @@ public sealed partial record Choose(Expression[] Arguments) : Function
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
         reference = null;
-        if (Arguments[0].Evaluate(context).CoerceToNumber(out var index) is not null)
+        if (context.EvaluateConditionOnce(Arguments[0]).CoerceToNumber(out var index) is not null)
         {
             return false;
         }

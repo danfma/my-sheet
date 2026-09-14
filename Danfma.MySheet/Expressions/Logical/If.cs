@@ -11,7 +11,9 @@ public sealed partial record If(Expression[] Arguments) : Function
         // usual truthiness — see ValueCoercion.CoerceToBoolAllowingTextWords. AND/OR/XOR must NOT: they
         // IGNORE text, so they keep the plain CoerceToBool through LogicalReduction.
         if (
-            Arguments[0].Evaluate(context).CoerceToBoolAllowingTextWords(out var condition) is
+            context
+                .EvaluateConditionOnce(Arguments[0])
+                .CoerceToBoolAllowingTextWords(out var condition) is
             { } error
         )
         {
@@ -47,7 +49,9 @@ public sealed partial record If(Expression[] Arguments) : Function
         // fallback): the taken bare-reference branch's rectangle, or "not a reference" for anything else
         // (a scalar branch, a branch-less FALSE), exactly what the node's Evaluate would have carried.
         if (
-            Arguments[0].Evaluate(context).CoerceToBoolAllowingTextWords(out var condition) is
+            context
+                .EvaluateConditionOnce(Arguments[0])
+                .CoerceToBoolAllowingTextWords(out var condition) is
             { } error
         )
         {
