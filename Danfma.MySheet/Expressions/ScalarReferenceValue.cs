@@ -9,6 +9,7 @@ internal static class ScalarReferenceValue
                 expression,
                 context,
                 out var reference,
+                out var unresolvedValue,
                 boundOpenRanges: false
             )
         )
@@ -21,6 +22,6 @@ internal static class ScalarReferenceValue
             return ImplicitIntersection.Apply(reference, context);
         }
 
-        return expression.Evaluate(context);
+        return unresolvedValue ?? expression.Evaluate(context);
     }
 }

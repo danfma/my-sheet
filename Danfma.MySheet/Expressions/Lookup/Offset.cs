@@ -42,7 +42,14 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         return ComputedValue.Reference(BuildRange(sheetName, startColumn, startRow, height, width));
     }
 
-    public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference) =>
+        TryResolveReference(context, out reference, out _);
+
+    internal bool TryResolveReference(
+        EvaluationContext context,
+        out Reference? reference,
+        out ComputedValue? unresolvedValue
+    )
     {
         if (
             TryComputeTarget(
@@ -52,11 +59,12 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 out var startRow,
                 out var height,
                 out var width
-            )
-            is not null
+            ) is
+            { } error
         )
         {
             reference = null;
+            unresolvedValue = error;
             return false;
         }
 
@@ -66,6 +74,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             : height == 1 && width == 1
                 ? new CellReference(new CellAddress(startColumn, startRow).ToId(), sheetName)
             : BuildRange(sheetName, startColumn, startRow, height, width);
+        unresolvedValue = null;
 
         return true;
     }

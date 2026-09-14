@@ -132,11 +132,25 @@ internal static class NamedReferences
         EvaluationContext context,
         [NotNullWhen(true)] out Reference? reference,
         bool boundOpenRanges = true
+    ) => TryResolveReference(expression, context, out reference, out _, boundOpenRanges);
+
+    public static bool TryResolveReference(
+        Expression expression,
+        EvaluationContext context,
+        [NotNullWhen(true)] out Reference? reference,
+        out ComputedValue? unresolvedValue,
+        bool boundOpenRanges = true
     )
     {
+        if (expression is Lookup.Offset offset)
+        {
+            return offset.TryResolveReference(context, out reference, out unresolvedValue);
+        }
+
         if (!TryResolveRaw(expression, context, out var raw))
         {
             reference = null;
+            unresolvedValue = null;
             return false;
         }
 
@@ -148,6 +162,7 @@ internal static class NamedReferences
             boundOpenRanges && raw is OpenRangeReference open
                 ? (Reference?)open.ToBoundedRange(context) ?? open
                 : raw;
+        unresolvedValue = null;
 
         return true;
     }
