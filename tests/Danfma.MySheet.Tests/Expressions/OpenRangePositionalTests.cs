@@ -59,7 +59,110 @@ public class OpenRangePositionalTests
 
     private static double? Num(object? value) => value as double?;
 
+    private static object? EvalAdmitted(Workbook workbook, string formula)
+    {
+        // The first distinct formula cell records the cache-admission marker; the second builds and reads the
+        // snapshot. Keeping the formula cells off the lookup range avoids including either formula in it.
+        _ = Eval(workbook, formula, "Z100");
+        return Eval(workbook, formula, "AA100");
+    }
+
+    private static void FillRowForCacheAdmission(Sheet sheet)
+    {
+        for (var column = 4; column <= 300; column++)
+        {
+            sheet[$"{ColumnAddress(column)}4"] = new NumberValue(0);
+        }
+    }
+
+    private static void FillColumnForCacheAdmission(Sheet sheet, int startRow, double value)
+    {
+        for (var row = startRow; row < startRow + 257; row++)
+        {
+            sheet[$"C{row}"] = new NumberValue(value);
+        }
+    }
+
+    private static string ColumnAddress(int column)
+    {
+        var address = string.Empty;
+        while (column > 0)
+        {
+            column--;
+            address = (char)('A' + column % 26) + address;
+            column /= 26;
+        }
+
+        return address;
+    }
+
     // === Absolute coordinates over an open base ============================================================
+
+    // === Cached coordinates over an open base ===============================================================
+
+    [Test]
+    public async Task Match_OverAnAdmittedWholeRow_ReturnsTheSourceColumnPosition()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["C4"] = new NumberValue(30);
+        FillRowForCacheAdmission(sheet);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 3 / 3. The second distinct formula cell uses the admitted snapshot.
+        await Assert.That(Num(EvalAdmitted(workbook, "=MATCH(30,$4:$4,0)"))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task XMatch_OverAnAdmittedWholeRow_ReturnsTheSourceColumnPosition()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["C4"] = new NumberValue(30);
+        FillRowForCacheAdmission(sheet);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 3 / 3. The second distinct formula cell uses the admitted snapshot.
+        await Assert.That(Num(EvalAdmitted(workbook, "=XMATCH(30,$4:$4)"))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task Match_AscendingOverAnAdmittedWholeColumn_ReturnsTheSourceRowPosition()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["C3"] = new NumberValue(20);
+        sheet["C500"] = new NumberValue(30);
+        sheet["C900"] = new NumberValue(40);
+        FillColumnForCacheAdmission(sheet, 901, 40);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 500 / 500. The second distinct formula cell uses the admitted snapshot.
+        await Assert.That(Num(EvalAdmitted(workbook, "=MATCH(35,C:C,1)"))).IsEqualTo(500.0);
+    }
+
+    [Test]
+    public async Task Match_DescendingOverAnAdmittedWholeColumn_ReturnsTheSourceRowPosition()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["C3"] = new NumberValue(40);
+        sheet["C500"] = new NumberValue(30);
+        sheet["C900"] = new NumberValue(20);
+        FillColumnForCacheAdmission(sheet, 901, 20);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 3 / 3. The second distinct formula cell uses the admitted snapshot.
+        await Assert.That(Num(EvalAdmitted(workbook, "=MATCH(35,C:C,-1)"))).IsEqualTo(3.0);
+    }
+
+    [Test]
+    public async Task XMatch_OverAnAdmittedWholeColumn_ReturnsTheSparseSourceRowPosition()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["C7"] = new NumberValue(30);
+        FillColumnForCacheAdmission(sheet, 8, 0);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 7 / 7. The second distinct formula cell uses the admitted snapshot.
+        await Assert.That(Num(EvalAdmitted(workbook, "=XMATCH(30,C:C)"))).IsEqualTo(7.0);
+    }
 
     [Test]
     public async Task Match_OverAWholeRow_ReturnsTheAbsoluteColumnPosition()
