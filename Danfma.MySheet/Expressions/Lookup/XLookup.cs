@@ -43,6 +43,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         if (
             Arguments[1] is not IArrayProducer
+            && !IsBoundArray(Arguments[1], context)
             && ArraySlotError(Arguments[1], context, Error.NA) is { } lookupArrayError
         )
         {
@@ -51,6 +52,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         if (
             Arguments[2] is not IArrayProducer
+            && !IsBoundArray(Arguments[2], context)
             && ArraySlotError(Arguments[2], context, Error.Value) is { } returnArrayError
         )
         {
@@ -171,6 +173,16 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         return argument is NameReference ? ComputedValue.Error(fallback) : null;
     }
+
+    private static bool IsBoundArray(Expression argument, EvaluationContext context) =>
+        argument is NameReference name
+        && (
+            context.TryGetArrayBinding(name.Name, out _)
+            || (
+                context.Workbook.DefinedNames.TryGetValue(name.Name, out var definition)
+                && ArrayEvaluation.IsArrayEligible(definition, context)
+            )
+        );
 
     private static bool TryBindArray(
         Expression argument,

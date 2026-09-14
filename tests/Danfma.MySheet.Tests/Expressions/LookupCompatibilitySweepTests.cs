@@ -178,4 +178,47 @@ public class LookupCompatibilitySweepTests
         string formula,
         string expected
     ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    // No worksheet fixture. Aspose.Cells 26.7.0 PLAIN / CSE: 20/20, #VALUE!/#VALUE!, 20/20 and 20/20.
+    // Before this fix every row returned #N/A because the NameReference fallback ran before the LET array
+    // binding could be consumed.
+    [Test]
+    [Arguments("=LET(a,SEQUENCE(3),b,SEQUENCE(3)*10,XLOOKUP(2,a,b))", "20")]
+    [Arguments("=LET(a,SEQUENCE(3),b,SEQUENCE(2),XLOOKUP(2,a,b))", "#VALUE!")]
+    [Arguments("=LET(a,SEQUENCE(3),b,SEQUENCE(3)*10,XLOOKUP(2,a,b,,0,-1))", "20")]
+    [Arguments("=LET(a,SEQUENCE(3),b,SEQUENCE(3)*10,XLOOKUP(2.5,a,b,,-1))", "20")]
+    public async Task XLookup_ConsumesLetBoundComputedArrays(string formula, string expected) =>
+        await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    [Test]
+    public async Task XLookup_LetBoundVolatileProducer_IsBuiltOnce()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        var draws = 0;
+        workbook.RegisterFunction("TICK", (_, _) => ++draws);
+        sheet["AZ5000"] = ExpressionParser.Parse(
+            "=LET(a,SEQUENCE(3,1,TICK(),0),XLOOKUP(a,a,a))",
+            sheet
+        );
+
+        var value = workbook.GetCellValue("Main", "AZ5000");
+
+        await Assert.That(draws).IsEqualTo(1);
+        await Assert.That(value).IsEqualTo(ComputedValue.Number(1));
+    }
+
+    // Defined name Computed = SEQUENCE(3). Aspose.Cells 26.7.0 PLAIN / CSE both return 1.
+    [Test]
+    public async Task XLookup_ConsumesDefinedNameComputedArray()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        workbook.DefineName("Computed", ExpressionParser.Parse("=SEQUENCE(3)", sheet));
+        sheet["AZ5000"] = ExpressionParser.Parse("=XLOOKUP(1,Computed,SEQUENCE(3))", sheet);
+
+        await Assert
+            .That(workbook.GetCellValue("Main", "AZ5000"))
+            .IsEqualTo(ComputedValue.Number(1));
+    }
 }
