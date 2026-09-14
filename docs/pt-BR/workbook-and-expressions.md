@@ -376,6 +376,11 @@ delimitadora populada** dentro de seus limites; `AREAS` conta como uma área e `
 traduzem coordenadas aritmeticamente; `MATCH` e `XMATCH` percorrem somente células populadas e preservam as
 coordenadas de origem delas. Nenhum materializa uma linha ou coluna inteira.
 
+`VLOOKUP` e `HLOOKUP` também aceitam um escalar como uma tabela 1x1 e retornam `#N/A` quando ele não casa.
+`XLOOKUP` valida o eixo de busca antes de pesquisar: o array de retorno precisa ter a mesma contagem de linhas
+numa busca vertical ou de colunas numa busca horizontal, caso contrário retorna `#VALUE!` antes de aplicar
+`if_not_found`; o array de retorno ainda pode ser mais largo ou mais alto no eixo que não é pesquisado.
+
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 
 ## Interseção implícita na fronteira da célula
