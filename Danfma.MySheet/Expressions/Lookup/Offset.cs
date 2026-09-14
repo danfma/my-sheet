@@ -168,16 +168,25 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         startColumn = baseColumn + (int)columns;
         startRow = baseRow + (int)rows;
 
+        if (height < 0)
+        {
+            startRow += height + 1;
+            height = -height;
+        }
+
+        if (width < 0)
+        {
+            startColumn += width + 1;
+            width = -width;
+        }
+
         if (startColumn < 1 || startRow < 1)
         {
             return ComputedValue.Error(Error.Ref);
         }
 
-        // A non-positive size is #REF! in Excel (height/width of 0, or a fraction that truncates to 0).
-        // This also prevents building an invalid cell id like "A0" from a zero-height/width range. (Excel's
-        // negative height/width extends in the opposite direction; that abs+direction case is not modeled
-        // here — a rare form left as #REF! rather than a wrong value.)
-        if ((hasHeight && height < 1) || (hasWidth && width < 1))
+        // Zero is #REF!; a negative size extends from the displaced origin in the opposite direction.
+        if ((hasHeight && height == 0) || (hasWidth && width == 0))
         {
             return ComputedValue.Error(Error.Ref);
         }

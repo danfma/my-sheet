@@ -452,6 +452,45 @@ public class ReferenceFunctionTests
     }
 
     [Test]
+    [Arguments("=ROWS(OFFSET(A3,0,0,-2,1))", 2.0)]
+    [Arguments("=SUM(OFFSET(A3,0,0,-2,1))", 5.0)]
+    [Arguments("=COLUMNS(OFFSET(B1,0,0,1,-2))", 2.0)]
+    [Arguments("=SUM(OFFSET(B1,0,0,1,-2))", 5.0)]
+    [Arguments("=SUM(OFFSET(A3,-1,0,-2,1))", 3.0)]
+    [Arguments("=ROWS(OFFSET(A:A,2,0,-2,1))", 2.0)]
+    [Arguments("=SUM((OFFSET(A3,0,0,-2,1))*2)", 10.0)]
+    public async Task Offset_NegativeDimensions_ExtendUpOrLeft(string formula, double expected)
+    {
+        var (workbook, sheet) = Grid(
+            ("A1", N(1)),
+            ("A2", N(2)),
+            ("A3", N(3)),
+            ("B1", N(4)),
+            ("B2", N(5)),
+            ("B3", N(6))
+        );
+
+        await Assert
+            .That(ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject() as double?)
+            .IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("=SUM(OFFSET(A1,0,0,-2,1))")]
+    [Arguments("=SUM(OFFSET(A1,0,0,1,-2))")]
+    [Arguments("=SUM(OFFSET(B2,0,-1,1,-2))")]
+    [Arguments("=SUM(OFFSET(A1,0,0,0,1))")]
+    [Arguments("=SUM(OFFSET(A1,0,0,1,0))")]
+    public async Task Offset_InvalidOrZeroDimensions_AreReferenceErrors(string formula)
+    {
+        var (workbook, sheet) = Grid(("A1", N(1)), ("A2", N(2)), ("B1", N(4)));
+
+        await Assert
+            .That(ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject())
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
     public async Task XLookup_ApproximateModes()
     {
         var (workbook, sheet) = Grid(
