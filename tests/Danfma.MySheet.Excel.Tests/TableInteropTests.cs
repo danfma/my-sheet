@@ -446,6 +446,9 @@ public class TableInteropTests
         // suffix as one token). What makes this a different code path from the plain-formula case above is
         // the shared GROUP: the rejected master must register nothing, so its slave degrades through the
         // missing-master fallback rather than through this cell's own catch.
+        // The master's cached <v> is a DELIBERATE LIE: 999 is neither the column's true sum (10 + 32 = 42) nor
+        // the oracle's #VALUE! for a current-row form outside the table, so the B4 assertion below can only
+        // pass if the value came from the cache. The old cache, 42, coincided with the true sum.
         var path = WriteTableFixture(sheetData =>
         {
             AppendToRow(
@@ -459,7 +462,7 @@ public class TableInteropTests
                         SharedIndex = 0,
                         Reference = "B4:B5",
                     },
-                    "42"
+                    "999"
                 )
             );
             AppendToRow(
@@ -486,7 +489,7 @@ public class TableInteropTests
 
             // The master falls back to its own cached value; the slave, whose master never registered,
             // falls back to its own through the existing missing-master path.
-            await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(42.0);
+            await Assert.That(workbook.GetCellValue("Data", "B4").ToDouble()).IsEqualTo(999.0);
             await Assert.That(workbook.GetCellValue("Data", "B5").ToDouble()).IsEqualTo(43.0);
         }
         finally
@@ -592,9 +595,20 @@ public class TableInteropTests
 
         try
         {
-            var workbook = ExcelFile.Load(path);
+            var warnings = new List<ExcelLoadWarning>();
+
+            var workbook = ExcelFile.Load(path, new ExcelLoadOptions { OnWarning = warnings.Add });
 
             await Assert.That(workbook.GetCellValue("Data", "B4").ToText()).IsEqualTo("ok");
+            // The fallback is not silent: the formula the parser rejected is reported against its cell.
+            await Assert
+                .That(
+                    warnings.Any(warning =>
+                        warning.Kind == ExcelLoadWarningKind.UnparsableFormula
+                        && warning.Subject == "B4"
+                    )
+                )
+                .IsTrue();
         }
         finally
         {
@@ -620,12 +634,23 @@ public class TableInteropTests
 
         try
         {
-            var workbook = ExcelFile.Load(path);
+            var warnings = new List<ExcelLoadWarning>();
+
+            var workbook = ExcelFile.Load(path, new ExcelLoadOptions { OnWarning = warnings.Add });
             var value = workbook.GetCellValue("Data", "B4");
 
             await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Error);
             await Assert.That(value.TryGetError(out var error)).IsTrue();
             await Assert.That(error.Display).IsEqualTo("#DIV/0!");
+            // The fallback is not silent: the formula the parser rejected is reported against its cell.
+            await Assert
+                .That(
+                    warnings.Any(warning =>
+                        warning.Kind == ExcelLoadWarningKind.UnparsableFormula
+                        && warning.Subject == "B4"
+                    )
+                )
+                .IsTrue();
         }
         finally
         {
