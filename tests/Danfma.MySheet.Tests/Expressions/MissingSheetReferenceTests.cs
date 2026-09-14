@@ -148,6 +148,13 @@ public class MissingSheetReferenceTests
         await AssertRef("=SUM(INDEX(Ghost!A1:A3,0,1))");
     }
 
+    [Test]
+    public async Task Index_ZeroAxisMissingSheet_IsNotAReferenceAfterReferenceResolution()
+    {
+        // Aspose.Cells 26.7.0, Main!AZ5000; PLAIN/CSE: FALSE / FALSE.
+        await Assert.That(Eval("=ISREF(INDEX(Ghost!A1:A3,0,1))").AsObject() as bool?).IsFalse();
+    }
+
     // A BOUNDED ghost range (not just a whole-column open range): the lookup would otherwise scan its cells,
     // skip the per-cell #REF! keys, and degrade to #N/A. It must short-circuit to #REF! structurally.
     [Test]
