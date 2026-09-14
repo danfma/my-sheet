@@ -7,7 +7,7 @@ public sealed partial record IfNa(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var value = Arguments[0].Evaluate(context);
+        var value = ScalarReferenceValue.Evaluate(Arguments[0], context);
 
         // Only #N/A is caught; other errors pass through.
         return value.TryGetError(out var error) && error == Error.NA

@@ -76,6 +76,9 @@ public class CellBoundaryIntersectionTests
     [Test]
     public async Task ScalarInformationConsumers_IntersectAReferenceByFormulaRow()
     {
+        // Item 42, Aspose.Cells 26.7.0 PLAIN, A1:A3=5,0,9: ISERROR false/true,
+        // N 0/#VALUE!, IFERROR 0/"err", ISNUMBER true/false. Before the shared scalar path,
+        // table references read their first element instead: false/false, 10/10, 10/10, true/true.
         foreach (
             var (formula, inside, outside) in new (string Formula, object Inside, object Outside)[]
             {
@@ -90,6 +93,99 @@ public class CellBoundaryIntersectionTests
             await Assert.That(InCell("H20", formula)).IsEqualTo(outside);
         }
     }
+
+    [Test]
+    [Arguments("ISERR({0})", false, true)]
+    [Arguments("ISNA({0})", false, false)]
+    [Arguments("IFNA({0},\"na\")", 0.0, "#VALUE!")]
+    [Arguments("ISTEXT({0})", false, false)]
+    [Arguments("ISNONTEXT({0})", true, true)]
+    [Arguments("ISLOGICAL({0})", false, false)]
+    [Arguments("ISBLANK({0})", false, false)]
+    public async Task ScalarConsumerFamily_IntersectsEveryReferenceKind(
+        string format,
+        object inside,
+        object outside
+    )
+    {
+        foreach (var reference in new[] { "A1:A3", "MyName", "Sheet1!A1:A3" })
+        {
+            var formula = "=" + string.Format(format, reference);
+            await Assert.That(InCell("H2", formula)).IsEqualTo(inside);
+            await Assert.That(InCell("H20", formula)).IsEqualTo(Expected(outside));
+        }
+
+        var openFormula = "=" + string.Format(format, "A:A");
+        var openOutside =
+            format.StartsWith("ISBLANK", StringComparison.Ordinal) ? true
+            : format.StartsWith("IFNA", StringComparison.Ordinal) ? 0.0
+            : inside;
+        await Assert.That(InCell("H2", openFormula)).IsEqualTo(inside);
+        await Assert.That(InCell("H20", openFormula)).IsEqualTo(openOutside);
+
+        var crossSheetFormula = "=" + string.Format(format, "Sheet1!A1:A3");
+        await Assert.That(InCell("H2", crossSheetFormula, "Sheet2")).IsEqualTo(inside);
+        await Assert.That(InCell("H20", crossSheetFormula, "Sheet2")).IsEqualTo(Expected(outside));
+
+        var tableInside = inside is double ? 10.0 : inside;
+        var workbook = TableFixture();
+        var main = workbook["Main"];
+        main["H2"] = ExpressionParser.Parse("=" + string.Format(format, "Tabela1[Valor]"), main);
+        main["H20"] = ExpressionParser.Parse("=" + string.Format(format, "Tabela1[Valor]"), main);
+        await Assert.That(workbook.GetCellValue("Main", "H2").AsObject()).IsEqualTo(tableInside);
+        await Assert
+            .That(workbook.GetCellValue("Main", "H20").AsObject())
+            .IsEqualTo(Expected(outside));
+    }
+
+    [Test]
+    [Arguments("ISERR({0})", false)]
+    [Arguments("ISNA({0})", true)]
+    [Arguments("IFNA({0},\"na\")", "na")]
+    [Arguments("ISTEXT({0})", false)]
+    [Arguments("ISNONTEXT({0})", true)]
+    [Arguments("ISLOGICAL({0})", false)]
+    [Arguments("ISBLANK({0})", false)]
+    public async Task ScalarConsumerFamily_IntersectsAReferencedNaCell(
+        string format,
+        object expected
+    )
+    {
+        var workbook = Fixture();
+        var sheet = workbook["Sheet1"];
+        sheet["E2"] = ExpressionParser.Parse("=#N/A", sheet);
+        sheet["H2"] = ExpressionParser.Parse("=" + string.Format(format, "E1:E3"), sheet);
+
+        await Assert.That(workbook.GetCellValue("Sheet1", "H2").AsObject()).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("ISERR({0})", true)]
+    [Arguments("ISNA({0})", false)]
+    [Arguments("IFNA({0},\"na\")", "#REF!")]
+    [Arguments("ISTEXT({0})", false)]
+    [Arguments("ISNONTEXT({0})", true)]
+    [Arguments("ISLOGICAL({0})", false)]
+    [Arguments("ISBLANK({0})", false)]
+    public async Task ScalarConsumerFamily_PropagatesItsCircularIntersectionContract(
+        string format,
+        object expected
+    )
+    {
+        // Aspose's circular-calculation fallback is numeric 0 in PLAIN mode. MySheet deliberately uses its
+        // cycle guard, so intersecting A1:A3 at A2 yields #REF!, which each scalar consumer then inspects.
+        await Assert
+            .That(InCell("A2", "=" + string.Format(format, "A1:A3")))
+            .IsEqualTo(Expected(expected));
+    }
+
+    private static object Expected(object expected) =>
+        expected switch
+        {
+            "#VALUE!" => ErrorValue.NotValue,
+            "#REF!" => ErrorValue.Reference,
+            _ => expected,
+        };
 
     [Test]
     public async Task BareRange_IntersectingTheFormulaCellItself_IsReferenceError()

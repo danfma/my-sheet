@@ -30,7 +30,8 @@ public sealed partial record IsErr(Expression[] Arguments) : Function
     // TRUE for any error value EXCEPT #N/A (per the Excel docs: ISERR(#N/A) = FALSE).
     public override ComputedValue Evaluate(EvaluationContext context) =>
         ComputedValue.Boolean(
-            Arguments[0].Evaluate(context).TryGetError(out var error) && error != Error.NA
+            ScalarReferenceValue.Evaluate(Arguments[0], context).TryGetError(out var error)
+                && error != Error.NA
         );
 }
 
@@ -39,7 +40,8 @@ public sealed partial record IsNa(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
         ComputedValue.Boolean(
-            Arguments[0].Evaluate(context).TryGetError(out var error) && error == Error.NA
+            ScalarReferenceValue.Evaluate(Arguments[0], context).TryGetError(out var error)
+                && error == Error.NA
         );
 }
 
@@ -48,7 +50,9 @@ public sealed partial record IsText(Expression[] Arguments) : Function
 {
     // No coercion — ISTEXT(19) is FALSE and ISLOGICAL("TRUE") is FALSE, like Excel's IS functions.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Boolean(Arguments[0].Evaluate(context).Kind == ComputedValueKind.Text);
+        ComputedValue.Boolean(
+            ScalarReferenceValue.Evaluate(Arguments[0], context).Kind == ComputedValueKind.Text
+        );
 }
 
 [MemoryPackable]
@@ -56,14 +60,18 @@ public sealed partial record IsNonText(Expression[] Arguments) : Function
 {
     // TRUE for anything that is not text — including blanks and errors (per the Excel docs).
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Boolean(Arguments[0].Evaluate(context).Kind != ComputedValueKind.Text);
+        ComputedValue.Boolean(
+            ScalarReferenceValue.Evaluate(Arguments[0], context).Kind != ComputedValueKind.Text
+        );
 }
 
 [MemoryPackable]
 public sealed partial record IsLogical(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Boolean(Arguments[0].Evaluate(context).Kind == ComputedValueKind.Boolean);
+        ComputedValue.Boolean(
+            ScalarReferenceValue.Evaluate(Arguments[0], context).Kind == ComputedValueKind.Boolean
+        );
 }
 
 [MemoryPackable]
