@@ -434,6 +434,24 @@ internal struct PositionalRange
         bool validateMissingSheet = false
     )
     {
+        if (
+            validateMissingSheet
+            && argument is Logical.If or Logical.Let or Lookup.Choose
+            && NamedReferences.TryResolveReference(argument, context, out var resolvedReference)
+        )
+        {
+            if (ReferenceGuard.MissingSheet(resolvedReference, context) is { } missing)
+            {
+                selected = null!;
+                error = missing;
+                return false;
+            }
+
+            selected = resolvedReference;
+            error = null;
+            return true;
+        }
+
         if (argument is not Logical.If ifNode)
         {
             selected = null!;

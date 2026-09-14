@@ -434,6 +434,61 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
+    [Arguments("=SUMIF(A1:A3,\">0\",IF(TRUE,IF(FALSE,B1:B3,Ghost!B1:B3),B1:B3))")]
+    [Arguments("=SUMIF(A1:A3,\">0\",LET(r,Ghost!B1:B3,r))")]
+    [Arguments("=SUMIF(A1:A3,\">0\",LET(r,Ghost!B1:B3,IF(TRUE,r,B1:B3)))")]
+    [Arguments("=AVERAGEIF(A1:A3,\">0\",IF(TRUE,IF(FALSE,B1:B3,Ghost!B1:B3),B1:B3))")]
+    [Arguments("=AVERAGEIF(A1:A3,\">0\",LET(r,Ghost!B1:B3,r))")]
+    [Arguments("=AVERAGEIF(A1:A3,\">0\",LET(r,Ghost!B1:B3,IF(TRUE,r,B1:B3)))")]
+    [Arguments("=SUMIFS(IF(TRUE,IF(FALSE,B1:B3,Ghost!B1:B3),B1:B3),A1:A3,\">0\")")]
+    [Arguments("=SUMIFS(LET(r,Ghost!B1:B3,r),A1:A3,\">0\")")]
+    [Arguments("=SUMIFS(LET(r,Ghost!B1:B3,IF(TRUE,r,B1:B3)),A1:A3,\">0\")")]
+    [Arguments("=MAXIFS(IF(TRUE,IF(FALSE,B1:B3,Ghost!B1:B3),B1:B3),A1:A3,\">0\")")]
+    [Arguments("=MAXIFS(LET(r,Ghost!B1:B3,r),A1:A3,\">0\")")]
+    [Arguments("=MAXIFS(LET(r,Ghost!B1:B3,IF(TRUE,r,B1:B3)),A1:A3,\">0\")")]
+    [Arguments("=SUMIF(A1:A3,\">0\",CHOOSE(1,Ghost!B1:B3,B1:B3))")]
+    public async Task FinalSelectedMissingSheetValueRange_IsAReferenceError(string formula)
+    {
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Ghost is absent. Aspose.Cells 26.7.0 PLAIN/CSE:
+        // #REF!/#REF! for every row. MySheet previously returned 0, or #DIV/0! for AVERAGEIF.
+        await Assert.That(OnGrid(formula)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task LetBoundValidAndLazyNestedReferences_RemainValid()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 4/4 for both rows. Only the final selected reference is validated.
+        await Assert.That(Num(OnGrid("=SUMIF(A1:A3,\">0\",LET(r,B1:B3,r))"))).IsEqualTo(4.0);
+        await Assert
+            .That(
+                Num(OnGrid("=SUMIF(A1:A3,\">0\",IF(TRUE,IF(FALSE,Ghost!B1:B3,B1:B3),Ghost!B1:B3))"))
+            )
+            .IsEqualTo(4.0);
+    }
+
+    [Test]
+    public async Task FinalSelectedReference_EvaluatesVolatileSelectorsOnce()
+    {
+        foreach (
+            var formula in new[]
+            {
+                "=SUMIF(A1:A3,\">0\",IF(TICK()>0,IF(FALSE,A1:A3,B1:B3),A1:A3))",
+                "=SUMIF(A1:A3,\">0\",LET(r,IF(TICK()>0,B1:B3,A1:A3),r))",
+            }
+        )
+        {
+            var (workbook, sheet) = Grid();
+            var draws = 0;
+            workbook.RegisterFunction("TICK", (_, _) => ++draws == 1 ? 1 : 0);
+
+            var result = ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject();
+
+            await Assert.That(Num(result)).IsEqualTo(4.0);
+            await Assert.That(draws).IsEqualTo(1);
+        }
+    }
+
+    [Test]
     public async Task SelectedMissingSheetCriteriaRange_FollowsCseAndStaysEmpty()
     {
         // Aspose.Cells 26.7.0 PLAIN/CSE: #REF!/0 for both rows. MySheet follows CSE; this guards the
@@ -443,6 +498,10 @@ public class CriteriaComputedArgumentTests
             .IsEqualTo(0.0);
         await Assert
             .That(Num(OnGrid("=SUMIFS(B1:B3,IF(TRUE,Ghost!A1:A3,A1:A3),\">0\")")))
+            .IsEqualTo(0.0);
+        await Assert.That(Num(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,r),\">0\")"))).IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnGrid("=COUNTIFS(IF(TRUE,IF(FALSE,A1:A3,Ghost!A1:A3),A1:A3),\">0\")")))
             .IsEqualTo(0.0);
     }
 
