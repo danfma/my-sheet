@@ -859,7 +859,11 @@ The guard tests are precise about which of those two mistakes each one catches:
    `IF` in a range slot is resolved from its first condition element and contributes the selected reference branch:
    `COUNTIF(IF(A1:A3>0,A1:A3),">0")` is `2`. The same selection applies to `SUMIF` and `AVERAGEIF`'s
    sum/average-range slot before its selected reference is resized: with `A1:A3=5,0,9` and `B1:B3=1,2,3`,
-   `SUMIF(A1:A3,">0",IF(A1:A3>0,B1,A1))` is `4`. A selected computed array remains refused:
+   `SUMIF(A1:A3,">0",IF(A1:A3>0,B1,A1))` is `4`. A value-slot selector resolves to its final selected
+   reference, so a missing sheet gives `#REF!`, as in
+   `SUMIF(A1:A3,">0",LET(r,IF(TRUE,Ghost!B1:B3,B1:B3),r))`. In a criteria slot, a direct `LET`/name chain
+   keeps the reference, so `COUNTIF(LET(r,Ghost!A1:A3,LET(t,r,t)),">0")` is `#REF!`; an `IF` or `CHOOSE`
+   anywhere on the route evaluates element-wise and follows the CSE result, `0`. A selected computed array remains refused:
    `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` and `SUMIF(A1:A3,">0",IF(TRUE,SEQUENCE(3),B1:B3))` are
    `#REF!`. Two shapes remain
   **deliberate deviations**, each pinned as one in

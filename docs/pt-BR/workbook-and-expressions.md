@@ -908,7 +908,12 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
    primeiro elemento da condição e contribui o ramo de referência selecionado:
     `COUNTIF(IF(A1:A3>0,A1:A3),">0")` é `2`. A mesma seleção se aplica ao slot de intervalo de soma/média
     de `SUMIF` e `AVERAGEIF` antes de redimensionar a referência selecionada: com `A1:A3=5,0,9` e
-    `B1:B3=1,2,3`, `SUMIF(A1:A3,">0",IF(A1:A3>0,B1,A1))` é `4`. Um array computado selecionado continua
+    `B1:B3=1,2,3`, `SUMIF(A1:A3,">0",IF(A1:A3>0,B1,A1))` é `4`. Um seletor no slot de valor resolve para
+    sua referência final selecionada, portanto uma planilha ausente dá `#REF!`, como em
+    `SUMIF(A1:A3,">0",LET(r,IF(TRUE,Ghost!B1:B3,B1:B3),r))`. Em um slot de critérios, uma cadeia direta de
+    `LET`/nome mantém a referência, portanto `COUNTIF(LET(r,Ghost!A1:A3,LET(t,r,t)),">0")` é `#REF!`; um
+    `IF` ou `CHOOSE` em qualquer ponto da rota é avaliado elemento a elemento e segue o resultado CSE, `0`.
+    Um array computado selecionado continua
     recusado: `COUNTIF(IF(TRUE,SEQUENCE(3),A1:A3),">0")` e
     `SUMIF(A1:A3,">0",IF(TRUE,SEQUENCE(3),B1:B3))` são `#REF!`. Duas formas permanecem
   **desvios deliberados**, cada uma fixada como tal em
