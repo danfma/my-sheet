@@ -437,6 +437,11 @@ public class ReferenceFunctionTests
         await Is("=COLUMNS(OFFSET(A1:C3,1,1))", 3);
         await Is("=SUM(OFFSET(A1:C3,1,1))", 55);
         await Is("=COUNT(OFFSET(A1:C3,1,1))", 4);
+        await Is("=ROWS(OFFSET(A1:A3,1,0))", 3);
+        await Is("=COLUMNS(OFFSET(A1:A3,1,0))", 1);
+        await Is("=SUM(OFFSET(A1:A3,1,0))", 9);
+        await Is("=COUNT(OFFSET(A1:A3,1,0))", 2);
+        await Is("=ROWS(OFFSET(A1:A3,0,0,,2))", 3);
         await Is("=SUM(OFFSET(A1:A3,0,0,,2))", 20);
         await Is("=COUNT(OFFSET(A1:A3,0,0,,2))", 6);
 

@@ -202,6 +202,7 @@ public class EmptyTableReferenceTests
     [Arguments("=ROWS(Tabela1[Valor]+1)", "0")]
     [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0,1,1))", "0")]
     [Arguments("=COLUMNS(OFFSET(Tabela1[Valor],0,0))", "1")]
+    // Item 36, header-only table: old 1 -> new 0; Aspose 26.7 PLAIN/CSE 0/0 after priming.
     [Arguments("=ROWS(OFFSET(Tabela1[Valor],0,0))", "0")]
     [Arguments("=ROWS(OFFSET(Tabela1[Valor],1,0))", "0")]
     [Arguments("=ROWS(Tabela1[Valor]:Tabela1[Qtd])", "0")]
@@ -220,6 +221,7 @@ public class EmptyTableReferenceTests
     [Arguments("=ROWS(Tabela1[#All])", "1")]
     [Arguments("=COUNTA(Tabela1[#All])", "3")]
     [Arguments("=SUM(LET(x,Tabela1[Valor],x))", "0")]
+    // Item 39, header-only table: old 1 -> new 0; Aspose 26.7 PLAIN/CSE 0/0 after priming.
     [Arguments("=ROWS(LET(x,Tabela1[Valor],x))", "0")]
     [Arguments("=ROWS(LET(x,Tabela1[Valor],x*1))", "0")]
     [Arguments("=SUM(IF(TRUE,Tabela1[Valor],0))", "0")]
@@ -291,6 +293,9 @@ public class EmptyTableReferenceTests
     [Arguments("=ROW(Tabela1[Valor])", "2")]
     [Arguments("=ROW(Tabela1[#Data])", "2")]
     [Arguments("=ROW(Tabela1)", "2")]
+    // Item 42, header-only table, Aspose 26.7 PLAIN/CSE. Old -> new:
+    // ISERROR false -> true; ISBLANK false -> false; N 0 -> #VALUE!;
+    // IFERROR 0 -> "e"; ISNUMBER true -> false. The new values use positional intersection.
     [Arguments("=ISERROR(Tabela1[Valor])", "TRUE")]
     [Arguments("=ISBLANK(Tabela1[Valor])", "FALSE")]
     [Arguments("=N(Tabela1[Valor])", "#VALUE!")]
