@@ -165,19 +165,43 @@ public class LookupCompatibilitySweepTests
         await Assert.That(actual).IsEqualTo(expected);
     }
 
-    // Fixture: B1:B3 = 1,2,3 for the vertical return, and B1:D1 = 1,2,3 for the horizontal return.
-    // Aspose.Cells 26.7.0 PLAIN / CSE: vertical 10/10, horizontal #VALUE!/#VALUE!, 2D #VALUE!/#VALUE!,
-    // scalar 10/10. The horizontal row contradicts C1's binding ruling that a 1x1 lookup matches either
-    // axis, so this pin follows that principle and records the oracle defect rather than its inconsistent row.
+    // Fixture: A1 = 1, B1:B3 = 10,20,30 and B1:D1 = 10,40,50; formula at AZ5000.
+    // Aspose.Cells 26.7.0 PLAIN / CSE agree: a 1x1 lookup is a row, so its return must have one column.
+    // The horizontal return pin changed from 1 to #VALUE! after measurement disproved the old both-axes rule.
     [Test]
-    [Arguments("=XLOOKUP(1,SEQUENCE(1),B1:B3)", "1")]
-    [Arguments("=XLOOKUP(1,SEQUENCE(1),B1:D1)", "1")]
-    [Arguments("=XLOOKUP(5,A1,B1:C3)", "#VALUE!")]
-    [Arguments("=XLOOKUP(5,A1,B1)", "1")]
-    public async Task XLookup_AOneByOneLookupMatchesEitherReturnAxis(
-        string formula,
-        string expected
-    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+    [Arguments("=XLOOKUP(1,SEQUENCE(1),B1:B3)", "10")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(1),B1:D1)", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,A1,B1:C3)", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,A1,B1)", "10")]
+    [Arguments("=INDEX(XLOOKUP(1,SEQUENCE(1),B1:B3),2)", "20")]
+    [Arguments("=ROWS(XLOOKUP(1,A1,B1:B3))", "3")]
+    [Arguments("=SUM(XLOOKUP(1,A1,B1:B3))", "60")]
+    [Arguments("=XLOOKUP(2,A1,B1:B3,\"nf\")", "\"nf\"")]
+    [Arguments("=XLOOKUP(1,A1:A1,B1:B3)", "10")]
+    [Arguments("=LET(a,SEQUENCE(1),XLOOKUP(1,a,B1:D1))", "#VALUE!")]
+    [Arguments("=XLOOKUP(1,A1,SEQUENCE(3))", "1")]
+    [Arguments("=XLOOKUP(1,A1,SEQUENCE(1,3))", "#VALUE!")]
+    public async Task XLookup_AOneByOneLookupUsesTheHorizontalAxis(string formula, string expected)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["A1"] = new NumberValue(1);
+        main["B1"] = new NumberValue(10);
+        main["B2"] = new NumberValue(20);
+        main["B3"] = new NumberValue(30);
+        main["C1"] = new NumberValue(40);
+        main["D1"] = new NumberValue(50);
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        var value = workbook.GetCellValue("Main", "AZ5000");
+        var actual =
+            value.TryGetError(out var error) ? error.ToString()
+            : value.TryGetNumber(out var number) ? number.ToString(CultureInfo.InvariantCulture)
+            : value.TryGetText(out var text) ? $"\"{text}\""
+            : value.Kind.ToString();
+
+        await Assert.That(actual).IsEqualTo(expected);
+    }
 
     // No worksheet fixture. Aspose.Cells 26.7.0 PLAIN / CSE: 20/20, #VALUE!/#VALUE!, 20/20 and 20/20.
     // Before this fix every row returned #N/A because the NameReference fallback ran before the LET array

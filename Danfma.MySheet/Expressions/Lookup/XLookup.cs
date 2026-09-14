@@ -71,18 +71,14 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         var lookupIsColumn = lookupArray.Columns == 1;
         var lookupIsRow = lookupArray.Rows == 1;
-        var lookupIsSingleCell = lookupIsColumn && lookupIsRow;
+        var lookupAxis = lookupIsRow ? ArrayAxis.Columns : ArrayAxis.Rows;
         if (
             (!lookupIsColumn && !lookupIsRow)
             || (
-                !lookupIsSingleCell
-                && (
-                    lookupIsColumn
-                        ? lookupArray.Rows != returnArray.Rows
-                        : lookupArray.Columns != returnArray.Columns
-                )
+                lookupAxis is ArrayAxis.Rows
+                    ? lookupArray.Rows != returnArray.Rows
+                    : lookupArray.Columns != returnArray.Columns
             )
-            || (lookupIsSingleCell && returnArray.Rows > 1 && returnArray.Columns > 1)
         )
         {
             return ComputedValue.Error(Error.Value);
@@ -105,11 +101,6 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         {
             return ComputedValue.Error(searchError);
         }
-
-        var lookupAxis =
-            lookupIsRow && (!lookupIsSingleCell || returnArray.Rows == 1)
-                ? ArrayAxis.Columns
-                : ArrayAxis.Rows;
 
         if ((int)matchMode == 0 && searchMode >= 0)
         {
