@@ -845,8 +845,6 @@ Os testes de guarda são precisos sobre qual desses dois erros cada um pega:
   produtor, uma chamada elevada ou o resultado de um operador — então `SUM(IF(TRUE,SEQUENCE(3),0))` é 6 e
   `ROWS(IF(TRUE,SEQUENCE(3),0))` é 3, coincidindo com o Excel nos *dois* modos de entrada, e
   `SUM(IF(TRUE,A1:C3*2,0))` é 90 sobre `A1:C3` = 1…9, coincidindo com a coluna dele inserida como array
-  (`#VALUE!` digitado). A exceção é um ramo que é um **intervalo puro**: `SUM(IF(TRUE,A1:C3,0))` é `#VALUE!`
-  aqui, onde o Excel responde 45 nos dois modos, deliberadamente intocado porque mexer nisso responderia
   (`#VALUE!` digitado). Um ramo que é uma **referência pura** é lido como a referência que ele denota — o
   item 32 da varredura fechou a última lacuna aqui: `SUM(IF(TRUE,A1:C3,0))` é 45 sobre `A1:C3` = 1…9, a
   resposta do Excel nos *dois* modos de entrada (medido em 2026-09-11; chegou fixado em `#VALUE!`),
