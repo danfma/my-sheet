@@ -164,4 +164,18 @@ public class LookupCompatibilitySweepTests
 
         await Assert.That(actual).IsEqualTo(expected);
     }
+
+    // Fixture: B1:B3 = 1,2,3 for the vertical return, and B1:D1 = 1,2,3 for the horizontal return.
+    // Aspose.Cells 26.7.0 PLAIN / CSE: vertical 10/10, horizontal #VALUE!/#VALUE!, 2D #VALUE!/#VALUE!,
+    // scalar 10/10. The horizontal row contradicts C1's binding ruling that a 1x1 lookup matches either
+    // axis, so this pin follows that principle and records the oracle defect rather than its inconsistent row.
+    [Test]
+    [Arguments("=XLOOKUP(1,SEQUENCE(1),B1:B3)", "1")]
+    [Arguments("=XLOOKUP(1,SEQUENCE(1),B1:D1)", "1")]
+    [Arguments("=XLOOKUP(5,A1,B1:C3)", "#VALUE!")]
+    [Arguments("=XLOOKUP(5,A1,B1)", "1")]
+    public async Task XLookup_AOneByOneLookupMatchesEitherReturnAxis(
+        string formula,
+        string expected
+    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
 }

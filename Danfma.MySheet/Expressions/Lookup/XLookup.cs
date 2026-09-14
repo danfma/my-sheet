@@ -69,13 +69,18 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         var lookupIsColumn = lookupArray.Columns == 1;
         var lookupIsRow = lookupArray.Rows == 1;
+        var lookupIsSingleCell = lookupIsColumn && lookupIsRow;
         if (
             (!lookupIsColumn && !lookupIsRow)
             || (
-                lookupIsColumn
-                    ? lookupArray.Rows != returnArray.Rows
-                    : lookupArray.Columns != returnArray.Columns
+                !lookupIsSingleCell
+                && (
+                    lookupIsColumn
+                        ? lookupArray.Rows != returnArray.Rows
+                        : lookupArray.Columns != returnArray.Columns
+                )
             )
+            || (lookupIsSingleCell && returnArray.Rows > 1 && returnArray.Columns > 1)
         )
         {
             return ComputedValue.Error(Error.Value);
@@ -99,7 +104,10 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(searchError);
         }
 
-        var lookupAxis = lookupIsColumn ? ArrayAxis.Rows : ArrayAxis.Columns;
+        var lookupAxis =
+            lookupIsRow && (!lookupIsSingleCell || returnArray.Rows == 1)
+                ? ArrayAxis.Columns
+                : ArrayAxis.Rows;
 
         if ((int)matchMode == 0 && searchMode >= 0)
         {
@@ -197,6 +205,17 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             )
         )
         {
+            if (reference is CellReference cell)
+            {
+                var cellStream = new ArrayEvaluation.ArrayStream(
+                    new SingletonArrayOperand(cell.Evaluate(context)),
+                    1,
+                    1
+                );
+                array = new LookupArray(null, cellStream, 1, 1, context);
+                return true;
+            }
+
             if (reference is OpenRangeReference open)
             {
                 var rows = (open.RowMax ?? OpenRangeReference.GridMaxRow) - (open.RowMin ?? 1) + 1;
