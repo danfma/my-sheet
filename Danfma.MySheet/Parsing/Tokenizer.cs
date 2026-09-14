@@ -68,6 +68,14 @@ internal sealed class Tokenizer(string text)
 
         if (c == '#')
         {
+            // The spill marker is accepted lexically only after an identifier. The parser consumes it solely
+            // as part of a deleted-reference continuation; anywhere else it remains an unexpected token.
+            if (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] == '$'))
+            {
+                _position++;
+                return new Token(TokenType.DeletedReferenceSpill, "#", start);
+            }
+
             return ReadErrorLiteral(start);
         }
 
@@ -266,7 +274,32 @@ internal sealed class Tokenizer(string text)
                 ) == 0
             )
             {
-                _position = start + literal.Length;
+                var end = start + literal.Length;
+
+                if (
+                    literal != "#REF!"
+                    && end < text.Length
+                    && !char.IsWhiteSpace(text[end])
+                    && text[end]
+                        is not '+'
+                            and not '-'
+                            and not '*'
+                            and not '/'
+                            and not '^'
+                            and not '%'
+                            and not '='
+                            and not '<'
+                            and not '>'
+                            and not '&'
+                            and not ','
+                            and not ':'
+                            and not ')'
+                )
+                {
+                    break;
+                }
+
+                _position = end;
                 return new Token(TokenType.Error, literal, start);
             }
         }

@@ -210,6 +210,16 @@ public class TokenizerTests
     }
 
     [Test]
+    public async Task ErrorLiteralNearMiss_KeepsTheBaselineExceptionContract()
+    {
+        var exception = Assert.Throws<ParseException>(() => Tokenizer.Tokenize("#N/A!"));
+
+        await Assert.That(exception.Kind).IsEqualTo(ParseErrorKind.UnexpectedCharacter);
+        await Assert.That(exception.Token).IsEqualTo("#");
+        await Assert.That(exception.Position).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task QuotedExternalName_IsStillAQuotedName_NotABracket()
     {
         // `'` dispatches before `[`, so the quoted external form is untouched by the bracket reader...

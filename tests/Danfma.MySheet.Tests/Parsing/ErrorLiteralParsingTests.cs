@@ -180,6 +180,45 @@ public class ErrorLiteralParsingTests
         await Assert.That(Calc(formula, sheet, workbook)).IsEqualTo(ErrorValue.Reference);
     }
 
+    [Test]
+    public async Task DeletedSheetQualifier_DiscardsPrefixBeforeIndependentExpressions()
+    {
+        var (workbook, sheet) = NewWorkbook();
+        workbook.DefineName("MyName", new NumberValue(1234.5));
+        sheet["A1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        sheet["A2"] = new NumberValue(10);
+        workbook.DefineTable("Tabela1", sheet.Name, "A1:A2", ["Valor"]);
+
+        await Assert.That(Calc("=#REF!TRUE", sheet, workbook) as bool?).IsTrue();
+        await Assert.That(Calc("=#REF!MyName", sheet, workbook) as double?).IsEqualTo(1234.5);
+        // MySheet's cell-level convention reads the top-left data cell of this one-column table.
+        sheet["Z1"] = ExpressionParser.Parse("=#REF!Tabela1[Valor]", sheet);
+        await Assert
+            .That(workbook.GetCellValue(sheet.Name, "Z1").AsObject() as double?)
+            .IsEqualTo(10.0);
+    }
+
+    [Test]
+    [Arguments("=#REF!1:1")]
+    [Arguments("=#REF!(1,2)")]
+    [Arguments("=#REF!A1#")]
+    public async Task DeletedSheetQualifier_AcceptsOracleReferenceContinuations(string formula)
+    {
+        var (workbook, sheet) = NewWorkbook();
+
+        await Assert.That(Calc(formula, sheet, workbook)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    [Arguments("=#REF!Sheet1!A1")]
+    [Arguments("=#REF!SUM(1)")]
+    public async Task DeletedSheetQualifier_RejectsQualifierAndFunctionCall(string formula)
+    {
+        var (_, sheet) = NewWorkbook();
+
+        await Assert.That(() => ExpressionParser.Parse(formula, sheet)).Throws<ParseException>();
+    }
+
     // Round 2, I-3 near misses: this absorption is specific to #REF! (the one literal Excel itself
     // writes as a qualifier); a bare non-#REF! literal glued to what follows — with or without a space
     // — is still "Unrecognized" on the oracle, i.e. a genuine trailing token neither the tokenizer nor

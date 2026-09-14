@@ -140,6 +140,12 @@ public class FormulaWriterTests
     // here, same divergence, same doc bullets.
     [Arguments("#REF!A1", "#REF!")]
     [Arguments("#REF!!A1", "#REF!")]
+    [Arguments("#REF!TRUE", "TRUE")]
+    [Arguments("#REF!MyName", "MyName")]
+    [Arguments("#REF!Tabela1[Valor]", "Tabela1[Valor]")]
+    [Arguments("#REF!1:1", "#REF!")]
+    [Arguments("#REF!(1,2)", "#REF!")]
+    [Arguments("#REF!A1#", "#REF!")]
     public async Task NormalizesEquivalentText(string input, string canonical)
     {
         var expression = Parse(input);

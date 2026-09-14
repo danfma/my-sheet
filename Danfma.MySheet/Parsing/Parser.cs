@@ -107,19 +107,17 @@ internal sealed class Parser(
             // Round 2 (I-3): Excel writes a DELETED SHEET's own qualifier as #REF! (=Other!A1 becomes
             // =#REF!A1 once "Other" is deleted — measured on the oracle, Aspose.Cells 26.7.0/26.6.0,
             // PLAIN=CSE, 2026-09-14). So #REF! in THIS prefix position plays the same role a real
-            // Identifier does before '!' in ParseQualifiedReference, and whatever reference-shaped text
-            // is glued directly after it (a cell, a range, another #REF!, a redundant '!', or a
-            // parenthesized group) is consumed and discarded — see
-            // ConsumeDeletedSheetQualifierContinuation for the exact bounded set and why it stops at any
-            // real operator or terminator. The value is #REF! either way; the exact text is not
-            // preserved on round trip, the same documented divergence family as Sheet1!#REF! dropping
-            // its qualifier (docs/workbook-and-expressions.md, docs/excel-interop.md).
+            // Identifier does before '!' in ParseQualifiedReference. A following cell-shaped endpoint,
+            // row/column range, #REF!, parenthesized group, or spill marker belongs to that deleted
+            // reference and is discarded. A boolean, name, or structured reference is instead parsed as
+            // its own expression after the prefix; function calls and qualifiers remain invalid. See
+            // ParseDeletedSheetQualifierContinuation for the bounded classification.
             case TokenType.Error:
                 var errorValue = Error.FromDisplay(token.Text).ToErrorValue();
 
                 if (token.Text == ErrorValue.Reference.ErrorCode)
                 {
-                    ConsumeDeletedSheetQualifierContinuation();
+                    return ParseDeletedSheetQualifierContinuation(errorValue);
                 }
 
                 return errorValue;
@@ -189,26 +187,41 @@ internal sealed class Parser(
         }
     }
 
-    // Item 43 round 2 (I-3): consumes (and discards) whatever reference-shaped text Excel glues
-    // directly after a deleted-sheet #REF!. Measured on the oracle (Aspose.Cells 26.7.0/26.6.0,
-    // PLAIN=CSE, 2026-09-14): an optional redundant '!' (#REF!!A1 behaves exactly like #REF!A1 — #REF!
-    // already plays the qualifier's role, so a following bang is redundant, not a second qualifier),
-    // then one endpoint (a cell, another #REF!, or a parenthesized expression), optionally followed by
-    // ':' and a second endpoint (#REF!A1:A3, #REF!A1:#REF!). A genuine infix operator or terminator
-    // (+, -, *, /, ^, %, a comparison, '&', a function's comma, a closing paren, end of input) is NEVER
-    // absorbed — #REF!A1+1 parses as (#REF!A1)+1, not #REF!(A1+1) — because none of those tokens can
-    // start a reference endpoint, so ConsumeReferenceEndpoint below simply reports "nothing here" and
-    // this method stops without touching them.
-    private void ConsumeDeletedSheetQualifierContinuation()
+    // Classifies only the measured deleted-reference continuations. Reference-shaped endpoints are
+    // discarded, while a boolean, name, or structured reference is parsed independently after the lost
+    // qualifier. Operators and terminators remain outside the continuation.
+    private Expression ParseDeletedSheetQualifierContinuation(ErrorValue errorValue)
     {
         if (Current.Type == TokenType.Bang)
         {
             Advance();
         }
 
+        if (Current.Type == TokenType.Identifier && !IsDeletedReferenceEndpoint(Current))
+        {
+            if (tokens[_index + 1].Type is TokenType.LParen or TokenType.Bang)
+            {
+                return errorValue; // Leave the invalid function/qualified shape for ParseFormula to reject.
+            }
+
+            return ParseExpression(PrefixBindingPower);
+        }
+
+        if (
+            Current.Type == TokenType.Number
+            && tokens[_index + 1].Type == TokenType.Colon
+            && tokens[_index + 2].Type == TokenType.Number
+        )
+        {
+            Advance();
+            Advance();
+            Advance();
+            return errorValue;
+        }
+
         if (!ConsumeReferenceEndpoint())
         {
-            return; // bare #REF!, or an operator/terminator follows — nothing to absorb
+            return errorValue; // bare #REF!, or an operator/terminator follows — nothing to absorb
         }
 
         if (Current.Type == TokenType.Colon)
@@ -216,6 +229,30 @@ internal sealed class Parser(
             Advance();
             ConsumeReferenceEndpoint();
         }
+
+        if (Current.Type == TokenType.DeletedReferenceSpill)
+        {
+            Advance();
+        }
+
+        return errorValue;
+    }
+
+    private bool IsDeletedReferenceEndpoint(Token token) =>
+        (IsCellReference(token.Text) && tokens[_index + 1].Type != TokenType.BracketedSpecifier)
+        || (tokens[_index + 1].Type == TokenType.Colon && IsColumnEndpoint(token.Text));
+
+    private static bool IsColumnEndpoint(string text)
+    {
+        foreach (var c in text)
+        {
+            if (!char.IsAsciiLetter(c) && c != '$')
+            {
+                return false;
+            }
+        }
+
+        return text.Length > 0;
     }
 
     // One endpoint of the absorbed run: a cell-shaped identifier, another #REF! token, or a
@@ -225,14 +262,12 @@ internal sealed class Parser(
     {
         if (Current.Type == TokenType.LParen)
         {
-            Advance();
-            ParseExpression(0);
-            Expect(TokenType.RParen);
+            ParsePrefix(Advance());
             return true;
         }
 
         if (
-            Current.Type == TokenType.Identifier
+            (Current.Type == TokenType.Identifier && IsDeletedReferenceEndpoint(Current))
             || (Current.Type == TokenType.Error && Current.Text == ErrorValue.Reference.ErrorCode)
         )
         {
