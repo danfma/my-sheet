@@ -11,11 +11,9 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// array, a nested INDEX, an OFFSET base, a bare cell's implicit intersection, a ':' range endpoint) sees a
 /// real range, not <c>#REF!</c> and not a materialized value.
 ///
-/// <para>Oracle: Aspose.Cells 26.7.0, one formula per workbook, PLAIN and CSE agreeing everywhere measured
-/// (2026-09-14; CSE spot-checked on SUM/ROWS/the row-form SUM/COUNT/MATCH/both-zero SUM — all identical to
-/// PLAIN, except the bare-cell CSE reading, which takes the array's TOP-LEFT rather than intersecting by
-/// the formula cell's position — a pre-existing PLAIN-vs-CSE distinction this item does not need to model:
-/// the divergence probe and this suite both read cells PLAIN).</para>
+/// <para>Oracle: Aspose.Cells 26.7.0, one formula per workbook (2026-09-14). Where PLAIN and CSE split,
+/// MySheet follows CSE: the <c>OFFSET(INDEX(...))</c> base, operators over the zero-axis reference, and
+/// bare-cell readings split. The divergence probe and this suite both read bare cells PLAIN.</para>
 ///
 /// <para>The idx fixture mirrors the corpus's own shape: <c>Main!E5:H10</c>, every cell in row <c>r</c>
 /// equal to <c>r</c> (rows 5..10) across columns E-H — so column E (E5:E10) is <c>[5,6,7,8,9,10]</c> and row

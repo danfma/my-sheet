@@ -441,15 +441,17 @@ desta regra.
 O `INDEX(range, row_num, [column_num])` do Excel trata `0` em qualquer eixo como "toda posição naquele
 eixo": `row_num = 0` é a **coluna** inteira número `column_num`, `column_num = 0` é a **linha** inteira
 número `row_num`, e `0` nos dois é o `range` inteiro — uma REFERÊNCIA em todos os casos, não o `#REF!` que o
-MySheet respondia antes de o item 37 da varredura fechar essa lacuna (Aspose.Cells 26.7.0, 2026-09-14,
-PLAIN e com entrada em array concordando em tudo o que foi medido). A forma de 2 argumentos segue a MESMA
-regra do caso comum de 2 argumentos: um intervalo de uma coluna toma o único índice como `row_num` (então
+MySheet respondia antes de o item 37 da varredura fechar essa lacuna (Aspose.Cells 26.7.0, 2026-09-14). Onde
+PLAIN e CSE com entrada em array divergem, o MySheet segue CSE: a base `OFFSET(INDEX(...))`, operadores sobre
+a referência de eixo zero e leituras de célula nua divergem. A forma de 2 argumentos segue a MESMA regra do
+caso comum de 2 argumentos: um intervalo de uma coluna toma o único índice como `row_num` (então
 `INDEX(A1:A3,0)` é `row_num=0`, a única coluna — inteira), um intervalo de uma linha toma como
 `column_num`.
 
 O `INDEX.Evaluate` espelha a própria divisão do `OFFSET.Evaluate`: um resultado 1x1 desreferencia
-diretamente, e qualquer coisa mais larga é `ComputedValue.Reference(...)` — então todo consumidor que aceita
-referências vê um intervalo de verdade, sem nenhuma mudança por consumidor:
+diretamente, e qualquer coisa mais larga é `ComputedValue.Reference(...)` — então consumidores comuns que
+aceitam referências veem um intervalo de verdade, sem nenhuma mudança por consumidor; o braço `ROW`/`COLUMN`
+seguinte é a exceção intencional:
 
 - agregados e contagens — `SUM`, `COUNT`, `COUNTA`, `SUMPRODUCT`, `AGGREGATE` (tanto na forma de referência
   quanto na de array), o slot de intervalo de `COUNTIF`/`SUMIF`/`COUNTIFS`;

@@ -421,14 +421,15 @@ typed form of those is measured and recorded under
 Excel's `INDEX(range, row_num, [column_num])` treats `0` on either axis as "every position on that axis":
 `row_num = 0` is the whole `column_num`-th **column**, `column_num = 0` is the whole `row_num`-th **row**,
 and `0` on both is the whole `range` — a REFERENCE in every case, not the `#REF!` MySheet answered before
-sweep item 37 closed this gap (Aspose.Cells 26.7.0, 2026-09-14, PLAIN and array-entered agreeing everywhere
-measured). The 2-argument form follows the SAME rule as the ordinary 2-argument case: a one-column range
+sweep item 37 closed this gap (Aspose.Cells 26.7.0, 2026-09-14). Where PLAIN and array-entered CSE split,
+MySheet follows CSE: the `OFFSET(INDEX(...))` base, operators over the zero-axis reference, and bare-cell
+readings split. The 2-argument form follows the SAME rule as the ordinary 2-argument case: a one-column range
 takes the lone index as `row_num` (so `INDEX(A1:A3,0)` is `row_num=0`, the whole — only — column), a
 one-row range takes it as `column_num`.
 
 `INDEX.Evaluate` mirrors `OFFSET.Evaluate`'s own split: a 1x1 result dereferences directly, and anything
-wider is `ComputedValue.Reference(...)` — so every reference-aware consumer sees a real range, with no
-per-consumer change:
+wider is `ComputedValue.Reference(...)` — so ordinary reference-aware consumers see a real range, with no
+per-consumer change; the following `ROW`/`COLUMN` arm is the intentional exception:
 
 - aggregates and counts — `SUM`, `COUNT`, `COUNTA`, `SUMPRODUCT`, `AGGREGATE` (both its reference and its
   array form), the `COUNTIF`/`SUMIF`/`COUNTIFS` range slot;
