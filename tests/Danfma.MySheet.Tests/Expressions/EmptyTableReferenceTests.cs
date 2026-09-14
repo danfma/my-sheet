@@ -202,6 +202,8 @@ public class EmptyTableReferenceTests
     [Arguments("=ROWS(Tabela1[Valor]+1)", "0")]
     [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0,1,1))", "0")]
     [Arguments("=COLUMNS(OFFSET(Tabela1[Valor],0,0))", "1")]
+    [Arguments("=ROWS(OFFSET(Tabela1[Valor],0,0))", "0")]
+    [Arguments("=ROWS(OFFSET(Tabela1[Valor],1,0))", "0")]
     [Arguments("=ROWS(Tabela1[Valor]:Tabela1[Qtd])", "0")]
     [Arguments("=COLUMNS(Tabela1[Valor]:Tabela1[Qtd])", "2")]
     [Arguments("=SUM(Tabela1[Valor]:Tabela1[Qtd])", "0")]
@@ -422,9 +424,6 @@ public class EmptyTableReferenceTests
     // already diverges from the oracle over an ORDINARY range, so the empty reference inherits the engine's
     // answer and the gap is registered as its own sweep item. Oracle PLAIN / CSE, primed (the ordinary-range
     // twin that shows the gap, oracle vs MySheet, in brackets):
-    //   OFFSET's omitted height/width are 1, not the base's size
-    //                                    [ROWS(OFFSET(A1:A3,0,0)) 3 / 3 vs 1; SUM 14 / 14 vs 5]
-    //     ROWS(OFFSET(T[Valor],0,0)) 0 / 0; ROWS(OFFSET(T[Valor],1,0)) 0 / 0; sentinel SUM(OFFSET(T,0,0)) 0 / 0
     //   XLOOKUP does not check the arrays' sizes
     //                                    [XLOOKUP(5,A1:A3,B1:B2) #VALUE! / #VALUE! vs 1]
     //     XLOOKUP(5,A1:A3,T[Valor]) #VALUE! / #VALUE!; with "nf" #VALUE! / #VALUE!
@@ -435,9 +434,9 @@ public class EmptyTableReferenceTests
     //   OverAHeaderOnlyTable_TheDataBandIsAnEmptyReference, now matched: SUM(INDEX(T[Valor],0,1)) 0,
     //   ROWS(INDEX(T[#Data],0,1)) 0)
     [Test]
-    [Arguments("=ROWS(OFFSET(Tabela1[Valor],0,0))", false, "1")]
-    [Arguments("=ROWS(OFFSET(Tabela1[Valor],1,0))", false, "1")]
-    [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0))", true, "7")]
+    // Item 36: omitted dimensions inherit the empty base's 0x1 shape. This was 7 (the anchor cell);
+    // Aspose.Cells 26.7.0 gives 0 in both modes, and the coherent-window ruling keeps that empty window.
+    [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0))", true, "0")]
     [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor])", false, "#N/A")]
     [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor],\"nf\")", false, "\"nf\"")]
     [Arguments("=ROWS(LET(x,Tabela1[Valor],x))", false, "1")]

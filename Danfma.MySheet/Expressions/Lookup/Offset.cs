@@ -23,6 +23,13 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             return error;
         }
 
+        if (height == 0)
+        {
+            return ComputedValue.Reference(
+                new EmptyRangeReference(sheetName, startRow, startColumn, startColumn + width - 1)
+            );
+        }
+
         // 1x1: dereference directly, no CellReference allocation (matches the original).
         if (height == 1 && width == 1)
         {
@@ -54,9 +61,11 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         }
 
         reference =
-            height == 1 && width == 1
+            height == 0
+                ? new EmptyRangeReference(sheetName, startRow, startColumn, startColumn + width - 1)
+            : height == 1 && width == 1
                 ? new CellReference(new CellAddress(startColumn, startRow).ToId(), sheetName)
-                : BuildRange(sheetName, startColumn, startRow, height, width);
+            : BuildRange(sheetName, startColumn, startRow, height, width);
 
         return true;
     }
@@ -105,10 +114,22 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             );
         }
 
-        if (!TryBase(baseReference, out sheetName, out var baseColumn, out var baseRow))
+        if (
+            !TryBase(
+                baseReference,
+                out sheetName,
+                out var baseColumn,
+                out var baseRow,
+                out var baseHeight,
+                out var baseWidth
+            )
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }
+
+        height = baseHeight;
+        width = baseWidth;
 
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var rows) is { } rowsError)
         {
@@ -122,7 +143,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
 
         // Excel truncates height/width toward zero (like rows/columns), so OFFSET(A1,0,0,1.9) is a
         // single row, not two. (int) truncates toward zero, matching (int)rows / (int)columns above.
-        if (Arguments.Length >= 4)
+        var hasHeight = Arguments.Length >= 4 && Arguments[3] is not BlankValue;
+        if (hasHeight)
         {
             if (Arguments[3].Evaluate(context).CoerceToNumber(out var h) is { } e1)
             {
@@ -132,7 +154,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
             height = (int)h;
         }
 
-        if (Arguments.Length >= 5)
+        var hasWidth = Arguments.Length >= 5 && Arguments[4] is not BlankValue;
+        if (hasWidth)
         {
             if (Arguments[4].Evaluate(context).CoerceToNumber(out var w) is { } e2)
             {
@@ -154,7 +177,7 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         // This also prevents building an invalid cell id like "A0" from a zero-height/width range. (Excel's
         // negative height/width extends in the opposite direction; that abs+direction case is not modeled
         // here — a rare form left as #REF! rather than a wrong value.)
-        if (height < 1 || width < 1)
+        if ((hasHeight && height < 1) || (hasWidth && width < 1))
         {
             return ComputedValue.Error(Error.Ref);
         }
@@ -179,7 +202,9 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         Expression reference,
         out string sheetName,
         out int column,
-        out int row
+        out int row,
+        out int height,
+        out int width
     )
     {
         switch (reference)
@@ -189,13 +214,17 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 sheetName = cell.SheetName;
                 column = cellAddress.Column;
                 row = cellAddress.Row;
+                height = 1;
+                width = 1;
                 return true;
 
             case RangeReference range:
-                var start = CellAddress.Parse(range.StartId);
+                var bounds = range.GetBounds();
                 sheetName = range.SheetName;
-                column = start.Column;
-                row = start.Row;
+                column = bounds.LeftColumn;
+                row = bounds.TopRow;
+                height = bounds.RowCount;
+                width = bounds.ColumnCount;
                 return true;
 
             // Sweep item 33: a zero-row rectangle's top-left is its anchor, the row after a header-only
@@ -204,6 +233,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 sheetName = empty.SheetName;
                 column = empty.LeftColumn;
                 row = empty.TopRow;
+                height = 0;
+                width = empty.ColumnCount;
                 return true;
 
             // Sweep item 37 follow-up, ruling (a): an open base's "first cell" is its ABSOLUTE (row 1,
@@ -213,12 +244,16 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 sheetName = open.SheetName;
                 column = open.AbsoluteColumn(1);
                 row = open.AbsoluteRow(1);
+                height = 1;
+                width = 1;
                 return true;
 
             default:
                 sheetName = string.Empty;
                 column = 0;
                 row = 0;
+                height = 0;
+                width = 0;
                 return false;
         }
     }

@@ -110,7 +110,7 @@ public class IndexZeroAxisTests
     [Arguments("=AREAS(INDEX(E5:H10,0,1))", 1.0)]
     [Arguments("=MATCH(7,INDEX(E5:H10,0,1),0)", 3.0)]
     [Arguments("=INDEX(INDEX(E5:H10,0,1),2,1)", 6.0)] // nested INDEX
-    [Arguments("=OFFSET(INDEX(E5:H10,0,1),1,0)", 6.0)] // OFFSET base: E5 + (1,0) = E6
+    [Arguments("=INDEX(OFFSET(INDEX(E5:H10,0,1),1,0),1,1)", 6.0)] // inherited 6x1 OFFSET starts at E6
     [Arguments("=ROW(INDEX(E5:H10,0,1))-4", 1.0)] // lifted under a scalar operator
     [Arguments("=SUM(INDEX(E5:H10,0,1):H10)", 180.0)] // ':' range endpoint: bounding box E5:H10
     public async Task ColumnForm_NumericConsumers_MatchTheOracle(string formula, double expected)

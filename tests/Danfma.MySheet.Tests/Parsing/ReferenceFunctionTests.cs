@@ -408,6 +408,50 @@ public class ReferenceFunctionTests
     }
 
     [Test]
+    public async Task Offset_OmittedDimensions_InheritTheBaseShape()
+    {
+        var (workbook, sheet) = Grid(
+            ("A1", N(5)),
+            ("A2", N(0)),
+            ("A3", N(9)),
+            ("B1", N(1)),
+            ("B2", N(2)),
+            ("B3", N(3)),
+            ("C1", N(10)),
+            ("C2", N(20)),
+            ("C3", N(30))
+        );
+
+        async Task Is(string formula, double expected) =>
+            await Assert
+                .That(
+                    ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsObject() as double?
+                )
+                .IsEqualTo(expected);
+
+        await Is("=ROWS(OFFSET(A1:A3,0,0))", 3);
+        await Is("=COLUMNS(OFFSET(A1:A3,0,0))", 1);
+        await Is("=SUM(OFFSET(A1:A3,0,0))", 14);
+        await Is("=COUNT(OFFSET(A1:A3,0,0))", 3);
+        await Is("=ROWS(OFFSET(A1:C3,1,1))", 3);
+        await Is("=COLUMNS(OFFSET(A1:C3,1,1))", 3);
+        await Is("=SUM(OFFSET(A1:C3,1,1))", 55);
+        await Is("=COUNT(OFFSET(A1:C3,1,1))", 4);
+        await Is("=SUM(OFFSET(A1:A3,0,0,,2))", 20);
+        await Is("=COUNT(OFFSET(A1:A3,0,0,,2))", 6);
+
+        // Aspose.Cells 26.7.0 reports COLUMNS=1 here even though SUM=20 and COUNT=6 prove a 3x2
+        // window. MySheet deliberately keeps one coherent window and reports the explicit width, 2.
+        await Is("=COLUMNS(OFFSET(A1:A3,0,0,,2))", 2);
+
+        await Is("=SUM(OFFSET(A1:A3,0,0,2))", 5);
+        await Is("=COUNT(OFFSET(A1:A3,0,0,2))", 2);
+
+        // The matching registered oracle defect: Aspose reports ROWS=3 while SUM=5 and COUNT=2 prove 2.
+        await Is("=ROWS(OFFSET(A1:A3,0,0,2))", 2);
+    }
+
+    [Test]
     public async Task XLookup_ApproximateModes()
     {
         var (workbook, sheet) = Grid(

@@ -1103,13 +1103,14 @@ public class ElementwiseLiftingTests
         // IF left this roster with sweep item 32: a scalar-condition IF over a bare-reference branch now
         // carries the reference out of Evaluate, so the sweep's behavioral probe DISTINGUISHES the
         // rectangles handed to it (branch position, arity 3) instead of answering the same collapse
-        // #VALUE! for every one. It stays named in
+        // #VALUE! for every one. OFFSET leaves too with item 36 because omitted dimensions now inherit the
+        // base's shape, making those rectangles observable. IF stays named in
         // TheShapeAndPositionAndCriteriaFamilies_StayConsumes above — the classification never moved.
         await Assert
             .That(string.Join(", ", blind.Order(StringComparer.Ordinal)))
             .IsEqualTo(
                 "AND, AREAS, FORECAST, FORECAST.LINEAR, FORMULATEXT, INDIRECT, IRR, ISFORMULA, "
-                    + "ISREF, LET, MIRR, OFFSET, OR, PERCENTILE.EXC, PROB, RANDBETWEEN, SEQUENCE, SHEET, "
+                    + "ISREF, LET, MIRR, OR, PERCENTILE.EXC, PROB, RANDBETWEEN, SEQUENCE, SHEET, "
                     + "TRIMMEAN, TYPE, XNPV"
             );
 
