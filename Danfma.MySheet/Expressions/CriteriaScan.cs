@@ -387,10 +387,19 @@ internal struct PositionalRange
     public static Error? OpenCriteria(
         Expression argument,
         EvaluationContext context,
-        out PositionalRange range
+        out PositionalRange range,
+        bool validateSelectedMissingSheet = false
     )
     {
-        if (TrySelectIfReference(argument, context, out var selected, out var selectionError))
+        if (
+            TrySelectIfReference(
+                argument,
+                context,
+                out var selected,
+                out var selectionError,
+                validateSelectedMissingSheet
+            )
+        )
         {
             range = Open(selected, context);
             return range.SlotError;
@@ -421,7 +430,8 @@ internal struct PositionalRange
         Expression argument,
         EvaluationContext context,
         out Expression selected,
-        out Error? error
+        out Error? error,
+        bool validateMissingSheet = false
     )
     {
         if (argument is not Logical.If ifNode)
@@ -447,6 +457,13 @@ internal struct PositionalRange
             : null;
         if (branch is not null && ArrayEvaluation.IsBareReferenceNode(branch, context))
         {
+            if (validateMissingSheet && ReferenceGuard.MissingSheet(branch, context) is { } missing)
+            {
+                selected = null!;
+                error = missing;
+                return false;
+            }
+
             selected = branch;
             error = null;
             return true;
@@ -639,7 +656,12 @@ internal struct CriteriaScan
         }
 
         if (
-            PositionalRange.OpenCriteria(arguments[0], context, out var valueRange) is
+            PositionalRange.OpenCriteria(
+                arguments[0],
+                context,
+                out var valueRange,
+                validateSelectedMissingSheet: true
+            ) is
             { } computedValueRange
         )
         {

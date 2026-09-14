@@ -83,7 +83,8 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
                 averageRangeArgument,
                 context,
                 out var selectedAverageRange,
-                out var averageRangeSelectionError
+                out var averageRangeSelectionError,
+                validateMissingSheet: true
             )
         )
         {

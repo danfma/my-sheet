@@ -419,6 +419,43 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
+    [Arguments("=SUMIF(A1:A3,\">0\",IF(TRUE,Ghost!B1:B3,B1:B3))")]
+    [Arguments("=AVERAGEIF(A1:A3,\">0\",IF(TRUE,Ghost!B1:B3,B1:B3))")]
+    [Arguments("=SUMIFS(IF(TRUE,Ghost!B1:B3,B1:B3),A1:A3,\">0\")")]
+    [Arguments("=AVERAGEIFS(IF(TRUE,Ghost!B1:B3,B1:B3),A1:A3,\">0\")")]
+    [Arguments("=MAXIFS(IF(TRUE,Ghost!B1:B3,B1:B3),A1:A3,\">0\")")]
+    [Arguments("=MINIFS(IF(TRUE,Ghost!B1:B3,B1:B3),A1:A3,\">0\")")]
+    [Arguments("=SUMIF(A1:A3,\">0\",IF(TRUE,GhostName,B1:B3))")]
+    public async Task SelectedMissingSheetValueRange_IsAReferenceError(string formula)
+    {
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Ghost is absent and GhostName=Ghost!A1:A3.
+        // Aspose.Cells 26.7.0 PLAIN/CSE: #REF!/#REF!. MySheet previously returned 0 or #DIV/0!.
+        await Assert.That(OnGrid(formula)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task SelectedMissingSheetCriteriaRange_FollowsCseAndStaysEmpty()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE: #REF!/0 for both rows. MySheet follows CSE; this guards the
+        // criteria-slot split while selected missing references in value slots propagate #REF!.
+        await Assert
+            .That(Num(OnGrid("=COUNTIFS(IF(TRUE,Ghost!A1:A3,A1:A3),\">0\")")))
+            .IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnGrid("=SUMIFS(B1:B3,IF(TRUE,Ghost!A1:A3,A1:A3),\">0\")")))
+            .IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task NonSelectedMissingSheetBranch_DoesNotError()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 4/4. The missing sheet is not selected and must not be validated.
+        await Assert
+            .That(Num(OnGrid("=SUMIF(A1:A3,\">0\",IF(TRUE,B1:B3,Ghost!B1:B3))")))
+            .IsEqualTo(4.0);
+    }
+
+    [Test]
     public async Task CriteriaFamily_AcceptsAMixedSelectorOnlyWhenItChoosesAReference()
     {
         // Measured on Aspose.Cells 26.7.0, one formula per workbook, PLAIN/CSE respectively:

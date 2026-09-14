@@ -72,7 +72,8 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
                 sumRangeArgument,
                 context,
                 out var selectedSumRange,
-                out var sumRangeSelectionError
+                out var sumRangeSelectionError,
+                validateMissingSheet: true
             )
         )
         {
