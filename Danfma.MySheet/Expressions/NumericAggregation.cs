@@ -125,6 +125,24 @@ internal static class NumericAggregation
 
                 default:
                     if (
+                        argument is Lookup.XLookup computedXLookup
+                        && computedXLookup.TryBuildSelection(context, out var selected)
+                    )
+                    {
+                        var selectedStream = new ArrayEvaluation.ArrayStream(
+                            selected,
+                            selected.Rows,
+                            selected.Columns
+                        );
+                        foreach (var value in selectedStream)
+                        {
+                            AddReferenced(value, ref fold, ref error);
+                        }
+
+                        break;
+                    }
+
+                    if (
                         argument is Lookup.XLookup xlookup
                         && xlookup.TryResolveReference(context, out var xlookupReference)
                     )

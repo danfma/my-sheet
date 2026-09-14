@@ -449,7 +449,7 @@ public class FunctionRegistryClassificationTests
 
     // The roster above must not be empty, or the loop asserts nothing at all.
     [Test]
-    public async Task TheProducerRoster_IsTheFourThisPhaseAdded()
+    public async Task TheProducerRoster_MatchesTheRegisteredArrayProducers()
     {
         var producers = typeof(Workbook)
             .Assembly.GetTypes()
@@ -463,6 +463,6 @@ public class FunctionRegistryClassificationTests
 
         await Assert
             .That(producers)
-            .IsEquivalentTo((string[])["Filter", "Sequence", "Sort", "Unique"]);
+            .IsEquivalentTo((string[])["Filter", "Sequence", "Sort", "Unique", "XLookup"]);
     }
 }

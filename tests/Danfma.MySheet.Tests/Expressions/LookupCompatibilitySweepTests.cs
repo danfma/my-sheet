@@ -165,6 +165,40 @@ public class LookupCompatibilitySweepTests
         await Assert.That(actual).IsEqualTo(expected);
     }
 
+    // No worksheet fixture; formula at AZ5000. Aspose.Cells 26.7.0 PLAIN / CSE agree on every row.
+    // Before this fix, computed selections collapsed to one element: the expected 15/5/15/15/24/15 rows
+    // below returned 4/4/2/4/7/4. The scalar row already returned the selected row's first element, 4.
+    [Test]
+    [Arguments("=SUM(XLOOKUP(2,SEQUENCE(3),SEQUENCE(3,3)))", "15")]
+    [Arguments("=INDEX(XLOOKUP(2,SEQUENCE(3),SEQUENCE(3,3)),1,2)", "5")]
+    [Arguments("=SUM(XLOOKUP(2,SEQUENCE(1,3),SEQUENCE(3,3)))", "15")]
+    [Arguments("=XLOOKUP(2,SEQUENCE(3),SEQUENCE(3,3))", "4")]
+    [Arguments("=LET(a,SEQUENCE(3),b,SEQUENCE(3,3),SUM(XLOOKUP(2,a,b)))", "15")]
+    [Arguments("=LET(a,SEQUENCE(1,3),b,SEQUENCE(3,3),SUM(XLOOKUP(2,a,b)))", "15")]
+    [Arguments("=SUM(XLOOKUP(3,SEQUENCE(3),SEQUENCE(3,3)))", "24")]
+    [Arguments("=SUM(XLOOKUP(2,SEQUENCE(3,1,3,-1),SEQUENCE(3,3),,0,-1))", "15")]
+    public async Task XLookup_KeepsComputedTwoDimensionalSelectionsAsArrays(
+        string formula,
+        string expected
+    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
+    [Test]
+    public async Task XLookup_ComputedReturnProducer_IsBuiltExactlyOnce()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        var draws = 0;
+        workbook.RegisterFunction("TICK", (_, _) => ++draws);
+
+        var value = ExpressionParser
+            .Parse("=SUM(XLOOKUP(2,SEQUENCE(3),SEQUENCE(3,3,TICK(),1)))", sheet)
+            .Evaluate(new EvaluationContext(workbook, "Main", "AZ5000"));
+
+        await Assert.That(value.TryGetNumber(out var number)).IsTrue();
+        await Assert.That(number).IsEqualTo(15);
+        await Assert.That(draws).IsEqualTo(1);
+    }
+
     // Fixture: A1 = 1, B1:B3 = 10,20,30 and B1:D1 = 10,40,50; formula at AZ5000.
     // Aspose.Cells 26.7.0 PLAIN / CSE agree: a 1x1 lookup is a row, so its return must have one column.
     // The horizontal return pin changed from 1 to #VALUE! after measurement disproved the old both-axes rule.

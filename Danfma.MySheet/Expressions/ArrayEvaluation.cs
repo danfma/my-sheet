@@ -1815,6 +1815,7 @@ internal static class ArrayEvaluation
         public int Rows { get; }
         public int Columns { get; }
         public int Length => Rows * Columns;
+        internal ArrayOperand Operand => _root;
 
         /// <summary>The value at a row-major index (0-based), computed on demand.</summary>
         public ComputedValue ElementAt(int index) => _root.At(index, Rows, Columns);

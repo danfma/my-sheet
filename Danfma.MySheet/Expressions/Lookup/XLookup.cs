@@ -3,23 +3,65 @@ using MemoryPack;
 namespace Danfma.MySheet.Expressions.Lookup;
 
 [MemoryPackable]
-public sealed partial record XLookup(Expression[] Arguments) : Function
+public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayProducer
 {
     // XLOOKUP(lookup, lookup_array, return_array, [if_not_found], [match_mode], [search_mode]).
     // match_mode: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
     // search_mode: 1 first-to-last, -1 last-to-first (binary modes not supported).
     // The match engine itself is shared with XMATCH and LOOKUP (see LookupMatching).
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        Evaluate(context, asReference: false);
+        Evaluate(context, asReference: false, out _);
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
-        var result = Evaluate(context, asReference: true);
+        var result = Evaluate(context, asReference: true, out _);
         return result.TryGetReference(out reference);
     }
 
-    private ComputedValue Evaluate(EvaluationContext context, bool asReference)
+    internal bool TryBuildSelection(EvaluationContext context, out ArrayOperand operand)
     {
+        _ = Evaluate(context, asReference: true, out var selected);
+        operand = selected!;
+        return selected is not null;
+    }
+
+    (bool Succeeds, bool IsArray) IArrayProducer.ProbeArray(EvaluationContext context) =>
+        ArrayEvaluation.Probe(Arguments[1], context).Succeeds
+        && ArrayEvaluation.Probe(Arguments[2], context).Succeeds
+            ? (true, true)
+            : (false, false);
+
+    bool IArrayProducer.TryBuildArrayOperand(EvaluationContext context, out ArrayOperand operand)
+    {
+        if (TryBuildSelection(context, out operand))
+        {
+            return true;
+        }
+
+        var value = Evaluate(context, asReference: true, out _);
+        if (value.TryGetReference(out var reference))
+        {
+            operand = reference switch
+            {
+                RangeReference range => ArrayEvaluation.BuildRange(range, context),
+                EmptyRangeReference empty => ArrayEvaluation.BuildEmpty(empty),
+                CellReference cell => new SingletonArrayOperand(cell.Evaluate(context)),
+                _ => new SingletonArrayOperand(ComputedValue.Error(Error.Value)),
+            };
+            return true;
+        }
+
+        operand = new SingletonArrayOperand(value);
+        return true;
+    }
+
+    private ComputedValue Evaluate(
+        EvaluationContext context,
+        bool asReference,
+        out ArrayOperand? selected
+    )
+    {
+        selected = null;
         // A missing-sheet lookup/return array is a structural #REF! — distinct from an empty array over an
         // existing sheet, which stays #N/A. Guard before enumerating so it is not swallowed as empty.
         if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
@@ -110,7 +152,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             {
                 if (ValueCoercion.AreEqual(lookupValues.Current, lookup))
                 {
-                    return returnArray.Select(position, lookupAxis, asReference);
+                    return returnArray.Select(position, lookupAxis, asReference, out selected);
                 }
 
                 position++;
@@ -131,7 +173,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         if (match >= 0)
         {
-            return returnArray.Select(match, lookupAxis, asReference);
+            return returnArray.Select(match, lookupAxis, asReference, out selected);
         }
 
         return NotFound(context);
@@ -282,8 +324,14 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             }
         }
 
-        public ComputedValue Select(int position, ArrayAxis axis, bool asReference)
+        public ComputedValue Select(
+            int position,
+            ArrayAxis axis,
+            bool asReference,
+            out ArrayOperand? selected
+        )
         {
+            selected = null;
             if (reference is not null)
             {
                 if (
@@ -299,8 +347,8 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
                 }
             }
 
-            var index = axis is ArrayAxis.Rows ? position * Columns : position;
-            return stream.ElementAt(index);
+            selected = new AxisSelectionOperand(stream.Operand, axis, [position]);
+            return selected.At(0, selected.Rows, selected.Columns);
         }
 
         private ComputedValue SelectReference(
