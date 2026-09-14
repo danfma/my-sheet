@@ -128,8 +128,7 @@ internal struct RangeValueCursor
         // EmptyRangeReference, which the `default:` arm streams as nothing (MATCH/XLOOKUP #N/A, COUNTIF 0).
         if (
             argument is TableReference table
-            && table.TryResolve(context.Workbook, out var tableArea, out _)
-            && tableArea is RangeReference tableRange
+            && table.TryResolveRectangle(context.Workbook, out var tableRange)
         )
         {
             argument = tableRange;

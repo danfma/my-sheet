@@ -120,8 +120,7 @@ public sealed partial record IsFormula(Expression[] Arguments) : Function
         if (Arguments[0] is TableReference table)
         {
             return ComputedValue.Boolean(
-                table.TryResolve(context.Workbook, out var tableArea, out _)
-                    && tableArea is RangeReference tableRange
+                table.TryResolveRectangle(context.Workbook, out var tableRange)
                     && context.Workbook.Sheets.TryGetValue(tableRange.SheetName, out var tableSheet)
                     && tableSheet.TryGetValue(tableRange.StartId, out var tableExpression)
                     && tableExpression is not ValueExpression

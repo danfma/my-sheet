@@ -180,6 +180,28 @@ internal readonly record struct RangeBounds(
     public int RowCount => BottomRow - TopRow + 1;
 
     public int ColumnCount => RightColumn - LeftColumn + 1;
+
+    /// <summary>
+    /// The bounds of a RECTANGLE reference — a <see cref="RangeReference"/>, or sweep item 33's zero-row
+    /// <see cref="EmptyRangeReference"/> (whose <see cref="RowCount"/> is 0) — or <c>false</c> with default
+    /// bounds for any other shape (a cell, a union, an open range). The one place a consumer that needs a
+    /// rectangle's geometry asks for it, so a new rectangle shape is one arm here rather than one per consumer.
+    /// </summary>
+    public static bool TryFrom(Reference reference, out RangeBounds bounds)
+    {
+        switch (reference)
+        {
+            case RangeReference range:
+                bounds = range.GetBounds();
+                return true;
+            case EmptyRangeReference empty:
+                bounds = empty.GetBounds();
+                return true;
+            default:
+                bounds = default;
+                return false;
+        }
+    }
 }
 
 /// <summary>

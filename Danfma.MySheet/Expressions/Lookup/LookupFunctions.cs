@@ -123,18 +123,10 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         // evaluation below does not change Arguments' evaluation order. A zero-row rectangle (sweep item 33)
         // has bounds too; it leaves the function at the not-found check below.
         var workbook = context.Workbook;
-        RangeBounds bounds;
 
-        switch (reference)
+        if (!RangeBounds.TryFrom(reference, out var bounds))
         {
-            case RangeReference range:
-                bounds = range.GetBounds();
-                break;
-            case EmptyRangeReference empty:
-                bounds = empty.GetBounds();
-                break;
-            default:
-                return ComputedValue.Error(Error.Ref);
+            return ComputedValue.Error(Error.Ref);
         }
 
         var lookup = Arguments[0].Evaluate(context);

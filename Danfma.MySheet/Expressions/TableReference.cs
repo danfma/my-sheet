@@ -114,6 +114,22 @@ public sealed partial record TableReference(string TableName, string? ColumnName
         }
     }
 
+    /// <summary>
+    /// The rectangle-only view of <see cref="TryResolve"/>, for the callers that stream a REAL range's cells
+    /// (the performance normalizations, the dependency graph, ISFORMULA's top-left cell): <c>true</c> only
+    /// when the area resolves to a <see cref="RangeReference"/>. An empty area and an unresolvable table are
+    /// both <c>false</c> here, and each caller's own fallback handles them — the empty reference's value
+    /// streams nothing, the error value is the node's own.
+    /// </summary>
+    internal bool TryResolveRectangle(
+        Workbook workbook,
+        [NotNullWhen(true)] out RangeReference? range
+    )
+    {
+        range = TryResolve(workbook, out var reference, out _) ? reference as RangeReference : null;
+        return range is not null;
+    }
+
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference) =>
         TryResolve(context.Workbook, out reference, out _);
 

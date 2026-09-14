@@ -159,8 +159,7 @@ internal static class ArgumentFlattening
         // streams as nothing.
         if (
             argument is TableReference table
-            && table.TryResolve(context.Workbook, out var tableArea, out _)
-            && tableArea is RangeReference tableRange
+            && table.TryResolveRectangle(context.Workbook, out var tableRange)
         )
         {
             argument = tableRange;

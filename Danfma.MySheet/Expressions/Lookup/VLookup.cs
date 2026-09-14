@@ -33,18 +33,9 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         // evaluation below does not change Arguments' evaluation order. A zero-row rectangle (sweep item 33:
         // a header-only table's data band) has bounds too — its real column count — so every argument check
         // below applies to it unchanged before it leaves at the not-found check.
-        RangeBounds bounds;
-
-        switch (reference)
+        if (!RangeBounds.TryFrom(reference, out var bounds))
         {
-            case RangeReference range:
-                bounds = range.GetBounds();
-                break;
-            case EmptyRangeReference empty:
-                bounds = empty.GetBounds();
-                break;
-            default:
-                return ComputedValue.Error(Error.Ref);
+            return ComputedValue.Error(Error.Ref);
         }
 
         var lookup = Arguments[0].Evaluate(context);

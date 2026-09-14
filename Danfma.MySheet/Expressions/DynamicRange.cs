@@ -77,30 +77,23 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
     // dynamic endpoint; an open reference as a dynamic endpoint is out of scope (returns false -> #REF!).
     private static bool TryBox(Reference reference, out Box box)
     {
-        switch (reference)
+        if (reference is CellReference cell)
         {
-            case CellReference cell:
-                var a = CellAddress.Parse(cell.Id);
-                box = new Box(a.Column, a.Row, a.Column, a.Row);
-                return true;
-            case RangeReference range:
-                var s = CellAddress.Parse(range.StartId);
-                var e = CellAddress.Parse(range.EndId);
-                box = new Box(
-                    Math.Min(s.Column, e.Column),
-                    Math.Min(s.Row, e.Row),
-                    Math.Max(s.Column, e.Column),
-                    Math.Max(s.Row, e.Row)
-                );
-                return true;
-            // Sweep item 33: a zero-row rectangle's box ends one row ABOVE its anchor, so a span of two of
-            // them stays zero rows high while a span reaching a real cell grows to include it.
-            case EmptyRangeReference empty:
-                box = new Box(empty.LeftColumn, empty.TopRow, empty.RightColumn, empty.TopRow - 1);
-                return true;
-            default:
-                box = default;
-                return false;
+            var a = CellAddress.Parse(cell.Id);
+            box = new Box(a.Column, a.Row, a.Column, a.Row);
+            return true;
         }
+
+        // A rectangle's normalized bounds (RangeBounds.TryFrom, the same min/max corners). A zero-row rectangle
+        // (sweep item 33) ends one row ABOVE its anchor, so a span of two of them stays zero rows high while a
+        // span reaching a real cell grows to include it.
+        if (RangeBounds.TryFrom(reference, out var bounds))
+        {
+            box = new Box(bounds.LeftColumn, bounds.TopRow, bounds.RightColumn, bounds.BottomRow);
+            return true;
+        }
+
+        box = default;
+        return false;
     }
 }

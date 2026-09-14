@@ -775,11 +775,7 @@ public sealed partial class Workbook
         // so generalizing this to every Reference subclass would inject endpoint evaluation into a
         // cache-admission probe. An EMPTY area (sweep item 33) stays a TableReference and is rejected just
         // below: a zero-row rectangle has no cell to snapshot.
-        if (
-            range is TableReference table
-            && table.TryResolve(this, out var tableArea, out _)
-            && tableArea is RangeReference tableRange
-        )
+        if (range is TableReference table && table.TryResolveRectangle(this, out var tableRange))
         {
             range = tableRange;
         }

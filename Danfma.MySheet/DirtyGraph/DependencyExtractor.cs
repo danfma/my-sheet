@@ -130,11 +130,7 @@ internal static class DependencyExtractor
                 // então uma referência estruturada não desloca por escrava de fórmula compartilhada. Uma banda
                 // VAZIA (item 33 da varredura: EmptyRangeReference, zero linhas) não tem célula a depender e
                 // fica no mesmo braço conservador — nunca uma dependência inventada.
-                if (
-                    wb is null
-                    || !table.TryResolve(wb, out var tableArea, out _)
-                    || tableArea is not RangeReference tableRange
-                )
+                if (wb is null || !table.TryResolveRectangle(wb, out var tableRange))
                 {
                     scan.AlwaysDirty = true;
                     return;

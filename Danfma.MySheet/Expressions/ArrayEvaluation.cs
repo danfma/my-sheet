@@ -981,26 +981,18 @@ internal static class ArrayEvaluation
             return PositionArgumentShape.Scalar;
         }
 
-        switch (reference)
+        // A rectangle — a RangeReference (its bounds parsed once and handed back), or sweep item 33's zero-row
+        // EmptyRangeReference, whose row-number vector is empty and column-number vector is its columns.
+        if (RangeBounds.TryFrom(reference, out bounds))
         {
-            case RangeReference range:
-                // GetBounds() parses BOTH corners, so it is called once here and the rectangle handed back.
-                bounds = range.GetBounds();
-                return PositionArgumentShape.Array;
-
-            // Sweep item 33: a zero-row rectangle is still a rectangle — its row-number vector is empty and
-            // its column-number vector is its columns.
-            case EmptyRangeReference empty:
-                bounds = empty.GetBounds();
-                return PositionArgumentShape.Array;
-
-            case OpenRangeReference:
-                return PositionArgumentShape.Refused;
-
-            // A single cell (1x1 — nothing to spread over) or a union (no single position: #VALUE!).
-            default:
-                return PositionArgumentShape.Scalar;
+            return PositionArgumentShape.Array;
         }
+
+        // An open range is the cost-guard refusal; a single cell (1x1 — nothing to spread over) or a union (no
+        // single position: #VALUE!) is a scalar.
+        return reference is OpenRangeReference
+            ? PositionArgumentShape.Refused
+            : PositionArgumentShape.Scalar;
     }
 
     // What a bare defined name contributes to the mini-CSE, once resolved (Phase 11a Rule A).

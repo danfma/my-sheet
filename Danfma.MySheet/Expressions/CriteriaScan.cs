@@ -193,8 +193,7 @@ internal struct PositionalRange
         // the criteria family's 0 over a header-only table falls out of that empty stream.
         if (
             argument is TableReference table
-            && table.TryResolve(context.Workbook, out var tableArea, out _)
-            && tableArea is RangeReference tableRange
+            && table.TryResolveRectangle(context.Workbook, out var tableRange)
         )
         {
             argument = tableRange;
