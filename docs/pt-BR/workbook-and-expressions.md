@@ -382,8 +382,8 @@ aproximado; uma célula de erro nomeada propaga seu erro nos dois modos. `XLOOKU
 e valida os mesmos valores capturados de referência ou array computado que pesquisa: o array de retorno precisa
 ter a mesma contagem de linhas numa busca vertical ou de colunas numa busca horizontal, caso contrário retorna
 `#VALUE!` antes de aplicar `if_not_found`; o array de retorno ainda pode ser mais largo ou mais alto no eixo que
-não é pesquisado, e uma busca 1x1 conta como qualquer um dos eixos. Arrays vinculados por LET e arrays computados
-de nomes definidos usam o mesmo caminho de array capturado.
+não é pesquisado. Uma busca 1x1 conta como uma linha, então seu array de retorno precisa ter exatamente uma
+coluna. Arrays vinculados por LET e arrays computados de nomes definidos usam o mesmo caminho de array capturado.
 
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 

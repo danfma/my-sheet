@@ -367,8 +367,9 @@ cell table returns `#N/A` in exact mode before index bounds and propagates the e
 a named error cell propagates its error in either mode. `XLOOKUP` requires a one-dimensional lookup array and validates the
 same captured reference or computed-array values it searches: the return array must have the same row count
 for a vertical lookup or column count for a horizontal lookup, otherwise it returns `#VALUE!` before applying
-`if_not_found`; the return array may still be wider or taller on its non-search axis, and a 1x1 lookup counts
-as either axis. LET-bound and defined-name computed arrays use the same captured-array path.
+`if_not_found`; the return array may still be wider or taller on its non-search axis. A 1x1 lookup counts as a
+row, so its return array must have exactly one column. LET-bound and defined-name computed arrays use the same
+captured-array path.
 
 **Out of scope.** Spatial intersection of two open ranges is not modeled.
 
