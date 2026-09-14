@@ -149,7 +149,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row < 0 || column < 0 || row > bounds.RowCount || column > bounds.ColumnCount)
         {
-            return ComputedValue.Error(Error.Ref);
+            return ComputedValue.Error(row < 0 || column < 0 ? Error.Value : Error.Ref);
         }
 
         return null;
@@ -263,7 +263,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row < 0 || column < 0)
         {
-            return ComputedValue.Error(Error.Ref);
+            return ComputedValue.Error(Error.Value);
         }
 
         if (
@@ -357,13 +357,26 @@ public sealed partial record Index(Expression[] Arguments) : Function
             column = 1;
         }
 
-        if (row < 1 || column < 1 || row > array.Rows || column > array.Columns)
+        var truncatedRow = (int)row;
+        var truncatedColumn = (int)column;
+
+        if (truncatedRow < 0 || truncatedColumn < 0)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        if (
+            truncatedRow < 1
+            || truncatedColumn < 1
+            || truncatedRow > array.Rows
+            || truncatedColumn > array.Columns
+        )
         {
             return ComputedValue.Error(Error.Ref);
         }
 
         // Row-major layout (ArrayEvaluation lays out row-then-column): (r,c) 1-based → (r-1)·Columns + (c-1).
-        return array.ElementAt(((int)row - 1) * array.Columns + ((int)column - 1));
+        return array.ElementAt((truncatedRow - 1) * array.Columns + (truncatedColumn - 1));
     }
 
     // ROW of an open column is the identity vector [top, top+1, …] with top = RowMin (or 1 when the top is
@@ -395,6 +408,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         var n = (int)Math.Truncate(first);
         var top = open.RowMin ?? 1;
+
+        if (n < 0)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
 
         if (n < 1 || (open.RowMax is { } bottom && top + n - 1 > bottom))
         {

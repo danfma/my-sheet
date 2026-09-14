@@ -247,6 +247,40 @@ public class IndexZeroAxisTests
             .IsEqualTo(ErrorValue.NotValue);
     }
 
+    // Oracle (Aspose.Cells 26.7.0, Main!AZ5000; PLAIN/CSE): every negative truncated axis is #VALUE! / #VALUE!.
+    // The adjacent -0.5 row truncates to zero, so PLAIN/CSE split #VALUE! / 1; bare-cell intersection follows PLAIN.
+    [Test]
+    [Arguments("=INDEX(A1:C3,-1,0)")]
+    [Arguments("=INDEX(A1:C3,-1,1)")]
+    [Arguments("=INDEX(A1:C3,0,-1)")]
+    [Arguments("=INDEX(A1:C3,1,-1)")]
+    [Arguments("=INDEX(A1:A3,-1)")]
+    public async Task NegativeIndex_IsValueError(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+
+        for (var row = 1; row <= 3; row++)
+        for (var column = 1; column <= 3; column++)
+        {
+            sheet[new CellAddress(column, row).ToId()] = new NumberValue((row - 1) * 3 + column);
+        }
+
+        await Assert.That(Eval(workbook, formula)).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task FractionalNegativeIndex_TruncatesToZero()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["A1"] = new NumberValue(1);
+        sheet["A2"] = new NumberValue(4);
+        sheet["A3"] = new NumberValue(7);
+
+        await Assert.That(Eval(workbook, "=INDEX(A1:C3,-0.5,1)")).IsEqualTo(ErrorValue.NotValue);
+    }
+
     // === The COUNTIF-family range slot, over a computed criteria fixture (Bug 9's shape) ====================
 
     [Test]
