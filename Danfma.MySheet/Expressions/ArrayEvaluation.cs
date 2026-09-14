@@ -322,6 +322,22 @@ internal static class ArrayEvaluation
             Choose choose
                 when choose.Arguments.Length >= 2
                     && BranchesDenoteAReference(choose.Arguments.AsSpan(1), context) => true,
+            // Sweep item 37 follow-up, ruling (b): INDEX/OFFSET may denote a reference (a zero row/column,
+            // or OFFSET's own multi-cell result) exactly like any Reference-typed node, so a consumer's
+            // top-level gate keeps it on the reference path instead of the array-stream path this ruling
+            // just gave them below an operator (Probe's own Index/Offset arm). UNCONDITIONAL, no
+            // resolution: evaluating here to check "does this ACTUALLY resolve to a reference" would draw
+            // its own row/column arguments once here and once more in whichever fallback runs next (the
+            // same double-draw ResolvePositionRange's remarks warn ROW/COLUMN's shared arm away from) — the
+            // structural answer costs nothing and is always safe, because every consumer that reads this
+            // falls back to evaluating the node ONCE regardless (NumericAggregation.Fold's default arm,
+            // ReferencePosition, RangeValueCursor's default arm, …), and that one evaluation already
+            // returns the right ComputedValue (a Reference-kind value for a zero row/column, a plain scalar
+            // otherwise) whether or not this predicate fired. Keeps ROWS(INDEX(r,0,1)) = 6,
+            // COUNTIF(INDEX(A1:B4,0,1),">2") = 2 and COUNTIF(OFFSET(A1,0,0,3,1),">0") = 2 unchanged — the
+            // Phase 11c fence — by keeping every one of those consumers OFF the array-stream path exactly
+            // as before this ruling (Probe's new Index/Offset arm would otherwise divert them).
+            Lookup.Index or Lookup.Offset => true,
             _ => expression is Reference,
         };
 
@@ -532,6 +548,20 @@ internal static class ArrayEvaluation
             // future reference arm land ABOVE this one.
             case IArrayProducer producer:
                 return producer.ProbeArray(context);
+
+            // Sweep item 37 follow-up, ruling (b): INDEX/OFFSET, reached HERE (below an operator or a
+            // lift — a top-level occurrence is peeled off by IsBareReferenceNode's own Index/Offset arm
+            // before Probe ever runs), lift like the literal range they denote — the same "unconditional
+            // structural yes, ONE real evaluation in the build" contract IArrayProducer keeps just above,
+            // reused rather than reinvented (see TryBuildOperand's matching arm and WrapScalar, which
+            // already does exactly this value-to-operand mapping for a scalar-condition IF/CHOOSE branch).
+            // No evaluation here: the promise "array, one element at least" is safe for EVERY outcome the
+            // build can produce (a genuine rectangle, a resolved single cell, or a #REF!/#NAME? the node
+            // could not resolve at all), because WrapScalar wraps all three as SOME array, never a
+            // ScalarOperand — see WrapScalar's own remarks on why "never a ScalarOperand" is load-bearing.
+            case Lookup.Index
+            or Lookup.Offset:
+                return (true, true);
 
             // Anything else is an opaque scalar: succeeds (evaluated once when actually built), not an array.
             default:
@@ -848,6 +878,21 @@ internal static class ArrayEvaluation
             // The build twin of Probe's producer arm, in the same position for the same reasons.
             case IArrayProducer producer:
                 return producer.TryBuildArrayOperand(context, out operand);
+
+            // The build twin of Probe's Index/Offset arm — sweep item 37 follow-up, ruling (b). ONE
+            // evaluation (Evaluate, not TryResolveReference: this needs the VALUE a bare INDEX/OFFSET
+            // already computes today — a Reference-kind ComputedValue for INDEX's zero row/column or
+            // OFFSET's multi-cell result, a plain scalar otherwise — not a second, parallel resolution),
+            // handed to WrapScalar exactly as a scalar-condition IF/CHOOSE branch's chosen value already
+            // is: a RangeReference streams its cells (BuildRange), an EmptyRangeReference streams nothing
+            // (BuildEmpty), a CellReference or any non-reference value becomes the loud SingletonArrayOperand
+            // WrapScalar always uses instead of ScalarOperand — never a second evaluation, and never the
+            // operand.IsArray mismatch that would send a caller back to re-evaluate (see
+            // ArrayEvaluation.TryBuildIndexPositionOperand's identical reasoning for ROW/COLUMN).
+            case Lookup.Index
+            or Lookup.Offset:
+                operand = WrapScalar(expression.Evaluate(context), context);
+                return true;
 
             // Anything else is an opaque scalar: evaluate ONCE and broadcast. (This is where nested scalar
             // functions — SUM(A:A), a bare cell, a literal, a volatile RAND() — enter, without recursing.)

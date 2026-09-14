@@ -120,6 +120,25 @@ public class IndexZeroAxisTests
         await Assert.That(Num(Eval(IdxFixture(), formula))).IsEqualTo(expected);
     }
 
+    // === Sweep item 37 follow-up, ruling (b): a bare INDEX/OFFSET result under an operator, in an array
+    // context, lifts element-wise like the literal range it denotes — the same mechanism item 32 already
+    // gave If/Choose (ArrayEvaluation.IsBareReferenceNode's structural arm + the Probe/TryBuildOperand pair
+    // reusing WrapScalar), extended to Index and Offset nodes. MySheet has one reading regardless of entry
+    // mode (the project's own established convention — see e.g. SUMPRODUCT(-E6:E8) in the divergence
+    // probe), which is the oracle's CSE column wherever PLAIN and CSE split.
+    [Test]
+    [Arguments("=SUMPRODUCT((INDEX(E5:H10,0,1)>6)*1)", 4.0)]
+    [Arguments("=SUM((INDEX(E5:H10,0,1)>6)*1)", 4.0)] // oracle PLAIN #VALUE! / CSE 4 — MySheet follows CSE
+    [Arguments("=SUMPRODUCT((OFFSET(E5,0,0,6,1)>6)*1)", 4.0)]
+    [Arguments("=SUM((OFFSET(E5,0,0,6,1)>6)*1)", 4.0)] // same PLAIN/CSE split, same convention
+    public async Task BareIndexOrOffsetUnderAnOperator_LiftsElementwise(
+        string formula,
+        double expected
+    )
+    {
+        await Assert.That(Num(Eval(IdxFixture(), formula))).IsEqualTo(expected);
+    }
+
     [Test]
     public async Task ColumnForm_IsRef_IsTrue()
     {
@@ -271,13 +290,14 @@ public class IndexZeroAxisTests
         await Assert.That(Num(Eval(IdxFixture(), "=SUM(INDEX($5:$10,0,5))"))).IsEqualTo(45.0);
     }
 
-    // === The SAME shape, still unclosed here — needs ruling (b) too (a later commit): the divergence
-    // probe's row 43, a MYSHEET-CALC-DIVERGENCES.md formula whose denominator compares a BARE INDEX(...)
-    // result (not wrapped in ROW/COLUMN) element-wise, distinct from the plan's own corpus shape above
-    // (CorpusAggregateShape_MatchesTheOracle), which already matches with ruling (a) alone. Registered:
-    // MySheet answers 1, the oracle 3.
+    // === Sweep item 37 follow-up, ruling (b): INDEX under an operator, in an array context, lifts like
+    // the literal range it denotes (ArrayEvaluation.WrapScalar, extended to Index/Offset the same way
+    // item 32 already extended it to If/Choose). Was a registered divergence (MySheet 1, oracle 3, its
+    // denominator comparing a bare INDEX(...) result against "" and 6 scalar-only) until this ruling
+    // closed it — this is the divergence probe's row 43, a MYSHEET-CALC-DIVERGENCES.md formula, distinct
+    // from the plan's own corpus shape above (CorpusAggregateShape_MatchesTheOracle), which already matched.
     [Test]
-    public async Task DivergenceProbeRow43Shape_KeepsTheEnginesOwnAnswer_ADivergence()
+    public async Task BareIndexUnderAnOperator_LiftsElementwise_MatchesTheOracle()
     {
         var workbook = IdxFixture();
 
@@ -290,6 +310,6 @@ public class IndexZeroAxisTests
                     )
                 )
             )
-            .IsEqualTo(1.0);
+            .IsEqualTo(3.0);
     }
 }

@@ -98,4 +98,79 @@ public class OpenRangePositionalTests
     {
         await Assert.That(Num(Eval(IdxFixture(), formula))).IsEqualTo(expected);
     }
+
+    // === The corpus's own AGGREGATE idiom: MATCH locates the absolute header column, INDEX(0-row) reads
+    // that whole column as a reference, and the fraction's denominator (ruling (b): a bare INDEX(...)
+    // result lifts under a comparison) excludes the "skip" sentinel — 3 valid data points {1,3,4}, once
+    // for each row/AGGREGATE-k combination the corpus formula is built with.
+
+    [Test]
+    public async Task CorpusAggregate_KEqualsOne_ViaNestedIndexRowSubtraction()
+    {
+        var workbook = CorpusFixture();
+
+        await Assert
+            .That(
+                Num(
+                    Eval(
+                        workbook,
+                        "=IFERROR(AGGREGATE(15,6,(ROW(INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0)))-ROW(INDEX(INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0)),1,1))+1)/((INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0))<>\"\")*(INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0))<>\"skip\")),ROWS($B$2:B2)),\"\")"
+                    )
+                )
+            )
+            .IsEqualTo(1.0);
+    }
+
+    [Test]
+    [Arguments(2, 3.0)]
+    [Arguments(3, 4.0)]
+    public async Task CorpusAggregate_KEqualsTwoOrThree_ViaLiteralRowOffset(int k, double expected)
+    {
+        var workbook = CorpusFixture();
+
+        await Assert
+            .That(
+                Num(
+                    Eval(
+                        workbook,
+                        $"=IFERROR(AGGREGATE(15,6,(ROW(INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0)))-4)/((INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0))<>\"\")*(INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0))<>\"skip\")),{k}),\"\")"
+                    )
+                )
+            )
+            .IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task CorpusAggregate_Sumproduct_CountsTheNonBlankColumn()
+    {
+        // Oracle 4 (a, skip, b, c are all non-blank) — the divergence probe's stale "doc" column claims 3
+        // (from ~/MYSHEET-CALC-DIVERGENCES.md, not re-verified against 26.7.0); re-measured directly
+        // against Aspose.Cells 26.7.0 here rather than trusted.
+        await Assert
+            .That(
+                Num(
+                    Eval(
+                        CorpusFixture(),
+                        "=SUMPRODUCT((INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0))<>\"\")*1)"
+                    )
+                )
+            )
+            .IsEqualTo(4.0);
+    }
+
+    [Test]
+    public async Task CorpusAggregate_Countifs_CountsTheNonBlankColumn()
+    {
+        // Same re-measurement as the SUMPRODUCT row above: oracle 4, not the stale doc's 3.
+        await Assert
+            .That(
+                Num(
+                    Eval(
+                        CorpusFixture(),
+                        "=COUNTIFS(INDEX($5:$1000,0,MATCH(\"x\",$4:$4,0)),\"<>\")"
+                    )
+                )
+            )
+            .IsEqualTo(4.0);
+    }
 }
