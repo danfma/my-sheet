@@ -391,6 +391,23 @@ internal struct PositionalRange
         bool validateSelectedMissingSheet = false
     )
     {
+        // A LET whose body directly returns a bound name preserves that reference structurally in a criteria
+        // slot. Validate the final resolved reference once so a missing sheet is #REF!, rather than letting
+        // the value walk degrade it into per-cell errors that the fold ignores. Do not widen this to a LET
+        // whose body is IF/CHOOSE: those selectors are element-wise in CSE and intentionally stay on the
+        // existing empty-scan path when their selected reference names a missing sheet.
+        if (
+            argument is Logical.Let { Arguments: var letArguments }
+            && letArguments.Length > 0
+            && letArguments[^1] is NameReference
+            && NamedReferences.TryResolveReference(argument, context, out var letReference)
+            && ReferenceGuard.MissingSheet(letReference, context) is { } letMissing
+        )
+        {
+            range = default;
+            return letMissing;
+        }
+
         if (
             TrySelectIfReference(
                 argument,

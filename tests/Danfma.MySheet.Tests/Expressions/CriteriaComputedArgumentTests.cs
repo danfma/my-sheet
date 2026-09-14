@@ -489,20 +489,52 @@ public class CriteriaComputedArgumentTests
     }
 
     [Test]
-    public async Task SelectedMissingSheetCriteriaRange_FollowsCseAndStaysEmpty()
+    public async Task LetBoundMissingSheetCriteriaRange_IsAReferenceError()
     {
-        // Aspose.Cells 26.7.0 PLAIN/CSE: #REF!/0 for both rows. MySheet follows CSE; this guards the
-        // criteria-slot split while selected missing references in value slots propagate #REF!.
+        // A1:A3=5,0,9 and B1:B3=1,2,3; Ghost is absent. Aspose.Cells 26.7.0 PLAIN/CSE: #REF!/#REF!
+        // for every row. MySheet previously returned 0; a LET body that directly returns its bound
+        // missing-sheet reference preserves the structural #REF! rather than degrading it into cell errors.
+        await Assert
+            .That(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,r),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=COUNTIFS(LET(r,Ghost!A1:A3,r),\">0\")"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=SUMIF(LET(r,Ghost!A1:A3,r),\">0\",B1:B3)"))
+            .IsEqualTo(ErrorValue.Reference);
+        await Assert
+            .That(OnGrid("=COUNTBLANK(LET(r,Ghost!A1:A3,r))"))
+            .IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
+    public async Task ElementWiseMissingSheetCriteriaSelector_FollowsCseAndStaysEmpty()
+    {
+        // A1:A3=5,0,9; Ghost is absent. Aspose.Cells 26.7.0 CSE is 0 for every selected missing-sheet
+        // row below (PLAIN is respectively 0, #REF!, #REF!, and #REF!). IF/CHOOSE selection degrades the
+        // missing reference into per-cell errors that the criteria fold ignores, including IF in a LET body.
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,IF(TRUE,r,A1:A3)),\">0\")")))
+            .IsEqualTo(0.0);
+        await Assert
+            .That(Num(OnGrid("=COUNTIF(CHOOSE(1,Ghost!A1:A3,A1:A3),\">0\")")))
+            .IsEqualTo(0.0);
+        await Assert.That(Num(OnGrid("=COUNTIF(IF(TRUE,Ghost!A1:A3),\">0\")"))).IsEqualTo(0.0);
         await Assert
             .That(Num(OnGrid("=COUNTIFS(IF(TRUE,Ghost!A1:A3,A1:A3),\">0\")")))
             .IsEqualTo(0.0);
+    }
+
+    [Test]
+    public async Task ValidLetAndLazyMissingSheetCriteriaReferences_RemainValid()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE: 2/2 for both rows. A valid direct LET binding remains a range,
+        // and an unselected missing-sheet IF branch remains lazy.
+        await Assert.That(Num(OnGrid("=COUNTIF(LET(r,A1:A3,r),\">0\")"))).IsEqualTo(2.0);
         await Assert
-            .That(Num(OnGrid("=SUMIFS(B1:B3,IF(TRUE,Ghost!A1:A3,A1:A3),\">0\")")))
-            .IsEqualTo(0.0);
-        await Assert.That(Num(OnGrid("=COUNTIF(LET(r,Ghost!A1:A3,r),\">0\")"))).IsEqualTo(0.0);
-        await Assert
-            .That(Num(OnGrid("=COUNTIFS(IF(TRUE,IF(FALSE,A1:A3,Ghost!A1:A3),A1:A3),\">0\")")))
-            .IsEqualTo(0.0);
+            .That(Num(OnGrid("=COUNTIF(IF(FALSE,Ghost!A1:A3,A1:A3),\">0\")")))
+            .IsEqualTo(2.0);
     }
 
     [Test]
