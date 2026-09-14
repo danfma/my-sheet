@@ -358,8 +358,9 @@ box** within its limits; `AREAS` counts it as one area and `ISREF` reports `true
 works. Positional readers keep the open range instead: `INDEX`'s `row_num`/`column_num` — zero included,
 see the next section — count from the range's own declared origin (column A or row 1 on an open side), as
 does `OFFSET`'s base. Thus `INDEX($5:$10, 0, 5)` over a whole-row base populated only in columns E:H reads
-absolute column E, and `MATCH("x",$4:$4,0)` returns `3` when "x" is in C4. They translate through the
-populated structural index without materializing a full row or column.
+absolute column E, and `MATCH("x",$4:$4,0)` / `XMATCH("x",$4:$4)` return `3` when "x" is in C4. `INDEX`
+and `OFFSET` translate coordinates arithmetically; `MATCH` and `XMATCH` scan only populated cells and retain
+their source coordinates. None materializes a full row or column.
 
 **Out of scope.** Spatial intersection of two open ranges is not modeled.
 

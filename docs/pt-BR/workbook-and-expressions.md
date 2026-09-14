@@ -372,8 +372,9 @@ delimitadora populada** dentro de seus limites; `AREAS` conta como uma área e `
 `INDEX` — incluindo zero, veja a seção seguinte — conta a partir da origem declarada do próprio intervalo
 (coluna A ou linha 1 num lado aberto), assim como a base do `OFFSET`. Portanto,
 `INDEX($5:$10, 0, 5)` sobre uma base de linha inteira populada só nas colunas E:H lê a coluna E absoluta, e
-`MATCH("x",$4:$4,0)` devolve `3` quando "x" está em C4. Eles traduzem pelo índice estrutural populado sem
-materializar uma linha ou coluna inteira.
+`MATCH("x",$4:$4,0)` / `XMATCH("x",$4:$4)` devolvem `3` quando "x" está em C4. `INDEX` e `OFFSET`
+traduzem coordenadas aritmeticamente; `MATCH` e `XMATCH` percorrem somente células populadas e preservam as
+coordenadas de origem delas. Nenhum materializa uma linha ou coluna inteira.
 
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 
