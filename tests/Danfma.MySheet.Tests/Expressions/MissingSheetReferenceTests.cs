@@ -138,6 +138,16 @@ public class MissingSheetReferenceTests
     [Test]
     public async Task Index_MissingSheet_IsRef() => await AssertRef("=INDEX(Ghost!A:A, 1)");
 
+    // Oracle (Aspose.Cells 26.7.0, Main!AZ5000; PLAIN/CSE): #REF! / #REF!, TRUE / TRUE, 999 / 999.
+    [Test]
+    public async Task Index_ZeroAxisMissingSheet_IsRefBeforeTheReferenceEscapes()
+    {
+        await AssertRef("=INDEX(Ghost!A1:A3,0,1)");
+        await Assert.That(Eval("=ISERROR(INDEX(Ghost!A1:A3,0,1))").AsObject() as bool?).IsTrue();
+        await Assert.That(Eval("=IFERROR(INDEX(Ghost!A1:A3,0,1),999)").AsObject()).IsEqualTo(999.0);
+        await AssertRef("=SUM(INDEX(Ghost!A1:A3,0,1))");
+    }
+
     // A BOUNDED ghost range (not just a whole-column open range): the lookup would otherwise scan its cells,
     // skip the per-cell #REF! keys, and degrade to #N/A. It must short-circuit to #REF! structurally.
     [Test]

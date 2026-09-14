@@ -84,6 +84,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row == 0 || column == 0)
         {
+            if (ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing)
+            {
+                return ComputedValue.Error(missing);
+            }
+
             return ComputedValue.Reference(BuildAxisReference(reference, bounds, row, column));
         }
 
@@ -478,6 +483,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row == 0 || column == 0)
         {
+            if (ReferenceGuard.MissingSheet(Arguments[0], context) is not null)
+            {
+                return false;
+            }
+
             reference = BuildAxisReference(resolved, bounds, row, column);
             return true;
         }
