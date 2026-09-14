@@ -7,14 +7,13 @@ namespace Danfma.MySheet;
 
 /// <summary>
 /// What <see cref="Table.GetRegion"/> found. Three outcomes, not two, and <see cref="Empty"/> is
-/// deliberately NOT folded into <see cref="Absent"/>: both answer <c>#REF!</c> today, but they answer it for
-/// different reasons and only one of them is a recorded DIVERGENCE from the oracle. Measured on
-/// Aspose.Cells 26.6.0 (2026-09-11), a header-only table's data band is an EMPTY reference there —
-/// <c>SUM</c> 0, <c>COUNT</c> 0, <c>COUNTA</c> 0, <c>ROWS</c> 0, <c>COLUMNS</c> 1, <c>ISREF</c> TRUE,
-/// <c>SUBTOTAL(9)</c> 0, <c>AVERAGE</c> <c>#DIV/0!</c>, <c>INDEX(…,1,1)</c> <c>#REF!</c> — and this engine
-/// has no zero-extent reference node to answer with, so the resolver maps <see cref="Empty"/> to
-/// <c>#REF!</c> in ONE arm. Keeping the outcome separate is what makes reopening that ruling a single edit
-/// per consumer instead of a re-plumbing of this primitive.
+/// deliberately NOT folded into <see cref="Absent"/>: an absent region is <c>#REF!</c>, while an empty one is
+/// a reference with no rows. Measured on Aspose.Cells 26.6.0 (2026-09-11, re-measured 2026-09-14), a
+/// header-only table's data band is an EMPTY reference — <c>SUM</c> 0, <c>COUNT</c> 0, <c>COUNTA</c> 0,
+/// <c>ROWS</c> 0, <c>COLUMNS</c> 1, <c>ISREF</c> TRUE, <c>SUBTOTAL(9)</c> 0, <c>AVERAGE</c> <c>#DIV/0!</c>,
+/// <c>INDEX(…,1,1)</c> <c>#REF!</c> — while <c>[#Totals]</c> on a table with no totals row stays <c>#REF!</c>
+/// (<c>ISREF</c> FALSE). The resolver maps <see cref="Empty"/> to an <see cref="EmptyRangeReference"/>
+/// (sweep item 33) and <see cref="Absent"/> to <c>#REF!</c>.
 /// </summary>
 internal enum TableRegionOutcome : byte
 {
@@ -23,11 +22,12 @@ internal enum TableRegionOutcome : byte
 
     /// <summary>
     /// The area exists but spans zero rows — a header-only table's <c>[#Data]</c>, or either pair left with
-    /// neither the row it names nor a data row. The out parameters are 0, and handing back an inverted
-    /// rectangle instead is not an option, because <c>RangeReference.GetBounds</c> normalizes min/max
-    /// (measured: a range built from <c>B2</c>..<c>B1</c> reports <c>TopRow</c> 1 and <c>ROWS</c> 2, and
-    /// <c>SUM</c> over it reads both cells), so a zero-data-row table handed back as
-    /// <c>(top 2, bottom 1)</c> would silently read the HEADER row.
+    /// neither the row it names nor a data row. The out parameters still carry the band's geometry — its
+    /// columns, its top row (the row after the header) and a bottom row ABOVE that top — and the resolver
+    /// turns them into an <see cref="EmptyRangeReference"/>, never a <see cref="RangeReference"/>: a
+    /// <c>RangeReference</c> normalizes min/max (measured: one built from <c>B2</c>..<c>B1</c> reports
+    /// <c>TopRow</c> 1 and <c>ROWS</c> 2, and <c>SUM</c> over it reads both cells), so a zero-data-row table
+    /// handed back as one would silently read the HEADER row.
     /// </summary>
     Empty,
 
@@ -166,15 +166,18 @@ public sealed partial record Table(
         // non-nullable contract of this overload has to be enforced here rather than inherited from it.
         ArgumentNullException.ThrowIfNull(columnName);
 
-        var outcome = GetRegion(
-            columnName,
-            TableArea.Data,
-            out sheetColumn,
-            out firstRow,
-            out _,
-            out lastRow
-        );
-        return outcome == TableRegionOutcome.Resolved;
+        if (
+            GetRegion(columnName, TableArea.Data, out sheetColumn, out firstRow, out _, out lastRow)
+            == TableRegionOutcome.Resolved
+        )
+        {
+            return true;
+        }
+
+        // An EMPTY band reports its geometry out of GetRegion (sweep item 33); this public overload keeps its
+        // "all outputs 0 on false" contract.
+        (sheetColumn, firstRow, lastRow) = (0, 0, 0);
+        return false;
     }
 
     /// <summary>
@@ -204,9 +207,9 @@ public sealed partial record Table(
     /// <c>SUM(T[[#Headers],[#Data]])</c> is likewise the data, 55, while <c>SUM(T[#Headers])</c> there is
     /// <c>#REF!</c>. Copying a singleton's absent arm into a pair by analogy is the mistake that answers
     /// <c>#REF!</c> where Excel answers the data, in the very shape users write to mean "the table without
-    /// its header". (A pair CAN still end up <see cref="TableRegionOutcome.Empty"/>, and so <c>#REF!</c> at
-    /// the resolver, when it is left with no rows at all — a header-only table's
-    /// <c>[[#Data],[#Totals]]</c>.)
+    /// its header". (A pair CAN still end up <see cref="TableRegionOutcome.Empty"/>, and so an empty
+    /// reference at the resolver, when it is left with no rows at all — a header-only table's
+    /// <c>[[#Data],[#Totals]]</c>, <c>ROWS</c> 0 on the oracle.)
     /// </para>
     /// </summary>
     internal TableRegionOutcome GetRegion(
@@ -274,18 +277,16 @@ public sealed partial record Table(
                 return TableRegionOutcome.Absent;
         }
 
-        // One check for all six bands. Together with the impossible-ref guard above it, this is what makes
-        // "no inverted rectangle leaves this method" true on BOTH axes — see TableRegionOutcome.Empty for the
-        // measurement that makes it mandatory rather than stylistic.
-        if (bandBottom < bandTop)
-        {
-            return TableRegionOutcome.Empty;
-        }
-
         (left, right) =
             index < 0 ? (FirstColumn, LastColumn) : (SheetColumnAt(index), SheetColumnAt(index));
         (top, bottom) = (bandTop, bandBottom);
-        return TableRegionOutcome.Resolved;
+
+        // One check for all six bands. A band whose bottom is above its top has ZERO rows: it is reported as
+        // Empty WITH its geometry (the anchor row and the columns an empty reference needs — sweep item 33),
+        // and only a Resolved outcome is ever a rectangle. Together with the impossible-ref guard above, that
+        // keeps "no inverted rectangle becomes a RangeReference" true on BOTH axes — see
+        // TableRegionOutcome.Empty for the measurement that makes it mandatory rather than stylistic.
+        return bandBottom < bandTop ? TableRegionOutcome.Empty : TableRegionOutcome.Resolved;
     }
 
     // === Validation (invoked by the registry, never by the constructor) ==================================

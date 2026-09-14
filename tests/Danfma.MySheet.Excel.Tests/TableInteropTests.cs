@@ -972,4 +972,53 @@ public class TableInteropTests
         await Assert.That(workbook.GetCellValue("Data", "D2").ToDouble()).IsEqualTo(10.0);
         await Assert.That(workbook.GetCellValue("Data", "I2").ToDouble()).IsEqualTo(20.0);
     }
+
+    [Test]
+    public async Task Load_HeaderOnlyTable_ItsStructuredReferencesAnswerTheEmptyReference_AcrossSaveAndLoad()
+    {
+        // Sweep item 33, end to end on the real file: f7 is Aspose-authored, ref="A1:B1" with a header row
+        // and zero data rows, D1 = SUM(Tabela1[Valor]) and D2 = ROWS(Tabela1[#Data]) (oracle 0 / 0, both
+        // entry modes). Before the empty-reference representation both answered #REF!. The cached <v> is
+        // 0 as well, so the two rows alone could pass by reading the cache: the anchor rows below cannot —
+        // Data!B2 = 7 sits directly under the header, OUTSIDE the table, so an explicit resize from the
+        // anchor reads it (oracle, the loaded file with B2 = 7: 7) while the empty band never does (SUM 0).
+        var (workbook, warnings) = LoadOracleFixture("f7-header-only");
+
+        await Assert.That(warnings.Count).IsEqualTo(0);
+        await Assert.That(workbook.GetCellValue("Data", "D1").AsObject()).IsEqualTo(0.0);
+        await Assert.That(workbook.GetCellValue("Data", "D2").AsObject()).IsEqualTo(0.0);
+
+        var data = workbook["Data"];
+        data["B2"] = new Danfma.MySheet.Expressions.NumberValue(7);
+        data["E1"] = Danfma.MySheet.Parsing.ExpressionParser.Parse(
+            "=SUM(OFFSET(Tabela1[Valor],0,0,1,1))",
+            data
+        );
+        data["E2"] = Danfma.MySheet.Parsing.ExpressionParser.Parse("=ISREF(Tabela1[Valor])", data);
+        workbook.InvalidateCache();
+
+        await Assert.That(workbook.GetCellValue("Data", "D1").AsObject()).IsEqualTo(0.0);
+        await Assert.That(workbook.GetCellValue("Data", "E1").AsObject()).IsEqualTo(7.0);
+        await Assert.That(workbook.GetCellValue("Data", "E2").AsObject() as bool?).IsTrue();
+
+        // The representation is a runtime value: what the MemoryPack round trip carries is the header-only
+        // table and the formulas, which resolve to the empty reference again after the load.
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+        try
+        {
+            workbook.Save(path);
+            var reloaded = Workbook.Load(path);
+
+            await Assert.That(reloaded.Tables["Tabela1"].DataRowCount).IsEqualTo(0);
+            await Assert.That(reloaded.GetCellValue("Data", "D1").AsObject()).IsEqualTo(0.0);
+            await Assert.That(reloaded.GetCellValue("Data", "D2").AsObject()).IsEqualTo(0.0);
+            await Assert.That(reloaded.GetCellValue("Data", "E1").AsObject()).IsEqualTo(7.0);
+            await Assert.That(reloaded.GetCellValue("Data", "E2").AsObject() as bool?).IsTrue();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

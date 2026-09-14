@@ -55,6 +55,11 @@ internal static class ReferenceGuard
             case RangeReference range:
                 return Check(context, range.SheetName);
 
+            // Sweep item 33: a zero-row rectangle still names a sheet (the re-check ReferencePosition runs on
+            // a resolved target reaches it).
+            case EmptyRangeReference empty:
+                return Check(context, empty.SheetName);
+
             // G3 spike (node-delta shared formulas): mirrors CellReference/RangeReference above so a
             // shared-formula slave's aggregate-function argument short-circuits to #REF! the same way when
             // its sheet is missing (SheetName is a literal component of these nodes, unaffected by delta).
@@ -121,8 +126,9 @@ internal static class ReferenceGuard
                 // make COUNT and COUNTA answer #REF! — two silent divergences in the very family this guard
                 // exists for, which is what MissingSheetReferenceTests'
                 // StructuredReference_ThatDoesNotResolve_IsAnErrorValue_NotAShortCircuit pins.
-                return table.TryResolveRange(context.Workbook, out var resolvedTable, out _)
-                    ? Check(context, resolvedTable!.SheetName)
+                // A resolved area is a rectangle or a zero-row rectangle (sweep item 33); both name a sheet.
+                return table.TryResolve(context.Workbook, out var resolvedTable, out _)
+                    ? MissingSheet(resolvedTable, context)
                     : null;
 
             // Phase 7: the three axis-selection producers stand for their SOURCE array the way the unary-plus

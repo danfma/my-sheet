@@ -80,12 +80,12 @@ public class TableReferenceTests
         TableArea area = TableArea.Data
     ) => new(table, column, area);
 
-    // === TryResolveRange: the one primitive ==============================================================
+    // === TryResolve: the one primitive ===================================================================
 
     [Test]
     public async Task Data_WithAColumn_ResolvesToTheColumnsDataRows()
     {
-        var ok = Node().TryResolveRange(Fixture(), out var range, out _);
+        var ok = Node().TryResolve(Fixture(), out var range, out _);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(range).IsEqualTo(new RangeReference("B2", "B4", "Data"));
@@ -95,7 +95,7 @@ public class TableReferenceTests
     [Test]
     public async Task Data_WithNoColumn_ResolvesToTheWholeDataBody()
     {
-        var ok = Node(column: null).TryResolveRange(Fixture(), out var range, out _);
+        var ok = Node(column: null).TryResolve(Fixture(), out var range, out _);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(range).IsEqualTo(new RangeReference("A2", "B4", "Data"));
@@ -105,7 +105,7 @@ public class TableReferenceTests
     [Test]
     public async Task TableAndColumnNames_ResolveCaseInsensitively()
     {
-        var ok = Node("TABELA1", "valor").TryResolveRange(Fixture(), out var range, out _);
+        var ok = Node("TABELA1", "valor").TryResolve(Fixture(), out var range, out _);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(range).IsEqualTo(new RangeReference("B2", "B4", "Data"));
@@ -115,7 +115,7 @@ public class TableReferenceTests
     [Test]
     public async Task UnknownTable_IsName()
     {
-        var ok = Node("NoSuch").TryResolveRange(Fixture(), out var range, out var error);
+        var ok = Node("NoSuch").TryResolve(Fixture(), out var range, out var error);
 
         await Assert.That(ok).IsFalse();
         await Assert.That(range).IsNull();
@@ -126,29 +126,30 @@ public class TableReferenceTests
     [Test]
     public async Task UnknownColumn_IsRef()
     {
-        var ok = Node(column: "NoSuch").TryResolveRange(Fixture(), out var range, out var error);
+        var ok = Node(column: "NoSuch").TryResolve(Fixture(), out var range, out var error);
 
         await Assert.That(ok).IsFalse();
         await Assert.That(range).IsNull();
         await Assert.That(error).IsEqualTo(Error.Ref);
     }
 
-    // Phase 5 ruling R1 (recorded DIVERGENCE, sweep item 33): the oracle treats a header-only table as an
-    // EMPTY reference, which this engine has no node for, so Data over zero data rows answers #REF!.
+    // Sweep item 33, reopening Phase 5 ruling R1: the oracle treats a header-only table's data band as an
+    // EMPTY reference (SUM 0, ROWS 0, ISREF TRUE — EmptyTableReferenceTests has the consumer matrix), so the
+    // band resolves to a zero-row rectangle anchored under the header, over the column(s) it names. Before
+    // the empty-reference representation this answered false / null / #REF!, the recorded divergence.
     [Test]
-    [Arguments("Valor")]
-    [Arguments(null)]
-    public async Task HeaderOnlyTable_DataIsRef_ARecordedDivergence(string? column)
+    [Arguments("Valor", 2, 2)]
+    [Arguments(null, 1, 2)]
+    public async Task HeaderOnlyTable_DataIsAnEmptyReference(string? column, int left, int right)
     {
         var workbook = new Workbook();
         workbook.Sheets.Add("Data");
         workbook.DefineTable("Vazia", "Data", "A1:B1", ["Item", "Valor"]);
 
-        var ok = Node("Vazia", column).TryResolveRange(workbook, out var range, out var error);
+        var ok = Node("Vazia", column).TryResolve(workbook, out var reference, out _);
 
-        await Assert.That(ok).IsFalse();
-        await Assert.That(range).IsNull();
-        await Assert.That(error).IsEqualTo(Error.Ref);
+        await Assert.That(ok).IsTrue();
+        await Assert.That(reference).IsEqualTo(new EmptyRangeReference("Data", 2, left, right));
     }
 
     // === The six areas, measured =========================================================================
@@ -204,8 +205,7 @@ public class TableReferenceTests
         string end
     )
     {
-        var ok = Node(column: column, area: area)
-            .TryResolveRange(Oracle(totals), out var range, out _);
+        var ok = Node(column: column, area: area).TryResolve(Oracle(totals), out var range, out _);
 
         await Assert.That(ok).IsTrue();
         await Assert.That(range).IsEqualTo(new RangeReference(start, end, "Data"));
@@ -262,7 +262,7 @@ public class TableReferenceTests
         var context = new EvaluationContext(Oracle(false));
         var node = Node(column: column, area: TableArea.Totals);
 
-        await Assert.That(node.TryResolveRange(Oracle(false), out _, out var error)).IsFalse();
+        await Assert.That(node.TryResolve(Oracle(false), out _, out var error)).IsFalse();
         await Assert.That(error).IsEqualTo(Error.Ref);
         await Assert
             .That(new Sum([node]).Evaluate(context).AsObject())
@@ -286,8 +286,8 @@ public class TableReferenceTests
         var pair = Node(column: null, area: TableArea.DataAndTotals);
         var data = Node(column: null, area: TableArea.Data);
 
-        await Assert.That(pair.TryResolveRange(workbook, out var pairRange, out _)).IsTrue();
-        await Assert.That(data.TryResolveRange(workbook, out var dataRange, out _)).IsTrue();
+        await Assert.That(pair.TryResolve(workbook, out var pairRange, out _)).IsTrue();
+        await Assert.That(data.TryResolve(workbook, out var dataRange, out _)).IsTrue();
         await Assert.That(pairRange).IsEqualTo(dataRange);
         await Assert.That(new Sum([pair]).Evaluate(context).AsObject() as double?).IsEqualTo(66.0);
     }
@@ -319,25 +319,26 @@ public class TableReferenceTests
         var context = new EvaluationContext(workbook);
 
         var pair = Node(column: null, area: TableArea.HeadersAndData);
-        await Assert.That(pair.TryResolveRange(workbook, out var range, out _)).IsTrue();
+        await Assert.That(pair.TryResolve(workbook, out var range, out _)).IsTrue();
         await Assert.That(range).IsEqualTo(new RangeReference("A2", "C3", "Data"));
         await Assert.That(new Sum([pair]).Evaluate(context).AsObject() as double?).IsEqualTo(55.0);
         await Assert.That(new Rows([pair]).Evaluate(context).AsObject() as double?).IsEqualTo(2.0);
 
         var headers = Node(column: null, area: TableArea.Headers);
-        await Assert.That(headers.TryResolveRange(workbook, out _, out var error)).IsFalse();
+        await Assert.That(headers.TryResolve(workbook, out _, out var error)).IsFalse();
         await Assert.That(error).IsEqualTo(Error.Ref);
         await Assert
             .That(new Sum([headers]).Evaluate(context).AsObject())
             .IsEqualTo(ErrorValue.Reference);
     }
 
-    // The second legal shape where ruling R1's divergence bites, after the header-only table: a totals row,
-    // no header row and no data (ref="A1:C1" totalsRowCount="1", which Validate accepts). Not measurable on
-    // the oracle — Aspose cannot build a table with no data rows AND no header row — so this is MySheet's own
-    // answer from the one geometry rule: the bands that need a data row are #REF!, the rest are that row.
+    // The second legal shape with an empty band, after the header-only table: a totals row, no header row and
+    // no data (ref="A1:C1" totalsRowCount="1", which Validate accepts). Not measurable on the oracle — Aspose
+    // cannot build a table with no data rows AND no header row — so this is MySheet's own answer from the one
+    // geometry rule: the bands that need a data row are EMPTY, anchored at the first row the table has (they
+    // were false / #REF! before sweep item 33), [#Headers] is absent (#REF!), and the rest are that row.
     [Test]
-    public async Task ATotalsOnlyTable_TheDataBandsAreRef_AndTheRestIsTheTotalsRow()
+    public async Task ATotalsOnlyTable_TheDataBandsAreEmpty_AndTheRestIsTheTotalsRow()
     {
         var workbook = new Workbook();
         var data = workbook.Sheets.Add("Data");
@@ -355,13 +356,13 @@ public class TableReferenceTests
         foreach (var area in new[] { TableArea.Data, TableArea.HeadersAndData })
         {
             var node = new TableReference("SoTotais", null, area);
-            await Assert.That(node.TryResolveRange(workbook, out _, out var error)).IsFalse();
-            await Assert.That(error).IsEqualTo(Error.Ref);
+            await Assert.That(node.TryResolve(workbook, out var reference, out _)).IsTrue();
+            await Assert.That(reference).IsEqualTo(new EmptyRangeReference("Data", 1, 1, 3));
         }
 
         await Assert
             .That(
-                new TableReference("SoTotais", null, TableArea.Headers).TryResolveRange(
+                new TableReference("SoTotais", null, TableArea.Headers).TryResolve(
                     workbook,
                     out _,
                     out var headersError
@@ -373,19 +374,19 @@ public class TableReferenceTests
         foreach (var area in new[] { TableArea.All, TableArea.Totals, TableArea.DataAndTotals })
         {
             var node = new TableReference("SoTotais", null, area);
-            await Assert.That(node.TryResolveRange(workbook, out var range, out _)).IsTrue();
+            await Assert.That(node.TryResolve(workbook, out var range, out _)).IsTrue();
             await Assert.That(range).IsEqualTo(new RangeReference("A1", "C1", "Data"));
         }
     }
 
-    // Ruling R1 again, now through the node: on a header-only table the oracle answers an EMPTY reference
-    // for every band that needs data (measured: SUM 0, COUNT 0, COUNTA 0, ROWS 0, COLUMNS 1, ISREF TRUE,
-    // SUBTOTAL(9) 0, COUNTIF 0, AVERAGE #DIV/0!, INDEX(…,1,1) #REF!, ROW 2 PLAIN / 1 CSE), which this engine
-    // has no zero-extent node for, so it answers #REF! — a recorded divergence, sweep item 33. The bands
-    // that do NOT need data still resolve exactly as the oracle has them: [#All], [#Headers] and
+    // Sweep item 33 through the node: on a header-only table the oracle answers an EMPTY reference for every
+    // band that needs data (measured: SUM 0, COUNT 0, COUNTA 0, ROWS 0, COLUMNS 1, ISREF TRUE, SUBTOTAL(9) 0,
+    // COUNTIF 0, AVERAGE #DIV/0!, INDEX(…,1,1) #REF!, ROW 2 PLAIN / 1 CSE), and both such bands now resolve to
+    // the zero-row rectangle under the header (before: false / #REF!, ruling R1's recorded divergence). The
+    // bands that do NOT need data still resolve exactly as the oracle has them: [#All], [#Headers] and
     // [[#Headers],[#Data]] are the header row (ROWS 1, COUNTA 3 on both).
     [Test]
-    public async Task HeaderOnlyTable_EmptyBandsAreRef_ButTheHeaderBandsResolve()
+    public async Task HeaderOnlyTable_TheDataBandsAreEmpty_AndTheHeaderBandsResolve()
     {
         var workbook = new Workbook();
         workbook.Sheets.Add("Data");
@@ -394,14 +395,14 @@ public class TableReferenceTests
         foreach (var area in new[] { TableArea.Data, TableArea.DataAndTotals })
         {
             var empty = new TableReference("Vazia", null, area);
-            await Assert.That(empty.TryResolveRange(workbook, out _, out var error)).IsFalse();
-            await Assert.That(error).IsEqualTo(Error.Ref);
+            await Assert.That(empty.TryResolve(workbook, out var reference, out _)).IsTrue();
+            await Assert.That(reference).IsEqualTo(new EmptyRangeReference("Data", 2, 1, 3));
         }
 
         foreach (var area in new[] { TableArea.All, TableArea.Headers, TableArea.HeadersAndData })
         {
             var header = new TableReference("Vazia", null, area);
-            await Assert.That(header.TryResolveRange(workbook, out var range, out _)).IsTrue();
+            await Assert.That(header.TryResolve(workbook, out var range, out _)).IsTrue();
             await Assert.That(range).IsEqualTo(new RangeReference("A1", "C1", "Data"));
         }
     }
@@ -622,5 +623,17 @@ public class TableReferenceTests
             .Tag;
 
         await Assert.That(tag).IsEqualTo((ushort)327);
+    }
+
+    // Sweep item 33's empty reference is a runtime VALUE a structured reference resolves to — never parsed,
+    // never stored in a cell tree — so it is deliberately not a union member and the wire does not move.
+    [Test]
+    public async Task EmptyRangeReference_IsNotAUnionMember()
+    {
+        var members = typeof(Expression)
+            .GetCustomAttributes<MemoryPackUnionAttribute>()
+            .Select(attribute => attribute.Type);
+
+        await Assert.That(members.Contains(typeof(EmptyRangeReference))).IsFalse();
     }
 }

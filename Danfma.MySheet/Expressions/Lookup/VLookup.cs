@@ -28,17 +28,24 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             );
         }
 
-        if (reference is not RangeReference table)
-        {
-            return ComputedValue.Error(Error.Ref);
-        }
+        // Bounds are resolved ONCE here, not re-parsed on every row of the linear fallback scan below. This is
+        // a pure, side-effect-free read of the table's own corners, so hoisting it ahead of the argument
+        // evaluation below does not change Arguments' evaluation order. A zero-row rectangle (sweep item 33:
+        // a header-only table's data band) has bounds too — its real column count — so every argument check
+        // below applies to it unchanged before it leaves at the not-found check.
+        RangeBounds bounds;
 
-        // Bounds + the dense sheet handle are resolved ONCE here, not re-parsed/re-resolved on every row of the
-        // linear fallback scan below. This is a pure, side-effect-free read of the table's own corners, so
-        // hoisting it ahead of the argument evaluation below does not change Arguments' evaluation order.
-        var workbook = context.Workbook;
-        var bounds = table.GetBounds();
-        var handle = workbook.ResolveDenseHandle(table.SheetName);
+        switch (reference)
+        {
+            case RangeReference range:
+                bounds = range.GetBounds();
+                break;
+            case EmptyRangeReference empty:
+                bounds = empty.GetBounds();
+                break;
+            default:
+                return ComputedValue.Error(Error.Ref);
+        }
 
         var lookup = Arguments[0].Evaluate(context);
 
@@ -73,6 +80,16 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         {
             return lookup;
         }
+
+        // Sweep item 33: a zero-row table has no key to find (oracle: #N/A in both entry modes).
+        if (reference is not RangeReference table)
+        {
+            return ComputedValue.Error(Error.NA);
+        }
+
+        // The dense sheet handle is resolved ONCE for the scan below.
+        var workbook = context.Workbook;
+        var handle = workbook.ResolveDenseHandle(table.SheetName);
 
         // The first column is a sub-range of the table; its per-epoch snapshot serves the key search O(1)
         // (exact) / O(log n) (approximate). A 1-based snapshot position IS the 1-based table row, because the

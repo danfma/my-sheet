@@ -124,13 +124,15 @@ internal struct RangeValueCursor
         // (the allocation-free struct enumerator) serves a resolved table too. An unresolvable table is
         // left as-is: it falls through to `default:` below, whose sweep 34(a) arm carries the node's own
         // #NAME?/#REF! on <see cref="SlotError"/> for COUNTIF — since TryStream/IsBareReferenceNode never
-        // enter this method at all.
+        // enter this method at all. An EMPTY area (sweep item 33) is left as-is too: its value is an
+        // EmptyRangeReference, which the `default:` arm streams as nothing (MATCH/XLOOKUP #N/A, COUNTIF 0).
         if (
             argument is TableReference table
-            && table.TryResolveRange(context.Workbook, out var tableRange, out _)
+            && table.TryResolve(context.Workbook, out var tableArea, out _)
+            && tableArea is RangeReference tableRange
         )
         {
-            argument = tableRange!;
+            argument = tableRange;
         }
 
         switch (argument)

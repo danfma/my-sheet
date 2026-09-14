@@ -39,11 +39,17 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
         var maxColumn = Math.Max(startBox.MaxColumn, endBox.MaxColumn);
         var maxRow = Math.Max(startBox.MaxRow, endBox.MaxRow);
 
-        reference = new RangeReference(
-            new CellAddress(minColumn, minRow).ToId(),
-            new CellAddress(maxColumn, maxRow).ToId(),
-            startSheet
-        );
+        // Sweep item 33: two zero-row endpoints (Tabela1[Valor]:Tabela1[Qtd] over a header-only table) span a
+        // box whose bottom is above its top — a ZERO-row rectangle (oracle: ROWS 0, COLUMNS 2, both modes),
+        // which only an EmptyRangeReference can carry; a RangeReference would normalize it onto the header.
+        reference =
+            maxRow < minRow
+                ? new EmptyRangeReference(startSheet, minRow, minColumn, maxColumn)
+                : new RangeReference(
+                    new CellAddress(minColumn, minRow).ToId(),
+                    new CellAddress(maxColumn, maxRow).ToId(),
+                    startSheet
+                );
         return true;
     }
 
@@ -55,10 +61,15 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
             ? ComputedValue.Reference(reference!)
             : ComputedValue.Error(Error.Ref);
 
-    // The sheet a resolved endpoint lives on. TryBox only accepts CellReference/RangeReference, so those
-    // are the only shapes reaching here.
+    // The sheet a resolved endpoint lives on. TryBox only accepts a cell, a rectangle or a zero-row
+    // rectangle, so those are the only shapes reaching here.
     private static string SheetOf(Reference reference) =>
-        reference is CellReference cell ? cell.SheetName : ((RangeReference)reference).SheetName;
+        reference switch
+        {
+            CellReference cell => cell.SheetName,
+            EmptyRangeReference empty => empty.SheetName,
+            _ => ((RangeReference)reference).SheetName,
+        };
 
     private readonly record struct Box(int MinColumn, int MinRow, int MaxColumn, int MaxRow);
 
@@ -81,6 +92,11 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
                     Math.Max(s.Column, e.Column),
                     Math.Max(s.Row, e.Row)
                 );
+                return true;
+            // Sweep item 33: a zero-row rectangle's box ends one row ABOVE its anchor, so a span of two of
+            // them stays zero rows high while a span reaching a real cell grows to include it.
+            case EmptyRangeReference empty:
+                box = new Box(empty.LeftColumn, empty.TopRow, empty.RightColumn, empty.TopRow - 1);
                 return true;
             default:
                 box = default;

@@ -773,10 +773,15 @@ public sealed partial class Workbook
         // on that RESOLVED range, so `SUM(Tabela1[Valor])` and `SUM(Data!B2:B4)` share one snapshot.
         // Deliberately narrow to TableReference: DynamicRange.TryResolveReference EVALUATES its endpoints,
         // so generalizing this to every Reference subclass would inject endpoint evaluation into a
-        // cache-admission probe.
-        if (range is TableReference table && table.TryResolveRange(this, out var tableRange, out _))
+        // cache-admission probe. An EMPTY area (sweep item 33) stays a TableReference and is rejected just
+        // below: a zero-row rectangle has no cell to snapshot.
+        if (
+            range is TableReference table
+            && table.TryResolve(this, out var tableArea, out _)
+            && tableArea is RangeReference tableRange
+        )
         {
-            range = tableRange!;
+            range = tableRange;
         }
 
         if (RangeCacheDisabled || range is not (RangeReference or OpenRangeReference))

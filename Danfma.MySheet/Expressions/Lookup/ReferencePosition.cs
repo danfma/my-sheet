@@ -34,6 +34,10 @@ internal static class ReferencePosition
             {
                 CellReference cell => ComputedValue.Number(CellAddress.Parse(cell.Id).Row),
                 RangeReference range => ComputedValue.Number(range.TopRow),
+                // Sweep item 33: a zero-row rectangle's top row is its anchor, the row after a header-only
+                // table's header (oracle: ROW(Tabela1[Valor]) 2 typed plain; the array-entered 1 is the
+                // header row, which only a normalized inverted rectangle would read).
+                EmptyRangeReference empty => ComputedValue.Number(empty.TopRow),
                 OpenRangeReference open => ComputedValue.Number(open.RowMin ?? 1),
                 _ => ComputedValue.Error(Error.Value),
             }
@@ -46,6 +50,7 @@ internal static class ReferencePosition
             {
                 CellReference cell => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
                 RangeReference range => ComputedValue.Number(range.LeftColumn),
+                EmptyRangeReference empty => ComputedValue.Number(empty.LeftColumn),
                 OpenRangeReference open => ComputedValue.Number(open.ColMin ?? 1),
                 _ => ComputedValue.Error(Error.Value),
             }

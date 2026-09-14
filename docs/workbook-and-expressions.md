@@ -1016,9 +1016,12 @@ sheet-anchored rectangle with named columns. `Workbook.Tables` is the read-only 
 > `ROWS(Tabela1)` is `3`, `ISREF(Tabela1)` is `TRUE`), and in the table's own rows a bare `=Tabela1[Valor]`
 > is implicitly intersected to the row's value (`10`/`20`/`30` on `E2`/`E3`/`E4`), `#VALUE!` outside them
 > (all Aspose.Cells 26.6.0, 2026-09-11, PLAIN and array-entered entry; every number pinned in the test
-> suite). An unknown table is `#NAME?`; an unknown column, a missing `[#Headers]`/`[#Totals]` row or a
-> table with zero data rows is `#REF!` — the last is a recorded divergence, because the oracle answers an
-> EMPTY reference there. The loader fills the registry too: `ExcelFile.Load` records each xlsx `<table>`
+> suite). An unknown table is `#NAME?`; an unknown column or a missing `[#Headers]`/`[#Totals]` row is
+> `#REF!`. A table with zero data rows is an EMPTY reference, as on the oracle: over a header-only table
+> `SUM(Tabela1[Valor])` is `0`, `ROWS` `0`, `ISREF` `TRUE`, `AVERAGE` `#DIV/0!` and `INDEX(…,1,1)` `#REF!`
+> (Aspose.Cells 26.6.0, 2026-09-14). The oracle's answers over an empty table depend on evaluation order —
+> whether an earlier formula already resolved the same reference — and MySheet follows the
+> order-independent zero-row reading. The loader fills the registry too: `ExcelFile.Load` records each xlsx `<table>`
 > part into it ([Excel interop → Scope and limitations](excel-interop.md#scope-and-limitations)), so a
 > structured reference loaded from a file evaluates against the loaded table. A table the loader cannot
 > register is skipped and reported as `InvalidTableDefinition`, and its structured references then answer
@@ -1081,8 +1084,9 @@ name a sheet that has not been added (or has been removed). A missing sheet is a
 a reference into one resolves to `#REF!` rather than throwing (see [`GetCellValue`](#workbook)).
 
 **Zero data rows is legal.** A header-only table (`ref="A1:A1"` with a header row) is a valid model state,
-not an error: `DataRowCount` is `0` and `TryGetColumnRange` returns `false` for a *known* column, leaving the
-`#REF!`-or-empty decision to the caller instead of handing back an inverted range.
+not an error: `DataRowCount` is `0` and `TryGetColumnRange` returns `false` for a *known* column instead of
+handing back an inverted range. A structured reference over that empty band resolves to an empty reference
+(see the note above), never to the header row.
 
 **Redefinition and stale values.** Neither `DefineTable` nor `DefineName` evicts anything from the
 memoization cache — a (re)definition changes no cell — so a formula that already read the old definition

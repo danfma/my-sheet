@@ -1075,9 +1075,12 @@ registro `nome → Table` somente para leitura, e `DefineTable` é seu único es
 > `=Tabela1[Valor]` puro sofre interseção implícita para o valor da linha (`10`/`20`/`30` em
 > `E2`/`E3`/`E4`), `#VALUE!` fora delas (tudo em Aspose.Cells 26.6.0, 2026-09-11, entrada PLAIN e como
 > array; cada número pinado na suíte de testes). Uma tabela desconhecida é `#NAME?`; uma coluna
-> desconhecida, uma linha `[#Headers]`/`[#Totals]` ausente ou uma tabela com zero linhas de dados é
-> `#REF!` — a última é uma divergência registrada, porque o oráculo responde uma referência VAZIA ali. O
-> carregador também preenche o registro: o `ExcelFile.Load` grava cada parte `<table>` do xlsx nele
+> desconhecida ou uma linha `[#Headers]`/`[#Totals]` ausente é `#REF!`. Uma tabela com zero linhas de
+> dados é uma referência VAZIA, como no oráculo: sobre uma tabela só de cabeçalho `SUM(Tabela1[Valor])` é
+> `0`, `ROWS` `0`, `ISREF` `TRUE`, `AVERAGE` `#DIV/0!` e `INDEX(…,1,1)` `#REF!` (Aspose.Cells 26.6.0,
+> 2026-09-14). As respostas do oráculo sobre uma tabela vazia dependem da ordem de avaliação — se uma
+> fórmula anterior já resolveu a mesma referência — e o MySheet segue a leitura de zero linhas,
+> independente da ordem. O carregador também preenche o registro: o `ExcelFile.Load` grava cada parte `<table>` do xlsx nele
 > ([Interop com Excel → Escopo e limitações](excel-interop.md#escopo-e-limitações)), de modo que uma
 > referência estruturada carregada de um arquivo avalia contra a tabela carregada. Uma tabela que o
 > carregador não consegue registrar é ignorada e reportada como `InvalidTableDefinition`, e suas
@@ -1144,8 +1147,8 @@ questão de tempo de avaliação — uma referência a ela resolve para `#REF!` 
 
 **Zero linhas de dados é válido.** Uma tabela só de cabeçalho (`ref="A1:A1"` com linha de cabeçalho) é um
 estado de modelo legítimo, não um erro: `DataRowCount` é `0` e `TryGetColumnRange` devolve `false` para uma
-coluna *conhecida*, deixando a decisão entre `#REF!` e vazio para quem chama, em vez de devolver um intervalo
-invertido.
+coluna *conhecida*, em vez de devolver um intervalo invertido. Uma referência estruturada sobre essa faixa
+vazia resolve para uma referência vazia (veja a nota acima), nunca para a linha de cabeçalho.
 
 **Redefinição e valores desatualizados.** Nem `DefineTable` nem `DefineName` removem nada do cache de
 memoização — uma (re)definição não muda nenhuma célula —, então uma fórmula que já leu a definição antiga

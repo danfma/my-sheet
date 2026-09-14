@@ -19,7 +19,8 @@ internal struct PositionalRange
 {
     // Exactly one backing is live: a list (snapshot array or the materialized fallback), the dense rectangle
     // stream, OR the element-wise mini-CSE array — the latter discriminated by _streamRows > 0 (a live array
-    // always has at least one row), so no extra flag field is needed. When set, the argument's OWN value was
+    // always has at least one row; the one zero-row array, sweep item 33's empty reference, has Count 0, so
+    // no read ever reaches the discrimination), so no extra flag field is needed. When set, the argument's OWN value was
     // an error (sweep item 34a) and no backing is live: the consumer surfaces <see cref="SlotError"/>.
     private readonly IReadOnlyList<ComputedValue>? _list;
     private readonly ArrayEvaluation.ArrayStream _stream;
@@ -187,13 +188,16 @@ internal struct PositionalRange
         // falling to the fallback's boxed default. An unresolvable table is left as-is: it falls through to
         // the fallback below, whose sweep 34(a) arm propagates the node's own #NAME?/#REF! (its Evaluate IS
         // that error) instead of streaming it as the one element the criteria discards — since
-        // RejectComputedArray (this file) admits it before Open is ever called.
+        // RejectComputedArray (this file) admits it before Open is ever called. An EMPTY area (sweep item 33)
+        // is left as-is too: its value is an EmptyRangeReference, which the fallback streams as no element —
+        // the criteria family's 0 over a header-only table falls out of that empty stream.
         if (
             argument is TableReference table
-            && table.TryResolveRange(context.Workbook, out var tableRange, out _)
+            && table.TryResolve(context.Workbook, out var tableArea, out _)
+            && tableArea is RangeReference tableRange
         )
         {
-            argument = tableRange!;
+            argument = tableRange;
         }
 
         if (snapshot is not null)

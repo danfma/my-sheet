@@ -69,6 +69,7 @@ internal static class SelectionProducers
             ? reference switch
             {
                 RangeReference range => ArrayEvaluation.BuildRange(range, context),
+                EmptyRangeReference empty => ArrayEvaluation.BuildEmpty(empty),
                 CellReference cell => new SingletonArrayOperand(cell.Evaluate(context)),
                 _ => Singleton(Error.Value),
             }

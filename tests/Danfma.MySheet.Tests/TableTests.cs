@@ -441,9 +441,9 @@ public class TableTests
         await Assert.That((l, t, r, b)).IsEqualTo((1, 1, 3, 4));
     }
 
-    // An unknown column is ABSENT for every area, never Empty: the two outcomes both answer #REF! today
-    // (ruling R1), and folding a typo'd column into the empty-body outcome would silently inherit whatever
-    // that outcome becomes if R1 is reopened.
+    // An unknown column is ABSENT for every area, never Empty: an absent region is #REF! while an empty one is
+    // an empty reference (sweep item 33), so folding a typo'd column into the empty-body outcome would
+    // silently answer SUM 0 for a column that does not exist.
     [Test]
     [Arguments(TableArea.All)]
     [Arguments(TableArea.Data)]
@@ -471,18 +471,19 @@ public class TableTests
         await Assert.That((l, t, r, b)).IsEqualTo((0, 0, 0, 0));
     }
 
-    // The THIRD outcome, kept distinct from Absent by ruling R1: a header-only table's data band spans zero
-    // rows. The oracle calls this an EMPTY reference (SUM 0, ROWS 0, ISREF TRUE), which this engine has no
-    // node for, so TableReference maps Empty to #REF! — one arm, so reopening R1 is one edit and not a
-    // re-plumbing of this primitive. Returning an inverted rectangle instead is not an option: measured
-    // in-tree, new RangeReference("B2", "B1") reports TopRow 1, ROWS 2 and SUM 5, so a zero-data-row table
-    // handed back as (top 2, bottom 1) would silently read the HEADER row.
+    // The THIRD outcome, kept distinct from Absent: a header-only table's data band spans zero rows. The
+    // oracle calls this an EMPTY reference (SUM 0, ROWS 0, ISREF TRUE), and since sweep item 33 the outcome
+    // carries the band's geometry — the columns, the top row after the header, and a bottom row above it —
+    // which TableReference turns into an EmptyRangeReference. Before, the out parameters were (0, 0, 0, 0)
+    // and the resolver answered #REF!. It must never become a RangeReference: measured in-tree,
+    // new RangeReference("B2", "B1") reports TopRow 1, ROWS 2 and SUM 5, so the inverted pair would silently
+    // read the HEADER row (AnInvertedRangeReference_IsNormalized_WhichIsWhyEmptyExists).
     [Test]
     [Arguments(TableArea.Data, null)]
     [Arguments(TableArea.Data, "Valor")]
     [Arguments(TableArea.DataAndTotals, null)]
     [Arguments(TableArea.DataAndTotals, "Valor")]
-    public async Task GetRegion_AZeroRowBand_IsEmpty(TableArea area, string? column)
+    public async Task GetRegion_AZeroRowBand_IsEmpty_WithItsGeometry(TableArea area, string? column)
     {
         // A1:C1, header row only: FirstDataRow 2 is past LastDataRow 1.
         var headerOnly = new Table(
@@ -506,7 +507,7 @@ public class TableTests
         );
 
         await Assert.That(outcome).IsEqualTo(TableRegionOutcome.Empty);
-        await Assert.That((l, t, r, b)).IsEqualTo((0, 0, 0, 0));
+        await Assert.That((l, t, r, b)).IsEqualTo(column is null ? (1, 2, 3, 1) : (2, 2, 2, 1));
     }
 
     // The mirror shape, measured on the oracle rather than derived (Aspose: header-only Add then

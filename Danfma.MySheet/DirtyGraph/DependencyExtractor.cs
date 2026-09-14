@@ -120,21 +120,27 @@ internal static class DependencyExtractor
 
             case TableReference table:
                 // Fase 5. Uma referência estruturada resolve para um retângulo CONCRETO já na construção do
-                // grafo, porque TryResolveRange precisa só do workbook (é livre de contexto) — é exatamente
+                // grafo, porque TryResolve precisa só do workbook (é livre de contexto) — é exatamente
                 // por isso que a primitiva recebe Workbook e não EvaluationContext. Re-despachar Visit no
                 // RangeReference resolvido reusa o `case RangeReference` de :91-103 verbatim, sem duplicar
                 // aritmética de canto, o mesmo padrão de re-despacho que AggregateCodes usa para nós
                 // ancorados. Irresolúvel (tabela/coluna desconhecida, ou sem workbook) → conservador, igual a
                 // ResolveName :258-262: perder a dependência em silêncio é o único modo de falha inaceitável
                 // aqui. O delta ambiente é repassado e é INERTE: o retângulo vem do registro e é absoluto,
-                // então uma referência estruturada não desloca por escrava de fórmula compartilhada.
-                if (wb is null || !table.TryResolveRange(wb, out var tableRange, out _))
+                // então uma referência estruturada não desloca por escrava de fórmula compartilhada. Uma banda
+                // VAZIA (item 33 da varredura: EmptyRangeReference, zero linhas) não tem célula a depender e
+                // fica no mesmo braço conservador — nunca uma dependência inventada.
+                if (
+                    wb is null
+                    || !table.TryResolve(wb, out var tableArea, out _)
+                    || tableArea is not RangeReference tableRange
+                )
                 {
                     scan.AlwaysDirty = true;
                     return;
                 }
 
-                Visit(tableRange!, scan, wb, resolving, deltaRow, deltaColumn);
+                Visit(tableRange, scan, wb, resolving, deltaRow, deltaColumn);
                 return;
 
             case DynamicRange dynamicRange:

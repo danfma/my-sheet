@@ -114,6 +114,16 @@ public sealed partial record Sort(Expression[] Arguments) : Function, IArrayProd
         }
 
         var length = SelectionProducers.Extent(source, axis);
+
+        // Sweep item 33: a zero-row SOURCE (a header-only table's data band) has nothing to sort, and a
+        // producer's empty result is the 1x1 #CALC! singleton (ArrayShaping's invariant) — the answer FILTER
+        // and UNIQUE already give when nothing survives. Without this the empty permutation reached
+        // AxisSelectionOperand and the invariant's guard threw out of Evaluate.
+        if (length == 0)
+        {
+            return SelectionProducers.Singleton(Error.Calc);
+        }
+
         var keyOffset = (int)sortIndex - 1;
         var keys = new ComputedValue[length];
 

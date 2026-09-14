@@ -407,9 +407,9 @@ internal static class ArrayEvaluation
                 };
 
             // A structured (table) reference (Phase 5), decided WITHOUT resolving anything, unlike the
-            // defined name above: every area of a table is a rectangle of its stored bounds, GetRegion
-            // rejects an inverted one, and TryResolveRange only ever constructs a RangeReference — so a
-            // TableReference can never denote a scalar and never an open range. The open-range cost guard
+            // defined name above: every area of a table is a rectangle of its stored bounds, and TryResolve
+            // only ever constructs a RangeReference or a zero-row EmptyRangeReference (sweep item 33, built
+            // as the empty array) — so a TableReference can never denote a scalar and never an open range. The open-range cost guard
             // above therefore cannot apply to one, and (true, true) cannot mis-broadcast: a multi-column
             // area streams its whole rectangle and projects like any other (SUM(Mat[#Data]*A1:A3) is #N/A
             // for the positions a 2x2 does not cover, COUNT 4 — pinned in MiniCseConsumerTests).
@@ -708,7 +708,9 @@ internal static class ArrayEvaluation
                 switch (ResolveNameShape(expression, context, out var resolved))
                 {
                     case NameShape.Range:
-                        operand = BuildRange((RangeReference)resolved!, context);
+                        operand = resolved is EmptyRangeReference emptyName
+                            ? BuildEmpty(emptyName)
+                            : BuildRange((RangeReference)resolved!, context);
                         return true;
 
                     case NameShape.Refused:
@@ -751,14 +753,20 @@ internal static class ArrayEvaluation
             // resolution the other spelling causes cannot be observed. Keep it because the contract says so,
             // not because a test will catch it.
             case TableReference table:
-                operand = table.TryResolveRange(
-                    context.Workbook,
-                    out var tableRange,
-                    out var tableError
-                )
-                    ? BuildRange(tableRange!, context)
-                    : new SingletonArrayOperand(ComputedValue.Error(tableError));
+            {
+                if (!table.TryResolve(context.Workbook, out var tableArea, out var tableError))
+                {
+                    operand = new SingletonArrayOperand(ComputedValue.Error(tableError));
+                    return true;
+                }
+
+                // A resolved area is one of the two rectangles TryResolve builds: a real one streams its
+                // cells, a zero-row one (sweep item 33) is the empty array.
+                operand = tableArea is EmptyRangeReference emptyArea
+                    ? BuildEmpty(emptyArea)
+                    : BuildRange((RangeReference)tableArea, context);
                 return true;
+            }
 
             // ROW(x)/COLUMN(x) over a reference: ONE arm each, both walking the same shapes on their own
             // axis — see TryBuildPositionOperand, whose order Probe/ProbePosition mirrors exactly. The
@@ -980,6 +988,12 @@ internal static class ArrayEvaluation
                 bounds = range.GetBounds();
                 return PositionArgumentShape.Array;
 
+            // Sweep item 33: a zero-row rectangle is still a rectangle — its row-number vector is empty and
+            // its column-number vector is its columns.
+            case EmptyRangeReference empty:
+                bounds = empty.GetBounds();
+                return PositionArgumentShape.Array;
+
             case OpenRangeReference:
                 return PositionArgumentShape.Refused;
 
@@ -1073,7 +1087,9 @@ internal static class ArrayEvaluation
 
         return reference switch
         {
-            RangeReference => NameShape.Range,
+            // A zero-row rectangle (sweep item 33: a name bound to a header-only table's data band, or the
+            // bare table name itself) is a Range too — the build makes it the empty array.
+            RangeReference or EmptyRangeReference => NameShape.Range,
             OpenRangeReference => NameShape.Refused,
             _ => NameShape.Scalar,
         };
@@ -1168,6 +1184,11 @@ internal static class ArrayEvaluation
             bounds.ColumnCount
         );
     }
+
+    // The zero-row twin of BuildRange (sweep item 33): an array with the rectangle's columns and no row, so a
+    // consumer folds nothing and no position ever reads the cell under a header-only table's header.
+    internal static ArrayOperand BuildEmpty(EmptyRangeReference empty) =>
+        new EmptyRangeOperand(empty.ColumnCount);
 
     private static bool TryBuildBinary(
         BinaryOperation binary,
@@ -1439,6 +1460,7 @@ internal static class ArrayEvaluation
             ? reference switch
             {
                 RangeReference range => BuildRange(range, context),
+                EmptyRangeReference empty => BuildEmpty(empty),
                 CellReference cell => new SingletonArrayOperand(cell.Evaluate(context)),
                 _ => new SingletonArrayOperand(ComputedValue.Error(Error.Value)),
             }

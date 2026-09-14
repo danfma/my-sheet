@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using MemoryPack;
 
 namespace Danfma.MySheet.Expressions;
@@ -21,7 +22,8 @@ public enum TableArea : byte
 /// <summary>
 /// A structured (table) reference — <c>Tabela1[Valor]</c>, <c>Tabela1[#All]</c>,
 /// <c>Tabela1[[#Headers],[#Data],[Valor]]</c> — resolved at evaluation time against
-/// <see cref="Workbook.Tables"/> to a concrete <see cref="RangeReference"/>. Contract with the parser:
+/// <see cref="Workbook.Tables"/> to a concrete <see cref="RangeReference"/>, or, for a band with zero rows,
+/// to an <see cref="EmptyRangeReference"/>. Contract with the parser:
 /// <see cref="TableName"/> and <see cref="ColumnName"/> hold the DECODED payload (the <c>'</c>-prefix escape
 /// table <c>'[ '] '# '' '@</c> already applied, exactly as <c>Tokenizer.ReadQuotedName</c> stores decoded
 /// text), because the column lookup compares against the raw <c>tableColumn/@name</c> of the xlsx.
@@ -45,14 +47,27 @@ public sealed partial record TableReference(string TableName, string? ColumnName
     /// the bounds arithmetic in exactly one other (<see cref="Table.GetRegion"/>, which owns all six areas).
     /// Takes a <see cref="Workbook"/>, not an <see cref="EvaluationContext"/>, because table resolution is
     /// context-free — which is what lets the dependency extractor (which has only a workbook) emit a real
-    /// static dependency. An unknown table is <see cref="Error.Name"/> (Excel resolves a table name in the
-    /// same name space as a defined name); everything the geometry cannot produce is <see cref="Error.Ref"/>,
-    /// which is Excel's own repair marker (a deleted column's specifier becomes <c>Table1[#REF!]</c>) — but
-    /// the two reasons are kept apart below, because only one of them is a recorded divergence.
+    /// static dependency. It answers one of three things:
+    /// <list type="bullet">
+    /// <item>a <see cref="RangeReference"/> for an area with rows;</item>
+    /// <item>an <see cref="EmptyRangeReference"/> for an area that exists but spans zero rows (sweep item 33 —
+    /// a header-only table's <c>[#Data]</c>, measured on the oracle as an EMPTY reference: <c>SUM</c> 0,
+    /// <c>ROWS</c> 0, <c>ISREF</c> TRUE);</item>
+    /// <item><c>false</c> with the error for an area that does not resolve: an unknown table is
+    /// <see cref="Error.Name"/> (Excel resolves a table name in the same name space as a defined name), and a
+    /// region that does not exist is <see cref="Error.Ref"/>, Excel's own repair marker (a deleted column's
+    /// specifier becomes <c>Table1[#REF!]</c>).</item>
+    /// </list>
+    /// Every caller states which rectangle it can use (<c>is RangeReference</c> for the cell-streaming fast
+    /// paths), so no caller can mistake an empty area for an error or for a real rectangle.
     /// </summary>
-    internal bool TryResolveRange(Workbook workbook, out RangeReference? range, out Error error)
+    internal bool TryResolve(
+        Workbook workbook,
+        [NotNullWhen(true)] out Reference? reference,
+        out Error error
+    )
     {
-        range = null;
+        reference = null;
 
         if (!workbook.Tables.TryGetValue(TableName, out var table))
         {
@@ -72,7 +87,7 @@ public sealed partial record TableReference(string TableName, string? ColumnName
         )
         {
             case TableRegionOutcome.Resolved:
-                range = new RangeReference(
+                reference = new RangeReference(
                     new CellAddress(left, top).ToId(),
                     new CellAddress(right, bottom).ToId(),
                     table.SheetName
@@ -81,41 +96,40 @@ public sealed partial record TableReference(string TableName, string? ColumnName
                 return true;
 
             case TableRegionOutcome.Empty:
-                // Ruling R1's ONE arm, and the only recorded divergence in this file: the oracle answers an
-                // EMPTY reference for a band that spans zero rows (measured on a header-only table: SUM 0,
-                // ROWS 0, ISREF TRUE), and this engine has no zero-extent reference node to answer with, so
-                // it reports #REF!. Sweep item 33 reopens it; when it does, this arm is the edit.
-                error = Error.Ref;
-                return false;
+                // Sweep item 33, reopening Phase 5 ruling R1: the oracle answers an EMPTY reference for a
+                // band that spans zero rows (measured on a header-only table, both entry modes: SUM 0,
+                // ROWS 0, COLUMNS the band's width, ISREF TRUE, ROW the row after the header). The band's
+                // geometry becomes the zero-row rectangle anchored there — never a RangeReference, whose
+                // normalized corners would read the header row.
+                reference = new EmptyRangeReference(table.SheetName, top, left, right);
+                error = default;
+                return true;
 
             default:
                 // Absent: an unknown column, or [#Headers]/[#Totals] on a table that has no such row.
                 // Measured, both entry modes: SUM(T[#Totals]) over a table with no totals row is #REF! and
-                // ISREF is FALSE.
+                // ISREF is FALSE — on a header-only table too.
                 error = Error.Ref;
                 return false;
         }
     }
 
-    public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
-    {
-        var ok = TryResolveRange(context.Workbook, out var range, out _);
-        reference = range;
-        return ok;
-    }
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference) =>
+        TryResolve(context.Workbook, out reference, out _);
 
     /// <summary>
-    /// Two invariants this must never break. (a) It returns the CONCRETE resolved range, never
+    /// Two invariants this must never break. (a) It returns the CONCRETE resolved reference, never
     /// <c>ComputedValue.Reference(this)</c>: measured, a node that returned itself made <c>SUM(node)</c>
     /// answer 0, because <c>ComputedValue.EnumerateValues</c>' catch-all <c>case Reference</c> yields the
     /// reference value back as one non-numeric element that the numeric fold silently drops, whereas the
-    /// concrete <see cref="RangeReference"/> hits the range arm and expands. (b) It never answers
+    /// concrete <see cref="RangeReference"/> hits the range arm and expands (and the concrete
+    /// <see cref="EmptyRangeReference"/> hits its own arm and yields nothing). (b) It never answers
     /// <c>#VALUE!</c> the way <see cref="RangeReference.Evaluate"/> does: an unresolvable table is the
     /// error VALUE (<c>#NAME?</c> or <c>#REF!</c>) and each consumer does with it what it does with any
     /// error-valued argument — never a throw, never a short-circuit elsewhere.
     /// </summary>
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        TryResolveRange(context.Workbook, out var range, out var error)
-            ? ComputedValue.Reference(range!)
+        TryResolve(context.Workbook, out var reference, out var error)
+            ? ComputedValue.Reference(reference)
             : ComputedValue.Error(error);
 }

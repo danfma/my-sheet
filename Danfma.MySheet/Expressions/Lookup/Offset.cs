@@ -186,6 +186,14 @@ public sealed partial record Offset(Expression[] Arguments) : Function
                 row = start.Row;
                 return true;
 
+            // Sweep item 33: a zero-row rectangle's top-left is its anchor, the row after a header-only
+            // table's header — OFFSET(Tabela1[Valor],0,0,1,1) reads that cell (oracle: 7 with a 7 there).
+            case EmptyRangeReference empty:
+                sheetName = empty.SheetName;
+                column = empty.LeftColumn;
+                row = empty.TopRow;
+                return true;
+
             default:
                 sheetName = string.Empty;
                 column = 0;

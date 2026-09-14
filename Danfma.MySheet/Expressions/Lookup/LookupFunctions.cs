@@ -118,17 +118,24 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             );
         }
 
-        if (reference is not RangeReference table)
-        {
-            return ComputedValue.Error(Error.Ref);
-        }
-
-        // Bounds + the dense sheet handle are resolved ONCE here, not re-parsed/re-resolved on every column of
-        // the linear fallback scan below. This is a pure, side-effect-free read of the table's own corners, so
-        // hoisting it ahead of the argument evaluation below does not change Arguments' evaluation order.
+        // Bounds are resolved ONCE here, not re-parsed on every column of the linear fallback scan below. This
+        // is a pure, side-effect-free read of the table's own corners, so hoisting it ahead of the argument
+        // evaluation below does not change Arguments' evaluation order. A zero-row rectangle (sweep item 33)
+        // has bounds too; it leaves the function at the not-found check below.
         var workbook = context.Workbook;
-        var bounds = table.GetBounds();
-        var handle = workbook.ResolveDenseHandle(table.SheetName);
+        RangeBounds bounds;
+
+        switch (reference)
+        {
+            case RangeReference range:
+                bounds = range.GetBounds();
+                break;
+            case EmptyRangeReference empty:
+                bounds = empty.GetBounds();
+                break;
+            default:
+                return ComputedValue.Error(Error.Ref);
+        }
 
         var lookup = Arguments[0].Evaluate(context);
 
@@ -142,6 +149,16 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         {
             return ComputedValue.Error(Error.Value);
         }
+
+        // Sweep item 33: a zero-row rectangle has no first ROW to search, so the lookup is not found before
+        // its row index is ever measured against a height of 0 (oracle, array-entered:
+        // HLOOKUP(1,<the empty band>,1,FALSE) is #N/A; typed plain, Aspose throws inside its calculation).
+        if (reference is not RangeReference table)
+        {
+            return ComputedValue.Error(Error.NA);
+        }
+
+        var handle = workbook.ResolveDenseHandle(table.SheetName);
 
         if (rowIndex > bounds.RowCount)
         {
@@ -400,6 +417,7 @@ public sealed partial record Columns(Expression[] Arguments) : Function
             reference switch
             {
                 RangeReference range => range.ColumnCount,
+                EmptyRangeReference empty => empty.ColumnCount,
                 OpenRangeReference open => open.ColumnExtent(context),
                 _ => 1.0,
             }
@@ -655,9 +673,16 @@ public sealed partial record FormulaText(Expression[] Arguments) : Function
         // arm (R2): the failure IS a value, not a short-circuit to a different code.
         if (Arguments[0] is TableReference table)
         {
-            return table.TryResolveRange(context.Workbook, out var tableRange, out var error)
-                ? EvaluateAt(context, tableRange!.SheetName, tableRange.StartId)
-                : ComputedValue.Error(error);
+            if (!table.TryResolve(context.Workbook, out var tableArea, out var error))
+            {
+                return ComputedValue.Error(error);
+            }
+
+            // Sweep item 33: a zero-row rectangle has no top-left cell and so no formula to show — the #N/A
+            // a plain-literal target gets (oracle: FORMULATEXT over a header-only table's data band #N/A).
+            return tableArea is RangeReference tableRange
+                ? EvaluateAt(context, tableRange.SheetName, tableRange.StartId)
+                : ComputedValue.Error(Error.NA);
         }
 
         var (sheetName, cellId) = Arguments[0] switch

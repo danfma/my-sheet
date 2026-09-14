@@ -98,24 +98,19 @@ internal static class NumericAggregation
                 // allocation-free struct RangeValueSequence enumerator instead, mirroring the
                 // AnchoredRangeReference arm above for the identical reason.
                 case TableReference table:
-                    if (
-                        table.TryResolveRange(
-                            context.Workbook,
-                            out var tableRange,
-                            out var tableError
-                        )
-                    )
+                    if (!table.TryResolve(context.Workbook, out var tableArea, out var tableError))
                     {
-                        foreach (var value in tableRange!.ExpandComputedValues(context))
+                        error ??= tableError;
+                    }
+                    else if (tableArea is RangeReference tableRange)
+                    {
+                        foreach (var value in tableRange.ExpandComputedValues(context))
                         {
                             AddReferenced(value, ref fold, ref error);
                         }
                     }
-                    else
-                    {
-                        error ??= tableError;
-                    }
 
+                    // An EMPTY area (sweep item 33, an EmptyRangeReference) has no cell to fold.
                     break;
 
                 case UnionReference union:

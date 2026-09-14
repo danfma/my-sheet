@@ -22,8 +22,18 @@ namespace Danfma.MySheet.Expressions;
 /// of wrong answer this phase must not ship. The 1x1 shape is also what makes an empty result COMPOSE:
 /// under an operator it broadcasts (Phase 10 rule 1) and fills every element with its error —
 /// <c>SUM(FILTER(A1:A3,A1:A3&gt;100,7)*A1:A3)</c> is 98, the singleton's 7 against every cell — whereas a
-/// 0-row extent would have to be folded as a SHAPE by <c>ArrayEvaluation.ShapeFold</c>, which now assumes
-/// it never sees one.</para>
+/// 0-row PRODUCER result would be folded as a SHAPE by <c>ArrayEvaluation.ShapeFold</c>.</para>
+///
+/// <para><b>The one 0-extent array, and why it is not a producer's.</b> Sweep item 33's
+/// <see cref="EmptyRangeOperand"/> is a SOURCE, the mini-CSE operand of a zero-row reference (a header-only
+/// table's data band), and for it the "silent" empty-range answers above are exactly right: the oracle
+/// answers <c>SUM</c> 0, <c>COUNT</c> 0, <c>AVERAGE</c> <c>#DIV/0!</c>, <c>ROWS(T*2)</c> 0 over it
+/// (Aspose.Cells 26.6.0, 2026-09-14), which no 1x1 could give. <c>ShapeFold</c> tracks whether it has seen
+/// an array with its own flag, never with <c>Rows == 0</c>, so it folds the zero-row operand like any other:
+/// against a 1-row or 1-column extent it stays empty, against a larger one the larger extent wins and every
+/// position is uncovered (<c>#N/A</c>). A producer that reads such a source still hands back a result
+/// under this invariant — <c>FILTER</c>/<c>UNIQUE</c> keep nothing and <c>SORT</c> has nothing to sort, so
+/// each answers the <c>#CALC!</c> singleton.</para>
 ///
 /// <para><b>Enforced, not aspirational.</b> <see cref="RequireProducerShape"/> throws at construction —
 /// once per build, never per element, in every configuration (a <c>Debug.Assert</c> is compiled out of the

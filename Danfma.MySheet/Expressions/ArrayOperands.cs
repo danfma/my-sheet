@@ -114,6 +114,25 @@ internal sealed class ScalarOperand : ArrayOperand
     public override ComputedValue At(int index, int rows, int columns) => _value;
 }
 
+// A rectangle with ZERO rows (sweep item 33: the value of a header-only table's data band,
+// EmptyRangeReference). An ARRAY with the rectangle's columns and no element, so every fold over it folds
+// nothing. It covers no position at all, so At answers #N/A — the broadcasting rule for an uncovered
+// position — whether it is projected onto a wider extent or read at its own top-left
+// (ArrayEvaluation.FirstElement): no path through it can reach the cell under the header.
+internal sealed class EmptyRangeOperand : ArrayOperand
+{
+    private readonly int _columns;
+
+    public EmptyRangeOperand(int columnCount) => _columns = columnCount;
+
+    public override bool IsArray => true;
+    public override int Rows => 0;
+    public override int Columns => _columns;
+
+    public override ComputedValue At(int index, int rows, int columns) =>
+        ComputedValue.Error(Error.NA);
+}
+
 // A closed range: its origin and the sheet handle are resolved ONCE (like the previous ExpandRange), then
 // each element reads numerically through the dense accessor — identical per-cell memoization, cycle guard
 // and volatile taint. Row-major: index → (row, column) → (originRow + row, originColumn + column).

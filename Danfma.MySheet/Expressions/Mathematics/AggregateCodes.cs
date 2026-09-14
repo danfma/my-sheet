@@ -66,6 +66,12 @@ internal static class AggregateCodes
     {
         switch (argument)
         {
+            // Sweep item 33: a zero-row rectangle (reached through the `default` arm's reference VALUE of a
+            // header-only table's data band) has no cell to gather — SUBTOTAL(9) 0, SUBTOTAL(1) #DIV/0! on
+            // the oracle. Without this arm the `default` arm would read its #VALUE! as an argument error.
+            case EmptyRangeReference:
+                return null;
+
             case RangeReference range:
             {
                 var workbook = context.Workbook;

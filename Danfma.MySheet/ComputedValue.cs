@@ -186,6 +186,11 @@ public readonly struct ComputedValue
 
                 break;
 
+            // Sweep item 33: a zero-row rectangle has no cell to yield. It must come before the catch-all
+            // below, which would hand the reference's own #VALUE! back as one element.
+            case EmptyRangeReference:
+                break;
+
             case Reference reference:
                 yield return reference.Evaluate(context);
                 break;

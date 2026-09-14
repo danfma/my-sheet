@@ -82,24 +82,19 @@ internal static class ArgumentFlattening
                 // when unresolvable). This arm buys the allocation-free struct enumerator on the resolved
                 // path, mirroring the AnchoredRangeReference arm above.
                 case TableReference table:
-                    if (
-                        table.TryResolveRange(
-                            context.Workbook,
-                            out var tableRange,
-                            out var tableError
-                        )
-                    )
+                    if (!table.TryResolve(context.Workbook, out var tableArea, out var tableError))
                     {
-                        foreach (var value in tableRange!.ExpandComputedValues(context))
+                        yield return ComputedValue.Error(tableError);
+                    }
+                    else if (tableArea is RangeReference tableRange)
+                    {
+                        foreach (var value in tableRange.ExpandComputedValues(context))
                         {
                             yield return value;
                         }
                     }
-                    else
-                    {
-                        yield return ComputedValue.Error(tableError);
-                    }
 
+                    // An EMPTY area (sweep item 33, an EmptyRangeReference) yields no element.
                     break;
 
                 default:
@@ -159,13 +154,16 @@ internal static class ArgumentFlattening
         // mirroring the AnchoredRangeReference resolution above, so the capacity hint and the switch below
         // treat a resolved table exactly like an ordinary RangeReference. An unresolvable table is left
         // as-is: it falls through to `default:` below, which already answers with the node's own error
-        // VALUE as one element (the same thing this normalization skipping does today, unchanged).
+        // VALUE as one element (the same thing this normalization skipping does today, unchanged). An EMPTY
+        // area (sweep item 33) is left as-is too: its value is an EmptyRangeReference, which EnumerateValues
+        // streams as nothing.
         if (
             argument is TableReference table
-            && table.TryResolveRange(context.Workbook, out var tableRange, out _)
+            && table.TryResolve(context.Workbook, out var tableArea, out _)
+            && tableArea is RangeReference tableRange
         )
         {
-            argument = tableRange!;
+            argument = tableRange;
         }
 
         // A closed rectangle has known bounds: size the buffer to its exact cell count so the hot per-cell fill

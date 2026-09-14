@@ -49,6 +49,8 @@ public sealed partial record Rows(Expression[] Arguments) : Function
             reference switch
             {
                 RangeReference range => range.RowCount,
+                // Sweep item 33: a zero-row rectangle (a header-only table's data band) — 0 on the oracle.
+                EmptyRangeReference empty => empty.RowCount,
                 OpenRangeReference open => open.RowExtent(context),
                 _ => 1.0,
             }

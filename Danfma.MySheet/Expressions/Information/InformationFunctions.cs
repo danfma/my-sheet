@@ -115,15 +115,14 @@ public sealed partial record IsFormula(Expression[] Arguments) : Function
         // ordinary arm: an unresolvable one must answer FALSE (measured, Aspose.Cells 26.6.0, 2026-09-11 —
         // ISFORMULA(Tabela1[#Totals]) is FALSE over a table with no totals row), not the switch's own
         // #VALUE! a non-reference argument gets, so the failure has to short-circuit before the fallback
-        // ever sees a (null, null) pair.
+        // ever sees a (null, null) pair. A zero-row area (sweep item 33) has no top-left cell to hold a
+        // formula: FALSE as well (oracle FALSE).
         if (Arguments[0] is TableReference table)
         {
             return ComputedValue.Boolean(
-                table.TryResolveRange(context.Workbook, out var tableRange, out _)
-                    && context.Workbook.Sheets.TryGetValue(
-                        tableRange!.SheetName,
-                        out var tableSheet
-                    )
+                table.TryResolve(context.Workbook, out var tableArea, out _)
+                    && tableArea is RangeReference tableRange
+                    && context.Workbook.Sheets.TryGetValue(tableRange.SheetName, out var tableSheet)
                     && tableSheet.TryGetValue(tableRange.StartId, out var tableExpression)
                     && tableExpression is not ValueExpression
             );
