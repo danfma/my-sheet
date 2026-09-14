@@ -220,6 +220,7 @@ public class EmptyTableReferenceTests
     [Arguments("=ROWS(Tabela1[#All])", "1")]
     [Arguments("=COUNTA(Tabela1[#All])", "3")]
     [Arguments("=SUM(LET(x,Tabela1[Valor],x))", "0")]
+    [Arguments("=ROWS(LET(x,Tabela1[Valor],x))", "0")]
     [Arguments("=ROWS(LET(x,Tabela1[Valor],x*1))", "0")]
     [Arguments("=SUM(IF(TRUE,Tabela1[Valor],0))", "0")]
     [Arguments("=ROWS(IF(TRUE,Tabela1[Valor],0))", "0")]
@@ -427,9 +428,6 @@ public class EmptyTableReferenceTests
     //   XLOOKUP does not check the arrays' sizes
     //                                    [XLOOKUP(5,A1:A3,B1:B2) #VALUE! / #VALUE! vs 1]
     //     XLOOKUP(5,A1:A3,T[Valor]) #VALUE! / #VALUE!; with "nf" #VALUE! / #VALUE!
-    //   ROWS of a LET whose body is a bound bare reference falls back to 1
-    //                                    [ROWS(LET(x,A1:A3,x)) 3 / 3 vs 1]
-    //     ROWS(LET(x,T[Valor],x)) 0 / 0
     //   (sweep item 37 closed "INDEX with row 0 is #REF!" — the two rows this bullet used to list moved to
     //   OverAHeaderOnlyTable_TheDataBandIsAnEmptyReference, now matched: SUM(INDEX(T[Valor],0,1)) 0,
     //   ROWS(INDEX(T[#Data],0,1)) 0)
@@ -439,7 +437,6 @@ public class EmptyTableReferenceTests
     [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0))", true, "0")]
     [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor])", false, "#N/A")]
     [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor],\"nf\")", false, "\"nf\"")]
-    [Arguments("=ROWS(LET(x,Tabela1[Valor],x))", false, "1")]
     public async Task TheRowsThatDependOnAnOrdinaryRangeGap_KeepTheEnginesAnswer(
         string formula,
         bool sentinel,

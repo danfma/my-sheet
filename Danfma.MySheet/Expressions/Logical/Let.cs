@@ -16,6 +16,14 @@ public sealed partial record Let(Expression[] Arguments) : Function
             ? Arguments[^1].Evaluate(scope)
             : ComputedValue.Error(Error.Value);
 
+    public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
+    {
+        reference = null;
+
+        return TryBind(context, ArrayBindings.Capture, out var scope)
+            && Arguments[^1].TryResolveReference(scope, out reference);
+    }
+
     /// <summary>
     /// Walks the bindings in order, each captured by <paramref name="capture"/> in the scope the earlier ones
     /// made (so <c>LET(a,FILTER(…),b,SORT(a),…)</c> finds <c>a</c>), and hands back the scope the body

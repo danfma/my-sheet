@@ -86,6 +86,28 @@ public class LetFunctionTests
     }
 
     [Test]
+    public async Task Let_BoundReference_ReturnedByTheBody_RemainsAReference()
+    {
+        foreach (
+            var (formula, expected) in new (string Formula, object Expected)[]
+            {
+                ("=ROWS(LET(x,A1:A3,x))", 3.0),
+                ("=COLUMNS(LET(x,A1:A3,x))", 1.0),
+                ("=ROW(LET(x,A1:A3,x))", 1.0),
+                ("=AREAS(LET(x,A1:A3,x))", 1.0),
+                ("=ISREF(LET(x,A1:A3,x))", true),
+                ("=SUM(LET(x,A1:A3,x))", 10.0),
+                ("=ROWS(LET(x,A1:C2,x))", 2.0),
+                ("=COLUMNS(LET(x,A1:C2,x))", 3.0),
+                ("=SUM(LET(x,A1:A3,y,x,y))", 10.0),
+            }
+        )
+        {
+            await Assert.That(CalcOnGrid(formula)).IsEqualTo(expected);
+        }
+    }
+
+    [Test]
     public async Task Let_RangeBinding_UsedAsScalar_IsValueError()
     {
         // Using the bound range where a scalar is required is #VALUE!, exactly like `=A1:C1+1`.
