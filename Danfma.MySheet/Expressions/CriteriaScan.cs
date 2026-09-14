@@ -272,6 +272,20 @@ internal struct PositionalRange
             argument = tableRange;
         }
 
+        if (
+            argument is Lookup.XLookup xlookup
+            && xlookup.ReturnsReference(context)
+            && NamedReferences.TryResolveReference(
+                xlookup,
+                context,
+                out var xlookupReference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            argument = xlookupReference;
+        }
+
         if (snapshot is not null)
         {
             // The snapshot hands its values over as a FLAT list, but the SHAPE still has to travel with them:
@@ -660,6 +674,7 @@ internal struct PositionalRange
                 context,
                 out _
             ),
+            Lookup.XLookup => true,
             _ => slotError != Error.Value,
         };
 

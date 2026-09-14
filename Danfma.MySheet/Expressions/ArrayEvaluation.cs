@@ -337,7 +337,8 @@ internal static class ArrayEvaluation
             // COUNTIF(INDEX(A1:B4,0,1),">2") = 2 and COUNTIF(OFFSET(A1,0,0,3,1),">0") = 2 unchanged — the
             // Phase 11c fence — by keeping every one of those consumers OFF the array-stream path exactly
             // as before this ruling (Probe's new Index/Offset arm would otherwise divert them).
-            Lookup.Index or Lookup.Offset => true,
+            Lookup.Index or Lookup.Offset or Lookup.Indirect => true,
+            Lookup.XLookup xlookup => xlookup.ReturnsReference(context),
             _ => expression is Reference,
         };
 

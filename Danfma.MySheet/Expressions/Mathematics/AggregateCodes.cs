@@ -64,6 +64,20 @@ internal static class AggregateCodes
         NestedSkip skip
     )
     {
+        if (
+            argument is Lookup.XLookup xlookup
+            && xlookup.ReturnsReference(context)
+            && NamedReferences.TryResolveReference(
+                xlookup,
+                context,
+                out var xlookupReference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            argument = xlookupReference;
+        }
+
         switch (argument)
         {
             // Sweep item 33: a zero-row rectangle (reached through the `default` arm's reference VALUE of a

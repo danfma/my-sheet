@@ -14,8 +14,27 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
+        if (!ReturnsReference(context))
+        {
+            reference = null;
+            return false;
+        }
+
         var result = Evaluate(context, asReference: true, out _);
         return result.TryGetReference(out reference);
+    }
+
+    internal bool ReturnsReference(EvaluationContext context)
+    {
+        var returnArgument = Arguments[2];
+        return
+            returnArgument is not NameReference name
+            || (
+                !context.TryGetName(name.Name, out _)
+                && !context.TryGetArrayBinding(name.Name, out _)
+            )
+            ? ArrayEvaluation.IsBareReferenceNode(returnArgument, context)
+            : false;
     }
 
     internal bool TryBuildSelection(EvaluationContext context, out ArrayOperand operand)

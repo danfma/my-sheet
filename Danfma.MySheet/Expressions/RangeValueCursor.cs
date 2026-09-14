@@ -134,6 +134,20 @@ internal struct RangeValueCursor
             argument = tableRange;
         }
 
+        if (
+            argument is Lookup.XLookup xlookup
+            && xlookup.ReturnsReference(context)
+            && NamedReferences.TryResolveReference(
+                xlookup,
+                context,
+                out var xlookupReference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            argument = xlookupReference;
+        }
+
         switch (argument)
         {
             case RangeReference rectangle:

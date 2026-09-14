@@ -179,6 +179,17 @@ internal static class NamedReferences
         // Names resolve through LET scope / defined names below. Everything else — a plain reference
         // (resolves to itself), a DynamicRange (resolves to its span), a reference-returning function
         // (INDEX/OFFSET/CHOOSE, resolves to its target) — goes through the virtual.
+        if (expression is Lookup.XLookup xlookup)
+        {
+            if (xlookup.ReturnsReference(context))
+            {
+                return xlookup.TryResolveReference(context, out reference);
+            }
+
+            reference = null;
+            return false;
+        }
+
         if (expression is not NameReference name)
         {
             return expression.TryResolveReference(context, out reference);

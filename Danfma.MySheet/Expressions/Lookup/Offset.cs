@@ -243,6 +243,8 @@ public sealed partial record Offset(Expression[] Arguments) : Function
         out int width
     )
     {
+        height = 1;
+        width = 1;
         switch (reference)
         {
             case CellReference cell:
