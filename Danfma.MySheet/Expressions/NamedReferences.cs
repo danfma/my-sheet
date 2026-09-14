@@ -167,6 +167,26 @@ internal static class NamedReferences
         return true;
     }
 
+    public static ReferenceReturningNodeResolution TryResolveReferenceReturningNode(
+        Expression expression,
+        EvaluationContext context,
+        out Reference reference,
+        out ComputedValue unresolvedValue
+    )
+    {
+        reference = null!;
+        unresolvedValue = default;
+
+        if (expression is not Lookup.XLookup xlookup || !xlookup.ReturnsReference(context))
+        {
+            return ReferenceReturningNodeResolution.NotApplicable;
+        }
+
+        return xlookup.TryResolveReferenceResult(context, out reference, out unresolvedValue)
+            ? ReferenceReturningNodeResolution.Resolved
+            : ReferenceReturningNodeResolution.Unresolved;
+    }
+
     // The raw resolution (no open-range bounding): a reference node resolves to itself; a NameReference
     // through the LET scope, then the workbook's defined names (recursively, with the cycle guard), then —
     // Phase 5 ruling R3 — the workbook's TABLES, whose bare name resolves to the data-body rectangle.
@@ -179,17 +199,6 @@ internal static class NamedReferences
         // Names resolve through LET scope / defined names below. Everything else — a plain reference
         // (resolves to itself), a DynamicRange (resolves to its span), a reference-returning function
         // (INDEX/OFFSET/CHOOSE, resolves to its target) — goes through the virtual.
-        if (expression is Lookup.XLookup xlookup)
-        {
-            if (xlookup.ReturnsReference(context))
-            {
-                return xlookup.TryResolveReference(context, out reference);
-            }
-
-            reference = null;
-            return false;
-        }
-
         if (expression is not NameReference name)
         {
             return expression.TryResolveReference(context, out reference);
@@ -244,6 +253,13 @@ internal static class NamedReferences
         }
 
         return TryResolveRaw(definition, context, out reference);
+    }
+
+    public enum ReferenceReturningNodeResolution
+    {
+        NotApplicable,
+        Resolved,
+        Unresolved,
     }
 
     /// <summary>

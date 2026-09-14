@@ -135,17 +135,15 @@ internal struct RangeValueCursor
         }
 
         if (
-            argument is Lookup.XLookup xlookup
-            && xlookup.ReturnsReference(context)
-            && NamedReferences.TryResolveReference(
-                xlookup,
+            NamedReferences.TryResolveReferenceReturningNode(
+                argument,
                 context,
-                out var xlookupReference,
-                boundOpenRanges: false
-            )
+                out var selectedReference,
+                out _
+            ) == NamedReferences.ReferenceReturningNodeResolution.Resolved
         )
         {
-            argument = xlookupReference;
+            argument = selectedReference;
         }
 
         switch (argument)

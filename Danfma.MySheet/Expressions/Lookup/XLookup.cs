@@ -14,14 +14,33 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
+        return TryResolveReferenceResult(context, out reference, out _);
+    }
+
+    internal bool TryResolveReferenceResult(
+        EvaluationContext context,
+        out Reference reference,
+        out ComputedValue unresolvedValue
+    )
+    {
         if (!ReturnsReference(context))
         {
-            reference = null;
+            reference = null!;
+            unresolvedValue = default;
             return false;
         }
 
         var result = Evaluate(context, asReference: true, out _);
-        return result.TryGetReference(out reference);
+        if (result.TryGetReference(out var resolvedReference))
+        {
+            reference = resolvedReference!;
+            unresolvedValue = default;
+            return true;
+        }
+
+        reference = null!;
+        unresolvedValue = result;
+        return false;
     }
 
     internal bool ReturnsReference(EvaluationContext context)
