@@ -19,7 +19,9 @@ public sealed partial record IsError(Expression[] Arguments) : Function
 {
     // TRUE for any error value (#N/A included); errors are inspected, never propagated.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        ComputedValue.Boolean(Arguments[0].Evaluate(context).Kind == ComputedValueKind.Error);
+        ComputedValue.Boolean(
+            ScalarReferenceValue.Evaluate(Arguments[0], context).Kind == ComputedValueKind.Error
+        );
 }
 
 [MemoryPackable]
@@ -168,7 +170,7 @@ public sealed partial record N(Expression[] Arguments) : Function
     // anything else (text — even "7" — and blanks) -> 0.
     public override ComputedValue Evaluate(EvaluationContext context)
     {
-        var value = Arguments[0].Evaluate(context);
+        var value = ScalarReferenceValue.Evaluate(Arguments[0], context);
 
         switch (value.Kind)
         {

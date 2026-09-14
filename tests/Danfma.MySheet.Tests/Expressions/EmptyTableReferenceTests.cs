@@ -227,8 +227,6 @@ public class EmptyTableReferenceTests
     [Arguments("=SUM(CHOOSE(1,Tabela1[Valor]))", "0")]
     [Arguments("=ROWS(CHOOSE(1,Tabela1[Valor]))", "0")]
     [Arguments("=SUM(INDIRECT(\"Tabela1[Valor]\"))", "0")]
-    [Arguments("=ISNUMBER(Tabela1[Valor])", "FALSE")]
-    [Arguments("=SUM(IFERROR(Tabela1[Valor],0))", "0")]
     [Arguments("=COLUMN(Tabela1[Valor])", "2")]
     [Arguments("=COLUMN(Tabela1[#Data])", "1")]
     [Arguments("=FILTER(Tabela1[Valor],Tabela1[Valor]>0)", "#CALC!")]
@@ -278,15 +276,11 @@ public class EmptyTableReferenceTests
     //   ROW(T[Valor]), ROW(T[#Data]), ROW(Tabela1)          2 / 1        — the top row of the reference; the CSE 1
     //                                                                      is the header row, which only a
     //                                                                      normalized inverted rectangle reads
-    //   ISERROR(T[Valor])                                   TRUE / FALSE — MySheet evaluates a table reference to
-    //                                                                      its reference VALUE (non-empty table:
-    //                                                                      oracle TRUE / FALSE, MySheet FALSE)
+    //   ISERROR(T[Valor])                                   TRUE / FALSE — the plain, row-position convention
     //   ISBLANK(T[Valor])                                   FALSE / TRUE — non-empty table: oracle FALSE / FALSE,
     //                                                                      MySheet FALSE
-    //   N(T[Valor])                                         #VALUE! / 0  — non-empty table: oracle #VALUE! / 10,
-    //                                                                      MySheet 0 (neither column, pre-existing)
-    //   IFERROR(T[Valor],"e")                               "e" / 0      — non-empty table: oracle "e" / 10,
-    //                                                                      MySheet #VALUE! (neither, pre-existing)
+    //   N(T[Valor])                                         #VALUE! / 0  — the plain, row-position convention
+    //   IFERROR(T[Valor],"e")                               "e" / 0      — the plain, row-position convention
     [Test]
     [Arguments("=SUM(Tabela1[Valor]*2)", "0")]
     [Arguments("=SUM((Tabela1[Valor]<>\"\")*1)", "0")]
@@ -297,10 +291,11 @@ public class EmptyTableReferenceTests
     [Arguments("=ROW(Tabela1[Valor])", "2")]
     [Arguments("=ROW(Tabela1[#Data])", "2")]
     [Arguments("=ROW(Tabela1)", "2")]
-    [Arguments("=ISERROR(Tabela1[Valor])", "FALSE")]
+    [Arguments("=ISERROR(Tabela1[Valor])", "TRUE")]
     [Arguments("=ISBLANK(Tabela1[Valor])", "FALSE")]
-    [Arguments("=N(Tabela1[Valor])", "0")]
-    [Arguments("=IFERROR(Tabela1[Valor],\"e\")", "#VALUE!")]
+    [Arguments("=N(Tabela1[Valor])", "#VALUE!")]
+    [Arguments("=IFERROR(Tabela1[Valor],\"e\")", "\"e\"")]
+    [Arguments("=ISNUMBER(Tabela1[Valor])", "FALSE")]
     public async Task TheEntryModeSplitRows_FollowTheEnginesConventionForTheShape(
         string formula,
         string expected

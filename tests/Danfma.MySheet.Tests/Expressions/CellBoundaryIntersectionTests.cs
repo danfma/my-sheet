@@ -74,6 +74,24 @@ public class CellBoundaryIntersectionTests
     }
 
     [Test]
+    public async Task ScalarInformationConsumers_IntersectAReferenceByFormulaRow()
+    {
+        foreach (
+            var (formula, inside, outside) in new (string Formula, object Inside, object Outside)[]
+            {
+                ("=ISERROR(A1:A3)", false, true),
+                ("=N(A1:A3)", 0.0, ErrorValue.NotValue),
+                ("=IFERROR(A1:A3,\"err\")", 0.0, "err"),
+                ("=ISNUMBER(A1:A3)", true, false),
+            }
+        )
+        {
+            await Assert.That(InCell("H2", formula)).IsEqualTo(inside);
+            await Assert.That(InCell("H20", formula)).IsEqualTo(outside);
+        }
+    }
+
+    [Test]
     public async Task BareRange_IntersectingTheFormulaCellItself_IsReferenceError()
     {
         // A2 holding =A1:A3 intersects A2 — itself. The deref re-enters the cell that is already on the
