@@ -71,6 +71,17 @@ public class ErrorTests
         await Assert.That(restored).IsEqualTo(Error.Calc);
     }
 
+    // Item 43 round 2 (M-2): #NULL! was the one classic error with no singleton — ToErrorValue's
+    // switch had no `0 =>` arm, so it fell to the `_ => new ErrorValue(Display)` default and allocated
+    // a fresh node on every parse of `=#NULL!`, unlike the other six.
+    [Test]
+    public async Task Null_HasASingleton_LikeTheOtherSixClassicErrors()
+    {
+        await Assert.That(Error.Null.ToErrorValue()).IsSameReferenceAs(ErrorValue.Null);
+        await Assert.That(ErrorValue.Null.ErrorCode).IsEqualTo("#NULL!");
+        await Assert.That(ErrorValue.Null.AsError()).IsEqualTo(Error.Null);
+    }
+
     [Test]
     public async Task AnUnknownDisplay_StillFoldsOntoValue_AndCalcIsNoLongerUnknown()
     {

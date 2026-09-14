@@ -156,6 +156,59 @@ public class TokenizerTests
         await Assert.That(Single(input, TokenType.BracketedSpecifier).Text).IsEqualTo(expected);
     }
 
+    // Item 43 (sweep 31-35-43): the 7 classic error literals Aspose.Cells 26.7.0/26.6.0 accept as
+    // FORMULA-TEXT syntax (PLAIN and CSE alike, measured 2026-09-14). Each is one token, case-insensitive,
+    // and the token's Text is always the CANONICAL (upper-case) spelling regardless of input case, so it
+    // feeds `Error.FromDisplay` directly without a second normalization step downstream.
+    [Test]
+    [Arguments("#NULL!")]
+    [Arguments("#DIV/0!")]
+    [Arguments("#VALUE!")]
+    [Arguments("#REF!")]
+    [Arguments("#NAME?")]
+    [Arguments("#NUM!")]
+    [Arguments("#N/A")]
+    public async Task ErrorLiteral_IsOneToken(string literal)
+    {
+        await Assert.That(Shape(literal)).IsEqualTo("Error EndOfInput");
+        await Assert.That(Single(literal, TokenType.Error).Text).IsEqualTo(literal);
+    }
+
+    [Test]
+    [Arguments("#ref!", "#REF!")]
+    [Arguments("#Ref!", "#REF!")]
+    [Arguments("#n/a", "#N/A")]
+    [Arguments("#N/a", "#N/A")]
+    [Arguments("#div/0!", "#DIV/0!")]
+    [Arguments("#Div/0!", "#DIV/0!")]
+    [Arguments("#name?", "#NAME?")]
+    [Arguments("#Name?", "#NAME?")]
+    public async Task ErrorLiteral_IsCaseInsensitive_AndCanonicalizes(
+        string input,
+        string canonical
+    )
+    {
+        await Assert.That(Single(input, TokenType.Error).Text).IsEqualTo(canonical);
+    }
+
+    // Aspose.Cells 26.7.0/26.6.0 reject all three as formula-text SYNTAX ("Invalid '#'"), measured
+    // 2026-09-14 — even #CALC!, which IS a real Excel error code MySheet already models
+    // (ErrorValue.Calculation, Excel's empty-array result): Excel/Aspose can PRODUCE it, never accepts
+    // TYPING it. So the tokenizer stays narrow to the 7 literals above; anything else starting with '#'
+    // keeps throwing exactly as it did before this item (UnexpectedCharacter).
+    [Test]
+    [Arguments("#GETTING_DATA")]
+    [Arguments("#SPILL!")]
+    [Arguments("#CALC!")]
+    [Arguments("#BOGUS!")]
+    public async Task UnrecognizedErrorSpelling_StillThrows(string input)
+    {
+        var exception = Assert.Throws<ParseException>(() => Tokenizer.Tokenize(input));
+
+        await Assert.That(exception.Kind).IsEqualTo(ParseErrorKind.UnexpectedCharacter);
+        await Assert.That(exception.Token).IsEqualTo("#");
+    }
+
     [Test]
     public async Task QuotedExternalName_IsStillAQuotedName_NotABracket()
     {

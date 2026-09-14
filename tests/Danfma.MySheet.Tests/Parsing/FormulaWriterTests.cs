@@ -84,6 +84,14 @@ public class FormulaWriterTests
     [Arguments("Tabela1[[ Col ]]")]
     [Arguments("Tabela1[Rev'#1]")]
     [Arguments("SUM(Tabela1[Valor])")]
+    // Item 43 (sweep 31-35-43): an error literal round-trips through its own AST node (ErrorValue), which
+    // FormulaWriter already had a case for — this is the PARSER side newly reaching it.
+    [Arguments("#REF!")]
+    [Arguments("#N/A")]
+    [Arguments("SUM(#REF!)")]
+    [Arguments("MATCH(#REF!,#REF!,0)")]
+    [Arguments("A1:#REF!")]
+    [Arguments("#REF!+1")]
     public async Task RoundTrips_CanonicalText(string formula)
     {
         await Assert.That(Parse(formula).ToFormula(ContextSheet)).IsEqualTo(formula);
@@ -114,6 +122,24 @@ public class FormulaWriterTests
     [Arguments("Tabela1[ Col ]", "Tabela1[[ Col ]]")]
     [Arguments("Tabela1[[Sales Amount]]", "Tabela1[Sales Amount]")]
     [Arguments("Tabela1[Rev#1]", "Tabela1[Rev'#1]")]
+    // Item 43: an error literal canonicalizes to upper-case regardless of input case (matches Aspose's
+    // own round trip, measured 2026-09-14: `#ref!` -> formula text `#REF!`).
+    [Arguments("#ref!", "#REF!")]
+    [Arguments("#n/a", "#N/A")]
+    // A sheet-qualified error literal drops the qualifier: the value is #REF! either way once the
+    // reference is broken, and Aspose's own object model already discards sheet qualifiers on OTHER
+    // shapes it cannot represent structurally (Data!Tabela1[Valor] above). Aspose ITSELF keeps
+    // `Sheet1!#REF!` verbatim on round trip (measured) — this is a deliberate divergence, documented in
+    // docs/workbook-and-expressions.md (the "Formula text written back..." Parsing bullet) and
+    // docs/excel-interop.md (Scope and limitations), both twins — not parity, because ErrorValue
+    // carries no sheet and the VALUE never depends on the qualifier.
+    [Arguments("Sheet1!#REF!", "#REF!")]
+    // Round 2 (I-3): #REF! as a deleted-sheet qualifier consumes the reference glued after it and
+    // discards it the same way — `#REF!A1` and the redundant-bang spelling `#REF!!A1` (which Aspose
+    // itself already normalizes to `#REF!A1` on ITS OWN round trip, measured) both drop to bare `#REF!`
+    // here, same divergence, same doc bullets.
+    [Arguments("#REF!A1", "#REF!")]
+    [Arguments("#REF!!A1", "#REF!")]
     public async Task NormalizesEquivalentText(string input, string canonical)
     {
         var expression = Parse(input);

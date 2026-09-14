@@ -66,6 +66,11 @@ internal sealed class Tokenizer(string text)
             return ReadBracketedSpecifier(start);
         }
 
+        if (c == '#')
+        {
+            return ReadErrorLiteral(start);
+        }
+
         return ReadOperator(start);
     }
 
@@ -223,6 +228,55 @@ internal sealed class Tokenizer(string text)
         var token = new Token(TokenType.BracketedSpecifier, text[start..(close + 1)], start);
         _position = close + 1;
         return token;
+    }
+
+    // The 7 classic Excel error literals, in their canonical (upper-case) spelling — the same set
+    // Danfma.MySheet.Error models (#CALC! excluded: Aspose.Cells 26.7.0/26.6.0 both refuse to PARSE it as
+    // formula-text syntax, "Invalid '#'", even though it is a real error CODE MySheet can hold — Excel
+    // only ever PRODUCES it). None is a prefix of another, so a simple ordered scan is unambiguous.
+    private static readonly string[] ErrorLiterals =
+    [
+        "#NULL!",
+        "#DIV/0!",
+        "#VALUE!",
+        "#REF!",
+        "#NAME?",
+        "#NUM!",
+        "#N/A",
+    ];
+
+    // Item 43 (sweep 31-35-43): reads an error literal case-insensitively, returning the CANONICAL
+    // spelling as the token's Text so the parser can hand it straight to Error.FromDisplay with no
+    // second normalization step. A '#' that does not open one of the 7 known spellings is the same
+    // syntax error it always was (Aspose.Cells rejects it too, e.g. #SPILL!/#CALC!/#GETTING_DATA:
+    // "Invalid '#'" — measured 2026-09-14).
+    private Token ReadErrorLiteral(int start)
+    {
+        foreach (var literal in ErrorLiterals)
+        {
+            if (
+                start + literal.Length <= text.Length
+                && string.Compare(
+                    text,
+                    start,
+                    literal,
+                    0,
+                    literal.Length,
+                    StringComparison.OrdinalIgnoreCase
+                ) == 0
+            )
+            {
+                _position = start + literal.Length;
+                return new Token(TokenType.Error, literal, start);
+            }
+        }
+
+        throw new ParseException(
+            ParseErrorKind.UnexpectedCharacter,
+            "Unexpected character '#'",
+            start,
+            "#"
+        );
     }
 
     private Token ReadOperator(int start)

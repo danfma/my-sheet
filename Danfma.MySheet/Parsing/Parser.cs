@@ -98,6 +98,32 @@ internal sealed class Parser(
             case TokenType.Identifier:
                 return ParseIdentifier(token);
 
+            // Item 43 (sweep 31-35-43): an error literal (#REF!, #N/A, ...) is a primary expression —
+            // the same ErrorValue node evaluation already produces at runtime (1/0, a ghost-sheet
+            // reference), just reached from SYNTAX instead. Error.FromDisplay reuses the existing
+            // singletons (ErrorValue.DivByZero, .Reference, ...) so this is the one bridge point, not a
+            // parallel mapping.
+            //
+            // Round 2 (I-3): Excel writes a DELETED SHEET's own qualifier as #REF! (=Other!A1 becomes
+            // =#REF!A1 once "Other" is deleted — measured on the oracle, Aspose.Cells 26.7.0/26.6.0,
+            // PLAIN=CSE, 2026-09-14). So #REF! in THIS prefix position plays the same role a real
+            // Identifier does before '!' in ParseQualifiedReference, and whatever reference-shaped text
+            // is glued directly after it (a cell, a range, another #REF!, a redundant '!', or a
+            // parenthesized group) is consumed and discarded — see
+            // ConsumeDeletedSheetQualifierContinuation for the exact bounded set and why it stops at any
+            // real operator or terminator. The value is #REF! either way; the exact text is not
+            // preserved on round trip, the same documented divergence family as Sheet1!#REF! dropping
+            // its qualifier (docs/workbook-and-expressions.md, docs/excel-interop.md).
+            case TokenType.Error:
+                var errorValue = Error.FromDisplay(token.Text).ToErrorValue();
+
+                if (token.Text == ErrorValue.Reference.ErrorCode)
+                {
+                    ConsumeDeletedSheetQualifierContinuation();
+                }
+
+                return errorValue;
+
             case TokenType.Minus:
                 return new UnaryOperation(
                     UnaryOperator.Negate,
@@ -161,6 +187,60 @@ internal sealed class Parser(
                     token.Text
                 );
         }
+    }
+
+    // Item 43 round 2 (I-3): consumes (and discards) whatever reference-shaped text Excel glues
+    // directly after a deleted-sheet #REF!. Measured on the oracle (Aspose.Cells 26.7.0/26.6.0,
+    // PLAIN=CSE, 2026-09-14): an optional redundant '!' (#REF!!A1 behaves exactly like #REF!A1 — #REF!
+    // already plays the qualifier's role, so a following bang is redundant, not a second qualifier),
+    // then one endpoint (a cell, another #REF!, or a parenthesized expression), optionally followed by
+    // ':' and a second endpoint (#REF!A1:A3, #REF!A1:#REF!). A genuine infix operator or terminator
+    // (+, -, *, /, ^, %, a comparison, '&', a function's comma, a closing paren, end of input) is NEVER
+    // absorbed — #REF!A1+1 parses as (#REF!A1)+1, not #REF!(A1+1) — because none of those tokens can
+    // start a reference endpoint, so ConsumeReferenceEndpoint below simply reports "nothing here" and
+    // this method stops without touching them.
+    private void ConsumeDeletedSheetQualifierContinuation()
+    {
+        if (Current.Type == TokenType.Bang)
+        {
+            Advance();
+        }
+
+        if (!ConsumeReferenceEndpoint())
+        {
+            return; // bare #REF!, or an operator/terminator follows — nothing to absorb
+        }
+
+        if (Current.Type == TokenType.Colon)
+        {
+            Advance();
+            ConsumeReferenceEndpoint();
+        }
+    }
+
+    // One endpoint of the absorbed run: a cell-shaped identifier, another #REF! token, or a
+    // parenthesized expression (parsed — and so recursively resolved, e.g. a nested #REF!(...) — via
+    // the ordinary grammar, then discarded). Reports whether it found one to consume.
+    private bool ConsumeReferenceEndpoint()
+    {
+        if (Current.Type == TokenType.LParen)
+        {
+            Advance();
+            ParseExpression(0);
+            Expect(TokenType.RParen);
+            return true;
+        }
+
+        if (
+            Current.Type == TokenType.Identifier
+            || (Current.Type == TokenType.Error && Current.Text == ErrorValue.Reference.ErrorCode)
+        )
+        {
+            Advance();
+            return true;
+        }
+
+        return false;
     }
 
     // Names the out-of-scope prefix shape from its payload, which is all there is to go on: a leading '@' is
@@ -227,7 +307,18 @@ internal sealed class Parser(
 
     private Expression ParseRange(Token colon, Expression left)
     {
+        // Item 43 (sweep 31-35-43): measured (Aspose.Cells 26.7.0/26.6.0, both entry modes, 2026-09-14),
+        // ONLY #REF! is accepted as a range endpoint — Excel's own broken-reference spelling. Every other
+        // error literal there (A1:#N/A, #DIV/0!:A1, ...) is a PARSE error on the oracle ("Invalid data
+        // after/before range sign ':'"), even though the same literal parses fine everywhere else. #REF!
+        // itself needs no special case below: it matches none of TryEndpoint's arms, so it already falls
+        // through to DynamicRange, which resolves to #REF! when an endpoint cannot be resolved — the
+        // right answer for exactly this endpoint.
+        RejectNonReferenceErrorEndpoint(left, colon, "before");
+
         var right = ParseExpression(RangeBindingPower);
+
+        RejectNonReferenceErrorEndpoint(right, colon, "after");
 
         if (left is CellReference start && right is CellReference end)
         {
@@ -317,6 +408,28 @@ internal sealed class Parser(
 
         result = null!;
         return false;
+    }
+
+    // Item 43: the asymmetric "before/after" message mirrors Aspose's own two distinct messages for the
+    // two sides of ':'. #REF! passes through untouched (see ParseRange's comment on why it needs no arm).
+    private static void RejectNonReferenceErrorEndpoint(
+        Expression endpoint,
+        Token colon,
+        string side
+    )
+    {
+        if (
+            endpoint is ErrorValue { ErrorCode: var code }
+            && code != ErrorValue.Reference.ErrorCode
+        )
+        {
+            throw new ParseException(
+                ParseErrorKind.ExpectedCellReference,
+                $"Expected a cell reference {side} ':' but found '{code}'",
+                colon.Position,
+                code
+            );
+        }
     }
 
     // Reads what a range endpoint knows: a cell gives (column,row); a letters-only name gives a column
@@ -459,6 +572,36 @@ internal sealed class Parser(
         Expect(TokenType.Bang);
         var first = Advance();
 
+        // Item 43 (sweep 31-35-43): `Sheet1!#REF!`, `'My Sheet'!#REF!`. Measured (Aspose.Cells 26.7.0/
+        // 26.6.0, PLAIN=CSE, 2026-09-14): #REF! is the ONE error literal accepted after a sheet
+        // qualifier — exactly the same exception a ':' range endpoint makes
+        // (RejectNonReferenceErrorEndpoint below) — because the qualifier is irrelevant once the
+        // reference is broken: `Sheet1!#REF!` evaluates to plain `#REF!`, same as the unqualified
+        // literal. Every OTHER error literal there is "Invalid data before reference sign" on the
+        // oracle (round 2, I-1: `Sheet1!#N/A`, `'My Sheet'!#DIV/0!`, `SUM(Sheet1!#VALUE!)` all throw).
+        // Aspose's OWN formula-text round trip keeps the qualifier; MySheet's does not (ErrorValue
+        // carries no sheet, and the value never depends on it) — a deliberate divergence, documented in
+        // docs/workbook-and-expressions.md and docs/excel-interop.md (Scope and limitations), both
+        // twins. Returning here immediately (rather than falling into the range/cell-reference checks
+        // below) also means a trailing `:A1` is picked up by the ORDINARY Pratt loop once this call
+        // returns, exactly like the unqualified `#REF!:A1` case.
+        if (first.Type == TokenType.Error)
+        {
+            if (first.Text != ErrorValue.Reference.ErrorCode)
+            {
+                throw new ParseException(
+                    ParseErrorKind.ExpectedCellReference,
+                    "Expected a cell reference after '!'",
+                    first.Position,
+                    first.Text
+                );
+            }
+
+            _depth--;
+
+            return ErrorValue.Reference;
+        }
+
         // `Data!Tabela1[Valor]`: a sheet qualifier on a table reference. Out of scope by S1 and a DELIBERATE
         // divergence, not parity — measured (Aspose.Cells 26.6.0, PLAIN entry, 2026-09-11) the oracle ACCEPTS
         // it, answers 60 and stores the formula back with the qualifier STRIPPED, from the table's own sheet,
@@ -520,15 +663,22 @@ internal sealed class Parser(
                     : new DynamicRange(leftCell, rightCell);
             }
 
+            // Item 43 round 2 (M-1): unlike the two `&&`-chained checks this replaced, building the
+            // open range is no longer part of the success gate — an endpoint that resolves to
+            // something recognisable but not a column/row/cell (ErrorValue.Reference, from the arm
+            // added below) still counts as a VALID qualified range, just not an open one; it falls to
+            // DynamicRange exactly like the unqualified ':' branch does (ParseRange, above) for the
+            // same shape.
             if (
                 TryEndpointToken(first, sheet, out var left)
                 && TryEndpointToken(second, sheet, out var right)
-                && TryBuildOpenRange(left, right, sheet, out var range)
             )
             {
                 _depth--;
 
-                return range;
+                return TryBuildOpenRange(left, right, sheet, out var range)
+                    ? range
+                    : new DynamicRange(left, right);
             }
 
             throw new ParseException(
@@ -571,6 +721,18 @@ internal sealed class Parser(
         if (token.Type == TokenType.Number)
         {
             endpoint = new NumberValue(double.Parse(token.Text, CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        // Item 43 round 2 (M-1): #REF! is the one error literal accepted as a qualified range endpoint
+        // too (Sheet1!A1:#REF!), mirroring the unqualified ':' rule (RejectNonReferenceErrorEndpoint)
+        // and the '!' rule above (I-1) — only #REF! ever plays a reference role. TryBuildOpenRange never
+        // resolves it to a column/row (TryEndpoint has no arm for ErrorValue), so this always falls
+        // through to the DynamicRange fallback in the ':' branch above, which resolves to #REF! when an
+        // endpoint cannot be resolved — the right answer for exactly this endpoint.
+        if (token.Type == TokenType.Error && token.Text == ErrorValue.Reference.ErrorCode)
+        {
+            endpoint = ErrorValue.Reference;
             return true;
         }
 

@@ -134,6 +134,42 @@ public class ExcelExportTests
         );
     }
 
+    // Item 43 (sweep 31-35-43): the export writer must produce a formula text our OWN loader can read
+    // back (the round trip the brief asks for) — an error literal inside a function argument goes
+    // through FormulaWriter's existing ErrorValue case, newly reachable now that the parser produces the
+    // node on load too.
+    [Test]
+    public async Task Formulas_ErrorLiteral_RoundTripsThroughOurReader()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-export-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            var workbook = new Workbook();
+            var data = workbook.Sheets.Add("Data");
+            data["A1"] = ExpressionParser.Parse("=SUM(#REF!)", data);
+
+            workbook.SaveAsExcel(
+                path,
+                new ExcelExportOptions { FormulaMode = FormulaMode.Formulas }
+            );
+
+            var reloaded = ExcelFile.Load(path);
+
+            await Assert
+                .That(reloaded["Data"]["A1"])
+                .IsTypeOf<Danfma.MySheet.Expressions.Mathematics.Sum>();
+            await Assert
+                .That(reloaded.GetCellValue("Data", "A1").TryGetError(out var error))
+                .IsTrue();
+            await Assert.That(error).IsEqualTo(Error.Ref);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Test]
     public async Task Formulas_WritesFormulaTextAndCachedValues_ClosedXmlOracle()
     {

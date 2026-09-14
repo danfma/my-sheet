@@ -165,6 +165,113 @@ public class ExcelLoadOptionsTests
         }
     }
 
+    // Item 43 (sweep 31-35-43): Excel writes a broken reference into formula text as `#REF!`, so a real
+    // .xlsx holding one used to degrade — the tokenizer threw before the parser ever saw the literal.
+    // ClosedXML validates formulas on write and refuses to store one containing `#REF!`, so the formula
+    // cell is injected by hand via the OpenXML SDK, same trick as WriteFixtureWithInvalidDefinedName above.
+    [Test]
+    public async Task Load_FormulaContainingAnErrorLiteral_ParsesAndEvaluates_NoWarning()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-warn-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            using (var fixture = new XLWorkbook())
+            {
+                fixture.AddWorksheet("Data").Cell("A1").Value = 1;
+                fixture.SaveAs(path);
+            }
+
+            using (var document = SpreadsheetDocument.Open(path, isEditable: true))
+            {
+                var worksheet = document.WorkbookPart!.WorksheetParts.First().Worksheet!;
+                var sheetData = worksheet.GetFirstChild<SheetData>()!;
+
+                var row = new Row { RowIndex = 2 };
+                var cell = new Cell { CellReference = "B2" };
+
+                cell.AppendChild(new CellFormula("SUM(#REF!)"));
+                // A DELIBERATE LIE (999 is neither #REF! nor anything SUM(#REF!) could evaluate to): the
+                // assertion below can only pass if the formula was really re-evaluated, not read from the
+                // cache — the same "999 pattern" TableInteropTests uses.
+                cell.AppendChild(new CellValue("999"));
+                row.AppendChild(cell);
+                sheetData.AppendChild(row);
+                worksheet.Save();
+            }
+
+            var warnings = new List<ExcelLoadWarning>();
+            var options = new ExcelLoadOptions { OnWarning = warnings.Add };
+
+            var workbook = ExcelFile.Load(path, options);
+
+            // Parsed AND re-evaluated: no warning at all, the cached 999 lie was never used.
+            await Assert.That(warnings.Count).IsEqualTo(0);
+
+            var value = workbook.GetCellValue("Data", "B2");
+
+            await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Error);
+            await Assert.That(value.TryGetError(out var error)).IsTrue();
+            await Assert.That(error).IsEqualTo(Error.Ref);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // Item 43 round 2 (I-3): Excel writes a DELETED SHEET's qualifier as `#REF!` itself
+    // (`=Other!B1+1` becomes `=#REF!B1+1` once "Other" is deleted, measured on the oracle,
+    // Aspose.Cells 26.7.0/26.6.0, 2026-09-14) — a real shape a real .xlsx carries, distinct from the
+    // bare `#REF!` literal the test above covers.
+    [Test]
+    public async Task Load_FormulaWithADeletedSheetQualifier_ParsesAndEvaluates_NoWarning()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mysheet-warn-{Guid.NewGuid():N}.xlsx");
+
+        try
+        {
+            using (var fixture = new XLWorkbook())
+            {
+                fixture.AddWorksheet("Data").Cell("A1").Value = 1;
+                fixture.SaveAs(path);
+            }
+
+            using (var document = SpreadsheetDocument.Open(path, isEditable: true))
+            {
+                var worksheet = document.WorkbookPart!.WorksheetParts.First().Worksheet!;
+                var sheetData = worksheet.GetFirstChild<SheetData>()!;
+
+                var row = new Row { RowIndex = 2 };
+                var cell = new Cell { CellReference = "B2" };
+
+                cell.AppendChild(new CellFormula("#REF!A1+1"));
+                // Same deliberate-lie pattern as above.
+                cell.AppendChild(new CellValue("999"));
+                row.AppendChild(cell);
+                sheetData.AppendChild(row);
+                worksheet.Save();
+            }
+
+            var warnings = new List<ExcelLoadWarning>();
+            var options = new ExcelLoadOptions { OnWarning = warnings.Add };
+
+            var workbook = ExcelFile.Load(path, options);
+
+            await Assert.That(warnings.Count).IsEqualTo(0);
+
+            var value = workbook.GetCellValue("Data", "B2");
+
+            await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Error);
+            await Assert.That(value.TryGetError(out var error)).IsTrue();
+            await Assert.That(error).IsEqualTo(Error.Ref);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Test]
     public async Task Load_ValidWorkbook_NeverInvokesOnWarning()
     {

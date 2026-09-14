@@ -76,6 +76,7 @@ public readonly struct Error : IEquatable<Error>
     internal ErrorValue ToErrorValue() =>
         _code switch
         {
+            0 => ErrorValue.Null,
             1 => ErrorValue.DivByZero,
             2 => ErrorValue.NotValue,
             3 => ErrorValue.Reference,

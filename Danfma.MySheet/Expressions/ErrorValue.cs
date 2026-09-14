@@ -5,6 +5,10 @@ namespace Danfma.MySheet.Expressions;
 [MemoryPackable]
 public sealed partial record ErrorValue(string ErrorCode) : ValueExpression
 {
+    // Item 43 round 2 (M-2): the one classic error that had no singleton until now — see Error.cs's
+    // ToErrorValue, which used to fall through to the `new ErrorValue(Display)` default for code 0.
+    public static readonly ErrorValue Null = new("#NULL!");
+
     public static readonly ErrorValue NotValue = new("#VALUE!");
     public static readonly ErrorValue Name = new("#NAME?");
     public static readonly ErrorValue Reference = new("#REF!");

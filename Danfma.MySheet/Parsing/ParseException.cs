@@ -28,7 +28,11 @@ public enum ParseErrorKind
     /// <summary>A specific token was required — typically a closing <c>)</c> or a <c>,</c> — and something else was found.</summary>
     ExpectedToken,
 
-    /// <summary>The text after a sheet qualifier's <c>!</c> is not a cell, column, row or range.</summary>
+    /// <summary>
+    /// The text after a sheet qualifier's <c>!</c> is not a cell, column, row or range. Also raised for a
+    /// <c>:</c> range endpoint that is an error literal other than <c>#REF!</c> (<c>A1:#N/A</c>) — Excel's
+    /// own broken-reference spelling is the only error accepted there.
+    /// </summary>
     ExpectedCellReference,
 
     /// <summary>A built-in function was called with an argument count it does not accept (<c>=ROUND(1)</c>).</summary>
