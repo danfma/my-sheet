@@ -16,10 +16,11 @@ Rules that bind every phase:
   - One formula per workbook: the oracle can depend on evaluation order.
   - Name the entry mode (PLAIN / CSE) of every number.
   - Record 26.6.0 beside 26.7.0 for every new row.
-- **Review loop (user decision):** a Sonnet implementer delivers each phase, and a Fable 5.1 reviewer reviews the delivery.
-  - Findings go back to the implementer; the reviewer re-reviews.
-  - The loop exits only with zero Critical/Important findings, and runs at most 5 rounds; a sixth round escalates to the user.
-  - The controller verifies the gates independently before accepting.
+- **Review (user decision, 2026-09-14; replaces the earlier Fable review loop to save tokens):**
+  - The controller verifies gates only.
+  - Each phase's deferred review goes into `.superpowers/sdd/pending-verifications.md`.
+  - After all phases, one Fable or GLM (zclaude) session works through that list.
+  - Releasing with some inconsistency is accepted, with fixes later.
 - Ledger: `.superpowers/sdd/sweep-31-35-43/progress.md`. Briefs sit beside it.
 
 **Design decisions made by the controller up front:**
@@ -33,19 +34,24 @@ Rules that bind every phase:
 - **Acceptance.** The consumer's shapes are acceptance rows. At the end, the divergence probe (`.superpowers/sdd/sweep-32-33-34/divergence-probe/`, bumped to 26.7.0) shows no DIFF row for Bug 6, Bug 8, the Bug 9 remainder (item 31) or error literals. Rows that follow the array-entered column by design, `-0`, and the circular self-count stay as documented; they are out of scope.
 
 ## Phase 0: Oracle measurement on Aspose 26.7 (no code)
-Status: In progress
+Status: Complete
 
-- [ ] Copy the shared probe to `/private/tmp/claude-501/sweep-31-35-43/phase0/` and bump it to Aspose.Cells 26.7.0 (keep a 26.6.0 twin).
-- [ ] Measure every row of items 31, 35, 36, 38, 39, 40, 41, 42 and the Bug 8 residual, PLAIN and CSE, 26.6.0 beside 26.7.0.
+- [x] Copy the shared probe to `/private/tmp/claude-501/sweep-31-35-43/phase0/` and bump it to Aspose.Cells 26.7.0 (keep a 26.6.0 twin).
+- [x] Measure every row of items 31, 35, 36, 38, 39, 40, 41, 42 and the Bug 8 residual, PLAIN and CSE, 26.6.0 beside 26.7.0.
   - Bug 8 rows: the value slot over an error cell for MATCH (exact and approximate), XMATCH, XLOOKUP, VLOOKUP, HLOOKUP and LOOKUP.
   - Item 42 at several formula-cell rows, since implicit intersection depends on the row.
-- [ ] Record the binding table in `.superpowers/sdd/sweep-31-35-43/phase0-oracle.md`.
+- [x] Record the binding table in `.superpowers/sdd/sweep-31-35-43/phase0-oracle.md`.
 
 ### Verification Plan
 - `phase0-oracle.md` has a 26.6.0 / 26.7.0 × PLAIN / CSE row for every formula named in the draft items 31 and 35-42 and in the Bug 8 list, and names every row where the two versions differ.
+- **Result:** 115 rows across all nine groups. The 26.6.0 and 26.7.0 columns are identical on every row. The controller cross-checked five rows against independent earlier measurements, and all agree.
 
 ### Phase Summary
-_(write when phase completes)_
+- 115 rows were measured, and 26.6.0 = 26.7.0 on every one, so Phases 3-4 need no version-specific handling.
+- Bug 8 residual: sweep 32-34 closed it before merging (`5975c63`: a lookup value that is a single cell holding an error leads MATCH / XMATCH / XLOOKUP). The only thing left in the value slot is the range-in-the-value-slot lifting divergence (`SUM(MATCH(A5:A7,A5:A7,0))`, oracle `#VALUE!` / 6).
+- **Item 36:** the oracle contradicts itself. Its `ROWS` / `COLUMNS` over `OFFSET` ignore an explicit height/width while `SUM` / `COUNT` honour it. Ruling: MySheet uses one coherent window (explicit size when given, else the base's), and the size-ignoring `ROWS` / `COLUMNS` rows are registered as an oracle defect.
+- **Item 42:** the oracle uses the same rule for literal ranges and table columns (PLAIN is row-position implicit intersection, CSE takes the first element). Ruling: MySheet's table reference converges on the literal-range convention MySheet already has.
+- Both rulings are recorded in the ledger's "Phase 0 — ACCEPTED" entry.
 
 ## Phase 1: Item 43 — error literals in formula text
 Status: In progress
@@ -58,7 +64,7 @@ Status: In progress
 - [ ] Tokenizer and parser produce `ErrorValue` for an error literal; the qualifier forms follow the measurement.
 - [ ] Formula-text round trip: `FORMULATEXT`, export/save writes the literal back, and serialization is unchanged (union count stays 328).
 - [ ] Both docs twins record the new truth, checked sentence by sentence.
-- [ ] Fable 5.1 review loop until clean (max 5 rounds).
+- [ ] Append the phase's deferred review checklist to `.superpowers/sdd/pending-verifications.md`.
 
 ### Verification Plan
 - Divergence probe rows `=#REF!`, `=SUM(#REF!)`, `=IF(ISNA(#N/A),1,0)`, `MATCH(#REF!,#REF!,0)`, `MATCH(1,#REF!,0)`, `IFNA(MATCH(#REF!,#REF!,0),"na")` and `COUNTIF(#REF!,#REF!)` give MySheet = Aspose PLAIN.
@@ -80,7 +86,7 @@ Status: Not started (blocked on the sweep 32-34 merge)
   - the corpus shape `IFERROR(AGGREGATE(15,6,(ROW(INDEX(r,0,MATCH(…)))-ROW(INDEX(INDEX(r,0,MATCH(…)),1,1))+1)/((INDEX(r,0,MATCH(…))<>"")*(…)),ROWS($B$2:B2)),"")`.
 - [ ] Red pins, then `INDEX` returns the row/column reference, and each consumer arm follows the measurement.
 - [ ] The empty-table row `SUM(INDEX(Tabela1[Valor],0,1))` flips with both numbers.
-- [ ] Fable 5.1 review loop until clean (max 5 rounds).
+- [ ] Append the phase's deferred review checklist to `.superpowers/sdd/pending-verifications.md`.
 
 ### Verification Plan
 - Divergence probe rows 37-44, 72, 73 and 86 match the oracle.
@@ -97,7 +103,7 @@ Status: Not started (blocked on the sweep 32-34 merge)
 - [ ] Item 38: XLOOKUP checks that its lookup and return arrays agree in size.
 - [ ] Item 40: XLOOKUP's array slots over an unresolvable argument (the per-slot oracle split).
 - [ ] Item 41: a resolving consumer over a non-reference argument (`VLOOKUP(1,5,1)`, a single-cell name holding an error, `VLOOKUP(1,1/0,1)`).
-- [ ] Fable 5.1 review loop until clean (max 5 rounds).
+- [ ] Append the phase's deferred review checklist to `.superpowers/sdd/pending-verifications.md`.
 
 ### Verification Plan
 - The Phase 0 table rows for these items all match MySheet.
@@ -116,7 +122,7 @@ Status: Not started (blocked on the sweep 32-34 merge)
 - [ ] Item 42: one ISERROR / N / IFERROR convention for literal ranges and table references, decided by the Phase 0 measurement in both modes.
 - [ ] Item 31: the criteria gate for an array-conditioned `IF` returning references, plus the MIXED selector residual from sweep 32-34.
 - [ ] Flip the empty-table rows in `EmptyTableReferenceTests.TheRowsThatDependOnAnOrdinaryRangeGap_KeepTheEnginesAnswer` with both numbers.
-- [ ] Fable 5.1 review loop until clean (max 5 rounds).
+- [ ] Append the phase's deferred review checklist to `.superpowers/sdd/pending-verifications.md`.
 
 ### Verification Plan
 - The Phase 0 table rows for these items match MySheet.
@@ -151,7 +157,7 @@ Status: Not started
 - [ ] Docs twins, sentence-level parity for every behaviour changed. The docs' oracle-version sentences say Aspose.Cells 26.7.0.
 - [ ] Sweep file: items 31 and 35-43 marked CLOSED-BY with hashes; the Phase 5 audit items added.
 - [ ] Lessons appended to `tasks/lessons.md`.
-- [ ] Final whole-branch Fable 5.1 review loop until clean. Final divergence-probe run, branch vs `main`, recorded in the ledger.
+- [ ] Final divergence-probe run, branch vs `main`, recorded in the ledger (the whole-branch review is deferred to `pending-verifications.md`).
 - [ ] Rebase onto `main`, gates on `main`, local ff-only merge. No push; the user owns the release.
 
 ### Verification Plan
