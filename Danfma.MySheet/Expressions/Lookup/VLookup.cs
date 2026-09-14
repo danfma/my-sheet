@@ -67,6 +67,28 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
         var lookup = Arguments[0].Evaluate(context);
 
+        if (
+            (
+                Arguments[0] is not RangeReference range
+                || (range.RowCount == 1 && range.ColumnCount == 1)
+            )
+            && lookup.Kind == ComputedValueKind.Error
+            && ReferencePosition.IsLookupValueError(
+                Arguments[0],
+                lookup,
+                context,
+                out var valueError
+            )
+        )
+        {
+            return valueError;
+        }
+
+        if (lookup.Kind == ComputedValueKind.Error)
+        {
+            return lookup;
+        }
+
         if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
         {
             return ComputedValue.Error(columnError);
@@ -92,11 +114,6 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         )
         {
             return ComputedValue.Error(modeError);
-        }
-
-        if (lookup.Kind == ComputedValueKind.Error)
-        {
-            return lookup;
         }
 
         // Sweep item 33: a zero-row table has no key to find (oracle: #N/A in both entry modes).

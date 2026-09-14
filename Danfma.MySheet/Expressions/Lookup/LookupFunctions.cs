@@ -175,6 +175,28 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
 
         var lookup = Arguments[0].Evaluate(context);
 
+        if (
+            (
+                Arguments[0] is not RangeReference range
+                || (range.RowCount == 1 && range.ColumnCount == 1)
+            )
+            && lookup.Kind == ComputedValueKind.Error
+            && ReferencePosition.IsLookupValueError(
+                Arguments[0],
+                lookup,
+                context,
+                out var valueError
+            )
+        )
+        {
+            return valueError;
+        }
+
+        if (lookup.Kind == ComputedValueKind.Error)
+        {
+            return lookup;
+        }
+
         if (Arguments[2].Evaluate(context).CoerceToNumber(out var rowIndex) is { } rowError)
         {
             return ComputedValue.Error(rowError);
@@ -209,11 +231,6 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         )
         {
             return ComputedValue.Error(modeError);
-        }
-
-        if (lookup.Kind == ComputedValueKind.Error)
-        {
-            return lookup;
         }
 
         // The first row is a sub-range of the table; its per-epoch snapshot serves the key search O(1)

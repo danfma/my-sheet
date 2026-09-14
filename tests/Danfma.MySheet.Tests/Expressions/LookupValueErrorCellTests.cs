@@ -173,13 +173,13 @@ public class LookupValueErrorCellTests
         await Assert.That(InCell(formula)).IsEqualTo(expected);
     }
 
-    // VLOOKUP does not share IsLookupValueError's site (VLookup.cs's own check is an unconditional
-    // `lookup.Kind == ComputedValueKind.Error`, evaluated separately) — finding I4's "one arm" fix does not
-    // reach it, so this row STAYS a recorded, pre-existing divergence: branch #VALUE! (RangeReference's own
-    // collapse), oracle 26.7.0 = 26.6.0, both modes: #DIV/0!.
+    // Folded finding I1: VLOOKUP now shares the single-cell lookup-value rule. Before this fix MySheet
+    // returned the 1x1 range's collapse artifact #VALUE!; Aspose.Cells 26.7.0 PLAIN / CSE both return the
+    // referenced cell's #DIV/0!. Multi-cell collapse artifacts remain pinned above.
     [Test]
-    [Arguments("=VLOOKUP(A1:A1,B1:C3,2,FALSE)", "#VALUE!")]
-    public async Task VLookupOverA1x1RangeHoldingAnError_IsUnaffected_ARecordedDivergence(
+    [Arguments("=VLOOKUP(A1:A1,B1:C3,2,FALSE)", "#DIV/0!")]
+    [Arguments("=HLOOKUP(A1:A1,B1:D1,1,FALSE)", "#DIV/0!")]
+    public async Task TableLookupsOverA1x1RangeHoldingAnError_PropagateTheCellError(
         string formula,
         string expected
     )
