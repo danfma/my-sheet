@@ -44,6 +44,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
             )
         )
         {
+            if (reference is CellReference cell)
+            {
+                return cell.Evaluate(context);
+            }
+
             if (reference is OpenRangeReference open)
             {
                 return IndexIntoOpenRange(open, context);
@@ -62,7 +67,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
             return unresolved;
         }
 
-        return ComputedValue.Error(Error.Ref);
+        return Arguments[0].Evaluate(context);
     }
 
     // The concrete-range form, split out of Evaluate so the resolution arm above can hand the resolved

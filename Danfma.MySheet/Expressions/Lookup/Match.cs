@@ -39,7 +39,13 @@ public sealed partial record Match(Expression[] Arguments) : Function
             return valueError;
         }
 
-        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        if (
+            (
+                Arguments[1] is NameReference or TableReference
+                || ArrayEvaluation.IsArrayEligible(Arguments[1], context)
+                || Arguments[1] is ErrorValue
+            ) && ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved)
+        )
         {
             return unresolved;
         }

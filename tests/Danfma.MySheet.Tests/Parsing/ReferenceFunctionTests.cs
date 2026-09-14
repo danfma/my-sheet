@@ -334,12 +334,10 @@ public class ReferenceFunctionTests
     }
 
     [Test]
-    public async Task XLookup_MismatchedArrayLengths_BoundToShorter()
+    public async Task XLookup_MismatchedArrayLengths_AreValueError()
     {
-        // lookup_array (A1:A5) is longer than return_array (B1:B3). The non-admitted streaming path advances
-        // both cursors in lockstep and stops at the shorter — reproducing the pre-refactor Math.Min(count)
-        // bound exactly: a match WITHIN the shared prefix pairs with its return cell; a match only in the
-        // uncovered tail is dropped (→ #N/A), never returning past the end of the return array.
+        // The lookup axis has 5 rows while the return array has only 3. Excel rejects the mismatch before
+        // searching, whether a match would occur inside the shared prefix or only in the uncovered tail.
         var (workbook, sheet) = Grid(
             ("A1", N(1)),
             ("A2", N(2)),
@@ -351,17 +349,17 @@ public class ReferenceFunctionTests
             ("B3", T("c"))
         );
 
-        // Match at position 2 (within the [0,3) shared prefix) → the paired return cell.
+        // Before item 38 this returned "b"; the measured oracle answer is #VALUE!.
         await Assert
             .That(
                 ExpressionParser
                     .Parse("=XLOOKUP(2,A1:A5,B1:B3)", sheet)
                     .Evaluate(workbook)
-                    .AsObject() as string
+                    .AsObject()
             )
-            .IsEqualTo("b");
+            .IsEqualTo(ErrorValue.NotValue);
 
-        // Match only in the uncovered tail (position 4 > return length) → dropped by the shorter bound.
+        // Before item 38 this returned #N/A; the same mismatch must still be #VALUE!.
         await Assert
             .That(
                 ExpressionParser
@@ -369,7 +367,7 @@ public class ReferenceFunctionTests
                     .Evaluate(workbook)
                     .AsObject()
             )
-            .IsEqualTo(ErrorValue.NotAvailable);
+            .IsEqualTo(ErrorValue.NotValue);
     }
 
     [Test]

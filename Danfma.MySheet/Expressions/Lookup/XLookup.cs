@@ -32,6 +32,21 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
             return valueError;
         }
 
+        if (ArraySlotError(Arguments[1], context, Error.NA) is { } lookupArrayError)
+        {
+            return lookupArrayError;
+        }
+
+        if (ArraySlotError(Arguments[2], context, Error.Value) is { } returnArrayError)
+        {
+            return returnArrayError;
+        }
+
+        if (!ArraysShareLookupAxis(Arguments[1], Arguments[2], context))
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
         var lookupSnapshot = Arguments[1] is Reference lookupReference
             ? context.Workbook.TryGetRangeSnapshot(lookupReference, context)
             : null;
@@ -129,4 +144,57 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
         Arguments.Length >= 4 && Arguments[3] is not BlankValue
             ? Arguments[3].Evaluate(context)
             : ComputedValue.Error(Error.NA);
+
+    private static ComputedValue? ArraySlotError(
+        Expression argument,
+        EvaluationContext context,
+        Error fallback
+    )
+    {
+        if (NamedReferences.TryResolveReference(argument, context, out _, boundOpenRanges: false))
+        {
+            return null;
+        }
+
+        if (
+            argument is TableReference
+            && argument.Evaluate(context).TryGetError(out var tableError)
+        )
+        {
+            return ComputedValue.Error(tableError);
+        }
+
+        return argument is NameReference ? ComputedValue.Error(fallback) : null;
+    }
+
+    private static bool ArraysShareLookupAxis(
+        Expression lookupArgument,
+        Expression returnArgument,
+        EvaluationContext context
+    )
+    {
+        if (
+            !NamedReferences.TryResolveReference(
+                lookupArgument,
+                context,
+                out var lookupReference,
+                boundOpenRanges: false
+            )
+            || !NamedReferences.TryResolveReference(
+                returnArgument,
+                context,
+                out var returnReference,
+                boundOpenRanges: false
+            )
+            || !RangeBounds.TryFrom(lookupReference, out var lookupBounds)
+            || !RangeBounds.TryFrom(returnReference, out var returnBounds)
+        )
+        {
+            return true;
+        }
+
+        return lookupBounds.RowCount >= lookupBounds.ColumnCount
+            ? lookupBounds.RowCount == returnBounds.RowCount
+            : lookupBounds.ColumnCount == returnBounds.ColumnCount;
+    }
 }

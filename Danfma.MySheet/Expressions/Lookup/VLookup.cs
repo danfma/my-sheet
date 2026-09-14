@@ -17,15 +17,37 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
         // The table may be written directly or through a defined name that stands for a range. When it
         // does not resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an unknown
-        // name, the node's #REF! for an unresolvable structured reference) — VLOOKUP's own #REF! stays
-        // only for an argument that is merely not a range (a cell, a union).
+        // name, the node's #REF! for an unresolvable structured reference). A plain scalar is the measured
+        // exception: it is a 1x1 table, while a directly computed error follows the CSE not-found reading.
         if (!NamedReferences.TryResolveReference(Arguments[1], context, out var reference))
         {
+            var tableValue = Arguments[1].Evaluate(context);
+
+            if (
+                Arguments[1] is not NameReference and not TableReference
+                && !ArrayEvaluation.IsArrayEligible(Arguments[1], context)
+                && tableValue.TryGetError(out _)
+            )
+            {
+                return ComputedValue.Error(Error.NA);
+            }
+
+            if (tableValue is { Kind: not ComputedValueKind.Error })
+            {
+                return LookupScalarTable(tableValue, context);
+            }
+
             return ReferencePosition.Unresolved(
                 Arguments[1],
                 context,
                 ComputedValue.Error(Error.Ref)
             );
+        }
+
+        if (reference is CellReference cell)
+        {
+            var value = cell.Evaluate(context);
+            return value.TryGetError(out _) ? value : ComputedValue.Error(Error.NA);
         }
 
         // Bounds are resolved ONCE here, not re-parsed on every row of the linear fallback scan below. This is
@@ -164,5 +186,28 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         return matchRow >= 1
             ? table.CellComputedValueAt(workbook, handle, bounds, matchRow, (int)columnIndex)
             : ComputedValue.Error(Error.NA);
+    }
+
+    private ComputedValue LookupScalarTable(ComputedValue tableValue, EvaluationContext context)
+    {
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
+        {
+            return ComputedValue.Error(columnError);
+        }
+
+        if (columnIndex < 1)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        if (columnIndex > 1)
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        var lookup = Arguments[0].Evaluate(context);
+        return lookup.TryGetError(out _) || !ValueCoercion.AreEqual(tableValue, lookup)
+            ? ComputedValue.Error(Error.NA)
+            : tableValue;
     }
 }

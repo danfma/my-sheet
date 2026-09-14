@@ -425,8 +425,8 @@ public class EmptyTableReferenceTests
     // already diverges from the oracle over an ORDINARY range, so the empty reference inherits the engine's
     // answer and the gap is registered as its own sweep item. Oracle PLAIN / CSE, primed (the ordinary-range
     // twin that shows the gap, oracle vs MySheet, in brackets):
-    //   XLOOKUP does not check the arrays' sizes
-    //                                    [XLOOKUP(5,A1:A3,B1:B2) #VALUE! / #VALUE! vs 1]
+    //   XLOOKUP checks the lookup-axis size against the return array
+    //                                    [XLOOKUP(5,A1:A3,B1:B2) #VALUE! / #VALUE!, previously 1]
     //     XLOOKUP(5,A1:A3,T[Valor]) #VALUE! / #VALUE!; with "nf" #VALUE! / #VALUE!
     //   (sweep item 37 closed "INDEX with row 0 is #REF!" — the two rows this bullet used to list moved to
     //   OverAHeaderOnlyTable_TheDataBandIsAnEmptyReference, now matched: SUM(INDEX(T[Valor],0,1)) 0,
@@ -435,8 +435,8 @@ public class EmptyTableReferenceTests
     // Item 36: omitted dimensions inherit the empty base's 0x1 shape. This was 7 (the anchor cell);
     // Aspose.Cells 26.7.0 gives 0 in both modes, and the coherent-window ruling keeps that empty window.
     [Arguments("=SUM(OFFSET(Tabela1[Valor],0,0))", true, "0")]
-    [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor])", false, "#N/A")]
-    [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor],\"nf\")", false, "\"nf\"")]
+    [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor])", false, "#VALUE!")]
+    [Arguments("=XLOOKUP(5,A1:A3,Tabela1[Valor],\"nf\")", false, "#VALUE!")]
     public async Task TheRowsThatDependOnAnOrdinaryRangeGap_KeepTheEnginesAnswer(
         string formula,
         bool sentinel,

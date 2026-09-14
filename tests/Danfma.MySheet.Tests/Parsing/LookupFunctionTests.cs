@@ -95,12 +95,11 @@ public class LookupFunctionTests
             .That(Calc("=XLOOKUP(1,NoSuch,B1:B3)", ("A1", 1), ("B1", 2)) as ErrorValue)
             .IsEqualTo(ErrorValue.NotAvailable);
 
-        // A value that is merely NOT a reference keeps the consumer's own answer — the rule reports only
-        // the node's own error: VLOOKUP's table slot over 5 is #REF! (the oracle answers #N/A there, an
-        // unrecorded fallback-code divergence left as it is), MATCH's not-found stays #N/A.
+        // A value that is merely NOT a reference keeps the consumer's own not-found answer. Before item 41,
+        // VLOOKUP(1,5,1) returned #REF!; the measured oracle answer is #N/A, like MATCH's existing result.
         await Assert
             .That(Calc("=VLOOKUP(1,5,1)", ("A1", 1)) as ErrorValue)
-            .IsEqualTo(ErrorValue.Reference);
+            .IsEqualTo(ErrorValue.NotAvailable);
         await Assert
             .That(Calc("=MATCH(1,5,0)", ("A1", 1)) as ErrorValue)
             .IsEqualTo(ErrorValue.NotAvailable);
