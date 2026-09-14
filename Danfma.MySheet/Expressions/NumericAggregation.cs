@@ -1,4 +1,6 @@
 using System.Globalization;
+using Danfma.MySheet.Expressions.Logical;
+using Danfma.MySheet.Expressions.Lookup;
 
 namespace Danfma.MySheet.Expressions;
 
@@ -167,6 +169,34 @@ internal static class NumericAggregation
                         foreach (var element in array)
                         {
                             AddReferenced(element, ref fold, ref error);
+                        }
+
+                        break;
+                    }
+
+                    // Sweep item 32's C1 fix wave: a scalar-condition IF/CHOOSE whose taken branch is a
+                    // SINGLE cell now hands a scalar consumer the cell's own VALUE (ArrayEvaluation.BranchValue
+                    // / Choose.CaptureChosen), not a Reference-kind wrapper — so the Kind==Reference check
+                    // below no longer catches it, and evaluating it directly would fold a referenced cell's
+                    // TEXT through AddDirect's stricter rule (SUM(CHOOSE(1,MyCell)) over a text cell would
+                    // become #VALUE! instead of the oracle's 0). Resolve the selector to its reference FIRST,
+                    // through the very same reading ISREF/ROWS/INDEX already use
+                    // (If.TryResolveReference / Choose's own), and gather it exactly like any other
+                    // referenced cell — one element for a single cell, every cell for a range. A selector
+                    // whose CONDITION itself errors is not a reference (TryResolveReference answers false)
+                    // and falls through to the plain evaluation below, which surfaces that error unchanged.
+                    if (
+                        argument is If or Choose
+                        && argument.TryResolveReference(context, out var selectorReference)
+                    )
+                    {
+                        foreach (
+                            var cellValue in ComputedValue
+                                .Reference(selectorReference!)
+                                .EnumerateValues(context)
+                        )
+                        {
+                            AddReferenced(cellValue, ref fold, ref error);
                         }
 
                         break;

@@ -22,18 +22,28 @@ public sealed partial record Choose(Expression[] Arguments) : Function
     // column, where plain entry answers #VALUE!), against the #VALUE! CaptureValue's own reading gave the
     // operator. A CONSUMER of the same node streams the whole array instead, through
     // ArrayEvaluation.TryBuildChoose. Since sweep item 32 the chosen BARE-REFERENCE branch carries the
-    // reference it resolves to (<see cref="CaptureChosen"/>) — the single-cell shape included, whose
-    // referenced-cell rule (text skipped: SUM 0) the plain value reading used to collapse.
+    // reference it resolves to for a RANGE (<see cref="CaptureChosen"/>); a SINGLE-CELL branch instead hands
+    // this scalar reading the cell's own VALUE (the fix wave's C1 finding), exactly as
+    // INDEX(A1:A3,2)+1/OFFSET(A1,0,0)+1 already read a producer's single-cell result — the referenced-cell
+    // rule (text skipped: SUM(CHOOSE(1,MyCell)) 0) still applies because NumericAggregation resolves the
+    // node to its reference first (NumericAggregation.Fold's If/Choose arm) rather than reading a
+    // Reference-kind scalar here.
     public override ComputedValue Evaluate(EvaluationContext context) =>
         TryChoose(context, out var chosen) ?? CaptureChosen(chosen, context);
 
     /// <summary>
     /// The chosen branch's value, shared by <see cref="Evaluate"/> and the mini-CSE's <c>Choose</c> arm's
-    /// scalar wrap (<c>ArrayEvaluation.TryBuildChoose</c>) so the two cannot drift: a BARE-REFERENCE branch
-    /// resolves to the reference it denotes (boundOpenRanges:false, so an open range stays itself and the
-    /// consumers' expansion rules apply) and anything else goes through
+    /// scalar (<c>!isArray</c>) wrap (<c>ArrayEvaluation.TryBuildChoose</c>) so the two cannot drift: a
+    /// bare-reference branch resolves to the reference it denotes (boundOpenRanges:false, so an open range
+    /// stays itself and the consumers' expansion rules apply); a SINGLE CELL among those (a
+    /// <see cref="CellReference"/>) instead hands back the cell's own value, so a scalar consumer
+    /// (<c>IF(A1&gt;0,CHOOSE(1,B1),C1)*2</c>) sees a number, not a reference wrapper it cannot coerce — the
+    /// fix wave's C1 finding, sweep item 32; anything else goes through
     /// <see cref="ArrayBindings.Capture"/>'s top-left exactly as before — a chosen PRODUCER still reads as
-    /// its first element.
+    /// its first element. The array-ELIGIBLE build (<c>TryBuildChoose</c>'s <c>isArray</c> branch) does not
+    /// call this method — it reads <see cref="ArrayBindings.Capture"/> directly, so a single-cell chosen
+    /// branch under a computed sibling still carries its REFERENCE for the range-aware consumer that made
+    /// the node eligible.
     /// </summary>
     internal static ComputedValue CaptureChosen(Expression chosen, EvaluationContext context) =>
         ArrayEvaluation.IsBareReferenceNode(chosen, context)
@@ -43,7 +53,9 @@ public sealed partial record Choose(Expression[] Arguments) : Function
             out var resolved,
             boundOpenRanges: false
         )
-            ? ComputedValue.Reference(resolved)
+            ? resolved is CellReference cell
+                ? cell.Evaluate(context)
+                : ComputedValue.Reference(resolved)
             : ArrayBindings.Capture(chosen, context).TopLeft;
 
     /// <summary>

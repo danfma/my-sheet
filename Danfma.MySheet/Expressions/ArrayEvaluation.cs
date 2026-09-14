@@ -1281,16 +1281,20 @@ internal static class ArrayEvaluation
     //     as a 1x1 array, never a ScalarOperand, so the consumer that probed "array" cannot fall back and
     //     re-draw. A 1x1 broadcasts like the scalar it holds, so no consumer reads it differently.
     //
-    // WrapScalar is what keeps a bare-reference branch answering through ONE rule — BranchValue below, the
-    // resolution If.Evaluate itself performs: the branch's resolved reference (a range streams its cells
-    // through BuildRange, a single cell its value, an open range the loud 1x1 #VALUE!), never the collapse
-    // #VALUE! a bare range's own Evaluate gives. Sweep item 32 decided the "IF returns a reference" question
-    // for the bare-branch shape, so the eligible path and the scalar path (If.Evaluate → BranchValue) hand
-    // back the SAME reference: SUM(IF(TRUE,A1:A3,0)) is 14, ROWS(IF(TRUE,A1:A3,SEQUENCE(3))) is 3,
-    // SUM(IF(TRUE,MyCell,0)) is 0 (A2 holds text — the referenced-cell rule skips it), and an OPEN range
-    // resolves to the loud 1x1 #VALUE! its shape always gets (SUM(IF(TRUE,MyColumn,SEQUENCE(3)))), while in
-    // the UNTAKEN branch it still costs nothing (SUM(IF(FALSE,MyColumn,0)*B1:B3) = 0,
-    // SUM(IF(TRUE,SEQUENCE(3),MyColumn)) = 6).
+    // WrapScalar is what keeps a bare-reference branch answering through ONE rule here — the resolution
+    // If.Evaluate itself performs: the branch's resolved reference (a range streams its cells through
+    // BuildRange, an open range the loud 1x1 #VALUE!), never the collapse #VALUE! a bare range's own
+    // Evaluate gives. Sweep item 32 decided the "IF returns a reference" question for the bare-branch shape
+    // — but a SINGLE-CELL resolution DIVERGES from BranchValue below since the fix wave's C1 finding: this
+    // array-eligible path still hands a range-aware consumer the cell's REFERENCE, 1x1 (so SUM/COUNT
+    // dereference it through their own referenced-value rule and the text is ignored exactly as a range
+    // cell's would be), while BranchValue hands a SCALAR consumer the cell's VALUE directly, because that
+    // consumer has no referenced-value rule of its own to fall back on. Both readings still agree on the
+    // answer: SUM(IF(TRUE,A1:A3,0)) is 14, ROWS(IF(TRUE,A1:A3,SEQUENCE(3))) is 3,
+    // SUM(IF(TRUE,MyCell,0)) is 0 (A2 holds text — the referenced-cell rule skips it, whichever path reads
+    // it), and an OPEN range resolves to the loud 1x1 #VALUE! its shape always gets
+    // (SUM(IF(TRUE,MyColumn,SEQUENCE(3)))), while in the UNTAKEN branch it still costs nothing
+    // (SUM(IF(FALSE,MyColumn,0)*B1:B3) = 0, SUM(IF(TRUE,SEQUENCE(3),MyColumn)) = 6).
     //
     // WHAT THIS METHOD DOES NOT PROMISE. A gate that keys on the PROBE rather than on the built operand sees
     // "array" and refuses before any of the above runs, so a bare-reference branch is NOT interchangeable
@@ -1370,9 +1374,17 @@ internal static class ArrayEvaluation
     // The value a scalar-condition IF hands back for its taken branch — shared by the eligible build (the
     // !isArray wrap above) and by If.Evaluate (If.cs): a BARE-REFERENCE branch carries the reference it
     // resolves to (the same reference value a range-bound name already flowed out of Evaluate), so
-    // range-aware consumers expand its cells, the criteria family reads the range, the cell boundary
-    // intersects it and a single-cell branch reaches the referenced-cell rule. Anything else evaluates
-    // exactly as before.
+    // range-aware consumers expand its cells and the criteria family reads the range. A SINGLE-CELL
+    // resolution (a CellReference — a literal A1, an anchored master cell, or a name bound to one) instead
+    // hands back the cell's own VALUE, exactly as INDEX(A1:A3,2)+1 / OFFSET(A1,0,0)+1 / INDIRECT("A1")+1
+    // already do for a producer's or a name's single-cell result (sweep item 32's fix wave, finding C1):
+    // main's and the oracle's convention (Aspose.Cells 26.7.0) is that a producer of exactly one cell hands
+    // its consumer the cell's content, not a 1x1 reference wrapper — =IF(A1>0,B1,C1)*2 is 2,
+    // =ISERROR(IF(TRUE,E2,0)) is TRUE, =IF(TRUE,A1,0)=5 is TRUE, on both engines. The REFERENCE itself
+    // stays reachable for reference-aware consumers through a separate path — If.TryResolveReference /
+    // Choose's own reference reading (ISREF, ROW, ROWS, INDEX, OFFSET's base, the criteria family, and the
+    // item-32 range/open/union/empty rows above) — which this method never touches. Anything that does not
+    // denote a reference at all evaluates exactly as before.
     internal static ComputedValue BranchValue(Expression branch, EvaluationContext context) =>
         IsBareReferenceNode(branch, context)
         && NamedReferences.TryResolveReference(
@@ -1381,7 +1393,9 @@ internal static class ArrayEvaluation
             out var resolved,
             boundOpenRanges: false
         )
-            ? ComputedValue.Reference(resolved)
+            ? resolved is CellReference cell
+                ? cell.Evaluate(context)
+                : ComputedValue.Reference(resolved)
             : branch.Evaluate(context);
 
     // CHOOSE on the eligible path, the branch-picking twin of TryBuildScalarConditionIf: the index is
