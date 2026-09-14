@@ -126,8 +126,14 @@ whether to log, collect, or ignore each warning.
 
 `UnparsableFormula` is the one worth wiring up on real-world files: the cell keeps the value Excel cached
 but **loses its formula**, so it no longer reacts to input changes. Structured references that resolve
-against a loaded table parse **and** evaluate now, so this warning comes from the shapes still out of
-scope — the current-row forms a real file stores (`Tabela1[[#This Row],[Valor]]`, typed `[@Valor]`), a
+against a loaded table parse **and** evaluate now, and so does a formula containing an Excel **error
+literal** (`#REF!`, `#N/A`, `#DIV/0!`, …) — `#REF!` is the one the oracle (Aspose.Cells 26.7.0) writes
+into formula text on its own, for a broken reference or a deleted sheet's own qualifier (`#REF!A1`); the
+other six reach formula text only when someone types them — so `=SUM(#REF!)`, `=Sheet1!#REF!` and
+`=#REF!A1` alike now load, re-evaluate and keep reacting to input changes instead of freezing at the
+cached value (see [Workbook and expressions → Parsing](workbook-and-expressions.md#parsing)). So this
+warning comes from the shapes still out of scope — the current-row forms a real file stores
+(`Tabela1[[#This Row],[Valor]]`, typed `[@Valor]`), a
 column span (`Tabela1[[Q1]:[Q3]]`), an implicit-table `[Valor]`, an external-workbook `[1]Sheet1!A1` —
 and from array literals and anything else the grammar has
 no node for. (A structured reference whose table was *skipped* is not this warning: it parses and
@@ -235,6 +241,14 @@ Being honest about what the interop MVP does **not** do:
 - **Absolute markers are not preserved on write**: `$A$1` parses fine (it identifies the same cell) but
   un-parses as `A1` — a fidelity loss only in `FormulaMode.Formulas` exports, and only cosmetic unless
   you plan to copy/fill formulas in Excel afterwards.
+- **A deleted-sheet `#REF!` loses its qualifier and its reference on write**: `Sheet1!#REF!` and a
+  genuinely broken cross-sheet reference (`Other!#REF!+1`, once "Other" is deleted) both write back
+  without the qualifier — `FORMULATEXT` and a `FormulaMode.Formulas` export answer `=#REF!` and
+  `=#REF!+1`, where Excel keeps `=Sheet1!#REF!` / `=Other!#REF!+1`. The deleted-sheet spelling `#REF!A1`
+  loses the consumed reference the same way, writing back as `=#REF!` where Excel keeps `=#REF!A1`. The
+  VALUE is identical to Excel's in every case (`ErrorValue` carries no sheet or reference, and the value
+  never depends on either) — a formula-TEXT-only fidelity loss, the same family as the absolute-marker
+  loss above.
 - **Shared formulas stay real formulas**: slave cells of a dragged formula (which carry no formula text in
   the file) are rebuilt against the master, applying the cell delta so relative references move while
   `$`-anchored components stay fixed — so they keep reacting to input changes. When the master's shape is

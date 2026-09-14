@@ -108,6 +108,28 @@ Rules:
 - Entries starting with `=` are parsed as formulas (a Pratt / top-down operator-precedence parser).
 - Anything else is a literal: number if it parses as one (invariant culture), then boolean
   (`true`/`false`), otherwise text.
+- **A formula may contain an error literal** — `#NULL!`, `#DIV/0!`, `#VALUE!`, `#REF!`, `#NAME?`, `#NUM!`,
+  `#N/A`, case-insensitively (`#ref!` reads the same as `#REF!`) — as a primary expression, evaluating to
+  that error directly: `=#REF!`, `=SUM(#REF!)`, `=-#N/A`. `#REF!` is the one literal the oracle
+  (Aspose.Cells 26.7.0) writes into a formula on its own, for a broken reference; the other six reach
+  formula text only when someone types them. A loaded `.xlsx` carrying an error literal re-evaluates
+  instead of degrading (see [Excel interop → Loading](excel-interop.md#loading-excelfileload)). `#REF!`
+  alone plays a reference role: it is the only literal accepted as a `:` range endpoint (`A1:#REF!`,
+  `SUM(A1:#REF!)`) and after a sheet qualifier's `!` (`Sheet1!#REF!`) — every other error literal in
+  either position is a syntax error, matching the oracle (`A1:#N/A` and `Sheet1!#N/A` do not parse).
+  `#REF!` also stands in for a DELETED sheet's own qualifier, consuming whatever reference-shaped text is
+  glued directly after it with no `!` needed — `=#REF!A1`, `=SUM(#REF!A1:A3)` and `=#REF!#REF!` all
+  evaluate to `#REF!`, the oracle's own spelling once a referenced sheet is deleted; an ordinary operator
+  (`=#REF!A1+1`) or terminator is never absorbed. `#GETTING_DATA`, `#SPILL!` and `#CALC!` are not accepted
+  as literals either (the oracle rejects typing them, though it can produce them), even though `#CALC!` is
+  a real error this engine can hold and propagate (see [Computed values](computed-value.md)).
+- **Formula text written back drops what a qualifier or a deleted reference carried.** `FORMULATEXT` and a
+  Formulas-mode export answer `=#REF!` for `=Sheet1!#REF!` and `=#REF!+1` for a genuinely broken
+  cross-sheet reference (`=Other!#REF!+1`), where Excel keeps the qualifier (`=Sheet1!#REF!`,
+  `=Other!#REF!+1`); they answer `=#REF!` for `=#REF!A1` too, where Excel keeps the consumed reference
+  (`=#REF!A1`). The VALUE is identical to Excel's in every case — `ErrorValue` carries no sheet or
+  reference, so nothing downstream can tell the difference — a formula-TEXT-only divergence (see [Excel
+  interop → Scope and limitations](excel-interop.md#scope-and-limitations)).
 - **Syntax errors throw `ParseException`.** The exception is structured: `Kind` (a `ParseErrorKind` —
   `UnexpectedCharacter`, `UnterminatedString`, `UnterminatedQuotedName`, `UnexpectedToken`, `ExpectedToken`,
   `ExpectedCellReference`, `InvalidArgumentCount`, `NestingTooDeep`; `Unspecified` only when the exception is

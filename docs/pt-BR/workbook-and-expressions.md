@@ -114,6 +114,31 @@ Regras:
   precedência de operadores).
 - Qualquer outra coisa é um literal: número, se puder ser interpretado como tal (cultura invariante),
   depois booleano (`true`/`false`); caso contrário, texto.
+- **Uma fórmula pode conter um literal de erro** — `#NULL!`, `#DIV/0!`, `#VALUE!`, `#REF!`, `#NAME?`,
+  `#NUM!`, `#N/A`, sem diferenciar maiúsculas/minúsculas (`#ref!` lê como `#REF!`) — como uma expressão
+  primária, avaliando diretamente para aquele erro: `=#REF!`, `=SUM(#REF!)`, `=-#N/A`. `#REF!` é o único
+  literal que o oráculo (Aspose.Cells 26.7.0) grava sozinho numa fórmula, para uma referência quebrada; os
+  outros seis só chegam ao texto da fórmula quando alguém os digita. Um `.xlsx` carregado com um literal de
+  erro reavalia em vez de degradar (veja [Interop com Excel →
+  Carregando](excel-interop.md#carregando-excelfileload)). Só `#REF!` desempenha um papel de referência:
+  é o único literal aceito como extremidade de intervalo `:` (`A1:#REF!`, `SUM(A1:#REF!)`) e depois do
+  `!` de um qualificador de planilha (`Sheet1!#REF!`) — qualquer outro literal de erro em qualquer uma
+  das duas posições é erro de sintaxe, igual ao oráculo (`A1:#N/A` e `Sheet1!#N/A` não passam pelo
+  parse). `#REF!` também substitui o próprio qualificador de uma planilha DELETADA, consumindo qualquer
+  texto no formato de referência colado logo depois dele sem precisar de `!` — `=#REF!A1`,
+  `=SUM(#REF!A1:A3)` e `=#REF!#REF!` avaliam todos para `#REF!`, a própria grafia do oráculo quando uma
+  planilha referenciada é deletada; um operador comum (`=#REF!A1+1`) ou um terminador nunca é absorvido.
+  `#GETTING_DATA`, `#SPILL!` e `#CALC!` também não são aceitos como literais (o oráculo rejeita
+  digitá-los, embora consiga produzi-los), mesmo `#CALC!` sendo um erro real que este engine consegue
+  guardar e propagar (veja [Valores computados](computed-value.md)).
+- **O texto da fórmula reescrito perde o que um qualificador ou uma referência deletada carregavam.**
+  `FORMULATEXT` e uma exportação em modo Formulas respondem `=#REF!` para `=Sheet1!#REF!` e `=#REF!+1`
+  para uma referência entre planilhas genuinamente quebrada (`=Other!#REF!+1`), onde o Excel mantém o
+  qualificador (`=Sheet1!#REF!`, `=Other!#REF!+1`); elas respondem `=#REF!` para `=#REF!A1` também, onde
+  o Excel mantém a referência consumida (`=#REF!A1`). O VALOR é idêntico ao do Excel em todos os casos —
+  `ErrorValue` não carrega planilha nem referência, então nada adiante consegue notar a diferença — uma
+  divergência só de TEXTO da fórmula (veja [Interop com Excel → Escopo e
+  limitações](excel-interop.md#escopo-e-limitações)).
 - **Erros de sintaxe lançam `ParseException`** (com uma propriedade `Position` apontando para o token
   problemático). Funções nativas também validam a quantidade de argumentos em tempo de parse —
   `=ROUND(1)` lança exceção, assim como o Excel rejeitaria a fórmula na digitação.

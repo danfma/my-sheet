@@ -133,8 +133,14 @@ decide se registra, coleta ou ignora cada aviso.
 
 `UnparsableFormula` é o aviso que vale a pena escutar em arquivos do mundo real: a célula mantém o valor
 que o Excel tinha em cache, mas **perde a fórmula**, então deixa de reagir a mudanças nas entradas.
-Referências estruturadas que resolvem contra uma tabela carregada agora fazem o parse **e** avaliam, de
-modo que este aviso vem das formas ainda fora do escopo — as formas de linha atual que um arquivo real
+Referências estruturadas que resolvem contra uma tabela carregada agora fazem o parse **e** avaliam, e uma
+fórmula contendo um **literal de erro** do Excel também (`#REF!`, `#N/A`, `#DIV/0!`, …) — `#REF!` é o
+único que o oráculo (Aspose.Cells 26.7.0) grava sozinho no texto da fórmula, para uma referência quebrada
+ou o próprio qualificador de uma planilha deletada (`#REF!A1`); os outros seis só chegam ao texto da
+fórmula quando alguém os digita — então `=SUM(#REF!)`, `=Sheet1!#REF!` e `=#REF!A1` igualmente agora
+carregam, reavaliam e continuam reagindo a mudanças nas entradas em vez de congelar no valor em cache
+(veja [Workbook e expressões → Parsing](workbook-and-expressions.md#parsing)). De modo que este aviso vem
+das formas ainda fora do escopo — as formas de linha atual que um arquivo real
 armazena (`Tabela1[[#This Row],[Valor]]`, digitada como `[@Valor]`), um intervalo de colunas
 (`Tabela1[[Q1]:[Q3]]`), um `[Valor]` de tabela implícita, um `[1]Sheet1!A1` de workbook externo — e de
 literais de array e de qualquer outra coisa para a qual a gramática não tem nó. (Uma referência
@@ -252,6 +258,15 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   identifica a mesma célula), mas é reescrito como `A1` — uma perda de fidelidade apenas em exportações
   com `FormulaMode.Formulas`, e apenas cosmética, a menos que você planeje copiar/preencher fórmulas no
   Excel depois.
+- **Um `#REF!` de planilha deletada perde seu qualificador e sua referência na escrita**: `Sheet1!#REF!`
+  e uma referência entre planilhas genuinamente quebrada (`Other!#REF!+1`, depois que "Other" é
+  deletada) ambos são reescritos sem o qualificador — `FORMULATEXT` e uma exportação
+  `FormulaMode.Formulas` respondem `=#REF!` e `=#REF!+1`, onde o Excel mantém `=Sheet1!#REF!` /
+  `=Other!#REF!+1`. A grafia de planilha deletada `#REF!A1` perde a referência consumida do mesmo jeito,
+  reescrita como `=#REF!` onde o Excel mantém `=#REF!A1`. O VALOR é idêntico ao do Excel em todos os
+  casos (`ErrorValue` não carrega planilha nem referência, e o valor nunca depende de nenhuma das duas)
+  — uma perda de fidelidade só de TEXTO da fórmula, da mesma família da perda dos marcadores absolutos
+  acima.
 - **Fórmulas compartilhadas continuam sendo fórmulas reais**: células escravas de uma fórmula arrastada
   (que não carregam texto de fórmula no arquivo) são reconstruídas a partir da mestre, aplicando o delta de
   células para que referências relativas se movam enquanto os componentes ancorados com `$` ficam fixos —
