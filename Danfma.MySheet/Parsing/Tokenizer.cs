@@ -9,6 +9,7 @@ namespace Danfma.MySheet.Parsing;
 internal sealed class Tokenizer(string text)
 {
     private int _position;
+    private bool _inDeletedReferenceContinuation;
 
     public static List<Token> Tokenize(string text)
     {
@@ -68,9 +69,13 @@ internal sealed class Tokenizer(string text)
 
         if (c == '#')
         {
-            // The spill marker is accepted lexically only after an identifier. The parser consumes it solely
-            // as part of a deleted-reference continuation; anywhere else it remains an unexpected token.
-            if (start > 0 && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] == '$'))
+            // Spill is recognized only after a #REF! prefix has opened the deleted-reference continuation.
+            // Ordinary A1# therefore keeps the tokenizer's baseline UnexpectedCharacter contract.
+            if (
+                _inDeletedReferenceContinuation
+                && start > 0
+                && (char.IsLetterOrDigit(text[start - 1]) || text[start - 1] == '$')
+            )
             {
                 _position++;
                 return new Token(TokenType.DeletedReferenceSpill, "#", start);
@@ -137,7 +142,16 @@ internal sealed class Tokenizer(string text)
             _position++;
         }
 
-        return new Token(TokenType.Identifier, text[start.._position], start);
+        var identifier = text[start.._position];
+
+        // An out-of-grid identifier after #REF! is an independent name/table expression, not part of the
+        // deleted cell-reference continuation. Do not let a later '#' inherit spill-token treatment.
+        if (_inDeletedReferenceContinuation && !Parser.IsExcelGridCellReference(identifier))
+        {
+            _inDeletedReferenceContinuation = false;
+        }
+
+        return new Token(TokenType.Identifier, identifier, start);
     }
 
     private Token ReadString(int start)
@@ -300,6 +314,12 @@ internal sealed class Tokenizer(string text)
                 }
 
                 _position = end;
+
+                if (literal == "#REF!")
+                {
+                    _inDeletedReferenceContinuation = true;
+                }
+
                 return new Token(TokenType.Error, literal, start);
             }
         }
@@ -315,6 +335,13 @@ internal sealed class Tokenizer(string text)
     private Token ReadOperator(int start)
     {
         var c = text[_position];
+
+        // Only '!' and ':' can continue the deleted-reference run. Once any other operator is emitted,
+        // a later identifier-adjacent '#' belongs to ordinary formula syntax and must be rejected normally.
+        if (c is not '!' and not ':')
+        {
+            _inDeletedReferenceContinuation = false;
+        }
 
         switch (c)
         {

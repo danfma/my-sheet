@@ -204,7 +204,25 @@ internal sealed class Parser(
                 return errorValue; // Leave the invalid function/qualified shape for ParseFormula to reject.
             }
 
-            return ParseExpression(PrefixBindingPower);
+            if (IsR1C1Reference(Current.Text))
+            {
+                return errorValue; // R1C1 syntax is invalid in this A1-only continuation.
+            }
+
+            var expression = ParseExpression(RangeBindingPower);
+
+            // Preserve the independently parsed name instead of letting TryBuildOpenRange reinterpret its
+            // letters as a column endpoint. A scalar defined name then produces #VALUE!, not #REF!.
+            if (Current.Type == TokenType.Colon)
+            {
+                var colon = Advance();
+                var right = ParseExpression(RangeBindingPower);
+                RejectNonReferenceErrorEndpoint(expression, colon, "before");
+                RejectNonReferenceErrorEndpoint(right, colon, "after");
+                return new DynamicRange(expression, right);
+            }
+
+            return expression;
         }
 
         if (
@@ -227,7 +245,10 @@ internal sealed class Parser(
         if (Current.Type == TokenType.Colon)
         {
             Advance();
-            ConsumeReferenceEndpoint();
+            if (!ConsumeReferenceEndpoint() && Current.Type == TokenType.Identifier)
+            {
+                ConsumeColumnEndpoint();
+            }
         }
 
         if (Current.Type == TokenType.DeletedReferenceSpill)
@@ -239,20 +260,41 @@ internal sealed class Parser(
     }
 
     private bool IsDeletedReferenceEndpoint(Token token) =>
-        (IsCellReference(token.Text) && tokens[_index + 1].Type != TokenType.BracketedSpecifier)
-        || (tokens[_index + 1].Type == TokenType.Colon && IsColumnEndpoint(token.Text));
+        (
+            IsExcelGridCellReference(token.Text)
+            && tokens[_index + 1].Type != TokenType.BracketedSpecifier
+        ) || (tokens[_index + 1].Type == TokenType.Colon && IsColumnEndpoint(token.Text));
+
+    private static bool IsR1C1Reference(string text)
+    {
+        if (text.Length < 4 || text[0] is not ('R' or 'r'))
+        {
+            return false;
+        }
+
+        var index = 1;
+        while (index < text.Length && char.IsAsciiDigit(text[index]))
+        {
+            index++;
+        }
+
+        if (index == 1 || index >= text.Length || text[index] is not ('C' or 'c'))
+        {
+            return false;
+        }
+
+        var columnStart = ++index;
+        while (index < text.Length && char.IsAsciiDigit(text[index]))
+        {
+            index++;
+        }
+
+        return index == text.Length && index > columnStart;
+    }
 
     private static bool IsColumnEndpoint(string text)
     {
-        foreach (var c in text)
-        {
-            if (!char.IsAsciiLetter(c) && c != '$')
-            {
-                return false;
-            }
-        }
-
-        return text.Length > 0;
+        return CellAddress.TryParseColumn(text, out var column) && column <= ExcelMaxColumn;
     }
 
     // One endpoint of the absorbed run: a cell-shaped identifier, another #REF! token, or a
@@ -270,6 +312,17 @@ internal sealed class Parser(
             (Current.Type == TokenType.Identifier && IsDeletedReferenceEndpoint(Current))
             || (Current.Type == TokenType.Error && Current.Text == ErrorValue.Reference.ErrorCode)
         )
+        {
+            Advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool ConsumeColumnEndpoint()
+    {
+        if (IsColumnEndpoint(Current.Text))
         {
             Advance();
             return true;

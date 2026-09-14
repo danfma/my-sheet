@@ -198,6 +198,62 @@ public class ErrorLiteralParsingTests
             .IsEqualTo(10.0);
     }
 
+    // C-1: before the bounded classification, these evaluated as #REF!; Aspose.Cells 26.7.0
+    // evaluates them as 10 and #NAME? respectively in both PLAIN and CSE entry modes.
+    [Test]
+    public async Task DeletedSheetQualifier_DiscardsPrefixBeforeBareTableAndOutOfGridName()
+    {
+        var (workbook, sheet) = NewWorkbook();
+        sheet["B1"] = new Danfma.MySheet.Expressions.StringValue("Valor");
+        sheet["B2"] = new NumberValue(10);
+        workbook.DefineTable("Tabela1", sheet.Name, "B1:B2", ["Valor"]);
+
+        sheet["Z2"] = ExpressionParser.Parse("=#REF!Tabela1", sheet);
+        await Assert
+            .That(workbook.GetCellValue(sheet.Name, "Z2").AsObject() as double?)
+            .IsEqualTo(10.0);
+        await Assert.That(Calc("=#REF!ZZZ99999999", sheet, workbook)).IsEqualTo(ErrorValue.Name);
+    }
+
+    // C-2: before this pin MySheet accepted the shape as #NAME?; Aspose.Cells 26.7.0 rejects it
+    // in both PLAIN and CSE entry modes.
+    [Test]
+    public async Task DeletedSheetQualifier_RejectsR1C1ShapedIdentifier()
+    {
+        var (_, sheet) = NewWorkbook();
+
+        await Assert
+            .That(() => ExpressionParser.Parse("=#REF!R1C1", sheet))
+            .Throws<ParseException>();
+    }
+
+    // C-3: before the range preserved the deleted prefix and evaluated to #REF!; Aspose.Cells
+    // 26.7.0 evaluates MyName:A1 as #VALUE! in both PLAIN and CSE entry modes.
+    [Test]
+    public async Task DeletedSheetQualifier_NameToCellRange_EvaluatesToValueError()
+    {
+        var (workbook, sheet) = NewWorkbook();
+        workbook.DefineName("MyName", new NumberValue(1234.5));
+        sheet["A1"] = new NumberValue(7);
+
+        var expression = ExpressionParser.Parse("=#REF!MyName:A1", sheet);
+        await Assert.That(expression).IsTypeOf<DynamicRange>();
+        await Assert.That(((DynamicRange)expression).Start).IsTypeOf<NameReference>();
+        await Assert.That(expression.Evaluate(workbook).AsObject()).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    // I-7: before AB evaluated to 4321 but AB:AB was rejected; Aspose.Cells 26.7.0 evaluates
+    // the pair as 4321 and #REF! respectively in both PLAIN and CSE entry modes.
+    [Test]
+    public async Task DeletedSheetQualifier_DistinguishesDefinedNameFromColumnRange()
+    {
+        var (workbook, sheet) = NewWorkbook();
+        workbook.DefineName("AB", new NumberValue(4321));
+
+        await Assert.That(Calc("=#REF!AB", sheet, workbook) as double?).IsEqualTo(4321.0);
+        await Assert.That(Calc("=#REF!AB:AB", sheet, workbook)).IsEqualTo(ErrorValue.Reference);
+    }
+
     [Test]
     [Arguments("=#REF!1:1")]
     [Arguments("=#REF!(1,2)")]
@@ -207,6 +263,33 @@ public class ErrorLiteralParsingTests
         var (workbook, sheet) = NewWorkbook();
 
         await Assert.That(Calc(formula, sheet, workbook)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    // M-8: the leaked spill token changed UnexpectedCharacter to UnexpectedToken. The baseline and
+    // required contract is UnexpectedCharacter, token '#', position 2; the formula remains rejected.
+    [Test]
+    public async Task OrdinarySpillMarker_KeepsTheBaselineExceptionContract()
+    {
+        var (_, sheet) = NewWorkbook();
+        var exception = Assert.Throws<ParseException>(() => ExpressionParser.Parse("=A1#", sheet));
+
+        await Assert.That(exception.Kind).IsEqualTo(ParseErrorKind.UnexpectedCharacter);
+        await Assert.That(exception.Token).IsEqualTo("#");
+        await Assert.That(exception.Position).IsEqualTo(2);
+
+        var afterDeletedReference = Assert.Throws<ParseException>(() =>
+            ExpressionParser.Parse("=#REF!A1+A2#", sheet)
+        );
+        await Assert.That(afterDeletedReference.Kind).IsEqualTo(ParseErrorKind.UnexpectedCharacter);
+        await Assert.That(afterDeletedReference.Token).IsEqualTo("#");
+        await Assert.That(afterDeletedReference.Position).IsEqualTo(10);
+
+        var afterIndependentName = Assert.Throws<ParseException>(() =>
+            ExpressionParser.Parse("=#REF!MyName#", sheet)
+        );
+        await Assert.That(afterIndependentName.Kind).IsEqualTo(ParseErrorKind.UnexpectedCharacter);
+        await Assert.That(afterIndependentName.Token).IsEqualTo("#");
+        await Assert.That(afterIndependentName.Position).IsEqualTo(11);
     }
 
     [Test]

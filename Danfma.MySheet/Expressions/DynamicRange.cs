@@ -57,9 +57,20 @@ public sealed partial record DynamicRange(Expression Start, Expression End) : Re
     // ComputedValue.Reference(...) so a consumer that expects a reference (SUM, COUNT, ...) can still expand
     // it, degrading to #REF! only when the endpoints fail to resolve to a concrete range.
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        TryResolveReference(context, out var reference)
-            ? ComputedValue.Reference(reference!)
-            : ComputedValue.Error(Error.Ref);
+        TryResolveReference(context, out var reference) ? ComputedValue.Reference(reference!)
+        : HasScalarNameEndpoint(context) ? ComputedValue.Error(Error.Value)
+        : ComputedValue.Error(Error.Ref);
+
+    // A defined name used as a ':' endpoint can resolve to a scalar rather than a reference. The deleted-
+    // reference parser preserves that name as an endpoint; Excel reports the malformed scalar range as
+    // #VALUE!, while genuinely unresolvable endpoints retain the #REF! fallback.
+    private bool HasScalarNameEndpoint(EvaluationContext context) =>
+        IsScalarName(Start, context) || IsScalarName(End, context);
+
+    private static bool IsScalarName(Expression endpoint, EvaluationContext context) =>
+        endpoint is NameReference name
+        && !name.TryResolveReference(context, out _)
+        && name.Evaluate(context).Kind != ComputedValueKind.Error;
 
     // The sheet a resolved endpoint lives on. TryBox only accepts a cell, a rectangle or a zero-row
     // rectangle, so those are the only shapes reaching here.
