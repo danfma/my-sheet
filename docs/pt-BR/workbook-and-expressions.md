@@ -376,12 +376,14 @@ delimitadora populada** dentro de seus limites; `AREAS` conta como uma área e `
 traduzem coordenadas aritmeticamente; `MATCH` e `XMATCH` percorrem somente células populadas e preservam as
 coordenadas de origem delas. Nenhum materializa uma linha ou coluna inteira.
 
-`VLOOKUP` e `HLOOKUP` também aceitam um escalar ou uma célula resolvida como uma tabela 1x1, aplicando as
-verificações normais de índice, modo, limites e correspondência. `XLOOKUP` exige um array de busca unidimensional
+`VLOOKUP` e `HLOOKUP` também aceitam um escalar ou uma célula resolvida como uma tabela 1x1. Uma tabela que é
+uma célula direta com erro retorna `#N/A` no modo exato antes dos limites do índice e propaga o erro no modo
+aproximado; uma célula de erro nomeada propaga seu erro nos dois modos. `XLOOKUP` exige um array de busca unidimensional
 e valida os mesmos valores capturados de referência ou array computado que pesquisa: o array de retorno precisa
 ter a mesma contagem de linhas numa busca vertical ou de colunas numa busca horizontal, caso contrário retorna
 `#VALUE!` antes de aplicar `if_not_found`; o array de retorno ainda pode ser mais largo ou mais alto no eixo que
-não é pesquisado.
+não é pesquisado, e uma busca 1x1 conta como qualquer um dos eixos. Arrays vinculados por LET e arrays computados
+de nomes definidos usam o mesmo caminho de array capturado.
 
 **Fora de escopo.** Interseção espacial de dois intervalos abertos não é modelada.
 
