@@ -448,12 +448,14 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
 
         // Sweep item 34(b), the VALUE slot: the lookup's error leads the scan (the oracle answers #NAME? for
         // XMATCH(NoSuch,A1:A3), and #DIV/0! for XMATCH(A1,B1:B3) over an error cell) instead of the not-found
-        // #N/A. ReferencePosition.IsLookupValueError keeps a range lookup's collapse #VALUE! (a range has no
-        // scalar value) out of the rule — that artifact is content, and the scan answers #N/A on it exactly
-        // as before.
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context))
+        // #N/A. ReferencePosition.IsLookupValueError keeps a MULTI-cell range lookup's collapse #VALUE! (a
+        // range has no scalar value) out of the rule — that artifact is content, and the scan answers #N/A on
+        // it exactly as before — but reads a 1x1 range's own cell directly (finding I4): XMATCH(A1:A1,B1:B3)
+        // is #DIV/0! over A1 = =1/0, the oracle's answer (26.7.0, both modes), not the not-found #N/A a
+        // #VALUE!-literal scan gave before.
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
         {
-            return lookup;
+            return valueError;
         }
 
         // ... and the ARRAY slot: an unresolved node reports its own error the same way (ReferencePosition's

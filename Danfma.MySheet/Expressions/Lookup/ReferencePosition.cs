@@ -189,30 +189,73 @@ internal static class ReferencePosition
     /// The lookup VALUE slot's rule, the one site MATCH, XMATCH and XLOOKUP share: the lookup value's error
     /// leads the scan when it is the argument's OWN error (<see cref="PositionalRange.IsOwnSlotError"/> — an
     /// unresolved name's <c>#NAME?</c>, <c>1/0</c>'s <c>#DIV/0!</c>) OR the argument denotes a single CELL that
-    /// holds it — a cell reference, an anchored cell, a name bound to one. A value slot is not a range slot:
-    /// the cell's value IS the lookup value, so its error is not "content" the way an error cell inside a
-    /// criteria range is (which is all <see cref="PositionalRange.IsOwnSlotError"/> was written for, and why
-    /// reusing it alone lost the approximate path's propagation). Measured on Aspose.Cells 26.6.0 and 26.7.0
-    /// (2026-09-14, PLAIN and array-entered, identical): over A1 = <c>=1/0</c>, <c>MATCH(A1,A1)</c> on every
-    /// match type, <c>XMATCH(A1,B1:B3)</c> and <c>XLOOKUP(A1,B1:B3,C1:C3)</c> — even with an
-    /// <c>if_not_found</c> — are <c>#DIV/0!</c>, as are VLOOKUP/HLOOKUP/LOOKUP, which check the value's error
-    /// unconditionally. A RANGE in the value slot stays out: its <c>#VALUE!</c> is the collapse artifact
-    /// (<c>SUM(MATCH(A1:A3,A1:A3,0))</c>, ElementwiseLiftingTests' known divergence).
+    /// holds it — a cell reference, an anchored cell, a name bound to one, OR (final-review fix wave, finding
+    /// I4, pre-existing) a 1x1 RANGE: static (<c>A1:A1</c>, a name bound to <c>$A$1:$A$1</c>) or DYNAMIC
+    /// (<c>ErrCell:ErrCell</c>, resolved through <see cref="DynamicRange"/> at evaluation time). A value slot
+    /// is not a range slot: the cell's value IS the lookup value, so its error is not "content" the way an
+    /// error cell inside a criteria range is (which is all <see cref="PositionalRange.IsOwnSlotError"/> was
+    /// written for, and why reusing it alone lost the approximate path's propagation). Measured on
+    /// Aspose.Cells 26.6.0 and 26.7.0 (2026-09-14, PLAIN and array-entered, identical): over A1 = <c>=1/0</c>,
+    /// <c>MATCH(A1,A1)</c> on every match type, <c>XMATCH(A1,B1:B3)</c> and <c>XLOOKUP(A1,B1:B3,C1:C3)</c> —
+    /// even with an <c>if_not_found</c> — are <c>#DIV/0!</c>, as are VLOOKUP/HLOOKUP/LOOKUP, which check the
+    /// value's error unconditionally. A RANGE of MORE THAN ONE cell in the value slot stays out: its
+    /// <c>#VALUE!</c> is the collapse artifact (<c>SUM(MATCH(A1:A3,A1:A3,0))</c>, ElementwiseLiftingTests'
+    /// known divergence).
     /// </summary>
-    /// <remarks>The resolution runs only after the value turned out to be an error.</remarks>
+    /// <param name="error">
+    /// The value to propagate when this returns <c>true</c> — <paramref name="lookup"/> itself for an
+    /// own-slot error, since that is already the argument's own evaluated content. For a single-cell
+    /// resolution this instead reads the CELL directly, independent of what <paramref name="lookup"/>
+    /// evaluated to: a genuine <see cref="CellReference"/> argument already agrees with
+    /// <paramref name="lookup"/> (its own <c>Evaluate</c> dereferences the cell), but a 1x1
+    /// <see cref="RangeReference"/> (<c>A1:A1</c>) collapses <paramref name="lookup"/> to an unconditional
+    /// <c>#VALUE!</c> (sweep item 32) and a 1x1 resolved through <see cref="DynamicRange"/>
+    /// (<c>ErrCell:ErrCell</c>) wraps it as a Reference-kind value that is not even an error — neither
+    /// dereferences into the one cell the way a plain <see cref="CellReference"/>'s own <c>Evaluate</c> does.
+    /// </param>
     public static bool IsLookupValueError(
         Expression argument,
         ComputedValue lookup,
-        EvaluationContext context
-    ) =>
-        lookup.TryGetError(out var error)
-        && (
-            PositionalRange.IsOwnSlotError(argument, error, context)
-            || (
-                NamedReferences.TryResolveReference(argument, context, out var reference)
-                && reference is CellReference
-            )
-        );
+        EvaluationContext context,
+        out ComputedValue error
+    )
+    {
+        error = lookup;
+
+        if (
+            lookup.TryGetError(out var lookupError)
+            && PositionalRange.IsOwnSlotError(argument, lookupError, context)
+        )
+        {
+            return true;
+        }
+
+        if (!NamedReferences.TryResolveReference(argument, context, out var reference))
+        {
+            return false;
+        }
+
+        var singleCellValue = reference switch
+        {
+            CellReference cell => cell.Evaluate(context),
+            RangeReference range
+                when RangeBounds.TryFrom(range, out var bounds)
+                    && bounds is { RowCount: 1, ColumnCount: 1 } => range.CellComputedValueAt(
+                context,
+                1,
+                1
+            ),
+            _ => (ComputedValue?)null,
+        };
+
+        if (singleCellValue is { } value && value.TryGetError(out _))
+        {
+            error = value;
+            return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// What a reference-requiring function returns for an argument it could NOT resolve to a reference: the

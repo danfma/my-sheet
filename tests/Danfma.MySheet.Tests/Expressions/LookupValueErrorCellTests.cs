@@ -6,8 +6,9 @@ namespace Danfma.MySheet.Tests.Expressions;
 
 /// <summary>
 /// The lookup VALUE slot over a single CELL holding an error. Fixture = the controller's divergence probe:
-/// Main!A1 = <c>=1/0</c>, B1:B3 = 1, 2, 3, C1:C3 = 10, 20, 30, D1 = 5, A5:A7 = 5, 0, 9, and the defined name
-/// <c>ErrCell</c> = <c>Main!$A$1</c>; the formula sits at Main!AZ5000 and is read back through the cell.
+/// Main!A1 = <c>=1/0</c>, B1:B3 = 1, 2, 3, C1:C3 = 10, 20, 30, D1 = 5, A5:A7 = 5, 0, 9, and the defined names
+/// <c>ErrCell</c> = <c>Main!$A$1</c> and <c>ErrRange</c> = <c>Main!$A$1:$A$1</c> (finding I4's 1x1-range
+/// shape); the formula sits at Main!AZ5000 and is read back through the cell.
 /// <para>
 /// Measured on Aspose.Cells 26.6.0 AND 26.7.0 (the oracle migration, 2026-09-14), one formula per workbook,
 /// PLAIN and array-entered: the two versions and the two entry modes agree on every row. The lookup value's
@@ -34,6 +35,7 @@ public class LookupValueErrorCellTests
         main["A6"] = new NumberValue(0);
         main["A7"] = new NumberValue(9);
         workbook.DefineName("ErrCell", "Main!$A$1");
+        workbook.DefineName("ErrRange", "Main!$A$1:$A$1");
         main["AZ5000"] = ExpressionParser.Parse(formula, main);
 
         var value = workbook.GetCellValue("Main", "AZ5000");
@@ -112,14 +114,96 @@ public class LookupValueErrorCellTests
 
     // The guard the value-slot rule must NOT cross: a RANGE in the value slot collapses to #VALUE! (a range has
     // no scalar value), which is an artifact, not the lookup value's own error — the reason the shared guard
-    // exists. MySheet does not lift a Consumes function over its scalar slot (ElementwiseLiftingTests' known
-    // divergence), so these stay where they were. Oracle 26.6.0 = 26.7.0, PLAIN / CSE:
+    // exists. Final-review fix wave, finding I1: the comment that used to sit here ("these stay where they
+    // were") was FALSE — MEASURED false against main (`#VALUE!`), and the branch (`5975c63`) had silently
+    // moved `SUM(MATCH(B1:B3,B1:B3))` from `#VALUE!` to `3` (a POSITION) without a pin or a commit-body line,
+    // the exact "never silently change an expected value" rule the sweep is built on. The EXACT path
+    // (matchType 0) still "stays where it were": IsLookupValueError's narrower guard is the ONLY one on that
+    // path, so `MATCH(A5:A7,A5:A7,0)`'s range-collapse `#VALUE!` is not "the lookup value's own error" and
+    // the scan proceeds to its ordinary not-found `#N/A`. The APPROXIMATE path (the third row, matchType
+    // omitted -> 1) now restores main's unconditional rule instead (Match.cs, right after the exact-path
+    // block): the lookup value's error leads UNCONDITIONALLY there, so `MATCH(B1:B3,B1:B3)` is `#VALUE!`
+    // directly and `SUM` of it propagates the same `#VALUE!` — branch 3 -> #VALUE!, both main's and the
+    // oracle PLAIN's answer. Oracle 26.7.0 = 26.6.0, PLAIN / CSE:
     //   SUM(MATCH(A5:A7,A5:A7,0)) #VALUE! / 6, MATCH(A5:A7,A5:A7,0) #VALUE! / 1, SUM(MATCH(B1:B3,B1:B3)) #VALUE! / 6.
     [Test]
     [Arguments("=SUM(MATCH(A5:A7,A5:A7,0))", "#N/A")]
     [Arguments("=MATCH(A5:A7,A5:A7,0)", "#N/A")]
-    [Arguments("=SUM(MATCH(B1:B3,B1:B3))", "3")]
+    [Arguments("=SUM(MATCH(B1:B3,B1:B3))", "#VALUE!")]
     public async Task ARangeInTheValueSlot_KeepsItsCollapseArtifact(string formula, string expected)
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // I1's other approximate-path rows, measured on Aspose.Cells 26.7.0 (= 26.6.0), PLAIN / CSE: the lookup
+    // value's error leads UNCONDITIONALLY on this path, so a range-collapse #VALUE! propagates exactly like a
+    // single cell's own error does (ALookupValueCellHoldingAnError_LeadsTheLookup above) instead of scanning
+    // for a literal match. `MATCH(A5:A7,A5:A7)` (matchType omitted, approximate) moves the same way as the
+    // B1:B3 row; both are new pins (T1/the MATCH fix never measured the approximate-path range case).
+    [Test]
+    [Arguments("=MATCH(B1:B3,B1:B3)", "#VALUE!")]
+    [Arguments("=MATCH(A5:A7,A5:A7)", "#VALUE!")]
+    public async Task ARangeInTheValueSlot_OnTheApproximatePath_PropagatesUnconditionally(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // Final-review fix wave, finding I4 (Important, pre-existing on main). ReferencePosition.cs used to test
+    // `reference is CellReference` only; A1:A1 and a name bound to $A$1:$A$1 (ErrRange below) both resolve to
+    // a RangeReference instead — a 1x1 one, which the value-slot rule's own doc ("the argument denotes a
+    // single CELL") already covers but the code did not. The widened IsLookupValueError reads the ONE cell
+    // directly (RangeReference.CellComputedValueAt) instead of scanning for the RangeReference.Evaluate
+    // collapse artifact (#VALUE!) that is never in the array — before this fix, #N/A on the branch AND on
+    // main (both engines shared the same narrow test). Oracle 26.7.0 = 26.6.0, both modes: #DIV/0! for all
+    // four; MATCH(A1:A1,B1:B3,0) is on the EXACT path (matchType 0), the other three default/approximate.
+    [Test]
+    [Arguments("=MATCH(A1:A1,B1:B3,0)", "#DIV/0!")]
+    [Arguments("=MATCH(A1:A1,B1:B3)", "#DIV/0!")]
+    [Arguments("=XMATCH(A1:A1,B1:B3)", "#DIV/0!")]
+    [Arguments("=XLOOKUP(A1:A1,B1:B3,C1:C3)", "#DIV/0!")]
+    [Arguments("=MATCH(ErrRange,B1:B3,0)", "#DIV/0!")]
+    public async Task A1x1RangeHoldingAnError_CountsAsASingleCell_ForTheLookupValueRule(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // VLOOKUP does not share IsLookupValueError's site (VLookup.cs's own check is an unconditional
+    // `lookup.Kind == ComputedValueKind.Error`, evaluated separately) — finding I4's "one arm" fix does not
+    // reach it, so this row STAYS a recorded, pre-existing divergence: branch #VALUE! (RangeReference's own
+    // collapse), oracle 26.7.0 = 26.6.0, both modes: #DIV/0!.
+    [Test]
+    [Arguments("=VLOOKUP(A1:A1,B1:C3,2,FALSE)", "#VALUE!")]
+    public async Task VLookupOverA1x1RangeHoldingAnError_IsUnaffected_ARecordedDivergence(
+        string formula,
+        string expected
+    )
+    {
+        await Assert.That(InCell(formula)).IsEqualTo(expected);
+    }
+
+    // Claim measured FALSE, registered — not fixed here. The brief's I4 wording named ErrCell:ErrCell
+    // (a NAME on both sides of ':') as an equivalent 1x1-range shape to A1:A1; it is not. A1:A1 and a name
+    // BOUND TO a 1x1 range (ErrRange above) parse to a RangeReference the widened IsLookupValueError now
+    // reads; ErrCell:ErrCell parses to an OpenRangeReference with a GARBAGE ColMin/ColMax (measured: both
+    // 1766725648 on this fixture) — the parser treats "Identifier:Identifier" as Excel's whole-COLUMN syntax
+    // (A:A) generalized to any token before/after the ':', and a non-column-letter name degrades into a
+    // meaningless numeric column instead of failing to parse. This is a SEPARATE, pre-existing PARSER defect
+    // (measured with a throwaway probe: ExpressionParser.Parse("=ErrCell:ErrCell",...) is an
+    // OpenRangeReference, not a DynamicRange over two NameReference endpoints as the finding assumed), well
+    // outside "one arm on IsLookupValueError" — registering it for the controller rather than widening this
+    // fix wave into the parser. Unaffected by this fix wave: branch stays #N/A; oracle 26.7.0 = 26.6.0: #DIV/0!.
+    [Test]
+    [Arguments("=MATCH(ErrCell:ErrCell,B1:B3,0)", "#N/A")]
+    public async Task NameColonName_ParsesAsAGarbageOpenColumnRange_ARegisteredParserDefect(
+        string formula,
+        string expected
+    )
     {
         await Assert.That(InCell(formula)).IsEqualTo(expected);
     }

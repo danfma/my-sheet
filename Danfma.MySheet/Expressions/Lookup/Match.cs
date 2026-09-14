@@ -41,9 +41,9 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // ARRAY's node does not resolve, the node's OWN error leads instead of the not-found #N/A (#NAME? for
         // an unknown name, the node's #REF! for an unresolvable structured reference; the oracle answers the
         // error on every one of these shapes, both entry modes).
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context))
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
         {
-            return lookup;
+            return valueError;
         }
 
         if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
@@ -88,6 +88,24 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // Approximate: matchType > 0 assumes ascending (largest value <= lookup); < 0 assumes
         // descending (smallest value >= lookup). Cross-type ordering (ValueCoercion.Compare) lets text
         // keys sort lexicographically, exactly the <= operator — not only numeric keys.
+
+        // Final-review fix wave, finding I1: main's UNCONDITIONAL rule on this path — ANY lookup-value
+        // error leads, a range-collapse #VALUE! included (`MATCH(B1:B3,B1:B3)` is #VALUE!, both main's and
+        // the oracle PLAIN's answer, Aspose.Cells 26.7.0) — restored here, verbatim. T1 (`a542f56`) deleted
+        // it and replaced the one check above (IsLookupValueError) as the ONLY guard on both paths;
+        // IsLookupValueError answers false for a RangeReference (its own #VALUE! is "content", the rule
+        // PositionalRange.IsOwnSlotError was written for), so a range-collapse lookup value fell through to
+        // the scan below and answered a POSITION instead of propagating. The EXACT path above deliberately
+        // keeps ONLY IsLookupValueError's narrower guard: a range's #VALUE! there is the pinned collapse
+        // artifact (`SUM(MATCH(A5:A7,A5:A7,0))` stays #N/A, ElementwiseLiftingTests' known divergence) —
+        // this unconditional check must not reach it. XMATCH and XLOOKUP do not need the same restoration:
+        // main never propagated a lookup-value error for either (measured against `a02ed5d`'s
+        // LookupFunctions.cs/XLookup.cs — no such check existed at all, on any match mode), so their
+        // current IsLookupValueError-only guard is a net addition over main, not a regression.
+        if (lookup.Kind == ComputedValueKind.Error)
+        {
+            return lookup;
+        }
 
         // Approximate → O(log n) via the sorted index (correct for any input order: it returns the LAST
         // position among the qualifying values, exactly like the linear scan below).

@@ -22,13 +22,14 @@ public sealed partial record XLookup(Expression[] Arguments) : Function
 
         // Sweep item 34(b), the VALUE slot: the lookup's error leads the scan (the oracle answers #NAME? for
         // XLOOKUP(NoSuch,A1:A3,B1:B3), and a single error cell's own code even over an if_not_found —
-        // ReferencePosition.IsLookupValueError) instead of the not-found #N/A. The ARRAY slots are the
-        // measured exception and keep their own codes: the oracle itself answers #N/A (lookup array) and
-        // #VALUE! (return array) for an unresolved name there — see
+        // ReferencePosition.IsLookupValueError, which also reads a 1x1 range's own cell directly since
+        // finding I4: XLOOKUP(A1:A1,B1:B3,C1:C3) is #DIV/0! over A1 = =1/0) instead of the not-found #N/A.
+        // The ARRAY slots are the measured exception and keep their own codes: the oracle itself answers
+        // #N/A (lookup array) and #VALUE! (return array) for an unresolved name there — see
         // MissingSheetReferenceTests.XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo.
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context))
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
         {
-            return lookup;
+            return valueError;
         }
 
         var lookupSnapshot = Arguments[1] is Reference lookupReference
