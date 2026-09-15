@@ -76,10 +76,30 @@ public class XLookupReferenceReadingTests
     ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
 
     [Test]
-    public async Task LetBoundXLookup_InACriteriaSlot_KeepsTheStructuralRoute() =>
-        await Assert
-            .That(Evaluate("=COUNTIF(LET(r,XLOOKUP(2,A1:A3,B1:C3),r),\">0\")"))
-            .IsEqualTo("2");
+    [Arguments("=COUNTIF(LET(r,XLOOKUP(2,A1:A3,B1:C3),r),\">0\")", "#REF!")]
+    [Arguments("=COUNTIF(LET(r,XLOOKUP(2,A1:A3,B1:C3),s,r,s),\">0\")", "#REF!")]
+    [Arguments("=SUMIF(A1:A3,\">0\",LET(r,XLOOKUP(2,A1:A3,B1:C3),r))", "#REF!")]
+    [Arguments("=AGGREGATE(9,6,LET(r,XLOOKUP(2,A1:A3,B1:C3),r))", "#VALUE!")]
+    [Arguments("=SUM(OFFSET(LET(r,XLOOKUP(2,A1:A3,B1:C3),r),0,0))", "#REF!")]
+    [Arguments("=SUM(LET(r,XLOOKUP(2,A1:A3,B1:C3),r))", "220")]
+    public async Task LetBoundXLookup_IsAValueArrayRatherThanAStructuralReference(
+        string formula,
+        string expected
+    )
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE agree on every row. MySheet previously promoted the LET name
+        // to a reference, producing 2, 2, 50, 20, #REF!, and 20 respectively instead of these values.
+        await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("=COUNTIF(LET(r,INDEX(A1:B3,0,1),r),\">0\")", "3")]
+    [Arguments("=COUNTIF(XLOOKUP(2,A1:A3,B1:C3),\">0\")", "2")]
+    [Arguments("=COUNTIF(LET(r,Ghost!A1:A3,r),\">0\")", "#REF!")]
+    public async Task LetBoundXLookup_RetainsReferenceRouteControls(
+        string formula,
+        string expected
+    ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
 
     [Test]
     [Arguments("=SUM(OFFSET(XLOOKUP(2,A1:A3,B1:C3),0,0,-1,1))", "20")]

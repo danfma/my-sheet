@@ -74,7 +74,7 @@ internal static class ArrayBindings
     public static Binding Capture(Expression expression, EvaluationContext context)
     {
         if (
-            !ArrayEvaluation.IsBareReferenceNode(expression, context)
+            IsValueArrayBinding(expression, context)
             && ArrayEvaluation.IsArrayEligible(expression, context)
             && ArrayEvaluation.TryBuildOperand(expression, context, out var operand)
             && operand.IsArray
@@ -106,7 +106,7 @@ internal static class ArrayBindings
     public static Binding Shape(Expression expression, EvaluationContext context)
     {
         if (
-            !ArrayEvaluation.IsBareReferenceNode(expression, context)
+            IsValueArrayBinding(expression, context)
             && ArrayEvaluation.IsArrayEligible(expression, context)
         )
         {
@@ -124,6 +124,9 @@ internal static class ArrayBindings
                 : ComputedValue.Blank
         );
     }
+
+    private static bool IsValueArrayBinding(Expression expression, EvaluationContext context) =>
+        expression is Lookup.XLookup || !ArrayEvaluation.IsBareReferenceNode(expression, context);
 
     // The probe's array stand-in: IsArray is the only thing a probe reads off a binding. Its extent and
     // elements do not exist — a read means a probe path evaluated a bound name, which is a bug — so At
