@@ -15,49 +15,11 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        // The table may be written directly or through a defined name that stands for a range. When it
-        // does not resolve, the node's OWN error is the answer (sweep item 34(b): #NAME? for an unknown
-        // name, the node's #REF! for an unresolvable structured reference). A plain scalar is the measured
-        // exception: it is a 1x1 table, while a directly computed error follows the CSE not-found reading.
-        if (!NamedReferences.TryResolveReference(Arguments[1], context, out var reference))
+        if (
+            !LookupTable.TryResolveTable(Arguments, context, out var reference, out var tableAnswer)
+        )
         {
-            var tableValue = Arguments[1].Evaluate(context);
-
-            if (
-                Arguments[1] is not NameReference and not TableReference
-                && !ArrayEvaluation.IsArrayEligible(Arguments[1], context)
-                && tableValue.TryGetError(out _)
-            )
-            {
-                return ComputedValue.Error(Error.NA);
-            }
-
-            if (tableValue is { Kind: not ComputedValueKind.Error })
-            {
-                return LookupScalarTable(tableValue, context);
-            }
-
-            return ReferencePosition.Unresolved(
-                Arguments[1],
-                context,
-                ComputedValue.Error(Error.Ref)
-            );
-        }
-
-        if (reference is CellReference cell)
-        {
-            var value = cell.Evaluate(context);
-            if (Arguments[1] is NameReference && value.TryGetError(out _))
-            {
-                return value;
-            }
-
-            if (value.TryGetError(out _))
-            {
-                return DirectErrorCellTable(context);
-            }
-
-            return LookupScalarTable(value, context);
+            return tableAnswer;
         }
 
         // Bounds are resolved ONCE here, not re-parsed on every row of the linear fallback scan below. This is
@@ -72,19 +34,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
         var lookup = Arguments[0].Evaluate(context);
 
-        if (
-            (
-                Arguments[0] is not RangeReference range
-                || (range.RowCount == 1 && range.ColumnCount == 1)
-            )
-            && lookup.Kind == ComputedValueKind.Error
-            && ReferencePosition.IsLookupValueError(
-                Arguments[0],
-                lookup,
-                context,
-                out var valueError
-            )
-        )
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
         {
             return valueError;
         }
@@ -213,56 +163,5 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         return matchRow >= 1
             ? table.CellComputedValueAt(workbook, handle, bounds, matchRow, (int)columnIndex)
             : ComputedValue.Error(Error.NA);
-    }
-
-    private ComputedValue LookupScalarTable(ComputedValue tableValue, EvaluationContext context)
-    {
-        var lookup = Arguments[0].Evaluate(context);
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
-        {
-            return valueError;
-        }
-
-        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
-        {
-            return ComputedValue.Error(columnError);
-        }
-
-        if (columnIndex < 1)
-        {
-            return ComputedValue.Error(Error.Value);
-        }
-
-        if (columnIndex > 1)
-        {
-            return ComputedValue.Error(Error.Ref);
-        }
-
-        var approximate = true;
-        if (
-            Arguments.Length == 4
-            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
-        )
-        {
-            return ComputedValue.Error(modeError);
-        }
-
-        return lookup.TryGetError(out _) || !ValueCoercion.AreEqual(tableValue, lookup)
-            ? ComputedValue.Error(Error.NA)
-            : tableValue;
-    }
-
-    private ComputedValue DirectErrorCellTable(EvaluationContext context)
-    {
-        var approximate = true;
-        if (
-            Arguments.Length == 4
-            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
-        )
-        {
-            return ComputedValue.Error(modeError);
-        }
-
-        return approximate ? Arguments[1].Evaluate(context) : ComputedValue.Error(Error.NA);
     }
 }
