@@ -379,7 +379,9 @@ public sealed partial record Column(Expression[] Arguments) : Function
                 // syntactic arms above, which it would otherwise subsume (the compiler rejects that
                 // ordering); a zero-argument COLUMN() cannot reach it — [var only] requires exactly one
                 // argument.
-                [var only] => ReferencePosition.Column(only, context),
+                [var only] => ArrayEvaluation.TryStream(only, context, out _)
+                    ? ComputedValue.Error(Error.Ref)
+                    : ReferencePosition.Column(only, context),
                 _ => ComputedValue.Error(Error.Value),
             };
 }

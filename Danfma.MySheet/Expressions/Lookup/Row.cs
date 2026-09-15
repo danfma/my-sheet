@@ -37,7 +37,9 @@ public sealed partial record Row(Expression[] Arguments) : Function
                 // single-argument syntactic arms above, which it would otherwise subsume (the compiler
                 // rejects that ordering); a zero-argument ROW() cannot reach it — [var only] requires
                 // exactly one argument.
-                [var only] => ReferencePosition.Row(only, context),
+                [var only] => ArrayEvaluation.TryStream(only, context, out _)
+                    ? ComputedValue.Error(Error.Ref)
+                    : ReferencePosition.Row(only, context),
                 _ => ComputedValue.Error(Error.Value),
             };
 }

@@ -113,6 +113,22 @@ public class ArrayConstantTests
         await Assert.That(Calc(formula) as double?).IsEqualTo(expected);
 
     [Test]
+    [Arguments("=ROW({1})")]
+    [Arguments("=COLUMN({1})")]
+    [Arguments("=ROW(SEQUENCE(2))")]
+    [Arguments("=COLUMN(SEQUENCE(1,2))")]
+    public async Task RowAndColumn_RejectComputedArrays(string formula) =>
+        await Assert.That(Calc(formula)).IsEqualTo(ErrorValue.Reference);
+
+    [Test]
+    public async Task Rows_StillReadsAnArrayConstantShape() =>
+        await Assert.That(Calc("=ROWS({1,2})") as double?).IsEqualTo(1d);
+
+    [Test]
+    public async Task Row_ScalarBehaviorIsUnchanged() =>
+        await Assert.That(Calc("=ROW(1)")).IsEqualTo(ErrorValue.NotValue);
+
+    [Test]
     public async Task FormulaTextAndMemoryPack_RoundTripArrayConstant()
     {
         var workbook = new Workbook();
