@@ -38,6 +38,15 @@ public class LookupFunctionTests
     }
 
     [Test]
+    public async Task XMatch_InvalidMode_PrecedesLookupArrayError()
+    {
+        // Aspose.Cells 26.7.0 CSE validates the mode before inspecting the erroring lookup array.
+        await Assert
+            .That(Calc("=XMATCH(\"a\",1/0,\"bad\")") as ErrorValue)
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
     public async Task VLookup_ColumnIndexBelowOne_IsValueError()
     {
         // support.microsoft.com VLOOKUP: col_index_num < 1 -> #VALUE!; greater than the number of

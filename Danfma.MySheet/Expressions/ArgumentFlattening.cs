@@ -242,11 +242,35 @@ internal static class ArgumentFlattening
         out RangeSnapshot? snapshot
     )
     {
-        snapshot = argument is Reference reference
-            ? context.Workbook.TryGetRangeSnapshot(reference, context)
-            : null;
+        return argument is Reference reference
+            ? ExpandCached(reference, context, out snapshot)
+            : ExpandUncached(argument, context, out snapshot);
+    }
+
+    /// <summary>
+    /// Expands an already-resolved reference through the same cache admission route as a syntactic reference.
+    /// Consumers that resolve names or reference-returning functions must use this overload rather than turn
+    /// the reference back into an element-wise computed array.
+    /// </summary>
+    public static IReadOnlyList<ComputedValue> ExpandCached(
+        Reference reference,
+        EvaluationContext context,
+        out RangeSnapshot? snapshot
+    )
+    {
+        snapshot = context.Workbook.TryGetRangeSnapshot(reference, context);
 
         return snapshot?.Values
-            ?? (IReadOnlyList<ComputedValue>)ExpandComputedValues(argument, context);
+            ?? (IReadOnlyList<ComputedValue>)ExpandComputedValues(reference, context);
+    }
+
+    private static IReadOnlyList<ComputedValue> ExpandUncached(
+        Expression argument,
+        EvaluationContext context,
+        out RangeSnapshot? snapshot
+    )
+    {
+        snapshot = null;
+        return ExpandComputedValues(argument, context);
     }
 }

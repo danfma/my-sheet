@@ -440,13 +440,6 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return valueError;
         }
 
-        // ... and the ARRAY slot: an unresolved node reports its own error the same way (ReferencePosition's
-        // shared rule) instead of streaming it as the one element the scan discards.
-        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
-        {
-            return unresolved;
-        }
-
         var matchMode = 0.0;
         if (
             Arguments.Length >= 3
@@ -465,6 +458,13 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return ComputedValue.Error(searchError);
         }
 
+        // CSE validates match/search modes before it inspects an invalid lookup array. In particular,
+        // XMATCH("a",1/0,"bad") is #VALUE!, not #DIV/0!.
+        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        {
+            return unresolved;
+        }
+
         _ = NamedReferences.TryResolveReference(
             Arguments[1],
             context,
@@ -473,20 +473,35 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         );
         var open = arrayReference as OpenRangeReference;
 
+        if (
+            arrayReference is not null
+            && RangeBounds.TryFrom(arrayReference, out var referenceBounds)
+            && referenceBounds.RowCount != 1
+            && referenceBounds.ColumnCount != 1
+        )
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
         IReadOnlyList<ComputedValue> array;
         RangeSnapshot? snapshot;
         List<int>? openPositions = null;
-        if (
-            (int)matchMode == 2
+        var computedArray =
+            arrayReference is null
+            && ((int)matchMode == 2 || Arguments[1] is ArrayConstant)
             && ArrayEvaluation.TryEvaluate(Arguments[1], context, out var result)
+                ? result
+                : default;
+        if (
+            computedArray.Values is not null
+            && computedArray.Rows != 1
+            && computedArray.Columns != 1
         )
         {
-            // Computed array sources must reach the same shared wildcard scan as ranges. Materializing once
-            // preserves array element order while LookupMatching resolves the wildcard pattern once per call.
-            array = result.Values;
-            snapshot = null;
+            return ComputedValue.Error(Error.Value);
         }
-        else if (open is not null)
+
+        if (open is not null)
         {
             snapshot = context.Workbook.TryGetRangeSnapshot(open, context);
             if (snapshot is not null)
@@ -509,6 +524,16 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
 
                 array = values;
             }
+        }
+        else if (arrayReference is not null)
+        {
+            array = ArgumentFlattening.ExpandCached(arrayReference, context, out snapshot);
+        }
+        else if ((int)matchMode == 2 && computedArray.Values is not null)
+        {
+            // Only non-reference computed arrays materialize. References retain their shared snapshot route.
+            array = computedArray.Values;
+            snapshot = null;
         }
         else
         {

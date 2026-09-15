@@ -112,6 +112,47 @@ public class ArrayConstantTests
     }
 
     [Test]
+    public async Task XMatch_WildcardMode_RejectsTwoDimensionalArrays()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE both return #VALUE!; mode 2 accepts vectors only.
+        await Assert
+            .That(Calc("=XMATCH(\"a*\",{\"x\",\"ab\";\"ac\",\"y\"},2)"))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task XMatch_RejectsTwoDimensionalRangeAndArrayShapes()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new Danfma.MySheet.Expressions.StringValue("x");
+        sheet["B1"] = new Danfma.MySheet.Expressions.StringValue("ab");
+        sheet["A2"] = new Danfma.MySheet.Expressions.StringValue("ac");
+        sheet["B2"] = new Danfma.MySheet.Expressions.StringValue("y");
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE returns #VALUE! for both source spellings in exact mode.
+        await Assert
+            .That(
+                ExpressionParser
+                    .Parse("=XMATCH(\"ab\",{\"x\",\"ab\";\"ac\",\"y\"},0)", sheet)
+                    .Evaluate(workbook)
+            )
+            .IsEqualTo(ComputedValue.Error(Error.Value));
+        await Assert
+            .That(ExpressionParser.Parse("=XMATCH(\"ab\",A1:B2,0)", sheet).Evaluate(workbook))
+            .IsEqualTo(ComputedValue.Error(Error.Value));
+    }
+
+    [Test]
+    public async Task XLookup_WildcardMode_RejectsTwoDimensionalArrays()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE both return #VALUE! when the lookup array is two-dimensional.
+        await Assert
+            .That(Calc("=XLOOKUP(\"a*\",{\"x\",\"ab\";\"ac\",\"y\"},{1,2;3,4},,2)"))
+            .IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
     [Arguments("={1,2;3}")]
     [Arguments("={1+1}")]
     [Arguments("={A1}")]
