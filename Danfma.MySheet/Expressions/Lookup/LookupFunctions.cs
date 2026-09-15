@@ -189,7 +189,10 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             // Largest first-row key <= lookup, assuming the row is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like
             // the <= operator — not only numeric keys.
-            if (keySnapshot is not null && !LookupMatching.UsesWildcards(lookup))
+            if (
+                keySnapshot is not null
+                && (lookup.Kind != ComputedValueKind.Text || !LookupMatching.UsesWildcards(lookup))
+            )
             {
                 var position = keySnapshot.ApproximateAscendingPosition(lookup);
                 matchColumn = position >= 1 ? position : -1;
