@@ -129,6 +129,20 @@ public class ArrayConstantTests
         await Assert.That(Calc("=ROW(1)")).IsEqualTo(ErrorValue.NotValue);
 
     [Test]
+    public async Task LogicalConsumers_UseTheSharedArrayProducerRoute() =>
+        await Assert.That(Calc("=AND(SEQUENCE(1,2)>1)") as bool?).IsFalse();
+
+    [Test]
+    public async Task LookupConsumers_UseTheSharedArrayProducerRoute()
+    {
+        await Assert
+            .That(Calc("=VLOOKUP(2,SEQUENCE(2,2),2,FALSE)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert.That(Calc("=HLOOKUP(2,SEQUENCE(2,2),2,FALSE)") as double?).IsEqualTo(4d);
+        await Assert.That(Calc("=MATCH(2,SEQUENCE(3),0)") as double?).IsEqualTo(2d);
+    }
+
+    [Test]
     public async Task FormulaTextAndMemoryPack_RoundTripArrayConstant()
     {
         var workbook = new Workbook();

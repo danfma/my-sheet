@@ -15,29 +15,27 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
+        LookupGrid grid;
         if (
-            Arguments[1] is ArrayConstant
+            Arguments[1] is IArrayProducer
             && ArrayEvaluation.TryStream(Arguments[1], context, out var array)
         )
         {
-            return LookupArray(array, context);
+            grid = new LookupGrid(array);
         }
-
-        if (
+        else if (
             !LookupTable.TryResolveTable(Arguments, context, out var reference, out var tableAnswer)
         )
         {
             return tableAnswer;
         }
-
-        // Bounds are resolved ONCE here, not re-parsed on every row of the linear fallback scan below. This is
-        // a pure, side-effect-free read of the table's own corners, so hoisting it ahead of the argument
-        // evaluation below does not change Arguments' evaluation order. A zero-row rectangle (sweep item 33:
-        // a header-only table's data band) has bounds too — its real column count — so every argument check
-        // below applies to it unchanged before it leaves at the not-found check.
-        if (!RangeBounds.TryFrom(reference, out var bounds))
+        else if (!RangeBounds.TryFrom(reference, out var bounds))
         {
             return ComputedValue.Error(Error.Ref);
+        }
+        else
+        {
+            grid = new LookupGrid(reference as RangeReference, bounds, context);
         }
 
         var lookup = Arguments[0].Evaluate(context);
@@ -64,7 +62,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(Error.Value);
         }
 
-        if (columnIndex > bounds.ColumnCount)
+        if (columnIndex > grid.Columns)
         {
             return ComputedValue.Error(Error.Ref);
         }
@@ -80,14 +78,10 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         // Sweep item 33: a zero-row table has no key to find (oracle: #N/A in both entry modes).
-        if (reference is not RangeReference table)
+        if (grid.Rows == 0)
         {
             return ComputedValue.Error(Error.NA);
         }
-
-        // The dense sheet handle is resolved ONCE for the scan below.
-        var workbook = context.Workbook;
-        var handle = workbook.ResolveDenseHandle(table.SheetName);
 
         // The first column is a sub-range of the table; its per-epoch snapshot serves the key search O(1)
         // (exact) / O(log n) (approximate). A 1-based snapshot position IS the 1-based table row, because the
@@ -96,15 +90,7 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         // CellAddress.ToId allocations entirely and goes straight to the linear scan.
         RangeSnapshot? keySnapshot = null;
 
-        if (!workbook.RangeCacheDisabled && bounds.RowCount >= Workbook.RangeCacheMinimumCells)
-        {
-            var keyColumn = new RangeReference(
-                new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId(),
-                new CellAddress(bounds.LeftColumn, bounds.BottomRow).ToId(),
-                table.SheetName
-            );
-            keySnapshot = workbook.TryGetRangeSnapshot(keyColumn, context);
-        }
+        keySnapshot = grid.TryGetKeySnapshot(context, vertical: true);
 
         var matchRow = -1;
 
@@ -120,9 +106,9 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             }
             else
             {
-                for (var row = 1; row <= bounds.RowCount; row++)
+                for (var row = 1; row <= grid.Rows; row++)
                 {
-                    var key = table.CellComputedValueAt(workbook, handle, bounds, row, 1);
+                    var key = grid.At(row, 1);
                     if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
                     {
                         continue;
@@ -152,14 +138,9 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
             if (matchRow < 1)
             {
-                for (var row = 1; row <= bounds.RowCount; row++)
+                for (var row = 1; row <= grid.Rows; row++)
                 {
-                    if (
-                        ValueCoercion.AreEqual(
-                            table.CellComputedValueAt(workbook, handle, bounds, row, 1),
-                            lookup
-                        )
-                    )
+                    if (ValueCoercion.AreEqual(grid.At(row, 1), lookup))
                     {
                         matchRow = row;
                         break;
@@ -168,68 +149,6 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
             }
         }
 
-        return matchRow >= 1
-            ? table.CellComputedValueAt(workbook, handle, bounds, matchRow, (int)columnIndex)
-            : ComputedValue.Error(Error.NA);
-    }
-
-    private ComputedValue LookupArray(ArrayEvaluation.ArrayStream table, EvaluationContext context)
-    {
-        var lookup = Arguments[0].Evaluate(context);
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
-        {
-            return valueError;
-        }
-
-        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
-        {
-            return ComputedValue.Error(columnError);
-        }
-
-        if (columnIndex < 1)
-        {
-            return ComputedValue.Error(Error.Value);
-        }
-
-        if (columnIndex > table.Columns)
-        {
-            return ComputedValue.Error(Error.Ref);
-        }
-
-        var approximate = true;
-        if (
-            Arguments.Length == 4
-            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
-        )
-        {
-            return ComputedValue.Error(modeError);
-        }
-
-        var matchRow = -1;
-        for (var row = 0; row < table.Rows; row++)
-        {
-            var key = table.ElementAt(row * table.Columns);
-            if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
-            {
-                continue;
-            }
-
-            if (
-                approximate
-                    ? ValueCoercion.Compare(key, lookup) <= 0
-                    : ValueCoercion.AreEqual(key, lookup)
-            )
-            {
-                matchRow = row;
-                if (!approximate)
-                {
-                    break;
-                }
-            }
-        }
-
-        return matchRow >= 0
-            ? table.ElementAt(matchRow * table.Columns + (int)columnIndex - 1)
-            : ComputedValue.Error(Error.NA);
+        return matchRow >= 1 ? grid.At(matchRow, (int)columnIndex) : ComputedValue.Error(Error.NA);
     }
 }

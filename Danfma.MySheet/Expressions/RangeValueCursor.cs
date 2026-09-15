@@ -89,6 +89,8 @@ internal struct RangeValueCursor
                 : null
         );
 
+    public static RangeValueCursor Open(ArrayEvaluation.ArrayStream array) => new(Stream(array));
+
     /// <summary>
     /// Same backing preference as <see cref="Open(Expression, EvaluationContext)"/>, but takes an
     /// ALREADY-resolved snapshot probe instead of running its own. <see cref="Workbook.TryGetRangeSnapshot"/>

@@ -113,3 +113,68 @@ internal static class LookupTable
         return approximate ? arguments[1].Evaluate(context) : ComputedValue.Error(Error.NA);
     }
 }
+
+internal readonly struct LookupGrid
+{
+    private readonly ArrayEvaluation.ArrayStream _array;
+    private readonly RangeReference? _range;
+    private readonly RangeBounds _bounds;
+    private readonly Workbook? _workbook;
+    private readonly int _handle;
+
+    public LookupGrid(ArrayEvaluation.ArrayStream array)
+    {
+        _array = array;
+        _range = null;
+        _bounds = default;
+        _workbook = null;
+        _handle = 0;
+        Rows = array.Rows;
+        Columns = array.Columns;
+    }
+
+    public LookupGrid(RangeReference? range, RangeBounds bounds, EvaluationContext context)
+    {
+        _array = default;
+        _range = range;
+        _bounds = bounds;
+        _workbook = context.Workbook;
+        _handle = range is null ? 0 : context.Workbook.ResolveDenseHandle(range.SheetName);
+        Rows = range is null ? 0 : bounds.RowCount;
+        Columns = bounds.ColumnCount;
+    }
+
+    public int Rows { get; }
+    public int Columns { get; }
+
+    public ComputedValue At(int row, int column) =>
+        _range is null
+            ? _array.ElementAt((row - 1) * Columns + column - 1)
+            : _range.CellComputedValueAt(_workbook!, _handle, _bounds, row, column);
+
+    public RangeSnapshot? TryGetKeySnapshot(EvaluationContext context, bool vertical)
+    {
+        var count = vertical ? Rows : Columns;
+        if (
+            _range is null
+            || _workbook!.RangeCacheDisabled
+            || count < Workbook.RangeCacheMinimumCells
+        )
+        {
+            return null;
+        }
+
+        var keys = vertical
+            ? new RangeReference(
+                new CellAddress(_bounds.LeftColumn, _bounds.TopRow).ToId(),
+                new CellAddress(_bounds.LeftColumn, _bounds.BottomRow).ToId(),
+                _range.SheetName
+            )
+            : new RangeReference(
+                new CellAddress(_bounds.LeftColumn, _bounds.TopRow).ToId(),
+                new CellAddress(_bounds.RightColumn, _bounds.TopRow).ToId(),
+                _range.SheetName
+            );
+        return _workbook.TryGetRangeSnapshot(keys, context);
+    }
+}

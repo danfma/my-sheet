@@ -122,22 +122,27 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
+        LookupGrid grid;
         if (
+            Arguments[1] is IArrayProducer
+            && ArrayEvaluation.TryStream(Arguments[1], context, out var array)
+        )
+        {
+            grid = new LookupGrid(array);
+        }
+        else if (
             !LookupTable.TryResolveTable(Arguments, context, out var reference, out var tableAnswer)
         )
         {
             return tableAnswer;
         }
-
-        // Bounds are resolved ONCE here, not re-parsed on every column of the linear fallback scan below. This
-        // is a pure, side-effect-free read of the table's own corners, so hoisting it ahead of the argument
-        // evaluation below does not change Arguments' evaluation order. A zero-row rectangle (sweep item 33)
-        // has bounds too; it leaves the function at the not-found check below.
-        var workbook = context.Workbook;
-
-        if (!RangeBounds.TryFrom(reference, out var bounds))
+        else if (!RangeBounds.TryFrom(reference, out var bounds))
         {
             return ComputedValue.Error(Error.Ref);
+        }
+        else
+        {
+            grid = new LookupGrid(reference as RangeReference, bounds, context);
         }
 
         var lookup = Arguments[0].Evaluate(context);
@@ -166,14 +171,12 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         // Sweep item 33: a zero-row rectangle has no first ROW to search, so the lookup is not found before
         // its row index is ever measured against a height of 0 (oracle, array-entered:
         // HLOOKUP(1,<the empty band>,1,FALSE) is #N/A; typed plain, Aspose throws inside its calculation).
-        if (reference is not RangeReference table)
+        if (grid.Rows == 0)
         {
             return ComputedValue.Error(Error.NA);
         }
 
-        var handle = workbook.ResolveDenseHandle(table.SheetName);
-
-        if (rowIndex > bounds.RowCount)
+        if (rowIndex > grid.Rows)
         {
             return ComputedValue.Error(Error.Ref);
         }
@@ -195,15 +198,7 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         // two CellAddress.ToId allocations entirely and goes straight to the linear scan.
         RangeSnapshot? keySnapshot = null;
 
-        if (!workbook.RangeCacheDisabled && bounds.ColumnCount >= Workbook.RangeCacheMinimumCells)
-        {
-            var keyRow = new RangeReference(
-                new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId(),
-                new CellAddress(bounds.RightColumn, bounds.TopRow).ToId(),
-                table.SheetName
-            );
-            keySnapshot = workbook.TryGetRangeSnapshot(keyRow, context);
-        }
+        keySnapshot = grid.TryGetKeySnapshot(context, vertical: false);
 
         var matchColumn = -1;
 
@@ -219,9 +214,9 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             }
             else
             {
-                for (var column = 1; column <= bounds.ColumnCount; column++)
+                for (var column = 1; column <= grid.Columns; column++)
                 {
-                    var key = table.CellComputedValueAt(workbook, handle, bounds, 1, column);
+                    var key = grid.At(1, column);
                     if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
                     {
                         continue;
@@ -250,14 +245,9 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
 
             if (matchColumn < 1)
             {
-                for (var column = 1; column <= bounds.ColumnCount; column++)
+                for (var column = 1; column <= grid.Columns; column++)
                 {
-                    if (
-                        ValueCoercion.AreEqual(
-                            table.CellComputedValueAt(workbook, handle, bounds, 1, column),
-                            lookup
-                        )
-                    )
+                    if (ValueCoercion.AreEqual(grid.At(1, column), lookup))
                     {
                         matchColumn = column;
                         break;
@@ -267,7 +257,7 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         }
 
         return matchColumn >= 1
-            ? table.CellComputedValueAt(workbook, handle, bounds, (int)rowIndex, matchColumn)
+            ? grid.At((int)rowIndex, matchColumn)
             : ComputedValue.Error(Error.NA);
     }
 }

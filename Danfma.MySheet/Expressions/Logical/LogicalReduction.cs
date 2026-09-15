@@ -31,12 +31,9 @@ internal static class LogicalReduction
 
         foreach (var argument in arguments)
         {
-            if (
-                argument is ArrayConstant
-                && ArrayEvaluation.TryStream(argument, context, out var array)
-            )
+            if (ArrayEvaluation.TryStream(argument, context, out var array))
             {
-                var cursor = RangeValueCursor.Open(argument, context);
+                var cursor = RangeValueCursor.Open(array);
                 if (Accumulate(ref cursor, ref trueCount, ref total) is { } arrayError)
                 {
                     return arrayError;
