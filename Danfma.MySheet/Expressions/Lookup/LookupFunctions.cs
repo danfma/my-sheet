@@ -7,9 +7,12 @@ namespace Danfma.MySheet.Expressions.Lookup;
 internal sealed class XMatchRouteDiagnostics
 {
     public int ArrayMaterializations { get; private set; }
+    public int ArrayStreams { get; private set; }
     public int ReferenceExpansions { get; private set; }
 
     public void RecordArrayMaterialization() => ArrayMaterializations++;
+
+    public void RecordArrayStream() => ArrayStreams++;
 
     public void RecordReferenceExpansion() => ReferenceExpansions++;
 }
@@ -424,14 +427,14 @@ public sealed partial record Columns(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record XMatch(Expression[] Arguments) : Function
 {
-    private static bool TryMaterializeArray(
+    private static bool TryStreamArray(
         Expression expression,
         EvaluationContext context,
-        out ArrayEvaluationResult result
+        out ArrayEvaluation.ArrayStream stream
     )
     {
-        context.RecordArrayMaterialization();
-        return ArrayEvaluation.TryEvaluate(expression, context, out result);
+        context.RecordArrayStream();
+        return ArrayEvaluation.TryEvaluateStream(expression, context, out stream);
     }
 
     private static bool TryGetShape(
@@ -527,14 +530,14 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         RangeSnapshot? snapshot;
         List<int>? openPositions = null;
         var computedArray =
-            arrayReference is null && TryMaterializeArray(Arguments[1], context, out var result)
-                ? result
+            arrayReference is null && TryStreamArray(Arguments[1], context, out var stream)
+                ? stream
                 : default;
         // CSE validates modes first, then preserves a non-array argument's own error. Array producers must be
         // built before this fallback so their vector is not collapsed to a scalar #VALUE! by Evaluate.
         if (
             arrayReference is null
-            && computedArray.Values is null
+            && computedArray.Operand is null
             && ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved)
         )
         {
@@ -543,14 +546,16 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         if (
             arrayReference is null
             && Arguments[1] is TableReference
-            && computedArray.Values is [var tableError]
+            && computedArray.Operand is not null
+            && computedArray.Length == 1
+            && computedArray.ElementAt(0) is var tableError
             && tableError.TryGetError(out _)
         )
         {
             return tableError;
         }
         if (
-            computedArray.Values is not null
+            computedArray.Operand is not null
             && computedArray.Rows != 1
             && computedArray.Columns != 1
         )
@@ -587,11 +592,13 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             context.RecordReferenceExpansion();
             array = ArgumentFlattening.ExpandCached(arrayReference, context, out snapshot);
         }
-        else if (computedArray.Values is not null)
+        else if (computedArray.Operand is not null)
         {
-            // Only non-reference computed arrays materialize. References retain their shared snapshot route.
-            array = computedArray.Values;
-            snapshot = null;
+            // The stream carries shape and positional access, so every computed mode can scan it directly.
+            var streamMatch = FindMatch(lookup, computedArray, (int)matchMode, searchMode < 0);
+            return streamMatch < 0
+                ? ComputedValue.Error(Error.NA)
+                : ComputedValue.Number(streamMatch + 1);
         }
         else
         {
@@ -636,6 +643,82 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         }
 
         return ComputedValue.Number(populatedPosition);
+    }
+
+    private static int FindMatch(
+        in ComputedValue lookup,
+        ArrayEvaluation.ArrayStream array,
+        int matchMode,
+        bool reverse
+    )
+    {
+        if (matchMode != 2)
+        {
+            for (var offset = 0; offset < array.Length; offset++)
+            {
+                var index = reverse ? array.Length - 1 - offset : offset;
+                if (ValueCoercion.AreEqual(array.ElementAt(index), lookup))
+                {
+                    return index;
+                }
+            }
+        }
+
+        if (matchMode == 2)
+        {
+            var matcher = LookupMatching.TableExactMatcher(lookup);
+            for (var offset = 0; offset < array.Length; offset++)
+            {
+                var index = reverse ? array.Length - 1 - offset : offset;
+                if (matcher.Matches(array.ElementAt(index)))
+                {
+                    return index;
+                }
+            }
+
+            return -1;
+        }
+
+        if (matchMode is not (-1 or 1) || lookup.Kind == ComputedValueKind.Error)
+        {
+            return -1;
+        }
+
+        var best = -1;
+        ComputedValue bestValue = default;
+        for (var index = 0; index < array.Length; index++)
+        {
+            var value = array.ElementAt(index);
+            if (value.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+            {
+                continue;
+            }
+
+            var below = matchMode == -1;
+            if (
+                below
+                    ? ValueCoercion.Compare(value, lookup) > 0
+                    : ValueCoercion.Compare(value, lookup) < 0
+            )
+            {
+                continue;
+            }
+
+            if (
+                best < 0
+                || (
+                    below
+                        ? ValueCoercion.Compare(value, bestValue) > 0
+                        : ValueCoercion.Compare(value, bestValue) < 0
+                )
+            )
+            {
+                best = index;
+                bestValue = value;
+            }
+        }
+
+        return best;
     }
 }
 

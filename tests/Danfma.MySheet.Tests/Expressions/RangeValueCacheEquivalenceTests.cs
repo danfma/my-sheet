@@ -272,6 +272,39 @@ public class RangeValueCacheEquivalenceTests
     }
 
     [Test]
+    [Arguments("SEQUENCE(1000)", 0, 1, 0)]
+    [Arguments("IF(TRUE,{1;2;3})", 0, 1, 0)]
+    [Arguments("LET(t,SEQUENCE(5),t)", 0, 1, 0)]
+    [Arguments("CHOOSE(1,{1;2})", 0, 1, 0)]
+    [Arguments("SEQUENCE(1000)", 1, 1, 0)]
+    [Arguments("IF(TRUE,{1;2;3})", 1, 1, 0)]
+    [Arguments("LET(t,SEQUENCE(5),t)", 1, 1, 0)]
+    [Arguments("CHOOSE(1,{1;2})", 1, 1, 0)]
+    [Arguments("SEQUENCE(1000)", 2, 1, 0)]
+    [Arguments("IF(TRUE,{1;2;3})", 2, 1, 0)]
+    [Arguments("LET(t,SEQUENCE(5),t)", 2, 1, 0)]
+    [Arguments("CHOOSE(1,{1;2})", 2, 1, 0)]
+    public async Task XMatchComputedArray_UsesTheRequiredScanRoute(
+        string source,
+        int matchMode,
+        int expectedStreams,
+        int expectedMaterializations
+    )
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Data");
+        var expression = ExpressionParser.Parse($"=XMATCH(1,{source},{matchMode})", sheet);
+        var diagnostics = new XMatchRouteDiagnostics();
+        var context = new EvaluationContext(workbook, "Data", diagnostics);
+
+        _ = expression.Evaluate(context);
+
+        await Assert.That(diagnostics.ArrayStreams).IsEqualTo(expectedStreams);
+        await Assert.That(diagnostics.ArrayMaterializations).IsEqualTo(expectedMaterializations);
+        await Assert.That(diagnostics.ReferenceExpansions).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task ErrorInRange_PropagatesIdentically_ForOrderStatAndAggregate()
     {
         var (workbook, sheet) = Build(Scenario.WithErrors);

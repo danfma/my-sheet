@@ -162,6 +162,8 @@ public readonly struct EvaluationContext
 
     internal void RecordArrayMaterialization() => _routeDiagnostics?.RecordArrayMaterialization();
 
+    internal void RecordArrayStream() => _routeDiagnostics?.RecordArrayStream();
+
     internal void RecordReferenceExpansion() => _routeDiagnostics?.RecordReferenceExpansion();
 
     internal EvaluationContext(
