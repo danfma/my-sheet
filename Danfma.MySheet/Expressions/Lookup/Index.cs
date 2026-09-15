@@ -7,6 +7,11 @@ public sealed partial record Index(Expression[] Arguments) : Function
 {
     public override ComputedValue Evaluate(EvaluationContext context)
     {
+        if (Arguments.Length == 4)
+        {
+            return EvaluateAreaForm(context);
+        }
+
         if (
             Arguments[0] is XLookup xlookup
             && xlookup.TryResolveReference(context, out var xlookupReference)
@@ -54,6 +59,14 @@ public sealed partial record Index(Expression[] Arguments) : Function
             )
         )
         {
+            if (reference is UnionReference union)
+            {
+                if (!TryResolveArea(union.Areas[0], context, out reference, out var areaError))
+                {
+                    return areaError;
+                }
+            }
+
             if (reference is CellReference cell)
             {
                 var value = cell.Evaluate(context);
@@ -86,6 +99,98 @@ public sealed partial record Index(Expression[] Arguments) : Function
         return Arguments[0].Evaluate(context);
     }
 
+    private ComputedValue EvaluateAreaForm(EvaluationContext context)
+    {
+        if (Arguments[3].Evaluate(context).CoerceToNumber(out var areaValue) is { } areaError)
+        {
+            return ComputedValue.Error(areaError);
+        }
+
+        var areaNumber = (int)areaValue;
+        if (areaNumber < 1)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        if (
+            !NamedReferences.TryResolveReference(
+                Arguments[0],
+                context,
+                out var reference,
+                boundOpenRanges: false
+            )
+        )
+        {
+            return ReferencePosition.TryUnresolvedError(Arguments[0], context, out var unresolved)
+                ? unresolved
+                : ComputedValue.Error(Error.Value);
+        }
+
+        if (reference is UnionReference union)
+        {
+            if (areaNumber > union.Areas.Length)
+            {
+                return ComputedValue.Error(Error.Ref);
+            }
+
+            if (!TryResolveArea(union.Areas[areaNumber - 1], context, out reference, out var error))
+            {
+                return error;
+            }
+        }
+        else if (areaNumber != 1)
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        return IndexIntoSelectedReference(reference, context);
+    }
+
+    private static bool TryResolveArea(
+        Expression area,
+        EvaluationContext context,
+        out Reference reference,
+        out ComputedValue error
+    )
+    {
+        if (
+            NamedReferences.TryResolveReference(
+                area,
+                context,
+                out var resolved,
+                boundOpenRanges: false
+            ) && resolved is not null
+        )
+        {
+            reference = resolved;
+            error = default;
+            return true;
+        }
+
+        reference = null!;
+        error = ReferencePosition.TryUnresolvedError(area, context, out var unresolved)
+            ? unresolved
+            : ComputedValue.Error(Error.Ref);
+        return false;
+    }
+
+    private ComputedValue IndexIntoSelectedReference(Reference reference, EvaluationContext context)
+    {
+        if (reference is CellReference cell)
+        {
+            return IndexIntoScalar(cell.Evaluate(context), context);
+        }
+
+        if (reference is OpenRangeReference open)
+        {
+            return IndexIntoOpenRange(open, context);
+        }
+
+        return RangeBounds.TryFrom(reference, out var bounds)
+            ? IndexIntoRange(reference, bounds, context)
+            : ComputedValue.Error(Error.Ref);
+    }
+
     private ComputedValue IndexIntoScalar(ComputedValue value, EvaluationContext context)
     {
         if (Arguments[1].Evaluate(context).CoerceToNumber(out var first) is { } firstError)
@@ -96,7 +201,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
         var rowValue = Arguments.Length == 2 ? 1 : first;
         var columnValue = Arguments.Length == 2 ? first : 1;
 
-        if (Arguments.Length == 3)
+        if (Arguments.Length >= 3)
         {
             if (Arguments[2].Evaluate(context).CoerceToNumber(out columnValue) is { } thirdError)
             {
@@ -170,7 +275,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
         double rowValue;
         double columnValue;
 
-        if (Arguments.Length == 3)
+        if (Arguments.Length >= 3)
         {
             if (Arguments[2].Evaluate(context).CoerceToNumber(out columnValue) is { } columnError)
             {
@@ -303,7 +408,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
         double rowValue;
         double columnValue;
 
-        if (Arguments.Length == 3)
+        if (Arguments.Length >= 3)
         {
             if (Arguments[2].Evaluate(context).CoerceToNumber(out columnValue) is { } columnError)
             {
@@ -499,6 +604,50 @@ public sealed partial record Index(Expression[] Arguments) : Function
     {
         reference = null;
 
+        if (Arguments.Length == 4)
+        {
+            if (Arguments[3].Evaluate(context).CoerceToNumber(out var areaValue) is not null)
+            {
+                return false;
+            }
+
+            var areaNumber = (int)areaValue;
+            if (
+                areaNumber < 1
+                || !NamedReferences.TryResolveReference(
+                    Arguments[0],
+                    context,
+                    out var areaReference,
+                    boundOpenRanges: false
+                )
+            )
+            {
+                return false;
+            }
+
+            if (areaReference is UnionReference union)
+            {
+                if (
+                    areaNumber > union.Areas.Length
+                    || !TryResolveArea(
+                        union.Areas[areaNumber - 1],
+                        context,
+                        out areaReference,
+                        out _
+                    )
+                )
+                {
+                    return false;
+                }
+            }
+            else if (areaNumber != 1)
+            {
+                return false;
+            }
+
+            return TryResolveSelectedReference(areaReference, context, out reference);
+        }
+
         // Array forms (mini-CSE vector, open-column ROW identity) have no cell address. Deliberately NOT
         // ArrayEvaluation.TryStream: this probes only to REJECT those forms and never builds a stream, so
         // the third condition would be a wasted build (see IsArrayEligible's remark on this exact caller).
@@ -531,6 +680,25 @@ public sealed partial record Index(Expression[] Arguments) : Function
         {
             return false;
         }
+
+        if (resolved is UnionReference unionReference)
+        {
+            if (!TryResolveArea(unionReference.Areas[0], context, out resolved, out _))
+            {
+                return false;
+            }
+        }
+
+        return TryResolveSelectedReference(resolved, context, out reference);
+    }
+
+    private bool TryResolveSelectedReference(
+        Reference resolved,
+        EvaluationContext context,
+        out Reference? reference
+    )
+    {
+        reference = null;
 
         if (resolved is OpenRangeReference open)
         {

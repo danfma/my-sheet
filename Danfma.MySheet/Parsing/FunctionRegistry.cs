@@ -368,7 +368,7 @@ internal static class FunctionRegistry
         Entry<MySheet.Expressions.Lookup.Index>(
             "INDEX",
             2,
-            3,
+            4,
             static arguments => new MySheet.Expressions.Lookup.Index(arguments),
             static f => ((MySheet.Expressions.Lookup.Index)f).Arguments
         ),

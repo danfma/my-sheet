@@ -703,9 +703,9 @@ public class TableInteropTests
     [Test]
     public async Task Load_SharedFormulaMasterRejectedAtParse_DegradesTheWholeGroup()
     {
-        // INDEX takes 2-3 arguments, so this TOKENIZES fine and fails at the PARSE (InvalidArgumentCount) —
+        // INDEX takes 2-4 arguments, so this TOKENIZES fine and fails at the PARSE (InvalidArgumentCount) —
         // the only path where the group has already been seen by the tokenizer when the failure lands.
-        const string BadArity = "INDEX(A1:C3,1,2,1)";
+        const string BadArity = "INDEX(A1:C3,1,2,1,1)";
 
         var path = WriteTableFixture(sheetData =>
         {
