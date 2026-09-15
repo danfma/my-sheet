@@ -118,6 +118,71 @@ public class StructuredReferenceColumnSpanTests
         await Assert.That(range).IsEqualTo(new RangeReference("B2", "C4", "Data"));
     }
 
+    // Registered Aspose.Cells 26.7.0 oracle defect: Tabela1[[Qtd]:[Valor]] reports ROWS=3,
+    // COLUMNS=0, INDEX/#REF!, SUM(INDEX)/#REF!, OFFSET=6600, COUNTIF=0, XLOOKUP=220 and
+    // AREAS=1 (PLAIN=CSE). These cannot describe one region, so MySheet deliberately normalizes
+    // the endpoints to the coherent forward 3x2 region while preserving the user's formula text.
+    [Test]
+    [Arguments("=ROWS(Tabela1[[Valor]:[Qtd]])", "3", "=ROWS(Tabela1[[Qtd]:[Valor]])", "3")]
+    [Arguments("=COLUMNS(Tabela1[[Valor]:[Qtd]])", "2", "=COLUMNS(Tabela1[[Qtd]:[Valor]])", "2")]
+    [Arguments(
+        "=INDEX(Tabela1[[Valor]:[Qtd]],1,1)",
+        "10",
+        "=INDEX(Tabela1[[Qtd]:[Valor]],1,1)",
+        "10"
+    )]
+    [Arguments(
+        "=INDEX(Tabela1[[Valor]:[Qtd]],2,2)",
+        "200",
+        "=INDEX(Tabela1[[Qtd]:[Valor]],2,2)",
+        "200"
+    )]
+    [Arguments(
+        "=SUM(INDEX(Tabela1[[Valor]:[Qtd]],0,1))",
+        "60",
+        "=SUM(INDEX(Tabela1[[Qtd]:[Valor]],0,1))",
+        "60"
+    )]
+    [Arguments(
+        "=SUM(OFFSET(Tabela1[[Valor]:[Qtd]],0,0))",
+        "660",
+        "=SUM(OFFSET(Tabela1[[Qtd]:[Valor]],0,0))",
+        "660"
+    )]
+    [Arguments(
+        "=SUM(XLOOKUP(2,Main!A1:A3,Tabela1[[Valor]:[Qtd]]))",
+        "220",
+        "=SUM(XLOOKUP(2,Main!A1:A3,Tabela1[[Qtd]:[Valor]]))",
+        "220"
+    )]
+    [Arguments(
+        "=COUNTIF(Tabela1[[Valor]:[Qtd]],\">15\")",
+        "5",
+        "=COUNTIF(Tabela1[[Qtd]:[Valor]],\">15\")",
+        "5"
+    )]
+    [Arguments("=AREAS(Tabela1[[Valor]:[Qtd]])", "1", "=AREAS(Tabela1[[Qtd]:[Valor]])", "1")]
+    public async Task ReversedSpan_UsesTheForwardSpanForEveryConsumer(
+        string forwardFormula,
+        string expected,
+        string reversedFormula,
+        string reversedExpected
+    )
+    {
+        await Assert.That(Evaluate(forwardFormula, TableShape.Data)).IsEqualTo(expected);
+        await Assert.That(Evaluate(reversedFormula, TableShape.Data)).IsEqualTo(reversedExpected);
+    }
+
+    [Test]
+    public async Task ReversedSpan_FormulaText_PreservesTheUsersEndpointOrder()
+    {
+        var workbook = Fixture(TableShape.Data);
+        var main = workbook.Sheets["Main"];
+        var expression = ExpressionParser.Parse("=SUM(Tabela1[[Qtd]:[Valor]])", main);
+
+        await Assert.That(expression.ToFormula(main.Name)).IsEqualTo("SUM(Tabela1[[Qtd]:[Valor]])");
+    }
+
     private static string Evaluate(string formula, TableShape shape)
     {
         var workbook = Fixture(shape, escaped: formula.Contains("O''Brien"));
