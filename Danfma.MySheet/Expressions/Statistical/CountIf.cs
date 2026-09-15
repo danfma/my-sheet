@@ -44,15 +44,21 @@ public sealed partial record CountIf(Expression[] Arguments) : Function
 
         // Non-admitted range → stream the memoized cells positionally (dense struct cursor for a closed
         // rectangle, one small boxed iterator for an open range/union) instead of materializing the whole
-        // vector just to count it. Threads the ALREADY-probed `snapshot` (null here, since a non-null
-        // snapshot returns above) through instead of letting Open re-probe it: TryGetRangeSnapshot is the
-        // second-use ADMISSION check itself, so a second call here would eagerly build the snapshot on what
-        // must stay this range's first, streaming read — see SUMIF's identical pattern.
+        // vector just to count it. Threads the already-probed `snapshot` (null here, since a non-null snapshot
+        // returns above) through OpenCriteria so its fallback keeps this range's first read streaming.
         // A computed array is not a range — rejected with #REF! before the cursor opens, the same gate the
         // rest of the family applies (PositionalRange.RejectComputedArray carries the rule and the oracle
         // columns). Below the snapshot branch on purpose: a computed array is not a Reference, so it never
         // has a snapshot and that branch cannot claim it.
-        if (PositionalRange.OpenCriteria(Arguments[0], context, out var range) is { } computedRange)
+        if (
+            PositionalRange.OpenCriteria(
+                Arguments[0],
+                context,
+                out var range,
+                snapshot: snapshot
+            ) is
+            { } computedRange
+        )
         {
             return ComputedValue.Error(computedRange);
         }

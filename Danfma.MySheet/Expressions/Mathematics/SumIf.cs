@@ -35,15 +35,21 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
         // — the admitted snapshot is indexed zero-copy, a non-admitted closed rectangle streams through the
         // dense struct enumerator (no allocation), and only an open range/union/scalar falls back to a
         // materialized list. Mirrors the SUMIFS pair-scan idiom (CriteriaScan/PositionalRange), specialized
-        // to SUMIF's single (range, sum_range) pair. Threads the ALREADY-probed `snapshot` through instead of
-        // letting Open re-probe it: TryGetRangeSnapshot is the second-use ADMISSION check itself, so a second
-        // call here (even for the same range within this same evaluation) would eagerly build the snapshot on
-        // what must stay range's first, streaming read.
+        // to SUMIF's single (range, sum_range) pair. Threads the already-probed `snapshot` through
+        // OpenCriteria so its fallback does not turn this first, streaming read into the admitting second read.
         // A computed array is not a range: the criteria slot rejects it with #REF! before any cursor opens
         // (PositionalRange.RejectComputedArray carries the rule and the oracle columns). It sits BELOW the
         // snapshot fast path on purpose — a computed array is not a Reference, so it never has a snapshot and
         // the fast path above cannot see one.
-        if (PositionalRange.OpenCriteria(Arguments[0], context, out var range) is { } computedRange)
+        if (
+            PositionalRange.OpenCriteria(
+                Arguments[0],
+                context,
+                out var range,
+                snapshot: snapshot
+            ) is
+            { } computedRange
+        )
         {
             return ComputedValue.Error(computedRange);
         }

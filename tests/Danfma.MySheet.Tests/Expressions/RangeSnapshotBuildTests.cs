@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Reflection;
 using Danfma.MySheet.Expressions;
 using Danfma.MySheet.Parsing;
 using StringValue = Danfma.MySheet.Expressions.StringValue;
@@ -13,6 +15,47 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// </summary>
 public class RangeSnapshotBuildTests
 {
+    [Test]
+    [Arguments("=SUMIF(A1:A300,\">0\")")]
+    [Arguments("=COUNTIF(A1:A300,\">0\")")]
+    [Arguments("=AVERAGEIF(A1:A300,\">0\")")]
+    public async Task SingleCriteriaFunctions_BuildSnapshotOnlyOnSecondEvaluation(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Data");
+        for (var row = 1; row <= 300; row++)
+        {
+            sheet[$"A{row}"] = new NumberValue(row);
+        }
+
+        var expression = ExpressionParser.Parse(formula, sheet);
+
+        _ = expression.Evaluate(workbook);
+        await Assert.That(SnapshotForOnlyRange(workbook) is null).IsTrue();
+
+        _ = expression.Evaluate(workbook);
+        await Assert.That(SnapshotForOnlyRange(workbook) is not null).IsTrue();
+    }
+
+    [Test]
+    [Arguments("=COUNTIFS(A1:A300,\">0\")")]
+    [Arguments("=SUM(A1:A300)")]
+    [Arguments("=MATCH(1,A1:A300,0)")]
+    [Arguments("=COUNTBLANK(A1:A300)")]
+    public async Task OtherSingleReadConsumers_LeaveSnapshotUnbuilt(string formula)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Data");
+        for (var row = 1; row <= 300; row++)
+        {
+            sheet[$"A{row}"] = new NumberValue(row);
+        }
+
+        _ = ExpressionParser.Parse(formula, sheet).Evaluate(workbook);
+
+        await Assert.That(SnapshotForOnlyRange(workbook) is null).IsTrue();
+    }
+
     // === Store-level block-copy mechanics ================================================================
 
     [Test]
@@ -339,5 +382,29 @@ public class RangeSnapshotBuildTests
         }
 
         return string.Join("|", parts);
+    }
+
+    private static RangeSnapshot? SnapshotForOnlyRange(Workbook workbook)
+    {
+        var cache = (IEnumerable?)
+            typeof(Workbook)
+                .GetField("_rangeCache", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.GetValue(workbook);
+        var entry = cache?.Cast<object>().Single();
+        return entry is null
+            ? null
+            : (RangeSnapshot?)
+                entry
+                    .GetType()
+                    .GetProperty("Value", BindingFlags.Instance | BindingFlags.Public)
+                    ?.GetValue(entry)
+                    ?.GetType()
+                    .GetProperty("Snapshot", BindingFlags.Instance | BindingFlags.Public)
+                    ?.GetValue(
+                        entry
+                            .GetType()
+                            .GetProperty("Value", BindingFlags.Instance | BindingFlags.Public)
+                            ?.GetValue(entry)
+                    );
     }
 }

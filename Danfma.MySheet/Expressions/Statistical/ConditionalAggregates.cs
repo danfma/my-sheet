@@ -43,14 +43,20 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
         // Any other shape: a positional cursor over range (and, with an average_range, a second parallel
         // cursor) — the admitted snapshot is indexed zero-copy, a non-admitted closed rectangle streams
         // through the dense struct enumerator (no allocation), and only an open range/union/scalar falls
-        // back to a materialized list. Mirrors SUMIF's (range, sum_range) pair-scan. Threads the
-        // ALREADY-probed `snapshot` through instead of letting Open re-probe it: TryGetRangeSnapshot is the
-        // second-use ADMISSION check itself, so a second call here (even for the same range within this same
-        // evaluation) would eagerly build the snapshot on what must stay range's first, streaming read.
+        // back to a materialized list. Mirrors SUMIF's (range, sum_range) pair-scan. Threads the already-probed
+        // `snapshot` through OpenCriteria so its fallback preserves the range's first streaming read.
         // A computed array is not a range — rejected with #REF! before any cursor opens, mirroring SUMIF
         // (PositionalRange.RejectComputedArray carries the rule and the oracle columns). Below the snapshot
         // fast path on purpose: a computed array is not a Reference and so never has a snapshot.
-        if (PositionalRange.OpenCriteria(Arguments[0], context, out var range) is { } computedRange)
+        if (
+            PositionalRange.OpenCriteria(
+                Arguments[0],
+                context,
+                out var range,
+                snapshot: snapshot
+            ) is
+            { } computedRange
+        )
         {
             return ComputedValue.Error(computedRange);
         }

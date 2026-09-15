@@ -407,7 +407,8 @@ internal struct PositionalRange
         Expression argument,
         EvaluationContext context,
         out PositionalRange range,
-        bool validateSelectedMissingSheet = false
+        bool validateSelectedMissingSheet = false,
+        RangeSnapshot? snapshot = null
     )
     {
         if (
@@ -436,7 +437,7 @@ internal struct PositionalRange
             return rejected;
         }
 
-        range = Open(argument, context);
+        range = Open(argument, context, snapshot);
         return range.SlotError;
     }
 
