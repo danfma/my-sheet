@@ -201,25 +201,12 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
         {
             if (lookup.TryGetText(out var lookupText) && lookupText.Length == 0)
             {
-                for (var column = 1; column <= grid.Columns; column++)
-                {
-                    if (
-                        grid.At(1, column).TryGetText(out var candidateText)
-                        && string.Equals(
-                            candidateText,
-                            lookupText,
-                            StringComparison.OrdinalIgnoreCase
-                        )
-                    )
-                    {
-                        matchColumn = column;
-                    }
-                }
+                matchColumn = grid.FindLastExactText(lookup, vertical: false);
             }
             // Largest first-row key <= lookup, assuming the row is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like
             // the <= operator — not only numeric keys.
-            if (
+            else if (
                 matchColumn < 1
                 && keySnapshot is not null
                 && (lookup.Kind != ComputedValueKind.Text || !LookupMatching.UsesWildcards(lookup))
@@ -506,8 +493,12 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var lookup = Arguments[0].Evaluate(context);
-        var absentLookup = LookupMatching.IsAbsentKey(Arguments[0], context);
+        var lookup = LookupMatching.EvaluateKey(
+            Arguments[0],
+            context,
+            out var absentLookup,
+            out var lookupReference
+        );
 
         // Sweep item 34(b), the VALUE slot: the lookup's error leads the scan (the oracle answers #NAME? for
         // XMATCH(NoSuch,A1:A3), and #DIV/0! for XMATCH(A1,B1:B3) over an error cell) instead of the not-found
@@ -516,7 +507,15 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         // it exactly as before — but reads a 1x1 range's own cell directly (finding I4): XMATCH(A1:A1,B1:B3)
         // is #DIV/0! over A1 = =1/0, the oracle's answer (26.7.0, both modes), not the not-found #N/A a
         // #VALUE!-literal scan gave before.
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
+        if (
+            ReferencePosition.IsLookupValueError(
+                Arguments[0],
+                lookup,
+                lookupReference,
+                context,
+                out var valueError
+            )
+        )
         {
             return valueError;
         }

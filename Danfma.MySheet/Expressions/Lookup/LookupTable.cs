@@ -212,4 +212,24 @@ internal readonly struct LookupGrid
             );
         return _workbook.TryGetRangeSnapshot(keys, context);
     }
+
+    public int FindLastExactText(in ComputedValue lookup, bool vertical)
+    {
+        lookup.TryGetText(out var lookupText);
+        var count = vertical ? Rows : Columns;
+        var match = -1;
+        for (var position = 1; position <= count; position++)
+        {
+            var candidate = vertical ? At(position, 1) : At(1, position);
+            if (
+                candidate.TryGetText(out var candidateText)
+                && string.Equals(candidateText, lookupText, StringComparison.OrdinalIgnoreCase)
+            )
+            {
+                match = position;
+            }
+        }
+
+        return match;
+    }
 }

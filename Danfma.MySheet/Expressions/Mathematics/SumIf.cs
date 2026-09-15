@@ -14,10 +14,17 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var criteria = Criteria.Parse(
-            Arguments[1].Evaluate(context),
-            LookupMatching.IsAbsentKey(Arguments[1], context)
+        var criteriaValue = LookupMatching.EvaluateKey(
+            Arguments[1],
+            context,
+            out var absentCriteria,
+            out var criteriaReference
         );
+        if (absentCriteria && criteriaReference is not null && Arguments[1] is not Reference)
+        {
+            return ComputedValue.Number(0);
+        }
+        var criteria = Criteria.Parse(criteriaValue, absentCriteria);
 
         var snapshot = Arguments[0] is Reference reference
             ? context.Workbook.TryGetRangeSnapshot(reference, context)

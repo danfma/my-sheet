@@ -220,7 +220,6 @@ internal static class ReferencePosition
     )
     {
         error = lookup;
-
         if (
             lookup.TryGetError(out var lookupError)
             && PositionalRange.IsOwnSlotError(argument, lookupError, context)
@@ -229,9 +228,26 @@ internal static class ReferencePosition
             return true;
         }
 
-        if (!NamedReferences.TryResolveReference(argument, context, out var reference))
+        _ = NamedReferences.TryResolveReference(argument, context, out var reference);
+        return IsLookupValueError(argument, lookup, reference, context, out error);
+    }
+
+    public static bool IsLookupValueError(
+        Expression argument,
+        ComputedValue lookup,
+        Reference? reference,
+        EvaluationContext context,
+        out ComputedValue error
+    )
+    {
+        error = lookup;
+
+        if (
+            lookup.TryGetError(out var lookupError)
+            && PositionalRange.IsOwnSlotError(argument, lookupError, context)
+        )
         {
-            return false;
+            return true;
         }
 
         var singleCellValue = reference switch

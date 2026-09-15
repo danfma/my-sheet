@@ -14,8 +14,12 @@ public sealed partial record Match(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var lookup = Arguments[0].Evaluate(context);
-        var absentLookup = LookupMatching.IsAbsentKey(Arguments[0], context);
+        var lookup = LookupMatching.EvaluateKey(
+            Arguments[0],
+            context,
+            out var absentLookup,
+            out var lookupReference
+        );
 
         var matchType = 1.0;
 
@@ -42,7 +46,15 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // ARRAY's node does not resolve, the node's OWN error leads instead of the not-found #N/A (#NAME? for
         // an unknown name, the node's #REF! for an unresolvable structured reference; the oracle answers the
         // error on every one of these shapes, both entry modes).
-        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
+        if (
+            ReferencePosition.IsLookupValueError(
+                Arguments[0],
+                lookup,
+                lookupReference,
+                context,
+                out var valueError
+            )
+        )
         {
             return valueError;
         }

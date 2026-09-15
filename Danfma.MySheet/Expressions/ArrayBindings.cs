@@ -88,7 +88,16 @@ internal static class ArrayBindings
 
         return new Binding(
             NamedReferences.CaptureValue(expression, context),
-            LookupMatching.IsAbsentKey(expression, context)
+            expression switch
+            {
+                CellReference cell => context.Workbook.Sheets.TryGetValue(
+                    cell.SheetName,
+                    out var sheet
+                ) && !sheet.ContainsKey(cell.Id),
+                AnchoredCellReference cell => LookupMatching.IsAbsent(cell, context),
+                NameReference name => context.IsAbsentName(name.Name),
+                _ => false,
+            }
         );
     }
 

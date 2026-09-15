@@ -21,10 +21,6 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
-        var approximateLookup =
-            lookup.TryGetText(out var lookupText) && lookupText.Length == 0
-                ? FindExactText(grid, lookup)
-                : -1;
 
         if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
         {
@@ -82,9 +78,9 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
         if (approximate)
         {
-            if (approximateLookup >= 1)
+            if (lookup.TryGetText(out var lookupText) && lookupText.Length == 0)
             {
-                matchRow = approximateLookup;
+                matchRow = grid.FindLastExactText(lookup, vertical: true);
             }
             // Largest first-column key <= lookup, assuming the table is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like the
@@ -144,23 +140,5 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         return matchRow >= 1 ? grid.At(matchRow, (int)columnIndex) : ComputedValue.Error(Error.NA);
-    }
-
-    private static int FindExactText(LookupGrid grid, in ComputedValue lookup)
-    {
-        lookup.TryGetText(out var lookupText);
-        var match = -1;
-        for (var row = 1; row <= grid.Rows; row++)
-        {
-            if (
-                grid.At(row, 1).TryGetText(out var candidateText)
-                && string.Equals(candidateText, lookupText, StringComparison.OrdinalIgnoreCase)
-            )
-            {
-                match = row;
-            }
-        }
-
-        return match;
     }
 }

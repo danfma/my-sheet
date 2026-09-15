@@ -10,17 +10,54 @@ namespace Danfma.MySheet.Expressions;
 /// </summary>
 internal static class LookupMatching
 {
-    public static bool IsAbsentKey(Expression expression, EvaluationContext context) =>
-        expression switch
+    public static ComputedValue EvaluateKey(
+        Expression expression,
+        EvaluationContext context,
+        out bool absent,
+        out Reference? resolvedReference
+    )
+    {
+        if (
+            NamedReferences.TryResolveReference(
+                expression,
+                context,
+                out var reference,
+                boundOpenRanges: false
+            ) && reference is CellReference cell
+        )
         {
-            CellReference cell => context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet)
-                && !sheet.ContainsKey(cell.Id),
-            AnchoredCellReference cell => IsAbsent(cell, context),
+            resolvedReference = reference;
+            absent = IsAbsent(cell, context);
+            return cell.Evaluate(context);
+        }
+
+        if (reference is RangeReference range && RangeBounds.TryFrom(range, out var bounds))
+        {
+            resolvedReference = reference;
+            absent =
+                bounds is { RowCount: 1, ColumnCount: 1 }
+                && !context
+                    .Workbook.Sheets[range.SheetName]
+                    .ContainsKey(new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId());
+            return expression.Evaluate(context);
+        }
+
+        resolvedReference = null;
+        var value = expression.Evaluate(context);
+        absent = expression switch
+        {
+            AnchoredCellReference anchored => IsAbsent(anchored, context),
             NameReference name => context.IsAbsentName(name.Name),
             _ => false,
         };
+        return value;
+    }
 
-    private static bool IsAbsent(AnchoredCellReference cell, EvaluationContext context)
+    private static bool IsAbsent(CellReference cell, EvaluationContext context) =>
+        context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet)
+        && !sheet.ContainsKey(cell.Id);
+
+    internal static bool IsAbsent(AnchoredCellReference cell, EvaluationContext context)
     {
         if (!context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet))
         {

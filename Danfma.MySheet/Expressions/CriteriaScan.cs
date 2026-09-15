@@ -863,10 +863,13 @@ internal struct CriteriaScan
 
             ranges[p] = range;
             var criteriaArgument = arguments[2 + (p * 2)];
-            criterias[p] = Criteria.Parse(
-                criteriaArgument.Evaluate(context),
-                LookupMatching.IsAbsentKey(criteriaArgument, context)
+            var criteriaValue = LookupMatching.EvaluateKey(
+                criteriaArgument,
+                context,
+                out var absentCriteria,
+                out _
             );
+            criterias[p] = Criteria.Parse(criteriaValue, absentCriteria);
         }
 
         scan = new CriteriaScan(ranges, criterias, valueRange, hasValue: true, length);
@@ -926,10 +929,13 @@ internal struct CriteriaScan
 
             ranges[p] = range;
             var criteriaArgument = arguments[(p * 2) + 1];
-            criterias[p] = Criteria.Parse(
-                criteriaArgument.Evaluate(context),
-                LookupMatching.IsAbsentKey(criteriaArgument, context)
+            var criteriaValue = LookupMatching.EvaluateKey(
+                criteriaArgument,
+                context,
+                out var absentCriteria,
+                out _
             );
+            criterias[p] = Criteria.Parse(criteriaValue, absentCriteria);
         }
 
         scan = new CriteriaScan(ranges, criterias, default, hasValue: false, length);
