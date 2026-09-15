@@ -583,7 +583,30 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             open = openReference;
         }
 
-        var array = ArgumentFlattening.ExpandCached(Arguments[1], context, out var snapshot);
+        IReadOnlyList<ComputedValue> array;
+        RangeSnapshot? snapshot;
+        List<int>? openPositions = null;
+        if (open is not null)
+        {
+            var workbook = context.Workbook;
+            var handle = workbook.ResolveDenseHandle(open.SheetName);
+            var values = new List<ComputedValue>();
+            openPositions = [];
+            foreach (var (column, row) in open.PopulatedCells(context))
+            {
+                values.Add(workbook.GetCellValueDense(handle, open.SheetName, column, row));
+                openPositions.Add(
+                    open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row)
+                );
+            }
+
+            array = values;
+            snapshot = null;
+        }
+        else
+        {
+            array = ArgumentFlattening.ExpandCached(Arguments[1], context, out snapshot);
+        }
 
         var matchMode = 0.0;
         if (
@@ -637,10 +660,7 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
 
         if (open is not null)
         {
-            var (column, row) = open.PopulatedCells(context).ElementAt(match);
-            return ComputedValue.Number(
-                open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row)
-            );
+            return ComputedValue.Number(openPositions![match]);
         }
 
         return ComputedValue.Number(populatedPosition);

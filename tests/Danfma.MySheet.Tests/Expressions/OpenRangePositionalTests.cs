@@ -98,6 +98,39 @@ public class OpenRangePositionalTests
 
     // === Absolute coordinates over an open base ============================================================
 
+    [Test]
+    [Arguments("=XLOOKUP(2,A:A,B:B)", 30.0, 20.0)]
+    [Arguments("=XLOOKUP(3,A:A,B:B)", 50.0, 30.0)]
+    [Arguments("=SUM(XLOOKUP(3,A:A,B:C))", 50.0, 330.0)]
+    [Arguments("=XLOOKUP(2,1:1,2:2)", 9.0, 7.0)]
+    [Arguments("=MATCH(3,A:A,0)", 5.0, 5.0)]
+    [Arguments("=XMATCH(3,A:A)", 5.0, 5.0)]
+    public async Task OpenLookupFunctions_UsePopulatedCellCoordinates(
+        string formula,
+        double expected,
+        double valueBeforeFix
+    )
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["A2"] = new NumberValue(1);
+        sheet["A3"] = new NumberValue(2);
+        sheet["A5"] = new NumberValue(3);
+        for (var row = 1; row <= 5; row++)
+        {
+            sheet[$"B{row}"] = new NumberValue(row * 10);
+        }
+
+        sheet["C1"] = new NumberValue(1);
+        sheet["E1"] = new NumberValue(2);
+        sheet["C2"] = new NumberValue(7);
+        sheet["E2"] = new NumberValue(9);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE agree on expected. valueBeforeFix records the old MySheet value.
+        _ = valueBeforeFix;
+        await Assert.That(Num(Eval(workbook, formula))).IsEqualTo(expected);
+    }
+
     // === Cached coordinates over an open base ===============================================================
 
     [Test]
