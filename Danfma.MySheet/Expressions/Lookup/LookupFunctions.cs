@@ -447,6 +447,24 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return unresolved;
         }
 
+        var matchMode = 0.0;
+        if (
+            Arguments.Length >= 3
+            && Arguments[2].Evaluate(context).CoerceToNumber(out matchMode) is { } matchError
+        )
+        {
+            return ComputedValue.Error(matchError);
+        }
+
+        var searchMode = 1.0;
+        if (
+            Arguments.Length >= 4
+            && Arguments[3].Evaluate(context).CoerceToNumber(out searchMode) is { } searchError
+        )
+        {
+            return ComputedValue.Error(searchError);
+        }
+
         _ = NamedReferences.TryResolveReference(
             Arguments[1],
             context,
@@ -458,7 +476,17 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         IReadOnlyList<ComputedValue> array;
         RangeSnapshot? snapshot;
         List<int>? openPositions = null;
-        if (open is not null)
+        if (
+            (int)matchMode == 2
+            && ArrayEvaluation.TryEvaluate(Arguments[1], context, out var result)
+        )
+        {
+            // Computed array sources must reach the same shared wildcard scan as ranges. Materializing once
+            // preserves array element order while LookupMatching resolves the wildcard pattern once per call.
+            array = result.Values;
+            snapshot = null;
+        }
+        else if (open is not null)
         {
             snapshot = context.Workbook.TryGetRangeSnapshot(open, context);
             if (snapshot is not null)
@@ -485,24 +513,6 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         else
         {
             array = ArgumentFlattening.ExpandCached(Arguments[1], context, out snapshot);
-        }
-
-        var matchMode = 0.0;
-        if (
-            Arguments.Length >= 3
-            && Arguments[2].Evaluate(context).CoerceToNumber(out matchMode) is { } matchError
-        )
-        {
-            return ComputedValue.Error(matchError);
-        }
-
-        var searchMode = 1.0;
-        if (
-            Arguments.Length >= 4
-            && Arguments[3].Evaluate(context).CoerceToNumber(out searchMode) is { } searchError
-        )
-        {
-            return ComputedValue.Error(searchError);
         }
 
         // Forward exact (the default) → O(1) via the value→first-position hash; every other mode (reverse,

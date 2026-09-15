@@ -90,6 +90,28 @@ public class ArrayConstantTests
     }
 
     [Test]
+    public async Task XMatch_WildcardMode_ReadsArraySources()
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE returns 2 for each forward row. Its reverse array result is an
+        // oracle defect: it returns 1 where the same range route returns 2, so retain the shared range rule.
+        await Assert.That(Calc("=XMATCH(\"a*\",{\"x\",\"ab\"},2)") as double?).IsEqualTo(2d);
+        await Assert.That(Calc("=XMATCH(\"a*\",{\"x\",\"ab\"},2,-1)") as double?).IsEqualTo(2d);
+        await Assert.That(Calc("=XMATCH(\"a*\",{\"ab\",\"ac\"},2,-1)") as double?).IsEqualTo(2d);
+        await Assert.That(Calc("=XMATCH(\"?b\",{\"x\",\"ab\"},2)") as double?).IsEqualTo(2d);
+        await Assert.That(Calc("=XMATCH(\"a~*\",{\"a*\",\"ab\"},2)") as double?).IsEqualTo(1d);
+        await Assert
+            .That(Calc("=XMATCH(\"a*\",LET(t,{\"x\",\"ab\"},t),2)") as double?)
+            .IsEqualTo(2d);
+        await Assert
+            .That(Calc("=XMATCH(\"a*\",IF(TRUE,{\"x\",\"ab\"}),2)") as double?)
+            .IsEqualTo(2d);
+        await Assert
+            .That(Calc("=XLOOKUP(\"a*\",{\"x\",\"ab\"},{1,2},,2)") as double?)
+            .IsEqualTo(2d);
+        await Assert.That(Calc("=MATCH(\"a*\",{\"x\",\"ab\"},0)") as double?).IsEqualTo(2d);
+    }
+
+    [Test]
     [Arguments("={1,2;3}")]
     [Arguments("={1+1}")]
     [Arguments("={A1}")]
