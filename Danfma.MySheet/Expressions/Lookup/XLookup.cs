@@ -140,6 +140,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
         }
 
         var lookup = Arguments[0].Evaluate(context);
+        var absentLookup = LookupMatching.IsAbsentKey(Arguments[0], context);
 
         // Sweep item 34(b), the VALUE slot: the lookup's error leads the scan (the oracle answers #NAME? for
         // XLOOKUP(NoSuch,A1:A3,B1:B3), and a single error cell's own code even over an if_not_found —
@@ -223,10 +224,11 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
                     : Result(NotFound(context));
             }
 
+            var matcher = new LookupMatching.ExactMatcher(lookup, absentLookup);
             using var lookupValues = lookupArray.Entries().GetEnumerator();
             while (lookupValues.MoveNext())
             {
-                if (ValueCoercion.AreEqual(lookupValues.Current.Value, lookup))
+                if (matcher.Matches(lookupValues.Current.Value))
                 {
                     return returnArray.Select(lookupValues.Current.Position, lookupAxis);
                 }
@@ -243,7 +245,8 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             values,
             values.Length,
             (int)matchMode,
-            reverse: searchMode < 0
+            reverse: searchMode < 0,
+            absentMatchesOnlyBlank: absentLookup
         );
 
         if (match >= 0)

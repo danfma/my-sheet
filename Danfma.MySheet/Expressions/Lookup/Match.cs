@@ -15,6 +15,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
+        var absentLookup = LookupMatching.IsAbsentKey(Arguments[0], context);
 
         var matchType = 1.0;
 
@@ -169,6 +170,47 @@ public sealed partial record Match(Expression[] Arguments) : Function
         if (lookup.Kind == ComputedValueKind.Error)
         {
             return lookup;
+        }
+
+        if (lookup.TryGetText(out var lookupText) && lookupText.Length == 0)
+        {
+            var matcher = new LookupMatching.ExactMatcher(lookup);
+            var textPosition = 0;
+            var textCursor = RangeValueCursor.Open(
+                arrayReference ?? Arguments[1],
+                context,
+                snapshot
+            );
+            while (textCursor.MoveNext(out var value))
+            {
+                textPosition++;
+                if (matcher.Matches(value))
+                {
+                    return ComputedValue.Number(textPosition);
+                }
+            }
+
+            return ComputedValue.Error(Error.NA);
+        }
+
+        if (absentLookup)
+        {
+            var absentPosition = 0;
+            var absentCursor = RangeValueCursor.Open(
+                arrayReference ?? Arguments[1],
+                context,
+                snapshot
+            );
+            while (absentCursor.MoveNext(out var value))
+            {
+                absentPosition++;
+                if (ValueCoercion.AreEqual(value, ComputedValue.Number(0)))
+                {
+                    return ComputedValue.Number(absentPosition);
+                }
+            }
+
+            return ComputedValue.Error(Error.NA);
         }
 
         // Approximate → O(log n) via the sorted index (correct for any input order: it returns the LAST

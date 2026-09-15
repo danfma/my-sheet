@@ -10,14 +10,37 @@ namespace Danfma.MySheet.Expressions;
 /// </summary>
 internal static class LookupMatching
 {
+    public static bool IsAbsentKey(Expression expression, EvaluationContext context) =>
+        expression switch
+        {
+            CellReference cell => context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet)
+                && !sheet.ContainsKey(cell.Id),
+            AnchoredCellReference cell => IsAbsent(cell, context),
+            NameReference name => context.IsAbsentName(name.Name),
+            _ => false,
+        };
+
+    private static bool IsAbsent(AnchoredCellReference cell, EvaluationContext context)
+    {
+        if (!context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet))
+        {
+            return false;
+        }
+
+        var (column, row) = cell.Effective(context);
+        return !sheet.ContainsKey(new CellAddress(column, row).ToId());
+    }
+
     internal readonly struct ExactMatcher
     {
         private readonly ComputedValue _lookup;
         private readonly Regex? _wildcard;
+        private readonly bool _blankOnly;
 
-        public ExactMatcher(in ComputedValue lookup)
+        public ExactMatcher(in ComputedValue lookup, bool blankOnly = false)
         {
             _lookup = lookup;
+            _blankOnly = blankOnly;
             _wildcard =
                 UsesWildcards(lookup) && lookup.TryGetText(out var pattern)
                     ? Criteria.BuildWildcardRegex(pattern)
@@ -25,9 +48,9 @@ internal static class LookupMatching
         }
 
         public bool Matches(in ComputedValue candidate) =>
-            _wildcard is null
-                ? ValueCoercion.AreEqual(candidate, _lookup)
-                : candidate.TryGetText(out var text) && IsWildcardMatch(_wildcard, text);
+            _blankOnly ? candidate.Kind == ComputedValueKind.Blank
+            : _wildcard is null ? ValueCoercion.AreEqual(candidate, _lookup)
+            : candidate.TryGetText(out var text) && IsWildcardMatch(_wildcard, text);
     }
 
     public static bool UsesWildcards(in ComputedValue lookup) =>
@@ -41,16 +64,25 @@ internal static class LookupMatching
         IReadOnlyList<ComputedValue> array,
         int count,
         int matchMode,
-        bool reverse
+        bool reverse,
+        bool absentMatchesOnlyBlank = false
     )
     {
         // Exact match first (in the chosen direction) for every mode except wildcard.
         if (matchMode != 2)
         {
+            var matcher = new ExactMatcher(lookup, absentMatchesOnlyBlank);
             for (var k = 0; k < count; k++)
             {
                 var i = reverse ? count - 1 - k : k;
-                if (ValueCoercion.AreEqual(array[i], lookup))
+                var candidate = array[i];
+                if (
+                    absentMatchesOnlyBlank
+                        ? reverse
+                            ? candidate.TryGetText(out var text) && text.Length == 0
+                            : candidate.Kind == ComputedValueKind.Blank
+                        : matcher.Matches(candidate)
+                )
                 {
                     return i;
                 }

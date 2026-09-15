@@ -199,18 +199,36 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
 
         if (approximate)
         {
+            if (lookup.TryGetText(out var lookupText) && lookupText.Length == 0)
+            {
+                for (var column = 1; column <= grid.Columns; column++)
+                {
+                    if (
+                        grid.At(1, column).TryGetText(out var candidateText)
+                        && string.Equals(
+                            candidateText,
+                            lookupText,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    {
+                        matchColumn = column;
+                    }
+                }
+            }
             // Largest first-row key <= lookup, assuming the row is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like
             // the <= operator — not only numeric keys.
             if (
-                keySnapshot is not null
+                matchColumn < 1
+                && keySnapshot is not null
                 && (lookup.Kind != ComputedValueKind.Text || !LookupMatching.UsesWildcards(lookup))
             )
             {
                 var position = keySnapshot.ApproximateAscendingPosition(lookup);
                 matchColumn = position >= 1 ? position : -1;
             }
-            else
+            else if (matchColumn < 1)
             {
                 for (var column = 1; column <= grid.Columns; column++)
                 {
@@ -489,6 +507,7 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         }
 
         var lookup = Arguments[0].Evaluate(context);
+        var absentLookup = LookupMatching.IsAbsentKey(Arguments[0], context);
 
         // Sweep item 34(b), the VALUE slot: the lookup's error leads the scan (the oracle answers #NAME? for
         // XMATCH(NoSuch,A1:A3), and #DIV/0! for XMATCH(A1,B1:B3) over an error cell) instead of the not-found
@@ -612,7 +631,13 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         else if (computedArray.Operand is not null)
         {
             // The stream carries shape and positional access, so every computed mode can scan it directly.
-            var streamMatch = FindMatch(lookup, computedArray, (int)matchMode, searchMode < 0);
+            var streamMatch = FindMatch(
+                lookup,
+                computedArray,
+                (int)matchMode,
+                searchMode < 0,
+                absentLookup
+            );
             return streamMatch < 0
                 ? ComputedValue.Error(Error.NA)
                 : ComputedValue.Number(streamMatch + 1);
@@ -640,7 +665,8 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             array,
             array.Count,
             (int)matchMode,
-            reverse: searchMode < 0
+            reverse: searchMode < 0,
+            absentMatchesOnlyBlank: absentLookup
         );
 
         if (match < 0)
@@ -666,15 +692,24 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         in ComputedValue lookup,
         ArrayEvaluation.ArrayStream array,
         int matchMode,
-        bool reverse
+        bool reverse,
+        bool absentLookup
     )
     {
         if (matchMode != 2)
         {
+            var matcher = new LookupMatching.ExactMatcher(lookup, absentLookup);
             for (var offset = 0; offset < array.Length; offset++)
             {
                 var index = reverse ? array.Length - 1 - offset : offset;
-                if (ValueCoercion.AreEqual(array.ElementAt(index), lookup))
+                var candidate = array.ElementAt(index);
+                if (
+                    absentLookup
+                        ? reverse
+                            ? candidate.TryGetText(out var text) && text.Length == 0
+                            : candidate.Kind == ComputedValueKind.Blank
+                        : matcher.Matches(candidate)
+                )
                 {
                     return index;
                 }

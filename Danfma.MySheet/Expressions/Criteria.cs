@@ -25,6 +25,8 @@ internal sealed class Criteria
     private readonly bool _numeric;
     private readonly double _number;
     private readonly string _text;
+    private readonly bool _blankOnly;
+    private readonly bool _nonBlank;
 
     // A text criterion's wildcard pattern resolved ONCE per criterion (null for numeric criteria), via the
     // shared RegexCache. The old code rebuilt the "^…$" pattern string and re-parsed the regex on EVERY cell —
@@ -34,19 +36,32 @@ internal sealed class Criteria
     // once per Criteria.Parse.
     private readonly Regex? _regex;
 
-    private Criteria(Op op, bool numeric, double number, string text)
+    private Criteria(
+        Op op,
+        bool numeric,
+        double number,
+        string text,
+        bool blankOnly = false,
+        bool nonBlank = false
+    )
     {
         _op = op;
         _numeric = numeric;
         _number = number;
         _text = text;
+        _blankOnly = blankOnly;
+        _nonBlank = nonBlank;
         _regex = numeric
             ? null
             : RegexCache.Get(BuildWildcardPattern(text), RegexOptions.IgnoreCase);
     }
 
-    public static Criteria Parse(in ComputedValue value)
+    public static Criteria Parse(in ComputedValue value, bool absent = false)
     {
+        if (absent)
+        {
+            return new Criteria(Op.Equal, numeric: true, 0, string.Empty);
+        }
         if (value.TryGetNumber(out var d))
         {
             return new Criteria(Op.Equal, numeric: true, d, string.Empty);
@@ -57,7 +72,18 @@ internal sealed class Criteria
             return new Criteria(Op.Equal, numeric: false, 0, b ? "TRUE" : "FALSE");
         }
 
-        var (op, rest) = SplitOperator(value.TryGetText(out var s) ? s : string.Empty);
+        var source = value.TryGetText(out var s) ? s : string.Empty;
+        var (op, rest) = SplitOperator(source);
+
+        if (source == "=")
+        {
+            return new Criteria(op, numeric: false, 0, rest, blankOnly: true);
+        }
+
+        if (source == "<>")
+        {
+            return new Criteria(op, numeric: false, 0, rest, nonBlank: true);
+        }
 
         return double.TryParse(rest, NumberStyles.Any, CultureInfo.InvariantCulture, out var number)
             ? new Criteria(op, numeric: true, number, rest)
@@ -83,6 +109,15 @@ internal sealed class Criteria
 
     public bool Matches(in ComputedValue cellValue)
     {
+        if (_blankOnly)
+        {
+            return cellValue.Kind == ComputedValueKind.Blank;
+        }
+
+        if (_nonBlank)
+        {
+            return cellValue.Kind != ComputedValueKind.Blank;
+        }
         if (_numeric)
         {
             if (!cellValue.TryGetNumber(out var cell))

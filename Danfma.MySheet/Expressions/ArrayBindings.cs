@@ -38,17 +38,20 @@ internal static class ArrayBindings
     {
         public ArrayOperand? Operand { get; }
         public ComputedValue Value { get; }
+        public bool IsAbsent { get; }
 
         public Binding(ArrayOperand operand)
         {
             Operand = operand;
             Value = default;
+            IsAbsent = false;
         }
 
-        public Binding(ComputedValue value)
+        public Binding(ComputedValue value, bool isAbsent = false)
         {
             Operand = null;
             Value = value;
+            IsAbsent = isAbsent;
         }
 
         public bool IsArray => Operand is not null;
@@ -83,7 +86,10 @@ internal static class ArrayBindings
             return new Binding(operand);
         }
 
-        return new Binding(NamedReferences.CaptureValue(expression, context));
+        return new Binding(
+            NamedReferences.CaptureValue(expression, context),
+            LookupMatching.IsAbsentKey(expression, context)
+        );
     }
 
     /// <summary>

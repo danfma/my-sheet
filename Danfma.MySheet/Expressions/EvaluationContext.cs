@@ -31,13 +31,21 @@ public readonly struct EvaluationContext
         public readonly string Name;
         public readonly ComputedValue Value;
         public readonly ArrayOperand? Operand;
+        public readonly bool IsAbsent;
         public readonly NameScope? Parent;
 
-        public NameScope(string name, ComputedValue value, ArrayOperand? operand, NameScope? parent)
+        public NameScope(
+            string name,
+            ComputedValue value,
+            ArrayOperand? operand,
+            bool isAbsent,
+            NameScope? parent
+        )
         {
             Name = name;
             Value = value;
             Operand = operand;
+            IsAbsent = isAbsent;
             Parent = parent;
         }
     }
@@ -232,7 +240,7 @@ public readonly struct EvaluationContext
             Workbook,
             SheetName,
             CellId,
-            new NameScope(name, value, operand: null, _names),
+            new NameScope(name, value, operand: null, isAbsent: false, _names),
             DeltaRow,
             DeltaColumn,
             _conditions,
@@ -250,7 +258,7 @@ public readonly struct EvaluationContext
             Workbook,
             SheetName,
             CellId,
-            new NameScope(name, value: default, operand, _names),
+            new NameScope(name, value: default, operand, isAbsent: false, _names),
             DeltaRow,
             DeltaColumn,
             _conditions,
@@ -259,7 +267,20 @@ public readonly struct EvaluationContext
 
     /// <summary>Binds whichever form <paramref name="binding"/> holds — the one call a binding site makes.</summary>
     internal EvaluationContext WithName(string name, ArrayBindings.Binding binding) =>
-        binding.Operand is { } operand ? WithName(name, operand) : WithName(name, binding.Value);
+        binding.Operand is { } operand
+            ? WithName(name, operand)
+            : new(
+                Workbook,
+                SheetName,
+                CellId,
+                new NameScope(name, binding.Value, operand: null, binding.IsAbsent, _names),
+                DeltaRow,
+                DeltaColumn,
+                _conditions,
+                _routeDiagnostics
+            );
+
+    internal bool IsAbsentName(string name) => Find(name) is { IsAbsent: true };
 
     /// <summary>
     /// G3 spike: pushes a shared-formula delta for the duration of evaluating a

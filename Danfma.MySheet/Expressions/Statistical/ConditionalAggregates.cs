@@ -20,7 +20,10 @@ public sealed partial record AverageIf(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        var criteria = Criteria.Parse(Arguments[1].Evaluate(context));
+        var criteria = Criteria.Parse(
+            Arguments[1].Evaluate(context),
+            LookupMatching.IsAbsentKey(Arguments[1], context)
+        );
 
         var snapshot = Arguments[0] is Reference reference
             ? context.Workbook.TryGetRangeSnapshot(reference, context)
