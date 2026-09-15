@@ -36,7 +36,8 @@ public readonly struct ComputedValue
 
     public static readonly ComputedValue Blank = new(0d, null, ComputedValueKind.Blank);
 
-    public static ComputedValue Number(double value) => new(value, null, ComputedValueKind.Number);
+    public static ComputedValue Number(double value) =>
+        new(value == 0d ? 0d : value, null, ComputedValueKind.Number);
 
     public static ComputedValue Boolean(bool value) =>
         new(value ? 1d : 0d, null, ComputedValueKind.Boolean);

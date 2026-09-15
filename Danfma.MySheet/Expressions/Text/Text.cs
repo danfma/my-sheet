@@ -34,7 +34,9 @@ public sealed partial record Text(Expression[] Arguments) : Function
 
         try
         {
-            return ComputedValue.Text(number.ToString(format, CultureInfo.InvariantCulture));
+            return ComputedValue.Text(
+                NumberFormatting.Format(number, format, CultureInfo.InvariantCulture)
+            );
         }
         catch (Exception exception)
             when (exception is FormatException or ArgumentException or OverflowException)

@@ -26,6 +26,9 @@ ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 | `Error` | An Excel error (`#DIV/0!`, `#N/A`, …) as an [`Error`](#the-error-struct) struct. | none |
 | `Reference` | A reference produced by a function such as `OFFSET` (see [References](#references-and-enumeratevalues)). | carries the existing reference |
 
+Computed numeric results never carry negative zero. `ComputedValue.Number(-0.0)`, including the implicit
+`double` conversion, is stored and exposed as positive `0.0`, matching Excel's value and text rendering.
+
 > **Formula results are never blank at the cell boundary (Excel parity).** `Blank` is what you get from a
 > truly empty cell (`BlankValue` expression) or an omitted argument. But a cell that HAS content whose
 > formula evaluates to blank is coerced: `GetCellValue` returns `Number(0)`, exactly like Excel — e.g.

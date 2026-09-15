@@ -411,18 +411,34 @@ public sealed partial record ValueToText(Expression[] Arguments) : Function
 
 // FIXED/DOLLAR shared rounding: Excel's ROUND (midpoint away from zero) at a digit position that
 // may be negative (left of the decimal point).
-file static class NumberFormatting
+internal static class NumberFormatting
 {
+    public static string Format(double number, string format, IFormatProvider provider)
+    {
+        var rendered = number.ToString(format, provider);
+
+        return
+            number < 0d
+            && double.TryParse(rendered, NumberStyles.Number, provider, out var rounded)
+            && rounded == 0d
+            ? (-number).ToString(format, provider)
+            : rendered;
+    }
+
     public static double RoundToDigits(double number, int digits)
     {
         if (digits >= 0)
         {
             // Digits beyond double precision change nothing — formatting pads with zeros.
-            return digits > 15 ? number : Math.Round(number, digits, MidpointRounding.AwayFromZero);
+            return digits > 15
+                ? number
+                : NormalizeZero(Math.Round(number, digits, MidpointRounding.AwayFromZero));
         }
 
         var factor = Math.Pow(10, -digits);
 
-        return Math.Round(number / factor, MidpointRounding.AwayFromZero) * factor;
+        return NormalizeZero(Math.Round(number / factor, MidpointRounding.AwayFromZero) * factor);
     }
+
+    private static double NormalizeZero(double value) => value == 0d ? 0d : value;
 }

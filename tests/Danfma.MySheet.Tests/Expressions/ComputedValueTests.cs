@@ -16,6 +16,29 @@ public class ComputedValueTests
     }
 
     [Test]
+    public async Task NumberFactory_AndImplicitConversion_NormalizeNegativeZero()
+    {
+        var negativeZero = BitConverter.Int64BitsToDouble(long.MinValue);
+        var factoryValue = ComputedValue.Number(negativeZero).ToDouble();
+        ComputedValue implicitValue = negativeZero;
+
+        await Assert.That(double.IsNegative(factoryValue)).IsFalse();
+        await Assert.That(double.IsNegative(implicitValue.ToDouble())).IsFalse();
+    }
+
+    [Test]
+    public async Task NumberFactory_NormalizesRuntimeNegativeZero_InRelease()
+    {
+        var sign = -1d;
+        var runtimeZero = 0d * sign;
+
+        await Assert.That(double.IsNegative(runtimeZero)).IsTrue();
+        await Assert
+            .That(double.IsNegative(ComputedValue.Number(runtimeZero).ToDouble()))
+            .IsFalse();
+    }
+
+    [Test]
     public async Task Text_NullBecomesBlank()
     {
         await Assert.That(ComputedValue.Text(null).Kind).IsEqualTo(ComputedValueKind.Blank);

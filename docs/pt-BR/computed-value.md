@@ -28,6 +28,10 @@ ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 | `Error` | Um erro do Excel (`#DIV/0!`, `#N/A`, …) como uma struct [`Error`](#a-struct-error). | nenhuma |
 | `Reference` | Uma referência produzida por uma função como `OFFSET` (veja [Referências](#referências-e-enumeratevalues)). | carrega a referência já existente |
 
+Resultados numéricos calculados nunca carregam zero negativo. `ComputedValue.Number(-0.0)`, incluindo a
+conversão implícita de `double`, é armazenado e exposto como `0.0` positivo, igual ao valor e à renderização
+de texto do Excel.
+
 > **Resultados de fórmula nunca são em branco na borda da célula (paridade com o Excel).** `Blank` é o
 > que você obtém de uma célula verdadeiramente vazia (expressão `BlankValue`) ou de um argumento omitido.
 > Mas uma célula que TEM conteúdo cuja fórmula avalia para em branco é coagida: `GetCellValue` retorna
