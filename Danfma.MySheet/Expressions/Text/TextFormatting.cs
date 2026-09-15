@@ -439,7 +439,7 @@ internal static class NumberFormatting
             && pattern.RoundsToZero
         )
         {
-            pattern = section.Apply(-number);
+            pattern = pattern with { Value = -pattern.Value };
         }
 
         return pattern.Value.ToString(pattern.Format, provider);
@@ -602,6 +602,8 @@ internal static class NumberFormatting
                     }
                 }
             }
+
+            ZeroDisplayThreshold = 0.5d * Math.Pow(10d, -DecimalPlaces);
         }
 
         public bool IsEmpty { get; }
@@ -612,13 +614,13 @@ internal static class NumberFormatting
         public bool HasFractionPlaceholder { get; }
         public bool Exponent { get; }
         public int DecimalPlaces { get; }
+        public double ZeroDisplayThreshold { get; }
 
         public NumericPattern Apply(double value)
         {
             var scaledValue = value / Scale;
             var roundsToZero =
-                !Exponent
-                && Math.Abs(scaledValue) * PercentScale < 0.5d * Math.Pow(10d, -DecimalPlaces);
+                !Exponent && Math.Abs(scaledValue) * PercentScale < ZeroDisplayThreshold;
             return new NumericPattern(
                 Format,
                 scaledValue,
@@ -669,7 +671,12 @@ internal static class TextFormatCache
 
     public static NumberFormatting.AnalyzedFormat Get(string format)
     {
-        if (Cache.Count >= Capacity && !Cache.ContainsKey(format))
+        if (Cache.TryGetValue(format, out var analyzed))
+        {
+            return analyzed;
+        }
+
+        if (Cache.Count >= Capacity)
         {
             Cache.Clear();
         }
