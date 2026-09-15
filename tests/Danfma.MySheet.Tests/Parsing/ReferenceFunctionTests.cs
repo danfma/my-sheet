@@ -102,7 +102,7 @@ public class ReferenceFunctionTests
     }
 
     // The two failure arms of the shared resolution: an argument that CANNOT be resolved to a reference
-    // reports its OWN error when it has one, and #VALUE! only when it is simply not a reference.
+    // reports its OWN error when it has one, and #REF! when it is simply not a reference.
     [Test]
     public async Task RowAndColumn_UnresolvableArgument_ReportTheArgumentsOwnError()
     {
@@ -132,8 +132,33 @@ public class ReferenceFunctionTests
             .That(Calc(workbook, sheet, "=COLUMN(INDIRECT(\"zz\"))"))
             .IsEqualTo(ErrorValue.Reference);
 
-        // A scalar is not a reference at all: #VALUE!.
-        await Assert.That(Calc(workbook, sheet, "=ROW(1)")).IsEqualTo(ErrorValue.NotValue);
+        // Aspose.Cells 26.7.0 returns #REF! for every non-reference scalar below in both entry modes.
+        string[] scalarFormulas =
+        [
+            "=ROW(1)",
+            "=COLUMN(1)",
+            "=ROW(\"A1\")",
+            "=COLUMN(\"A1\")",
+            "=ROW(TRUE)",
+            "=ROW(LET(x,5,x))",
+        ];
+
+        foreach (var formula in scalarFormulas)
+        {
+            await Assert.That(Calc(workbook, sheet, formula)).IsEqualTo(ErrorValue.Reference);
+        }
+
+        // Expression errors propagate rather than being replaced by the scalar fallback.
+        await Assert.That(Calc(workbook, sheet, "=ROW(1/0)")).IsEqualTo(ErrorValue.DivByZero);
+
+        // Reference-producing controls keep reporting positions.
+        await Assert.That(Calc(workbook, sheet, "=ROW(A1)") as double?).IsEqualTo(1d);
+        await Assert.That(Calc(workbook, sheet, "=ROW(IF(TRUE,A1))") as double?).IsEqualTo(1d);
+        await Assert.That(Calc(workbook, sheet, "=ROW(INDIRECT(\"B3\"))") as double?).IsEqualTo(3d);
+
+        // ROWS/COLUMNS deliberately treat a scalar as a 1x1 value and remain unchanged.
+        await Assert.That(Calc(workbook, sheet, "=ROWS(1)") as double?).IsEqualTo(1d);
+        await Assert.That(Calc(workbook, sheet, "=COLUMNS(1)") as double?).IsEqualTo(1d);
 
         // A union resolves to a reference but has no single top row — deliberately unchanged: #VALUE!.
         await Assert

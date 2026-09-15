@@ -125,8 +125,9 @@ public class ArrayConstantTests
         await Assert.That(Calc("=ROWS({1,2})") as double?).IsEqualTo(1d);
 
     [Test]
-    public async Task Row_ScalarBehaviorIsUnchanged() =>
-        await Assert.That(Calc("=ROW(1)")).IsEqualTo(ErrorValue.NotValue);
+    public async Task Row_ScalarUsesTheNonReferenceFallback() =>
+        // This was #VALUE! before the Aspose.Cells 26.7.0 measurement established #REF! in both modes.
+        await Assert.That(Calc("=ROW(1)")).IsEqualTo(ErrorValue.Reference);
 
     [Test]
     public async Task LogicalConsumers_UseTheSharedArrayProducerRoute() =>

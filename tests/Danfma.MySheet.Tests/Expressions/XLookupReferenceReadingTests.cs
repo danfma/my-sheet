@@ -127,7 +127,7 @@ public class XLookupReferenceReadingTests
     [Arguments("=SUMIF(A1:A3,\">0\",XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
     [Arguments("=MATCH(20,XLOOKUP(TICK(),A1:A3,B1:B3),0)", "1")]
     [Arguments("=ROWS(XLOOKUP(TICK(),A1:A3,B1:B3))", "1")]
-    [Arguments("=ROW(XLOOKUP(TICK(),A1:A3,B1:B3))", "#VALUE!")]
+    [Arguments("=ROW(XLOOKUP(TICK(),A1:A3,B1:B3))", "#REF!")]
     [Arguments("=COUNTBLANK(XLOOKUP(TICK(),A1:A3,B1:B3))", "0")]
     [Arguments("=SUMPRODUCT(XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
     [Arguments("=AGGREGATE(9,6,XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]

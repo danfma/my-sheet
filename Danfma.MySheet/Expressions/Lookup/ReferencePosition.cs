@@ -29,7 +29,7 @@ internal static class ReferencePosition
     /// should report (Excel's own answer there was not measured, so no divergence is guessed at either way).
     /// </summary>
     public static ComputedValue Row(Expression argument, EvaluationContext context) =>
-        TryResolve(argument, context, ValueFallback, out var reference, out var failure)
+        TryResolve(argument, context, RefFallback, out var reference, out var failure)
             ? reference switch
             {
                 CellReference cell => ComputedValue.Number(CellAddress.Parse(cell.Id).Row),
@@ -45,7 +45,7 @@ internal static class ReferencePosition
 
     /// <summary>The mirror of <see cref="Row"/> on the column axis (<c>COLUMN(1:1)</c> = 1).</summary>
     public static ComputedValue Column(Expression argument, EvaluationContext context) =>
-        TryResolve(argument, context, ValueFallback, out var reference, out var failure)
+        TryResolve(argument, context, RefFallback, out var reference, out var failure)
             ? reference switch
             {
                 CellReference cell => ComputedValue.Number(CellAddress.Parse(cell.Id).Column),
@@ -73,10 +73,10 @@ internal static class ReferencePosition
             ? ComputedValue.Error(error)
             : ComputedValue.Number(extent);
 
-    /// <summary>The fallback <c>ROW</c>/<c>COLUMN</c>/<c>AREAS</c> share: an argument that is not a
-    /// reference at all is <c>#VALUE!</c>. <c>ROWS</c>/<c>COLUMNS</c> pass <c>1</c> instead, treating a
-    /// scalar as a 1x1 array.</summary>
-    private static ComputedValue ValueFallback => ComputedValue.Error(Error.Value);
+    /// <summary>The fallback for <c>ROW</c>/<c>COLUMN</c>: an argument that is not a reference at all is
+    /// <c>#REF!</c>. <c>ROWS</c>/<c>COLUMNS</c> pass <c>1</c> instead, treating a scalar as a 1x1 array;
+    /// <c>AREAS</c> passes its own <c>#VALUE!</c> fallback.</summary>
+    private static ComputedValue RefFallback => ComputedValue.Error(Error.Ref);
 
     /// <summary>
     /// Resolves <paramref name="argument"/> to the reference it DENOTES, or hands back — in
@@ -261,8 +261,9 @@ internal static class ReferencePosition
     /// argument's OWN error when it has one (<c>#NAME?</c> for an unknown name, <c>#REF!</c> for a failed
     /// <c>INDIRECT</c>/<c>OFFSET</c>), otherwise <paramref name="fallback"/>. Excel propagates the argument's
     /// error rather than inventing an answer for a broken reference, and the caller keeps its own answer for
-    /// an argument that is merely not a reference (<c>#VALUE!</c> for <c>ROW</c>/<c>COLUMN</c>/<c>AREAS</c>,
-    /// <c>1</c> for <c>ROWS</c>/<c>COLUMNS</c>, which treat a scalar as a 1x1 array).
+    /// an argument that is merely not a reference (<c>#REF!</c> for <c>ROW</c>/<c>COLUMN</c>,
+    /// <c>#VALUE!</c> for <c>AREAS</c>, and <c>1</c> for <c>ROWS</c>/<c>COLUMNS</c>, which treat a scalar as a
+    /// 1x1 array).
     /// </summary>
     internal static ComputedValue Unresolved(
         Expression argument,
