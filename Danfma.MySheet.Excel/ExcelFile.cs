@@ -62,8 +62,8 @@ public enum ExcelLoadWarningKind
     /// A cell whose formula text failed to parse — a syntax MySheet's parser does not accept. Now that
     /// structured references are supported, the remaining common causes are the structured-reference
     /// shapes still out of scope (the this-row form, stored by Excel as
-    /// <c>Tabela1[[#This Row],[Valor]]</c> and typed as <c>Tabela1[@Valor]</c>, a column span
-    /// <c>Tabela1[[Q1]:[Q3]]</c>, the implicit-table form <c>[Valor]</c>), array literals
+    /// <c>Tabela1[[#This Row],[Valor]]</c> and typed as <c>Tabela1[@Valor]</c>, and the implicit-table form
+    /// <c>[Valor]</c>), array literals
     /// (<c>{1;2;3}</c>), and genuinely malformed or otherwise unsupported formula text. The cell falls back
     /// to the cached value Excel stored alongside the formula (blank when the file carries none), so only
     /// that cell degrades — the rest of the workbook loads normally.

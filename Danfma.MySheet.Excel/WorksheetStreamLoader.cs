@@ -520,7 +520,7 @@ internal static class WorksheetStreamLoader
                 // A syntax MySheet's parser does not accept. The in-scope structured references into an Excel
                 // Table (`Tabela1[Valor]`, `Tabela1[[#Headers],[#Data]]`) now PARSE; what still lands here
                 // from that family is its out-of-scope half — the current-row forms (`Tabela1[@Valor]`, which
-                // a real file stores as `Tabela1[[#This Row],[Valor]]`), a column span, an implicit-table
+                // a real file stores as `Tabela1[[#This Row],[Valor]]`), an implicit-table
                 // `[Valor]` and the external-workbook `[1]Sheet1!A1` — alongside array literals and anything
                 // else the grammar has no node for. This used to abort the WHOLE load; now only this cell
                 // degrades, to the value Excel cached next to the formula.

@@ -105,6 +105,7 @@ internal static class StructuredReferenceSyntax
     internal static void Write(StringBuilder builder, TableReference reference)
     {
         var column = reference.ColumnName;
+        var lastColumn = reference.LastColumnName;
 
         // #Data is implicit ONLY alongside a column, so T[Valor] rather than T[[#Data],[Valor]]; with no
         // column it must be written, because T[] is stored by Excel as the bare table name and MySheet has
@@ -128,7 +129,7 @@ internal static class StructuredReferenceSyntax
         // or a column whose edge whitespace the bare form would lose — brackets each part separately.
         var barePayload = column is null
             ? specifiers.Length == 1
-            : specifiers.Length == 0 && !HasEdgeWhitespace(column);
+            : specifiers.Length == 0 && lastColumn is null && !HasEdgeWhitespace(column);
 
         builder.Append(reference.TableName).Append('[');
 
@@ -158,6 +159,13 @@ internal static class StructuredReferenceSyntax
                 builder.Append(separator).Append('[');
                 EscapeName(builder, column);
                 builder.Append(']');
+
+                if (lastColumn is not null)
+                {
+                    builder.Append(":[");
+                    EscapeName(builder, lastColumn);
+                    builder.Append(']');
+                }
             }
         }
 
@@ -181,8 +189,9 @@ internal static class StructuredReferenceSyntax
 
         var specifiers = (First: TableArea.Data, Second: TableArea.Data, Count: 0);
         string? column = null;
+        var (itemsPayload, lastColumn) = ExtractColumnSpan(payload, payloadStart, tokenText);
 
-        foreach (var (item, offset) in SplitItems(payload, payloadStart, tokenText))
+        foreach (var (item, offset) in SplitItems(itemsPayload))
         {
             var position = payloadStart + offset;
 
@@ -245,7 +254,77 @@ internal static class StructuredReferenceSyntax
             }
         }
 
-        return new TableReference(tableName, column, Combine(specifiers, payloadStart, tokenText));
+        if (lastColumn is not null && column is null)
+        {
+            throw Invalid("A column span needs a first column", payloadStart, tokenText);
+        }
+
+        return new TableReference(
+            tableName,
+            column,
+            Combine(specifiers, payloadStart, tokenText),
+            lastColumn
+        );
+    }
+
+    private static (string ItemsPayload, string? LastColumn) ExtractColumnSpan(
+        string payload,
+        int payloadStart,
+        string tokenText
+    )
+    {
+        var depth = 0;
+
+        for (var i = 0; i < payload.Length; i++)
+        {
+            switch (payload[i])
+            {
+                case '\'':
+                    i++;
+                    break;
+                case '[':
+                    depth++;
+                    break;
+                case ']':
+                    depth--;
+                    break;
+                case ':' when depth == 0:
+                    var right = payload[(i + 1)..].Trim();
+                    if (
+                        !TryFindClosingBracket(right, 0, out var close)
+                        || close != right.Length - 1
+                    )
+                    {
+                        throw Invalid(
+                            "A column span needs a bracketed last column",
+                            payloadStart + i + 1,
+                            tokenText
+                        );
+                    }
+
+                    if (right.Length > 2 && right[1] is '#' or '@')
+                    {
+                        throw Invalid(
+                            "A column span endpoint must be a column name",
+                            payloadStart + i + 2,
+                            tokenText
+                        );
+                    }
+
+                    var leftEnd = i;
+                    while (leftEnd > 0 && char.IsWhiteSpace(payload[leftEnd - 1]))
+                    {
+                        leftEnd--;
+                    }
+
+                    return (
+                        payload[..leftEnd],
+                        DecodeName(right[1..^1], payloadStart + i + 2, tokenText)
+                    );
+            }
+        }
+
+        return (payload, null);
     }
 
     // Items are collected ORDER-INDEPENDENTLY because that is what the oracle does rather than reject:
@@ -278,11 +357,7 @@ internal static class StructuredReferenceSyntax
     // its offset within the payload kept so a rejected item reports a position inside the brackets. A
     // nested bracket group is opaque here — where it ends is decided by the ONE scanner above, which is
     // what guarantees the splitter cannot disagree with the tokenizer about a payload's shape.
-    private static List<(string Item, int Offset)> SplitItems(
-        string payload,
-        int payloadStart,
-        string tokenText
-    )
+    private static List<(string Item, int Offset)> SplitItems(string payload)
     {
         var items = new List<(string, int)>(3);
         var start = 0;
@@ -306,15 +381,6 @@ internal static class StructuredReferenceSyntax
                     items.Add(Slice(payload, start, i));
                     start = ++i;
                     break;
-
-                case ':':
-                    // A column SPAN is legal Excel (SUM(Tabela1[[Valor]:[Sales Amount]]) = 90 over the
-                    // measured fixture, stored identically) that MySheet does not model.
-                    throw Unsupported(
-                        $"The column span '{tokenText}' is not supported",
-                        payloadStart + i,
-                        tokenText
-                    );
 
                 default:
                     i++;

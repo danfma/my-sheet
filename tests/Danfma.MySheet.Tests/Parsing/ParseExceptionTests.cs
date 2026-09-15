@@ -182,8 +182,8 @@ public class ParseExceptionTests
     // are valid Excel that MySheet does not model — an S1 scope decision, not parity: measured,
     // `Tabela1[@Valor]` outside the table evaluates to #VALUE! (it is not rejected) and is STORED as the
     // `[[#This Row],[Valor]]` item list, `Tabela1[#This Row]` is accepted and rewritten to `Tabela1[@]`, a
-    // column span `Tabela1[[Valor]:[Sales Amount]]` resolves, and even `Data!Tabela1[Valor]` resolves — the
-    // oracle answers 60 and stores the formula with the qualifier STRIPPED. The BARE-PREFIX rows
+    // even `Data!Tabela1[Valor]` resolves — the oracle answers 60 and stores the formula with the qualifier
+    // STRIPPED. The BARE-PREFIX rows
     // (`=SUM([Valor])`, `=[@Valor]`, `=[@]`) are rejected by BOTH sides: the oracle set-throws all three
     // with the same message ("Invalid table reference, formula should be in table when specifing no table
     // name" — measured, Aspose.Cells 26.6.0, PLAIN, 2026-09-11), and MySheet throws the named kind below.
@@ -194,7 +194,6 @@ public class ParseExceptionTests
     [Arguments("=SUM([Valor])", "[Valor]", 4)]
     [Arguments("=[@Valor]", "[@Valor]", 0)] // the current-row form with no table name: a PREFIX-position arm
     [Arguments("=[@]", "[@]", 0)]
-    [Arguments("=Tabela1[[Col1]:[Col3]]", "[[Col1]:[Col3]]", 14)]
     [Arguments("=Data!Tabela1[Valor]", "Tabela1", 5)] // the table NAME's position, not the bracket's
     public async Task UnsupportedStructuredReference(string formula, string token, int position)
     {

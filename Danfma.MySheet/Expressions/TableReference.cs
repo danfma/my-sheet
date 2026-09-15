@@ -24,7 +24,7 @@ public enum TableArea : byte
 /// <c>Tabela1[[#Headers],[#Data],[Valor]]</c> — resolved at evaluation time against
 /// <see cref="Workbook.Tables"/> to a concrete <see cref="RangeReference"/>, or, for a band with zero rows,
 /// to an <see cref="EmptyRangeReference"/>. Contract with the parser:
-/// <see cref="TableName"/> and <see cref="ColumnName"/> hold the DECODED payload (the <c>'</c>-prefix escape
+/// <see cref="TableName"/>, <see cref="ColumnName"/> and <see cref="LastColumnName"/> hold the DECODED payload (the <c>'</c>-prefix escape
 /// table <c>'[ '] '# '' '@</c> already applied, exactly as <c>Tokenizer.ReadQuotedName</c> stores decoded
 /// text), because the column lookup compares against the raw <c>tableColumn/@name</c> of the xlsx.
 /// <c>Area = Data</c> with a non-null <see cref="ColumnName"/> is <c>T[Col]</c>; <c>Area = Data</c> with a
@@ -39,8 +39,12 @@ public enum TableArea : byte
 /// </para>
 /// </summary>
 [MemoryPackable]
-public sealed partial record TableReference(string TableName, string? ColumnName, TableArea Area)
-    : Reference
+public sealed partial record TableReference(
+    string TableName,
+    string? ColumnName,
+    TableArea Area,
+    string? LastColumnName = null
+) : Reference
 {
     /// <summary>
     /// The ONE resolution primitive, so the <c>#NAME?</c>/<c>#REF!</c> mapping lives in exactly one place and
@@ -78,6 +82,7 @@ public sealed partial record TableReference(string TableName, string? ColumnName
         switch (
             table.GetRegion(
                 ColumnName,
+                LastColumnName,
                 Area,
                 out var left,
                 out var top,

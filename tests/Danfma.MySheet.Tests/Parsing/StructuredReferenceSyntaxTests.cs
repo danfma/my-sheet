@@ -251,8 +251,7 @@ public class StructuredReferenceSyntaxTests
 
     // Valid Excel that MySheet does not model — a scope decision, not parity. The current-row forms are
     // ACCEPTED by the oracle (`Tabela1[@Valor]` evaluates to #VALUE! outside the table and the saved xlsx
-    // carries `[[#This Row],[Valor]]` for both spellings), and a column SPAN is legal
-    // (`SUM(Tabela1[[Valor]:[Sales Amount]])` = 90 over this fixture, stored identically).
+    // carries `[[#This Row],[Valor]]` for both spellings).
     [Test]
     [Arguments("[@Valor]")]
     [Arguments("[@]")]
@@ -260,13 +259,20 @@ public class StructuredReferenceSyntaxTests
     [Arguments("[#this row]")]
     [Arguments("[[#This Row],[Valor]]")]
     [Arguments("[[@],[Valor]]")]
-    [Arguments("[[Valor]:[Sales Amount]]")]
-    [Arguments("[[Valor]:[#Data]]")] // Aspose rejects this one outright; MySheet lumps it with the span
     public async Task Parse_Unsupported(string suffix)
     {
         var exception = Assert.Throws<ParseException>(() => ParseSuffix(suffix));
 
         await Assert.That(exception!.Kind).IsEqualTo(ParseErrorKind.UnsupportedStructuredReference);
+    }
+
+    [Test]
+    [Arguments("[[Valor]:[#Data]]")]
+    public async Task Parse_InvalidSpanEndpoint(string suffix)
+    {
+        var exception = Assert.Throws<ParseException>(() => ParseSuffix(suffix));
+
+        await Assert.That(exception!.Kind).IsEqualTo(ParseErrorKind.InvalidStructuredReference);
     }
 
     // A trailing `'` with nothing to escape. UNREACHABLE from the tokenizer — the scanner skips the escape

@@ -219,6 +219,16 @@ public sealed partial record Table(
         out int top,
         out int right,
         out int bottom
+    ) => GetRegion(columnName, null, area, out left, out top, out right, out bottom);
+
+    internal TableRegionOutcome GetRegion(
+        string? columnName,
+        string? lastColumnName,
+        TableArea area,
+        out int left,
+        out int top,
+        out int right,
+        out int bottom
     )
     {
         left = 0;
@@ -243,8 +253,14 @@ public sealed partial record Table(
 
         // The column is resolved BEFORE the band: a name that does not exist is the formula's own bug and
         // must report Absent whatever the band turns out to be, never hide behind the data-dependent Empty.
-        var index = -1;
-        if (columnName is not null && !TryGetColumnIndex(columnName, out index))
+        var firstIndex = -1;
+        if (columnName is not null && !TryGetColumnIndex(columnName, out firstIndex))
+        {
+            return TableRegionOutcome.Absent;
+        }
+
+        var lastIndex = firstIndex;
+        if (lastColumnName is not null && !TryGetColumnIndex(lastColumnName, out lastIndex))
         {
             return TableRegionOutcome.Absent;
         }
@@ -278,7 +294,12 @@ public sealed partial record Table(
         }
 
         (left, right) =
-            index < 0 ? (FirstColumn, LastColumn) : (SheetColumnAt(index), SheetColumnAt(index));
+            firstIndex < 0
+                ? (FirstColumn, LastColumn)
+                : (
+                    SheetColumnAt(Math.Min(firstIndex, lastIndex)),
+                    SheetColumnAt(Math.Max(firstIndex, lastIndex))
+                );
         (top, bottom) = (bandTop, bandBottom);
 
         // One check for all six bands. A band whose bottom is above its top has ZERO rows: it is reported as

@@ -133,8 +133,7 @@ other six reach formula text only when someone types them — so `=SUM(#REF!)`, 
 `=#REF!A1` alike now load, re-evaluate and keep reacting to input changes instead of freezing at the
 cached value (see [Workbook and expressions → Parsing](workbook-and-expressions.md#parsing)). So this
 warning comes from the shapes still out of scope — the current-row forms a real file stores
-(`Tabela1[[#This Row],[Valor]]`, typed `[@Valor]`), a
-column span (`Tabela1[[Q1]:[Q3]]`), an implicit-table `[Valor]`, an external-workbook `[1]Sheet1!A1` —
+(`Tabela1[[#This Row],[Valor]]`, typed `[@Valor]`), an implicit-table `[Valor]`, an external-workbook `[1]Sheet1!A1` —
 and from array literals and anything else the grammar has
 no node for. (A structured reference whose table was *skipped* is not this warning: it parses and
 evaluates to `#NAME?` — unless the formula cannot be lexed at all, as when the skipped table's name
@@ -266,8 +265,9 @@ Being honest about what the interop MVP does **not** do:
 - **Excel Tables load, but MySheet never writes one**: a `<table>` part (ListObject) is read into
   `Workbook.Tables` — name, geometry and column names — and the structured references that resolve
   against it (`Tabela1[Valor]`, `Tabela1[#All]`, `Tabela1[#Data]`, `Tabela1[#Headers]`, `Tabela1[#Totals]`,
-  `Tabela1[[#Data],[Valor]]`) evaluate against the loaded table. The forms still out of scope — `[@Valor]`
-  (stored as `Tabela1[[#This Row],[Valor]]`), a column span `[[Q1]:[Q3]]` and the implicit-table form
+  `Tabela1[[#Data],[Valor]]`) evaluate against the loaded table. Contiguous column spans such as
+  `Tabela1[[Valor]:[Qtd]]` resolve through the same table rectangle. The forms still out of scope — `[@Valor]`
+  (stored as `Tabela1[[#This Row],[Valor]]`) and the implicit-table form
   `[Valor]` — still degrade via `UnparsableFormula` to the cell's cached value. The table's geometry is
   fixed at load time and does not grow when rows are appended. `SaveAsExcel` writes no `<table>` part, so
   exporting in `FormulaMode.Formulas` a workbook whose formulas use structured references produces a file

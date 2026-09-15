@@ -142,8 +142,7 @@ fórmula quando alguém os digita — então `=SUM(#REF!)`, `=Sheet1!#REF!` e `=
 carregam, reavaliam e continuam reagindo a mudanças nas entradas em vez de congelar no valor em cache
 (veja [Workbook e expressões → Parsing](workbook-and-expressions.md#parsing)). De modo que este aviso vem
 das formas ainda fora do escopo — as formas de linha atual que um arquivo real
-armazena (`Tabela1[[#This Row],[Valor]]`, digitada como `[@Valor]`), um intervalo de colunas
-(`Tabela1[[Q1]:[Q3]]`), um `[Valor]` de tabela implícita, um `[1]Sheet1!A1` de workbook externo — e de
+armazena (`Tabela1[[#This Row],[Valor]]`, digitada como `[@Valor]`), um `[Valor]` de tabela implícita, um `[1]Sheet1!A1` de workbook externo — e de
 literais de array e de qualquer outra coisa para a qual a gramática não tem nó. (Uma referência
 estruturada cuja tabela foi *ignorada* não é este aviso: ela faz o parse e avalia para `#NAME?` — a menos
 que a fórmula não possa nem ser lida, como quando o nome da tabela ignorada carrega uma barra invertida.)
@@ -287,8 +286,9 @@ Sendo honestos sobre o que o MVP de interop **não** faz:
   lida para dentro de `Workbook.Tables` — nome, geometria e nomes de coluna —, e as referências
   estruturadas que resolvem contra ela (`Tabela1[Valor]`, `Tabela1[#All]`, `Tabela1[#Data]`,
   `Tabela1[#Headers]`, `Tabela1[#Totals]`, `Tabela1[[#Data],[Valor]]`) avaliam contra a tabela carregada.
-  As formas ainda fora do escopo — `[@Valor]` (armazenada como `Tabela1[[#This Row],[Valor]]`), um
-  intervalo de colunas `[[Q1]:[Q3]]` e a forma de tabela implícita `[Valor]` — ainda degradam via
+  Intervalos contíguos de colunas como `Tabela1[[Valor]:[Qtd]]` resolvem pelo mesmo retângulo da tabela.
+  As formas ainda fora do escopo — `[@Valor]` (armazenada como `Tabela1[[#This Row],[Valor]]`) e a forma
+  de tabela implícita `[Valor]` — ainda degradam via
   `UnparsableFormula` para o valor em cache da célula. A geometria da tabela é fixa no carregamento e não
   cresce quando linhas são acrescentadas. O `SaveAsExcel` não grava parte `<table>`, então exportar em
   `FormulaMode.Formulas` um workbook cujas fórmulas usam referências estruturadas produz um arquivo que o

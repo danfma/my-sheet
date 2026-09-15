@@ -221,9 +221,8 @@ public class StructuredReferenceTests
     // item 13 claims exactly that, and nothing pinned it): the ':' infix builds a DynamicRange over the two
     // resolved rectangles. Measured on the oracle, over a Tabela1 at A1:B4 with Item 1/2/3 and Valor 10/20/30:
     // `SUM(Tabela1[Item]:Tabela1[Valor])` = 66, stored identically — the same 66 asserted here. Note the
-    // asymmetry this exposes: the INNER spelling of the same span, `Tabela1[[Item]:[Valor]]`, is rejected as
-    // "The column span ... is not supported" by the grammar (an S1 scope decision) while the oracle answers 66
-    // for both, so the rejection is about the SPELLING, not about the engine being unable to span columns.
+    // The inner spelling `Tabela1[[Item]:[Valor]]` now resolves through the same table rectangle path and
+    // answers the same 66; this test keeps the ordinary range-operator route independently pinned.
     [Test]
     public async Task ARangeBetweenTwoTableColumns_ResolvesOverBoth()
     {

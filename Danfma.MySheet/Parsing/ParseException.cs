@@ -55,7 +55,7 @@ public enum ParseErrorKind
     /// <summary>
     /// Valid Excel that MySheet does not model — a scope decision, not parity: the current-row forms
     /// <c>Tabela1[@Valor]</c> and <c>Tabela1[[#This Row],[Valor]]</c>, the implicit-table form <c>[Valor]</c>,
-    /// a column span <c>Tabela1[[A]:[C]]</c>, the external-workbook form <c>[1]Sheet1!A1</c>, and a
+    /// the external-workbook form <c>[1]Sheet1!A1</c>, and a
     /// sheet-qualified <c>Data!Tabela1[Valor]</c>. When it is uncertain whether Excel accepts a shape it is
     /// classified here, never as <see cref="InvalidStructuredReference"/>.
     /// </summary>

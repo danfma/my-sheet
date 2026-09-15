@@ -10,8 +10,8 @@ namespace Danfma.MySheet.Excel.Tests;
 /// REFERENCES they enable (<c>Tabela1[Valor]</c>). The loader reads each <c>&lt;table&gt;</c> part into
 /// MySheet's table registry (<see cref="TableDefinitionReaderTests"/> pins the record it builds), so an
 /// in-scope structured reference in a loaded file now EVALUATES against the loaded geometry, while the
-/// out-of-scope forms (the current-row <c>[@Col]</c> / <c>[[#This Row],[Col]]</c>, a column span, an
-/// implicit-table <c>[Col]</c>) still throw at the parse. What these tests pin is that a formula the load
+/// out-of-scope forms (the current-row <c>[@Col]</c> / <c>[[#This Row],[Col]]</c> and an implicit-table
+/// <c>[Col]</c>) still throw at the parse. What these tests pin is that a formula the load
 /// cannot represent degrades the AFFECTED CELL ONLY (falling back to the cached value Excel stored
 /// alongside it, reported via <see cref="ExcelLoadOptions.OnWarning"/>) instead of aborting the whole load.
 ///
