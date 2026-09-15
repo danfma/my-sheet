@@ -313,51 +313,31 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
             return Find(lookup, keys, results);
         }
 
-        // Sweep item 34(b): the vector slot — an unresolved node reports its own error (the oracle
-        // answers #NAME? for LOOKUP(1,NoSuch)) instead of streaming it as the one key the scan discards
-        // into #N/A.
-        if (ReferenceGuard.MissingSheetInComputedVector(Arguments[1], context) is { } missingVector)
-        {
-            return ComputedValue.Error(missingVector);
-        }
-
         if (
-            Arguments.Length == 3
-            && ReferenceGuard.MissingSheetInComputedVector(Arguments[2], context)
-                is { } missingResult
-        )
-        {
-            return ComputedValue.Error(missingResult);
-        }
-
-        if (
-            ReferencePosition.TryUnresolvedError(
+            !LookupVector.TryMaterializeLookup(
                 Arguments[1],
                 context,
-                out var unresolved,
-                preserveComputedArray: true
+                out var lookupVector,
+                out var vectorError
             )
         )
         {
-            return unresolved;
+            return vectorError;
         }
 
-        var lookupVector = ArgumentFlattening.MaterializeVector(Arguments[1], context);
-        var resultVector =
-            Arguments.Length == 3
-                ? ArgumentFlattening.MaterializeVector(Arguments[2], context)
-                : lookupVector;
-
-        // A scalar error in the optional result slot is not a result vector. With a multi-element lookup
-        // vector Excel treats that shape as unavailable rather than returning the scalar error as row 1.
+        IReadOnlyList<ComputedValue> resultVector = lookupVector;
         if (
             Arguments.Length == 3
-            && lookupVector.Count > 1
-            && resultVector is [var onlyResult]
-            && onlyResult.Kind == ComputedValueKind.Error
+            && !LookupVector.TryMaterializeResult(
+                Arguments[2],
+                context,
+                lookupVector.Count,
+                out resultVector,
+                out vectorError
+            )
         )
         {
-            return ComputedValue.Error(Error.NA);
+            return vectorError;
         }
 
         return Find(lookup, lookupVector, resultVector);
