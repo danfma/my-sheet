@@ -61,11 +61,12 @@ if (args.Contains("--open-range-match"))
     return;
 }
 
-// Maintained 500k-cell open-range lookup gate (gap-free and blank-every-7th), plus warmed
-// VLOOKUP/HLOOKUP exact/approximate closed/open gates over 100k rows/columns.
+// Maintained 500k-cell open-range lookup gate (gap-free and blank-every-7th), plus VLOOKUP/HLOOKUP
+// exact/approximate closed/open gates over 100k rows/columns. The default amortises the snapshot build over
+// the timed batch; --steady evaluates a second warm-up cell and measures only the per-evaluation path.
 if (args.Contains("--open-range-lookup"))
 {
-    OpenRangeLookupHarness.Run();
+    OpenRangeLookupHarness.Run(args.Contains("--steady"));
     return;
 }
 
