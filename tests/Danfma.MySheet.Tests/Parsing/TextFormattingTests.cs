@@ -58,6 +58,26 @@ public class TextFormattingTests
     }
 
     [Test]
+    public async Task Text_EmptySelectedSectionsRenderEmptyText()
+    {
+        // Aspose.Cells 26.7.0 at Main!AZ5000, with Main!A1:A2 = 0,0: PLAIN/CSE agree that an
+        // explicitly selected empty section renders "". TEXT(0,";0") splits: PLAIN="0", CSE="";
+        // MySheet follows CSE. Before the fix all empty selections delegated an empty .NET format and
+        // rendered the number: "0.4" or "0".
+        await Assert.That(Calc("=TEXT(-0.4,\"0;\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(-0.4,\"0;;\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(0,\"0;;\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(0,\"0;(0);\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(0.4,\";(0)\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(-0.4,\";\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(0.4,\";\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(0,\";\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(-0.4,\"0;\"\"\"\"\")") as string).IsEqualTo("");
+        await Assert.That(Calc("=TEXT(-0.4,\";0\")") as string).IsEqualTo("0");
+        await Assert.That(Calc("=TEXT(0,\";0\")") as string).IsEqualTo("");
+    }
+
+    [Test]
     public async Task NumberValue_MatchesExcelDocs()
     {
         // support.microsoft.com NUMBERVALUE: NUMBERVALUE("2.500,27",",",".")=2500.27;

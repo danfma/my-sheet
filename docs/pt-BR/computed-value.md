@@ -33,6 +33,7 @@ conversão implícita de `double`, é armazenado e exposto como `0.0` positivo, 
 de texto do Excel.
 `TEXT` escolhe uma seção de formato positiva, negativa ou zero pelo sinal do valor original, antes do arredondamento.
 Com uma seção, um valor negativo imprime um sinal de menos automático somente quando seu padrão numérico escalado não arredonda para zero; os literais da seção são preservados de qualquer forma.
+An explicitly selected empty `TEXT` section renders empty text.
 
 > **Resultados de fórmula nunca são em branco na borda da célula (paridade com o Excel).** `Blank` é o
 > que você obtém de uma célula verdadeiramente vazia (expressão `BlankValue`) ou de um argumento omitido.

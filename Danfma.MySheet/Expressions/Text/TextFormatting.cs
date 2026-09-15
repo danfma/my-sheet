@@ -421,6 +421,12 @@ internal static class NumberFormatting
             : number == 0d && sections.Count > 2 ? 2
             : 0;
         var section = sections[sectionIndex];
+
+        if (section.Length == 0)
+        {
+            return string.Empty;
+        }
+
         var magnitude = sectionIndex == 1 && sections.Count > 1 ? -number : number;
         var pattern = AnalyzePattern(section, magnitude);
 
