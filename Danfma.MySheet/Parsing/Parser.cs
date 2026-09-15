@@ -206,11 +206,18 @@ internal sealed class Parser(
             }
 
             var token = Advance();
+            var number =
+                token.Type == TokenType.Number
+                    ? double.Parse(token.Text, CultureInfo.InvariantCulture)
+                    : 0d;
+            if (sign < 0 && token.Type == TokenType.Number && number == 0)
+            {
+                throw InvalidArrayElement(token);
+            }
+
             Expression value = token.Type switch
             {
-                TokenType.Number => new NumberValue(
-                    sign * double.Parse(token.Text, CultureInfo.InvariantCulture)
-                ),
+                TokenType.Number => new NumberValue(sign * number),
                 TokenType.String when sign > 0 => new StringValue(token.Text),
                 TokenType.Identifier when sign > 0 && IsBoolean(token.Text, out var boolean) =>
                     new BooleanValue(boolean),

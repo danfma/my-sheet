@@ -96,10 +96,21 @@ public class ArrayConstantTests
     [Arguments("={1,,3}")]
     [Arguments("={1,2,}")]
     [Arguments("={1,+2}")]
+    [Arguments("={-0}")]
+    [Arguments("={1E+3,.5,-0,1e-3}")]
+    [Arguments("={-0.0}")]
+    [Arguments("={-0E+5}")]
+    [Arguments("={-.0}")]
     public async Task InvalidArrayConstants_AreRejectedAtEntry(string formula) =>
         await Assert
             .That(() => ExpressionParser.Parse(formula, new Sheet { Name = "Sheet1" }))
             .Throws<ParseException>();
+
+    [Test]
+    [Arguments("={-1}", -1d)]
+    [Arguments("={0}", 0d)]
+    public async Task ValidSignedArrayNumbers_AreAcceptedAtEntry(string formula, double expected) =>
+        await Assert.That(Calc(formula) as double?).IsEqualTo(expected);
 
     [Test]
     public async Task FormulaTextAndMemoryPack_RoundTripArrayConstant()
