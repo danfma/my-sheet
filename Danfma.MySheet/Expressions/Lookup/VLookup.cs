@@ -16,6 +16,14 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
         }
 
         if (
+            Arguments[1] is ArrayConstant
+            && ArrayEvaluation.TryStream(Arguments[1], context, out var array)
+        )
+        {
+            return LookupArray(array, context);
+        }
+
+        if (
             !LookupTable.TryResolveTable(Arguments, context, out var reference, out var tableAnswer)
         )
         {
@@ -162,6 +170,66 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
         return matchRow >= 1
             ? table.CellComputedValueAt(workbook, handle, bounds, matchRow, (int)columnIndex)
+            : ComputedValue.Error(Error.NA);
+    }
+
+    private ComputedValue LookupArray(ArrayEvaluation.ArrayStream table, EvaluationContext context)
+    {
+        var lookup = Arguments[0].Evaluate(context);
+        if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
+        {
+            return valueError;
+        }
+
+        if (Arguments[2].Evaluate(context).CoerceToNumber(out var columnIndex) is { } columnError)
+        {
+            return ComputedValue.Error(columnError);
+        }
+
+        if (columnIndex < 1)
+        {
+            return ComputedValue.Error(Error.Value);
+        }
+
+        if (columnIndex > table.Columns)
+        {
+            return ComputedValue.Error(Error.Ref);
+        }
+
+        var approximate = true;
+        if (
+            Arguments.Length == 4
+            && Arguments[3].Evaluate(context).CoerceToBool(out approximate) is { } modeError
+        )
+        {
+            return ComputedValue.Error(modeError);
+        }
+
+        var matchRow = -1;
+        for (var row = 0; row < table.Rows; row++)
+        {
+            var key = table.ElementAt(row * table.Columns);
+            if (key.Kind is ComputedValueKind.Blank or ComputedValueKind.Error)
+            {
+                continue;
+            }
+
+            if (
+                approximate
+                    ? ValueCoercion.Compare(key, lookup) <= 0
+                    : ValueCoercion.AreEqual(key, lookup)
+            )
+            {
+                matchRow = row;
+                if (!approximate)
+                {
+                    break;
+                }
+            }
+        }
+
+        return matchRow >= 0
+            ? table.ElementAt(matchRow * table.Columns + (int)columnIndex - 1)
             : ComputedValue.Error(Error.NA);
     }
 }

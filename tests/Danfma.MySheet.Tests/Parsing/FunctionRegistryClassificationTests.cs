@@ -463,6 +463,8 @@ public class FunctionRegistryClassificationTests
 
         await Assert
             .That(producers)
-            .IsEquivalentTo((string[])["Filter", "Sequence", "Sort", "Unique", "XLookup"]);
+            .IsEquivalentTo(
+                (string[])["ArrayConstant", "Filter", "Sequence", "Sort", "Unique", "XLookup"]
+            );
     }
 }

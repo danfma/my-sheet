@@ -31,6 +31,20 @@ internal static class LogicalReduction
 
         foreach (var argument in arguments)
         {
+            if (
+                argument is ArrayConstant
+                && ArrayEvaluation.TryStream(argument, context, out var array)
+            )
+            {
+                var cursor = RangeValueCursor.Open(argument, context);
+                if (Accumulate(ref cursor, ref trueCount, ref total) is { } arrayError)
+                {
+                    return arrayError;
+                }
+
+                continue;
+            }
+
             // A reference/array argument (cell, range, open range, union, cross-sheet): Excel ignores its
             // text and blank cells and evaluates only the logical/numeric entries. Streamed through the same
             // admitted-snapshot / dense-rectangle / boxed-iterator cursor COUNTIF uses — no intermediate

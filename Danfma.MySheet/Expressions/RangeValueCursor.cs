@@ -146,6 +146,11 @@ internal struct RangeValueCursor
             argument = selectedReference;
         }
 
+        if (ArrayEvaluation.TryStream(argument, context, out var array))
+        {
+            return new RangeValueCursor(Stream(array));
+        }
+
         switch (argument)
         {
             case RangeReference rectangle:
@@ -187,6 +192,15 @@ internal struct RangeValueCursor
     private static IEnumerator<ComputedValue> Single(ComputedValue value)
     {
         yield return value;
+    }
+
+    private static IEnumerator<ComputedValue> Stream(ArrayEvaluation.ArrayStream array)
+    {
+        var enumerator = array.GetEnumerator();
+        while (enumerator.MoveNext())
+        {
+            yield return enumerator.Current;
+        }
     }
 
     /// <summary>
