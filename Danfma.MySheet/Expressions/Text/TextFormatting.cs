@@ -424,7 +424,13 @@ internal static class NumberFormatting
         var magnitude = sectionIndex == 1 && sections.Count > 1 ? -number : number;
         var pattern = AnalyzePattern(section, magnitude);
 
-        if (sections.Count == 1 && number < 0d && pattern.RoundsToZero)
+        if (
+            sections.Count == 1
+            && number < 0d
+            && pattern.HasNumericPlaceholder
+            && !pattern.HasFractionPlaceholder
+            && pattern.RoundsToZero
+        )
         {
             pattern = AnalyzePattern(section, -number);
         }
@@ -473,6 +479,7 @@ internal static class NumberFormatting
         var bracketed = false;
         var percentCount = 0;
         var exponent = false;
+        var hasFractionPlaceholder = false;
         var decimalIndex = -1;
         var lastPlaceholder = -1;
 
@@ -532,6 +539,10 @@ internal static class NumberFormatting
             {
                 lastPlaceholder = i;
             }
+            else if (character == '?')
+            {
+                hasFractionPlaceholder = true;
+            }
             else if (
                 character is 'E' or 'e'
                 && i + 2 < format.Length
@@ -570,10 +581,22 @@ internal static class NumberFormatting
         }
 
         var roundsToZero = !exponent && scaledMagnitude < 0.5d * Math.Pow(10d, -decimalPlaces);
-        return new NumericPattern(renderFormat, scaledValue, roundsToZero);
+        return new NumericPattern(
+            renderFormat,
+            scaledValue,
+            lastPlaceholder >= 0,
+            hasFractionPlaceholder,
+            roundsToZero
+        );
     }
 
-    private readonly record struct NumericPattern(string Format, double Value, bool RoundsToZero);
+    private readonly record struct NumericPattern(
+        string Format,
+        double Value,
+        bool HasNumericPlaceholder,
+        bool HasFractionPlaceholder,
+        bool RoundsToZero
+    );
 
     public static double RoundToDigits(double number, int digits)
     {
