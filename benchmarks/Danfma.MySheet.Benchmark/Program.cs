@@ -61,8 +61,8 @@ if (args.Contains("--open-range-match"))
     return;
 }
 
-// VLOOKUP/HLOOKUP exact/approximate closed/open gates over 100k cells and 200 distinct uncached formulas,
-// plus XLOOKUP/MATCH/XMATCH open-range controls: `dotnet run -c Release -- --open-range-lookup`.
+// Maintained 500k-cell open-range lookup gate (gap-free and blank-every-7th), plus warmed
+// VLOOKUP/HLOOKUP exact/approximate closed/open gates over 100k rows/columns.
 if (args.Contains("--open-range-lookup"))
 {
     OpenRangeLookupHarness.Run();
