@@ -146,4 +146,47 @@ public class DateWorkdayTests
         // From Wednesday 1/11/2012 back 3 working days → Friday 1/6/2012 (DERIVED, default Sat/Sun weekend).
         await Assert.That(Calc("=WORKDAY(DATE(2012,1,11),-3)=DATE(2012,1,6)") as bool?).IsTrue();
     }
+
+    [Test]
+    public async Task Workday_ExtremeDayCountsNeverThrow()
+    {
+        // Aspose.Cells 26.7.0 at AZ5000, PLAIN/CSE: -3000000000 and int.MinValue both return 45362;
+        // int.MinValue + 1 returns 1288535553; 3000000000 and int.MaxValue throw CellsException; 5 returns
+        // 45369. MySheet's robustness contract instead makes every out-of-range result #NUM!.
+        await Assert.That(Calc("=WORKDAY(45362,-3000000000)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=WORKDAY(45362,-2147483648)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=WORKDAY(45362,-2147483647)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=WORKDAY(45362,3000000000)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Calc("=WORKDAY(45362,2147483647)")).IsEqualTo(ErrorValue.Number);
+        await Assert.That(Num(Calc("=WORKDAY(45362,5)"))).IsEqualTo(45369d);
+
+        // The same contract applies when the extreme walk includes holidays.
+        await Assert
+            .That(Calc("=WORKDAY(45362,-3000000000,A1:A1)", ("A1", "=45361")))
+            .IsEqualTo(ErrorValue.Number);
+    }
+
+    [Test]
+    public async Task WorkdayIntl_ExtremeDayCountsNeverThrow()
+    {
+        // Aspose.Cells 26.7.0 at AZ5000, PLAIN/CSE: -3000000000 and int.MinValue both return 45362;
+        // int.MinValue + 1 returns 1789615070; 3000000000 and int.MaxValue throw CellsException; 5 with
+        // weekend 11 returns 45367. MySheet's robustness contract instead makes every out-of-range result #NUM!.
+        await Assert
+            .That(Calc("=WORKDAY.INTL(45362,-3000000000,11,A1:A1)", ("A1", "=45361")))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=WORKDAY.INTL(45362,-2147483648,\"1000000\")"))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=WORKDAY.INTL(45362,-2147483647,\"1000000\")"))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=WORKDAY.INTL(45362,3000000000,\"1000000\")"))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert
+            .That(Calc("=WORKDAY.INTL(45362,2147483647,\"1000000\")"))
+            .IsEqualTo(ErrorValue.Number);
+        await Assert.That(Num(Calc("=WORKDAY.INTL(45362,5,11)"))).IsEqualTo(45367d);
+    }
 }

@@ -371,7 +371,20 @@ public sealed partial record Workday(Expression[] Arguments) : Function
     )
     {
         var serial = (int)Math.Floor(startSerial);
-        var days = (int)Math.Truncate(daysArg);
+        var truncatedDays = Math.Truncate(daysArg);
+
+        // A cast from an out-of-range double saturates to int.MinValue/int.MaxValue. Do not let that turn an
+        // unrepresentable count into a different walk; it is necessarily outside the serial date range.
+        if (
+            double.IsNaN(truncatedDays)
+            || truncatedDays < int.MinValue
+            || truncatedDays > int.MaxValue
+        )
+        {
+            return ComputedValue.Error(Error.Num);
+        }
+
+        var days = (int)truncatedDays;
 
         if (days == 0)
         {
@@ -390,7 +403,7 @@ public sealed partial record Workday(Expression[] Arguments) : Function
         }
 
         var step = days > 0 ? 1 : -1;
-        var remaining = Math.Abs(days);
+        var remaining = Math.Abs((long)days);
 
         while (remaining > 0)
         {
