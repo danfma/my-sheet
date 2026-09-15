@@ -452,7 +452,8 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* Recorded by Phase 7 rather than fixed, because a rule that depends on where an error came from may be
       another case of the oracle being inconsistent rather than a behaviour to copy.
 
-- [ ] **31.** The oracle reads `IF(range, …)` as REFERENCE-returning in a criteria slot, and we reject it. Measured
+- [x] **31.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 4 (+ Phase 3 / integration) — DELIVERED 2026-09-14 (`a3edc84`, `3aacef2`, `380c8e0`, `b661979`, `b57af95`, `3f7f8ef`, `71abb67`, `07b43d0`, `979effc`, `37b5335`).**
+      An array-conditioned `IF` reference selector is admitted in criteria and sum-range slots (`COUNTIF(IF(A1:A3>0,A1:A3),">0")` 2, `SUMIF(…)` 14, CSE column). One classifier, `PositionalRange.TryResolveSelectorReference` / `SelectorRoute`, resolves selectors through `NamedReferences.TryResolveReference`. Value slots validate the final selected reference, so a missing sheet is `#REF!`. Criteria slots return `#REF!` only for structural routes (LET/name chains, and INDEX/OFFSET/INDIRECT ending in a reference); IF/CHOOSE routes follow CSE (0). A direct reference-returning XLOOKUP is a structural route; a LET-bound XLOOKUP is a value array (`#REF!` in reference slots, `SUM` reads the row). *Original record:* The oracle reads `IF(range, …)` as REFERENCE-returning in a criteria slot, and we reject it. Measured
       by Phase 7's Task 5 (array-entered): `COUNTIF(IF(A1:A3>0,A1:A3),">0")` = 2 and `SUMIF(IF(A1:A3>0,A1:A3),">0")`
       = 14, while `A1:A3*1` in the same slot is `#REF!` on both engines. Phase 11a's criteria gate rejects the `IF`
       form too, so MySheet answers `#REF!`. This is the same family as the existing criteria item and as the
@@ -524,54 +525,63 @@ Aspose.Cells 26.6.0 and 26.7.0 (identical, PLAIN and CSE; table in that epic's l
 35-39 are gaps on ORDINARY ranges that item 33's empty reference inherits; each is pinned with both numbers in
 `EmptyTableReferenceTests.TheRowsThatDependOnAnOrdinaryRangeGap_KeepTheEnginesAnswer`.
 
-- [ ] **35.** `SUMIF` does not resize its sum range to the criteria range's shape: `SUMIF(A1:A3,">0",B1)` is 4 / 4
+- [x] **35.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 4 — DELIVERED 2026-09-14 (`bbb4e10`).**
+      `SUMIF`/`AVERAGEIF` resize the sum range from its top-left to the criteria shape (`SUMIF(A1:A3,">0",B1)` 4). A strict `SUMIFS`/`AVERAGEIFS` shape mismatch is `#VALUE!`. The empty-table sentinel row flipped 0 → 7 with both numbers. *Original record:* `SUMIF` does not resize its sum range to the criteria range's shape: `SUMIF(A1:A3,">0",B1)` is 4 / 4
       there and 1 here. Over a header-only table with a value directly under the header,
       `SUMIF(A1:A3,">0",Tabela1[Valor])` is 7 there and 0 here.
       *Files:* `SumIf` / `AverageIf`, `CriteriaScan.cs`
       *Why:* Excel's documented sum-range resize; a fix moves every non-table `SUMIF` with a short sum range.
-- [ ] **36.** `OFFSET` with height/width omitted does not inherit the base's size: `ROWS(OFFSET(A1:A3,0,0))` 3 / 3
+- [x] **36.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 4 — DELIVERED 2026-09-14 (`606d594`, `064df31`, `3239dda`).**
+      Omitted height/width inherit the base size (`ROWS(OFFSET(A1:A3,0,0))` 3). Negative sizes extend the window up/left, zero sizes are `#REF!`, and both corners are validated against the grid. Ruling: one coherent window; Aspose's `ROWS`/`COLUMNS` over an explicit size, including `ROWS(OFFSET(A:A,…))`, is a registered oracle defect. *Original record:* `OFFSET` with height/width omitted does not inherit the base's size: `ROWS(OFFSET(A1:A3,0,0))` 3 / 3
       there, 1 here; `SUM(OFFSET(A1:A3,0,0))` 14 / 14 there, 5 here. Empty table: `ROWS(OFFSET(Tabela1[Valor],0,0))`
       0 there, 1 here. The oracle contradicts itself on the EXPLICIT form: `ROWS(OFFSET(A1:A3,0,0,2))` is 3 there
       while `SUM` 5 and `COUNT` 2 prove a two-row window; ruled a registered oracle defect, MySheet follows one
       coherent window (explicit size when given, else the base's).
       *Files:* `Danfma.MySheet/Expressions/Lookup/Offset.cs`
       *Why:* silent wrong numbers on an ordinary range, found only because the empty reference exposed it.
-- [ ] **37.** `INDEX` with row or column 0 (the whole column / row) is `#REF!` here: `SUM(INDEX(A1:A3,0,1))` 14 / 14
+- [x] **37.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 2 — DELIVERED 2026-09-14 (`d522027`, `0315cee`, `81f228e`, `e04ae14`, `38bd0b7`, `a21ff92`, `a0372df`, `42c5527`).**
+      `INDEX(area,0,n)`/`(n,0)`/`(0,0)` return a reference. Whole-row/column positional coordinates are absolute, and MATCH/XMATCH over an open range use an admitted snapshot that keeps source positions (500k-cell exact MATCH 11.8 → 0.034 ms). INDEX/OFFSET references lift under operators. The adversarial pass fixed a zero-axis missing sheet (`#REF!`) and the negative-index error code (`#VALUE!`). *Original record:* `INDEX` with row or column 0 (the whole column / row) is `#REF!` here: `SUM(INDEX(A1:A3,0,1))` 14 / 14
       there. Empty table: `SUM(INDEX(Tabela1[Valor],0,1))` and `ROWS(INDEX(Tabela1[#Data],0,1))` 0 there. This is a
       downstream consumer's largest open divergence ("Bug 6", 7,194 formulas): `COUNT(INDEX(r,0,1))` is silently 0
       here and every `AGGREGATE` over `INDEX(r,0,MATCH(…))` is `#REF!`.
       *Files:* `Index` (`LookupFunctions.cs`)
       *Why:* a common Excel idiom, unsupported rather than divergent, and it blocks `AGGREGATE` in real workbooks.
-- [ ] **38.** `XLOOKUP` never checks that its lookup and return arrays agree in size: `XLOOKUP(5,A1:A3,B1:B2)` is
+- [x] **38.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 3 (+ integration) — DELIVERED 2026-09-14 (`bfd8702`, `4ebb475`, `e457041`, `127e1f2`, `f76626c`, `0cc2bd5`, `25da763`, `07b43d0`, `979effc`, `37b5335`).**
+      XLOOKUP validates its lookup axis. A 1x1 lookup is a ROW; a 2D lookup is `#VALUE!`; the return must match on the lookup axis. The result is the matched row/column for reference and computed returns alike (`SUM(XLOOKUP(2,A1:A3,B1:C3))` 220). Operands are bound once, and LET/computed-name arrays are accepted. A syntactically reference-returning XLOOKUP is read as that reference by criteria, AGGREGATE/SUBTOTAL and OFFSET; a miss propagates `#N/A`/`if_not_found`, and a non-reference fallback in a reference slot is `#REF!`/`#VALUE!`. *Original record:* `XLOOKUP` never checks that its lookup and return arrays agree in size: `XLOOKUP(5,A1:A3,B1:B2)` is
       `#VALUE!` / `#VALUE!` there and 1 here (`XLOOKUP(9,…)` `#VALUE!` there, `#N/A` here). Empty table:
       `XLOOKUP(5,A1:A3,Tabela1[Valor])` `#VALUE!` there, `#N/A` here; with an `if_not_found` of "nf", `#VALUE!` there
       and "nf" here.
       *Files:* `XLookup`
       *Why:* found by item 33's matrix; decide with item 40, which touches the same slots.
-- [ ] **39.** `ROWS` of a `LET` whose body is a bound bare reference answers 1: `ROWS(LET(x,A1:A3,x))` 3 / 3 there.
+- [x] **39.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 4 — DELIVERED 2026-09-14 (`b35ec47`).**
+      A LET-bound reference stays a reference for `ROWS`/`COLUMNS`/`ROW`/`AREAS`/`ISREF` and value consumers (`ROWS(LET(x,A1:A3,x))` 3). A LET-bound computed array in a criteria slot stays refused. *Original record:* `ROWS` of a `LET` whose body is a bound bare reference answers 1: `ROWS(LET(x,A1:A3,x))` 3 / 3 there.
       Empty table: `ROWS(LET(x,Tabela1[Valor],x))` 0 there, 1 here.
       *Files:* `Let`, `ReferencePosition.cs`, `Rows.cs`
       *Why:* the "a LET returns a reference" question item 32 left open; Phase 11c's top-level pins bound it.
-- [ ] **40.** `XLOOKUP`'s ARRAY slots over an unresolvable argument split per slot on the oracle: over an unknown NAME
+- [x] **40.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 3 — DELIVERED 2026-09-14 (`bfd8702`).**
+      XLOOKUP array slots over an unresolvable argument follow the oracle per slot: an unknown lookup name gives `#N/A`, an unknown return name gives `#VALUE!`, and `Tabela1[#Totals]` gives `#REF!`. *Original record:* `XLOOKUP`'s ARRAY slots over an unresolvable argument split per slot on the oracle: over an unknown NAME
       it answers its own `#N/A` (lookup array) / `#VALUE!` (return array), but over `Tabela1[#Totals]` (no totals row)
       the node's `#REF!`. MySheet answers `#N/A` for both: `XLOOKUP(1,Tabela1[#Totals],B1:B3)` `#REF!` there, `#N/A`
       here; `XLOOKUP(1,A1:A3,NoSuch)` `#VALUE!` there, `#N/A` here.
       *Files:* `XLookup`, `MissingSheetReferenceTests.XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo`
       *Why:* item 34's rule (b) could not cover it without a per-slot arm, which that item forbade.
-- [ ] **41.** A resolving consumer over an argument that is not a reference keeps its own fallback code:
+- [x] **41.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 3 (+ integration) — DELIVERED 2026-09-14 (`bfd8702`, `cfbdfbc`, `c080de9`, `f65f665`, `0edca24`).**
+      Resolving consumers over a non-reference follow the CSE column (VLOOKUP/HLOOKUP/MATCH over `1/0` give `#N/A`; `INDEX(1/0,1)` gives `#DIV/0!`). A single-cell table goes through the same 1x1 validation, including the negative-index `#VALUE!`. Direct error-cell tables keep the measured `#N/A` exact / `#DIV/0!` approximate precedence, and an error lookup value propagates over a single-cell table. *Original record:* A resolving consumer over an argument that is not a reference keeps its own fallback code:
       `VLOOKUP(1,5,1)` is `#N/A` there and `#REF!` here; `VLOOKUP(1,ErrCell,1)` over a single-cell name on a `#DIV/0!`
       cell is `#DIV/0!` there and `#REF!` here; `VLOOKUP(1,1/0,1)` is mode-split there (`#DIV/0!` plain, `#N/A` CSE)
       and `#DIV/0!` here.
       *Files:* `VLookup.cs`, `ReferencePosition.cs`
       *Why:* measured by item 34's implementer outside that item's rule; recorded so it is owned.
-- [ ] **42.** `ISERROR` / `N` / `IFERROR` over a multi-cell reference read differently by reference KIND in MySheet
+- [x] **42.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 4 — DELIVERED 2026-09-14 (`e304226`, `97ec47d`, `7169fb2`).**
+      The scalar-consumer family (`ISERROR`, `ISERR`, `ISNA`, `N`, `IFERROR`, `IFNA`, `ISNUMBER`, `ISTEXT`, `ISNONTEXT`, `ISLOGICAL`, `ISBLANK`) routes through `ScalarReferenceValue` with implicit intersection for literal ranges and table references alike, and a failed reference resolution is evaluated once. Ruling: a formula inside its own range keeps the `#REF!` cycle guard. *Original record:* `ISERROR` / `N` / `IFERROR` over a multi-cell reference read differently by reference KIND in MySheet
       only. The oracle applies ONE rule to a literal range and a table column (PLAIN: row-position implicit
       intersection, `ISERROR(A1:A3)` FALSE at H2 and TRUE at H20, `N` 2 / `#VALUE!`; CSE: the first element), while
       MySheet takes the plain column over a literal range but the CSE reading over a table reference. Ruling: the
       table reference converges on the literal-range convention.
       *Files:* `InformationFunctions.cs`, the implicit-intersection path
       *Why:* an internal inconsistency, not an oracle question.
-- [ ] **43.** MySheet cannot PARSE an error literal in formula text. `=#REF!`, `=SUM(#REF!)`, `=IF(ISNA(#N/A),1,0)`,
+- [x] **43.** **CLOSED-BY [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md), Phase 1 — DELIVERED 2026-09-14 (`5c7eeab`, `678dc65`, `bc753f9`, `79cb19d`, `82b9de0`).**
+      The tokenizer and parser read error literals as `ErrorValue`, including deleted-reference continuations (`Sheet1!#REF!`, `#REF!A1`, `#REF!Tabela1`, grid-bounded). A formula containing `#REF!` loads without degrading to `UnparsableFormula`. Residuals: items 48 and 49. *Original record:* MySheet cannot PARSE an error literal in formula text. `=#REF!`, `=SUM(#REF!)`, `=IF(ISNA(#N/A),1,0)`,
       `MATCH(#REF!,#REF!,0)`, `MATCH(1,#REF!,0)`, `IFNA(MATCH(#REF!,#REF!,0),"na")` and `COUNTIF(#REF!,#REF!)` all throw
       `ParseException` here; the oracle evaluates them (`#REF!` / 1, PLAIN and CSE). Excel writes a broken reference
       into formula text as `#REF!`, so a real `.xlsx` holding one degrades to its cached value through
@@ -597,6 +607,30 @@ Aspose.Cells 26.6.0 and 26.7.0 (identical, PLAIN and CSE; table in that epic's l
 the same workbook — which is why the probe for these rows evaluates one formula per workbook. PLAIN answers 1
 there, and MySheet answers 1 in both modes, so nothing is pending; the note exists because the crash looks like a
 probe bug and is not one.
+
+## Controller additions after sweep 31/35-43 (2026-09-14)
+
+These were measured on Aspose.Cells 26.7.0 during [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md). All are pre-existing or out of that sweep's scope; each source report lives under `.superpowers/sdd/sweep-31-35-43/`.
+
+- [ ] **51.** HLOOKUP with a row index past a one-row literal table: `HLOOKUP(2,A1:C1,2,FALSE)` is `#REF!` here and `#N/A`/`#N/A` on the oracle. The oracle is self-inconsistent: its single-cell form `HLOOKUP(1,A1,2,FALSE)` answers `#REF!`. [Likely] real Excel answers `#REF!`. Decide on principle.
+      *Source:* `review/phase-2-adversarial.md`.
+- [ ] **52.** INDEX's fourth argument (`area_num`) is not supported: the registry arity is 3, so `INDEX(A1,1,1,1)` fails to parse, while the oracle gives 1, and `INDEX(A1,1,1,2)` gives `#REF!`. This is feature work: parse the argument, then select an area of a union reference.
+      *Source:* `review/phase-3-round-2.md` I5.
+- [ ] **53.** Array constants (`{1}`, `{1,2,3}`) do not parse. The oracle evaluates `XLOOKUP(1,{1},B1:B3)` as 10 and `INDEX({1,2,3},-1)` as `#VALUE!`.
+      *Source:* `reports/phase-2-adv-fix.md`, `reports/phase-3-fix-r3.md`.
+- [ ] **54.** A structured-reference column span (`Tabela1[[Valor]:[Qtd]]`) throws "column span is not supported". The oracle evaluates `COUNTIF(XLOOKUP(2,A1:A3,Tabela1[[Valor]:[Qtd]]),">0")` as 2.
+      *Source:* `review/phase-3-round-5.md` I2.
+- [ ] **55.** A lookup VALUE given as an array does not lift: `MATCH(B1:B3,B1:B3)` is `#VALUE!` here and 1 in the oracle's CSE column; `SUM(MATCH(B1:B3,B1:B3))` is `#VALUE!` here and 6 there. Companion of item 44 (divergence-probe group FableI1).
+      *Source:* `reports/integration-p3.md`.
+- [ ] **56.** `AREAS` over a computed XLOOKUP return: `AREAS(XLOOKUP(2,SEQUENCE(3),SEQUENCE(3,3)))` is `#VALUE!` here and 0/0 on the oracle.
+      *Source:* `review/phase-3-round-4.md`.
+- [ ] **57.** A possible volatile double draw at three resolve-then-evaluate sites: `ArrayEvaluation`'s IF-branch resolution, the CHOOSE selected branch in `LookupFunctions`, and `ReferencePosition`'s unresolved-error probe. This is the pattern fixed for `ScalarReferenceValue` in Phase 4; none of the three is measured yet. Verify each with a counting-producer pin.
+      *Source:* `reports/phase-4-fix-r2.md`.
+
+**Registered oracle defects** (MySheet keeps its coherent answer; do not "fix"):
+- `ROWS(OFFSET(A1:A3,0,0,2))` is 3 and `ROWS(OFFSET(A:A,2,0,-2,1))` is 1048576 on the oracle, while its own `SUM`/`COUNT` prove the window size.
+- `ROWS(XLOOKUP(1,A1,B1:B3))` is 1 while its own `INDEX(...,2)` gives 20 and its `SUM` gives 60.
+- `COLUMNS(XLOOKUP(3,A1:A4,B1:D4))` is 1 while its own `SUM` gives 2220.
 
 ## Implementation items
 
