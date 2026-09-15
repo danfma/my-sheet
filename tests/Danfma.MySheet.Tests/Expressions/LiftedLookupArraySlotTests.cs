@@ -128,6 +128,7 @@ public class LiftedLookupArraySlotTests
     [Arguments("=LOOKUP(2,B1:B4*TICK()^0,C1:C4)", "20")]
     [Arguments("=LOOKUP(2,B1:B4,C1:C4*TICK()^0)", "20")]
     [Arguments("=LOOKUP(TICK()*0+2,B1:B4,C1:C4)", "20")]
+    [Arguments("=LOOKUP(2,IF(TICK()>0,NoSuch,B1:B4))", "#NAME?")]
     public async Task Lookup_MaterializesEachVolatileVectorOnce(string formula, string expected)
     {
         var draws = 0;
@@ -173,6 +174,33 @@ public class LiftedLookupArraySlotTests
         await Assert.That(OnCell(workbook)).IsEqualTo(expected);
     }
 
+    [Test]
+    [Arguments("=LOOKUP(1,1/0)", "#DIV/0!")]
+    [Arguments("=LOOKUP(1,{1}/0)", "#N/A")]
+    [Arguments("=LOOKUP(1,A1/0)", "#N/A")]
+    [Arguments("=LOOKUP(1,A1:A1/0)", "#N/A")]
+    [Arguments("=LOOKUP(2,IF(FALSE,NoSuch,B1:B4))", "2")]
+    [Arguments("=LOOKUP(2,CHOOSE(1,NoSuch,B1:B4))", "#NAME?")]
+    [Arguments("=LOOKUP(1,NoSheet!A1*1)", "#REF!")]
+    [Arguments("=LOOKUP(1,(NoSheet!A1:A3)*{1;1;1})", "#N/A")]
+    [Arguments("=LOOKUP(1,IF(TRUE,NoSheet!A1:A3,A1:A3))", "#REF!")]
+    [Arguments("=LOOKUP(2,IF(TRUE,NoSuch,B1:B4))", "#NAME?")]
+    public async Task Lookup_DistinguishesScalarVectorErrorsFromArrayElementErrors(
+        string formula,
+        string expected
+    ) =>
+        // Aspose 26.7.0 PLAIN/CSE agree except for literal 1/0 (#DIV/0! / #N/A); that pre-existing
+        // PLAIN-compatible row remains #DIV/0!, while the red rows move to the agreed values above.
+        await Assert.That(OnLookupFixture(formula)).IsEqualTo(expected);
+
+    [Test]
+    [Arguments("=LOOKUP(2,B1:B4,IF(TRUE,NoSuch,C1:C4))", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4,NoSheet!C1:C4*1)", "#REF!")]
+    public async Task Lookup_ResultVectorPreservesItsMeasuredErrorSemantics(
+        string formula,
+        string expected
+    ) => await Assert.That(OnLookupFixture(formula)).IsEqualTo(expected);
+
     // VLOOKUP/HLOOKUP now consume the lifted table through the same TryStream route as every array-valued
     // table, following the oracle CSE values. Before that shared route they returned #VALUE!; OFFSET keeps
     // its existing scalar-collapse behavior and is not part of the lookup-table change.
@@ -210,5 +238,20 @@ public class LiftedLookupArraySlotTests
         return value.TryGetNumber(out var number)
             ? number.ToString(CultureInfo.InvariantCulture)
             : value.AsString() ?? value.Kind.ToString();
+    }
+
+    private static string OnLookupFixture(string formula)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        for (var row = 1; row <= 4; row++)
+        {
+            main[$"A{row}"] = new NumberValue(row);
+            main[$"B{row}"] = new NumberValue(row);
+            main[$"C{row}"] = new NumberValue(row * 10);
+        }
+
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+        return OnCell(workbook);
     }
 }

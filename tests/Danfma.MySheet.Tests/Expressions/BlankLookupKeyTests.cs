@@ -181,6 +181,22 @@ public class BlankLookupKeyTests
     ) => await Assert.That(EvaluateApproximateMatch(formula, fixture)).IsEqualTo(expected);
 
     [Test]
+    [Arguments("=MATCH(2,B1:B5,1)", false, "1")]
+    [Arguments("=MATCH(4,B1:B5,1)", false, "3")]
+    [Arguments("=MATCH(6,B1:B5,1)", false, "5")]
+    [Arguments("=MATCH(4,B1:B5,-1)", true, "1")]
+    [Arguments("=MATCH(2,B1:B5,-1)", true, "3")]
+    [Arguments("=MATCH(0,B1:B5,-1)", true, "5")]
+    public async Task ApproximateMatch_SkipsAbsentCells(
+        string formula,
+        bool descending,
+        string expected
+    ) =>
+        await Assert
+            .That(EvaluateApproximateMatchWithGaps(formula, descending))
+            .IsEqualTo(expected);
+
+    [Test]
     public async Task IndexSelectingAnAbsentCellInsideARange_IsAnAbsentKey() =>
         // Before this fix the empty-text-equivalent path returned 1; the oracle returns the blank at 3.
         await Assert
@@ -457,6 +473,17 @@ public class BlankLookupKeyTests
         {
             main["B3"] = ExpressionParser.Parse("=\"\"", main);
         }
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+        return Format(workbook.GetCellValue("Main", "AZ5000"));
+    }
+
+    private static string EvaluateApproximateMatchWithGaps(string formula, bool descending)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["B1"] = new NumberValue(descending ? 5 : 1);
+        main["B3"] = new NumberValue(3);
+        main["B5"] = new NumberValue(descending ? 1 : 5);
         main["AZ5000"] = ExpressionParser.Parse(formula, main);
         return Format(workbook.GetCellValue("Main", "AZ5000"));
     }

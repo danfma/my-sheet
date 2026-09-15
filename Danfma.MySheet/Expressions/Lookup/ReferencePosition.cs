@@ -180,9 +180,47 @@ internal static class ReferencePosition
         if (
             preserveComputedArray
             && argument is not TableReference
-            && ArrayEvaluation.IsArrayEligible(argument, context)
+            && (
+                ArrayEvaluation.IsArrayEligible(argument, context)
+                || ContainsReferenceOperand(argument)
+            )
         )
         {
+            if (argument is Logical.If ifNode && ifNode.Arguments.Length is 2 or 3)
+            {
+                var conditionError = context
+                    .EvaluateConditionOnce(ifNode.Arguments[0])
+                    .CoerceToBoolAllowingTextWords(out var condition);
+                if (conditionError is not null)
+                {
+                    error = ComputedValue.Error(conditionError.Value);
+                    return true;
+                }
+
+                var selected =
+                    condition ? ifNode.Arguments[1]
+                    : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
+                    : null;
+                return selected is not null
+                    && TryUnresolvedError(
+                        selected,
+                        context,
+                        out error,
+                        preserveComputedArray: true
+                    );
+            }
+
+            if (argument is Choose choose)
+            {
+                if (choose.TryChoose(context, out var chosen) is { } chooseError)
+                {
+                    error = chooseError;
+                    return true;
+                }
+
+                return TryUnresolvedError(chosen, context, out error, preserveComputedArray: true);
+            }
+
             return false;
         }
 
@@ -196,6 +234,16 @@ internal static class ReferencePosition
 
         return false;
     }
+
+    private static bool ContainsReferenceOperand(Expression expression) =>
+        expression switch
+        {
+            Reference => true,
+            BinaryOperation binary => ContainsReferenceOperand(binary.Left)
+                || ContainsReferenceOperand(binary.Right),
+            UnaryOperation unary => ContainsReferenceOperand(unary.Operand),
+            _ => false,
+        };
 
     /// <summary>
     /// The lookup VALUE slot's rule, the one site MATCH, XMATCH and XLOOKUP share: the lookup value's error

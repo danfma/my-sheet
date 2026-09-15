@@ -316,9 +316,18 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
         // Sweep item 34(b): the vector slot — an unresolved node reports its own error (the oracle
         // answers #NAME? for LOOKUP(1,NoSuch)) instead of streaming it as the one key the scan discards
         // into #N/A.
-        if (ReferenceGuard.MissingSheet(Arguments[1], context) is { } missingVector)
+        if (ReferenceGuard.MissingSheetInComputedVector(Arguments[1], context) is { } missingVector)
         {
             return ComputedValue.Error(missingVector);
+        }
+
+        if (
+            Arguments.Length == 3
+            && ReferenceGuard.MissingSheetInComputedVector(Arguments[2], context)
+                is { } missingResult
+        )
+        {
+            return ComputedValue.Error(missingResult);
         }
 
         if (
@@ -338,6 +347,18 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
             Arguments.Length == 3
                 ? ArgumentFlattening.MaterializeVector(Arguments[2], context)
                 : lookupVector;
+
+        // A scalar error in the optional result slot is not a result vector. With a multi-element lookup
+        // vector Excel treats that shape as unavailable rather than returning the scalar error as row 1.
+        if (
+            Arguments.Length == 3
+            && lookupVector.Count > 1
+            && resultVector is [var onlyResult]
+            && onlyResult.Kind == ComputedValueKind.Error
+        )
+        {
+            return ComputedValue.Error(Error.NA);
+        }
 
         return Find(lookup, lookupVector, resultVector);
     }

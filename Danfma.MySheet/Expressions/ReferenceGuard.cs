@@ -155,6 +155,55 @@ internal static class ReferenceGuard
         }
     }
 
+    /// <summary>
+    /// Finds a missing-sheet reference that structurally determines a computed vector. Scalar-condition
+    /// selectors inspect only their selected branch, and a binary expression with two array operands stays
+    /// a genuine element-error array for consumers that skip errors.
+    /// </summary>
+    public static Error? MissingSheetInComputedVector(
+        Expression argument,
+        EvaluationContext context
+    )
+    {
+        if (MissingSheet(argument, context) is { } direct)
+        {
+            return direct;
+        }
+
+        switch (argument)
+        {
+            case BinaryOperation binary
+                when !ArrayEvaluation.IsArrayEligible(binary.Left, context)
+                    || !ArrayEvaluation.IsArrayEligible(binary.Right, context):
+                return MissingSheetInComputedVector(binary.Left, context)
+                    ?? MissingSheetInComputedVector(binary.Right, context);
+
+            case Logical.If ifNode when ifNode.Arguments.Length is 2 or 3:
+                if (
+                    context
+                        .EvaluateConditionOnce(ifNode.Arguments[0])
+                        .CoerceToBoolAllowingTextWords(out var condition)
+                    is not null
+                )
+                {
+                    return null;
+                }
+
+                return condition ? MissingSheetInComputedVector(ifNode.Arguments[1], context)
+                    : ifNode.Arguments.Length == 3
+                        ? MissingSheetInComputedVector(ifNode.Arguments[2], context)
+                    : null;
+
+            case Lookup.Choose choose:
+                return choose.TryChoose(context, out var chosen) is null
+                    ? MissingSheetInComputedVector(chosen, context)
+                    : null;
+
+            default:
+                return null;
+        }
+    }
+
     private static Error? Check(EvaluationContext context, string sheetName) =>
         context.Workbook.Sheets.ContainsKey(sheetName) ? null : Error.Ref;
 }
