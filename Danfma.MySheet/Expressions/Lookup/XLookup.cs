@@ -9,8 +9,15 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
     // match_mode: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
     // search_mode: 1 first-to-last, -1 last-to-first (binary modes not supported).
     // The match engine itself is shared with XMATCH and LOOKUP (see LookupMatching).
+    private sealed record SelectionMemo(
+        Reference? Reference,
+        ArrayOperand? Operand,
+        ComputedValue Value,
+        bool Matched
+    );
+
     public override ComputedValue Evaluate(EvaluationContext context) =>
-        Evaluate(context, asReference: false, out _, out _);
+        GetSelection(context).Value;
 
     public override bool TryResolveReference(EvaluationContext context, out Reference? reference)
     {
@@ -32,8 +39,9 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             return false;
         }
 
-        var result = Evaluate(context, asReference: true, out _, out matched);
-        if (result.TryGetReference(out var resolvedReference))
+        var result = GetSelection(context);
+        matched = result.Matched;
+        if (result.Reference is { } resolvedReference)
         {
             reference = resolvedReference!;
             unresolvedValue = default;
@@ -41,28 +49,27 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
         }
 
         reference = null!;
-        unresolvedValue = result;
+        unresolvedValue = result.Value;
         return false;
     }
 
     internal bool ReturnsReference(EvaluationContext context)
     {
         var returnArgument = Arguments[2];
-        return
-            returnArgument is not NameReference name
-            || (
-                !context.TryGetName(name.Name, out _)
-                && !context.TryGetArrayBinding(name.Name, out _)
-            )
-            ? ArrayEvaluation.IsBareReferenceNode(returnArgument, context)
-            : false;
+        return (
+                returnArgument is not NameReference name
+                || (
+                    !context.TryGetName(name.Name, out _)
+                    && !context.TryGetArrayBinding(name.Name, out _)
+                )
+            ) && ArrayEvaluation.IsBareReferenceNode(returnArgument, context);
     }
 
     internal bool TryBuildSelection(EvaluationContext context, out ArrayOperand operand)
     {
-        _ = Evaluate(context, asReference: true, out var selected, out _);
-        operand = selected!;
-        return selected is not null;
+        var selection = GetSelection(context);
+        operand = selection.Operand!;
+        return ReturnsReference(context) && selection.Operand is not null;
     }
 
     (bool Succeeds, bool IsArray) IArrayProducer.ProbeArray(EvaluationContext context) =>
@@ -73,13 +80,19 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
     bool IArrayProducer.TryBuildArrayOperand(EvaluationContext context, out ArrayOperand operand)
     {
-        if (TryBuildSelection(context, out operand))
+        if (!ReturnsReference(context))
         {
+            return TryBuildArrayValue(context, out operand);
+        }
+
+        var selection = GetSelection(context);
+        if (selection.Operand is { } selected)
+        {
+            operand = selected;
             return true;
         }
 
-        var value = Evaluate(context, asReference: true, out _, out _);
-        if (value.TryGetReference(out var reference))
+        if (selection.Reference is { } reference)
         {
             operand = reference switch
             {
@@ -91,24 +104,39 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             return true;
         }
 
-        operand = new SingletonArrayOperand(value);
+        operand = new SingletonArrayOperand(selection.Value);
         return true;
     }
 
-    private ComputedValue Evaluate(
-        EvaluationContext context,
-        bool asReference,
-        out ArrayOperand? selected,
-        out bool matched
-    )
+    private bool TryBuildArrayValue(EvaluationContext context, out ArrayOperand operand)
     {
-        selected = null;
-        matched = false;
+        var selection = GetSelection(context);
+        operand = selection.Operand ?? new SingletonArrayOperand(selection.Value);
+        return true;
+    }
+
+    private SelectionMemo GetSelection(EvaluationContext context)
+    {
+        if (context.TryGetNodeMemo<SelectionMemo>(this, out var cached))
+        {
+            return cached;
+        }
+
+        var selection = BuildSelection(context);
+        context.SetNodeMemo(this, selection);
+        return selection;
+    }
+
+    private SelectionMemo BuildSelection(EvaluationContext context)
+    {
+        SelectionMemo Result(ComputedValue value, bool matched = false) =>
+            new(null, null, value, matched);
+
         // A missing-sheet lookup/return array is a structural #REF! — distinct from an empty array over an
         // existing sheet, which stays #N/A. Guard before enumerating so it is not swallowed as empty.
         if (ReferenceGuard.MissingSheet(Arguments, context) is { } missing)
         {
-            return ComputedValue.Error(missing);
+            return Result(ComputedValue.Error(missing));
         }
 
         var lookup = Arguments[0].Evaluate(context);
@@ -122,35 +150,35 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
         // MissingSheetReferenceTests.XLookup_OverAnUnresolvedName_KeepsItsOwnCode_WhereTheOracleDoesToo.
         if (ReferencePosition.IsLookupValueError(Arguments[0], lookup, context, out var valueError))
         {
-            return valueError;
+            return Result(valueError);
         }
 
         if (
-            Arguments[1] is not IArrayProducer
+            Arguments[1] is NameReference or TableReference
             && !IsBoundArray(Arguments[1], context)
             && ArraySlotError(Arguments[1], context, Error.NA) is { } lookupArrayError
         )
         {
-            return lookupArrayError;
+            return Result(lookupArrayError);
         }
 
         if (
-            Arguments[2] is not IArrayProducer
+            Arguments[2] is NameReference or TableReference
             && !IsBoundArray(Arguments[2], context)
             && ArraySlotError(Arguments[2], context, Error.Value) is { } returnArrayError
         )
         {
-            return returnArrayError;
+            return Result(returnArrayError);
         }
 
         if (!TryBindArray(Arguments[1], context, out var lookupArray))
         {
-            return ComputedValue.Error(Error.Value);
+            return Result(ComputedValue.Error(Error.Value));
         }
 
         if (!TryBindArray(Arguments[2], context, out var returnArray))
         {
-            return ComputedValue.Error(Error.Value);
+            return Result(ComputedValue.Error(Error.Value));
         }
 
         var lookupIsColumn = lookupArray.Columns == 1;
@@ -165,7 +193,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             )
         )
         {
-            return ComputedValue.Error(Error.Value);
+            return Result(ComputedValue.Error(Error.Value));
         }
 
         var matchMode = 0.0;
@@ -174,7 +202,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             && Arguments[4].Evaluate(context).CoerceToNumber(out matchMode) is { } matchError
         )
         {
-            return ComputedValue.Error(matchError);
+            return Result(ComputedValue.Error(matchError));
         }
 
         var searchMode = 1.0;
@@ -183,28 +211,25 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
             && Arguments[5].Evaluate(context).CoerceToNumber(out searchMode) is { } searchError
         )
         {
-            return ComputedValue.Error(searchError);
+            return Result(ComputedValue.Error(searchError));
         }
 
         if ((int)matchMode == 0 && searchMode >= 0)
         {
-            using var lookupValues = lookupArray.Values().GetEnumerator();
-            var position = 0;
+            using var lookupValues = lookupArray.Entries().GetEnumerator();
             while (lookupValues.MoveNext())
             {
-                if (ValueCoercion.AreEqual(lookupValues.Current, lookup))
+                if (ValueCoercion.AreEqual(lookupValues.Current.Value, lookup))
                 {
-                    matched = true;
-                    return returnArray.Select(position, lookupAxis, asReference, out selected);
+                    return returnArray.Select(lookupValues.Current.Position, lookupAxis);
                 }
-
-                position++;
             }
 
-            return NotFound(context);
+            return Result(NotFound(context));
         }
 
-        var values = lookupArray.Values().ToArray();
+        var entries = lookupArray.Entries().ToArray();
+        var values = entries.Select(entry => entry.Value).ToArray();
 
         var match = LookupMatching.FindMatch(
             lookup,
@@ -216,11 +241,10 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
         if (match >= 0)
         {
-            matched = true;
-            return returnArray.Select(match, lookupAxis, asReference, out selected);
+            return returnArray.Select(entries[match].Position, lookupAxis);
         }
 
-        return NotFound(context);
+        return Result(NotFound(context));
     }
 
     // The not-found result: the caller-supplied [if_not_found] when present and not omitted, else #N/A.
@@ -267,24 +291,6 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
         out LookupArray array
     )
     {
-        if (argument is IArrayProducer producer)
-        {
-            producer.TryBuildArrayOperand(context, out var operand);
-            var producerStream = new ArrayEvaluation.ArrayStream(
-                operand,
-                operand.Rows,
-                operand.Columns
-            );
-            array = new LookupArray(
-                null,
-                producerStream,
-                producerStream.Rows,
-                producerStream.Columns,
-                context
-            );
-            return true;
-        }
-
         if (
             NamedReferences.TryResolveReference(
                 argument,
@@ -310,14 +316,14 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
                 var rows = (open.RowMax ?? OpenRangeReference.GridMaxRow) - (open.RowMin ?? 1) + 1;
                 var columns =
                     (open.ColMax ?? OpenRangeReference.GridMaxColumn) - (open.ColMin ?? 1) + 1;
-                array = new LookupArray(argument, default, rows, columns, context);
+                array = new LookupArray(reference, default, rows, columns, context);
                 return true;
             }
 
             if (RangeBounds.TryFrom(reference, out var bounds))
             {
                 array = new LookupArray(
-                    argument,
+                    reference,
                     default,
                     bounds.RowCount,
                     bounds.ColumnCount,
@@ -325,6 +331,24 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
                 );
                 return true;
             }
+        }
+
+        if (argument is IArrayProducer producer)
+        {
+            producer.TryBuildArrayOperand(context, out var operand);
+            var producerStream = new ArrayEvaluation.ArrayStream(
+                operand,
+                operand.Rows,
+                operand.Columns
+            );
+            array = new LookupArray(
+                null,
+                producerStream,
+                producerStream.Rows,
+                producerStream.Columns,
+                context
+            );
+            return true;
         }
 
         if (ArrayEvaluation.TryEvaluateStream(argument, context, out var stream))
@@ -338,7 +362,7 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
     }
 
     private readonly struct LookupArray(
-        Expression? reference,
+        Reference? reference,
         ArrayEvaluation.ArrayStream stream,
         int rows,
         int columns,
@@ -349,70 +373,69 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
         public int Columns { get; } = columns;
         public int Length => Rows * Columns;
 
-        public IEnumerable<ComputedValue> Values()
+        public IEnumerable<(ComputedValue Value, int Position)> Entries()
         {
             if (reference is null)
             {
+                var position = 0;
                 foreach (var value in stream)
                 {
-                    yield return value;
+                    yield return (value, position++);
+                }
+
+                yield break;
+            }
+
+            if (reference is OpenRangeReference open)
+            {
+                var workbook = context.Workbook;
+                var handle = workbook.ResolveDenseHandle(open.SheetName);
+                foreach (var (column, row) in open.PopulatedCells(context))
+                {
+                    var position = open.IsSingleRow
+                        ? open.ColumnPosition(column) - 1
+                        : open.RowPosition(row) - 1;
+                    yield return (
+                        workbook.GetCellValueDense(handle, open.SheetName, column, row),
+                        position
+                    );
                 }
 
                 yield break;
             }
 
             var cursor = RangeValueCursor.Open(reference, context);
+            var referencePosition = 0;
             while (cursor.MoveNext(out var value))
             {
-                yield return value;
+                yield return (value, referencePosition++);
             }
         }
 
-        public ComputedValue Select(
-            int position,
-            ArrayAxis axis,
-            bool asReference,
-            out ArrayOperand? selected
-        )
+        public SelectionMemo Select(int position, ArrayAxis axis)
         {
-            selected = null;
             if (reference is not null)
             {
-                if (
-                    NamedReferences.TryResolveReference(
-                        reference,
-                        context,
-                        out var resolved,
-                        boundOpenRanges: false
-                    )
-                )
-                {
-                    return SelectReference(resolved, position, axis, asReference);
-                }
+                return SelectReference(reference, position, axis);
             }
 
-            selected = new AxisSelectionOperand(stream.Operand, axis, [position]);
-            return selected.At(0, selected.Rows, selected.Columns);
+            var selected = new AxisSelectionOperand(stream.Operand, axis, [position]);
+            return new SelectionMemo(
+                null,
+                selected,
+                selected.At(0, selected.Rows, selected.Columns),
+                true
+            );
         }
 
-        private ComputedValue SelectReference(
-            Reference resolved,
-            int position,
-            ArrayAxis axis,
-            bool asReference
-        )
+        private SelectionMemo SelectReference(Reference resolved, int position, ArrayAxis axis)
         {
             if (resolved is OpenRangeReference open)
             {
                 var row = axis is ArrayAxis.Rows ? open.AbsoluteRow(position + 1) : 0;
                 var column = axis is ArrayAxis.Columns ? open.AbsoluteColumn(position + 1) : 0;
                 var selectedOpen = SelectOpenReference(open, row, column);
-                if (asReference)
-                {
-                    return ComputedValue.Reference(selectedOpen);
-                }
-
-                return selectedOpen switch
+                var value = selectedOpen switch
                 {
                     RangeReference range => range.CellComputedValueAt(context, 1, 1),
                     OpenRangeReference selectedRange => selectedRange
@@ -420,11 +443,17 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
                         .FirstOrDefault(ComputedValue.Blank),
                     _ => ComputedValue.Error(Error.Value),
                 };
+                return new SelectionMemo(
+                    IsMultiCell(selectedOpen) ? selectedOpen : null,
+                    null,
+                    value,
+                    true
+                );
             }
 
             if (!RangeBounds.TryFrom(resolved, out var bounds))
             {
-                return ComputedValue.Error(Error.Value);
+                return new SelectionMemo(null, null, ComputedValue.Error(Error.Value), true);
             }
 
             var top = axis is ArrayAxis.Rows ? bounds.TopRow + position : bounds.TopRow;
@@ -444,10 +473,21 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
                 sheetName
             );
 
-            return asReference && (selected.RowCount > 1 || selected.ColumnCount > 1)
-                ? ComputedValue.Reference(selected)
-                : selected.CellComputedValueAt(context, 1, 1);
+            return new SelectionMemo(
+                selected.RowCount > 1 || selected.ColumnCount > 1 ? selected : null,
+                null,
+                selected.CellComputedValueAt(context, 1, 1),
+                true
+            );
         }
+
+        private static bool IsMultiCell(Reference reference) =>
+            reference switch
+            {
+                RangeReference range => range.RowCount > 1 || range.ColumnCount > 1,
+                OpenRangeReference => true,
+                _ => false,
+            };
 
         private static Reference SelectOpenReference(OpenRangeReference open, int row, int column)
         {

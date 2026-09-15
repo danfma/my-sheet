@@ -66,6 +66,7 @@ public readonly struct EvaluationContext
     // SIBLING copy, so a cache created on first use inside ArrayBindings.Shape would be invisible to the
     // later, separately-constructed ArrayBindings.Capture call — the exact bug this class exists to close.
     private readonly ConditionCache _conditions;
+    private readonly NodeMemoCache _nodeMemos;
 
     /// <summary>See the remarks on <see cref="EvaluationContext"/>'s <c>_conditions</c> field.</summary>
     private sealed class ConditionCache
@@ -92,6 +93,29 @@ public readonly struct EvaluationContext
             )[condition] = value;
     }
 
+    private sealed class NodeMemoCache
+    {
+        private Dictionary<Expression, object>? _values;
+
+        public bool TryGet<T>(Expression node, out T value)
+            where T : class
+        {
+            if (_values is not null && _values.TryGetValue(node, out var cached))
+            {
+                value = (T)cached;
+                return true;
+            }
+
+            value = null!;
+            return false;
+        }
+
+        public void Set(Expression node, object value) =>
+            (_values ??= new Dictionary<Expression, object>(ReferenceEqualityComparer.Instance))[
+                node
+            ] = value;
+    }
+
     /// <summary>
     /// The first reader of <paramref name="condition"/> within this cell's evaluation draws it (its own
     /// <c>Evaluate</c>, against THIS context) and every later reader of the SAME node — a selector's
@@ -109,6 +133,11 @@ public readonly struct EvaluationContext
         _conditions.Set(condition, value);
         return value;
     }
+
+    internal bool TryGetNodeMemo<T>(Expression node, out T value)
+        where T : class => _nodeMemos.TryGet(node, out value);
+
+    internal void SetNodeMemo(Expression node, object value) => _nodeMemos.Set(node, value);
 
     public Workbook Workbook { get; }
     public string? SheetName { get; }
@@ -134,7 +163,8 @@ public readonly struct EvaluationContext
             names: null,
             deltaRow: 0,
             deltaColumn: 0,
-            conditions: null
+            conditions: null,
+            nodeMemos: null
         ) { }
 
     private EvaluationContext(
@@ -144,7 +174,8 @@ public readonly struct EvaluationContext
         NameScope? names,
         int deltaRow,
         int deltaColumn,
-        ConditionCache? conditions
+        ConditionCache? conditions,
+        NodeMemoCache? nodeMemos
     )
     {
         Workbook = workbook;
@@ -157,6 +188,7 @@ public readonly struct EvaluationContext
         // WithCell both pass null), so a new cache is made HERE — the one point that must run before any
         // WithName/WithDelta derivation copies the reference onward. See the remarks on the field above.
         _conditions = conditions ?? new ConditionCache();
+        _nodeMemos = nodeMemos ?? new NodeMemoCache();
     }
 
     // LET names are local to a formula and do not leak into referenced cells, so they are dropped here. The
@@ -173,7 +205,8 @@ public readonly struct EvaluationContext
             names: null,
             deltaRow: 0,
             deltaColumn: 0,
-            conditions: null
+            conditions: null,
+            nodeMemos: null
         );
 
     public EvaluationContext WithName(string name, ComputedValue value) =>
@@ -184,7 +217,8 @@ public readonly struct EvaluationContext
             new NameScope(name, value, operand: null, _names),
             DeltaRow,
             DeltaColumn,
-            _conditions
+            _conditions,
+            _nodeMemos
         );
 
     /// <summary>
@@ -201,7 +235,8 @@ public readonly struct EvaluationContext
             new NameScope(name, value: default, operand, _names),
             DeltaRow,
             DeltaColumn,
-            _conditions
+            _conditions,
+            _nodeMemos
         );
 
     /// <summary>Binds whichever form <paramref name="binding"/> holds — the one call a binding site makes.</summary>
@@ -215,7 +250,7 @@ public readonly struct EvaluationContext
     /// (still the slave's own cell — only the anchored nodes inside Master read the delta).
     /// </summary>
     public EvaluationContext WithDelta(int deltaRow, int deltaColumn) =>
-        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn, _conditions);
+        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn, _conditions, _nodeMemos);
 
     /// <summary>
     /// The nearest SCALAR-form binding of <paramref name="name"/> — a scalar or a captured reference value.

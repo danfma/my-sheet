@@ -119,6 +119,25 @@ public class XLookupReferenceReadingTests
     ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
 
     [Test]
+    [Arguments("=SUM(XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
+    [Arguments("=INDEX(XLOOKUP(TICK(),A1:A3,B1:B3),1)", "20")]
+    [Arguments("=COUNTIF(XLOOKUP(TICK(),A1:A3,B1:B3),\">0\")", "1")]
+    [Arguments("=COUNTIFS(XLOOKUP(TICK(),A1:A3,B1:B3),\">0\")", "1")]
+    [Arguments("=SUMIF(XLOOKUP(TICK(),A1:A3,B1:B3),\">0\")", "20")]
+    [Arguments("=SUMIF(A1:A3,\">0\",XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
+    [Arguments("=MATCH(20,XLOOKUP(TICK(),A1:A3,B1:B3),0)", "1")]
+    [Arguments("=ROWS(XLOOKUP(TICK(),A1:A3,B1:B3))", "1")]
+    [Arguments("=ROW(XLOOKUP(TICK(),A1:A3,B1:B3))", "#VALUE!")]
+    [Arguments("=COUNTBLANK(XLOOKUP(TICK(),A1:A3,B1:B3))", "0")]
+    [Arguments("=SUMPRODUCT(XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
+    [Arguments("=AGGREGATE(9,6,XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
+    [Arguments("=SUBTOTAL(9,XLOOKUP(TICK(),A1:A3,B1:B3))", "20")]
+    [Arguments("=ISNUMBER(XLOOKUP(TICK(),A1:A3,B1:B3))", "Boolean")]
+    [Arguments("=IFERROR(XLOOKUP(TICK(),A1:A3,B1:B3),0)", "20")]
+    [Arguments("=LET(r,XLOOKUP(TICK(),A1:A3,B1:B3),r)", "20")]
+    [Arguments("=SUM(LET(r,XLOOKUP(TICK(),A1:A3,B1:B3),r))", "20")]
+    [Arguments("=SUM(XLOOKUP(2,OFFSET(A1,TICK()*0,0,3,1),B1:B3))", "20")]
+    [Arguments("=SUM(XLOOKUP(2,A1:A3,OFFSET(B1,TICK()*0,0,3,1)))", "20")]
     [Arguments("=COUNTIF(XLOOKUP(TICK(),A1:A3,B1:C3),\">0\")", "2")]
     [Arguments("=AGGREGATE(9,6,XLOOKUP(TICK(),A1:A3,B1:C3))", "220")]
     public async Task ReferenceReaders_EvaluateVolatileXLookupOnce(string formula, string expected)
@@ -134,6 +153,28 @@ public class XLookupReferenceReadingTests
             }
         );
 
+        await Assert.That(Evaluate(workbook, formula)).IsEqualTo(expected);
+        await Assert.That(draws).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("=XLOOKUP(2,A1:A3,OFFSET(B1,TICK()-1,0,3,1))", "20", "40")]
+    [Arguments("=XLOOKUP(2,OFFSET(A1,TICK()-1,0,3,1),B1:B3)", "20", "#N/A")]
+    [Arguments("=SUM(XLOOKUP(2,A1:A3,OFFSET(B1,TICK()-1,0,3,1)))", "20", "0")]
+    [Arguments("=SUM(XLOOKUP(2,A1:A3,OFFSET(B1,TICK()-1,0,3,2)))", "220", "0")]
+    [Arguments("=INDEX(XLOOKUP(TICK(),A1:A3,B1:B3),1)", "10", "#N/A")]
+    public async Task XLookup_WindowAndSelectionAreResolvedOnce(
+        string formula,
+        string expected,
+        string valueBeforeFix
+    )
+    {
+        var workbook = CreateWorkbook();
+        var draws = 0;
+        workbook.RegisterFunction("TICK", (_, _) => ++draws);
+
+        // Before this fix repeated resolution returned valueBeforeFix; one draw produces expected.
+        _ = valueBeforeFix;
         await Assert.That(Evaluate(workbook, formula)).IsEqualTo(expected);
         await Assert.That(draws).IsEqualTo(1);
     }
