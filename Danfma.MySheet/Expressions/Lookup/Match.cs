@@ -148,12 +148,13 @@ public sealed partial record Match(Expression[] Arguments) : Function
                 context,
                 snapshot
             );
+            var exactMatcher = new LookupMatching.ExactMatcher(lookup);
 
             while (exactCursor.MoveNext(out var value))
             {
                 exactPosition++;
 
-                if (ValueCoercion.AreEqual(value, lookup))
+                if (exactMatcher.Matches(value))
                 {
                     return ComputedValue.Number(exactPosition);
                 }

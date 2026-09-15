@@ -18,39 +18,34 @@ internal static class LookupMatching
     )
     {
         if (
-            NamedReferences.TryResolveReference(
+            ArrayBindings.TryClassifyResolvedReference(
                 expression,
                 context,
                 out var reference,
-                boundOpenRanges: false
-            ) && reference is CellReference cell
+                out var value,
+                out absent,
+                out var unresolvedValue
+            )
         )
         {
             resolvedReference = reference;
-            absent = IsAbsent(cell, context);
-            return cell.Evaluate(context);
-        }
-
-        if (reference is RangeReference range && RangeBounds.TryFrom(range, out var bounds))
-        {
-            resolvedReference = reference;
-            absent =
-                bounds is { RowCount: 1, ColumnCount: 1 }
-                && !context
-                    .Workbook.Sheets[range.SheetName]
-                    .ContainsKey(new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId());
-            return expression.Evaluate(context);
+            return
+                reference is RangeReference range
+                && RangeBounds.TryFrom(range, out var bounds)
+                && bounds is not { RowCount: 1, ColumnCount: 1 }
+                ? ComputedValue.Error(Error.Value)
+                : value;
         }
 
         resolvedReference = null;
-        var value = expression.Evaluate(context);
+        var evaluated = unresolvedValue ?? expression.Evaluate(context);
         absent = expression switch
         {
             AnchoredCellReference anchored => IsAbsent(anchored, context),
             NameReference name => context.IsAbsentName(name.Name),
             _ => false,
         };
-        return value;
+        return evaluated;
     }
 
     private static bool IsAbsent(CellReference cell, EvaluationContext context) =>
@@ -73,11 +68,13 @@ internal static class LookupMatching
         private readonly ComputedValue _lookup;
         private readonly Regex? _wildcard;
         private readonly bool _blankOnly;
+        private readonly string? _exactText;
 
         public ExactMatcher(in ComputedValue lookup, bool blankOnly = false)
         {
             _lookup = lookup;
             _blankOnly = blankOnly;
+            _exactText = lookup.TryGetText(out var text) && text.Length == 0 ? text : null;
             _wildcard =
                 UsesWildcards(lookup) && lookup.TryGetText(out var pattern)
                     ? Criteria.BuildWildcardRegex(pattern)
@@ -86,6 +83,7 @@ internal static class LookupMatching
 
         public bool Matches(in ComputedValue candidate) =>
             _blankOnly ? candidate.Kind == ComputedValueKind.Blank
+            : _exactText is not null ? IsExactText(candidate, _exactText)
             : _wildcard is null ? ValueCoercion.AreEqual(candidate, _lookup)
             : candidate.TryGetText(out var text) && IsWildcardMatch(_wildcard, text);
     }

@@ -321,7 +321,20 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
             return unresolved;
         }
 
-        var lookupVector = ArgumentFlattening.ExpandCached(Arguments[1], context, out _);
+        IReadOnlyList<ComputedValue> lookupVector;
+        if (ArrayEvaluation.TryStream(Arguments[1], context, out var lookupArray))
+        {
+            var values = new ComputedValue[lookupArray.Length];
+            for (var index = 0; index < values.Length; index++)
+            {
+                values[index] = lookupArray.ElementAt(index);
+            }
+            lookupVector = values;
+        }
+        else
+        {
+            lookupVector = ArgumentFlattening.ExpandCached(Arguments[1], context, out _);
+        }
         var resultVector =
             Arguments.Length == 3
                 ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
@@ -337,7 +350,14 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
     )
     {
         var count = Math.Min(keys.Count, results.Count);
-        var match = LookupMatching.FindMatch(lookup, keys, count, matchMode: -1, reverse: false);
+        var emptyText = lookup.TryGetText(out var text) && text.Length == 0;
+        var match = LookupMatching.FindMatch(
+            lookup,
+            keys,
+            count,
+            matchMode: emptyText ? 0 : -1,
+            reverse: emptyText
+        );
 
         return match >= 0 ? results[match] : ComputedValue.Error(Error.NA);
     }

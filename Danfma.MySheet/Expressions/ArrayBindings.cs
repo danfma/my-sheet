@@ -64,6 +64,35 @@ internal static class ArrayBindings
             Operand is { } operand ? ArrayEvaluation.FirstElement(operand) : Value;
     }
 
+    internal static bool TryClassifyResolvedReference(
+        Expression expression,
+        EvaluationContext context,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Reference? reference,
+        out ComputedValue value,
+        out bool absent,
+        out ComputedValue? unresolvedValue
+    )
+    {
+        if (
+            NamedReferences.TryResolveReference(
+                expression,
+                context,
+                out reference,
+                out unresolvedValue,
+                boundOpenRanges: false
+            )
+        )
+        {
+            value = ResolvedReferenceValue.Read(reference, context, out absent);
+            return true;
+        }
+
+        reference = null!;
+        value = default;
+        absent = false;
+        return false;
+    }
+
     /// <summary>
     /// Captures <paramref name="expression"/> for binding — its SINGLE evaluation. The gate is
     /// <see cref="ArrayEvaluation.TryStream"/>'s own, in its order: a bare reference node (the context-aware
@@ -90,22 +119,21 @@ internal static class ArrayBindings
         }
 
         if (
-            NamedReferences.TryResolveReference(
+            TryClassifyResolvedReference(
                 expression,
                 context,
                 out var resolved,
-                boundOpenRanges: false
-            ) && TryGetSingletonCell(resolved, out var cell)
+                out var value,
+                out var absent,
+                out var unresolvedValue
+            )
         )
         {
-            var absent =
-                context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet)
-                && !sheet.ContainsKey(cell.Id);
-            return new Binding(cell.Evaluate(context), absent, resolved);
+            return new Binding(value, absent, resolved);
         }
 
         return new Binding(
-            NamedReferences.CaptureValue(expression, context),
+            unresolvedValue ?? NamedReferences.CaptureValue(expression, context),
             expression switch
             {
                 AnchoredCellReference anchored => LookupMatching.IsAbsent(anchored, context),
@@ -156,31 +184,6 @@ internal static class ArrayBindings
 
     private static bool IsValueArrayBinding(Expression expression, EvaluationContext context) =>
         expression is Lookup.XLookup || !ArrayEvaluation.IsBareReferenceNode(expression, context);
-
-    private static bool TryGetSingletonCell(Reference reference, out CellReference cell)
-    {
-        if (reference is CellReference direct)
-        {
-            cell = direct;
-            return true;
-        }
-
-        if (
-            reference is RangeReference range
-            && RangeBounds.TryFrom(range, out var bounds)
-            && bounds is { RowCount: 1, ColumnCount: 1 }
-        )
-        {
-            cell = new CellReference(
-                new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId(),
-                range.SheetName
-            );
-            return true;
-        }
-
-        cell = null!;
-        return false;
-    }
 
     // The probe's array stand-in: IsArray is the only thing a probe reads off a binding. Its extent and
     // elements do not exist — a read means a probe path evaluated a bound name, which is a bug — so At

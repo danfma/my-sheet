@@ -45,6 +45,8 @@ public class BlankLookupKeyTests
     public async Task EmptyTextKey_RemainsDistinctFromAbsent(string formula, string expected) =>
         await Assert.That(Evaluate(formula, Key.FormulaEmpty, mixed: true)).IsEqualTo(expected);
 
+    // Aspose 26.7.0 PLAIN/CSE: without a text candidate the old absent match 2 becomes #N/A (or the
+    // supplied reverse-search fallback 0); with one at position 3, old forward results 2 become 3/4.
     [Test]
     [Arguments("=MATCH(D1,B1:B4,1)", "#N/A")]
     [Arguments("=MATCH(D1,B1:B4,-1)", "#N/A")]
@@ -53,6 +55,8 @@ public class BlankLookupKeyTests
         string expected
     ) => await Assert.That(Evaluate(formula, Key.ExplicitEmpty, mixed: false)).IsEqualTo(expected);
 
+    // Aspose 26.7.0 PLAIN/CSE: LOOKUP's old zero/position-2 results become #N/A without exact text and
+    // select the last exact-text candidate with it (empty text in two-argument form, result 4 in three).
     [Test]
     [Arguments("=COUNTIF(B1:B4,\"\")", "2")]
     [Arguments("=COUNTIF(B1:B4,\"=\")", "1")]
@@ -62,6 +66,7 @@ public class BlankLookupKeyTests
         string expected
     ) => await Assert.That(Evaluate(formula, Key.Absent, mixed: true)).IsEqualTo(expected);
 
+    // The values stay ROWS=2 and XLOOKUP=#N/A; only the volatile draw count changes from 2 to 1.
     [Test]
     [Arguments("=HLOOKUP(D1,B1:E2,2,FALSE)", "10", Key.Absent)]
     [Arguments("=HLOOKUP(D1,B1:E2,2,TRUE)", "10", Key.Absent)]
@@ -197,10 +202,144 @@ public class BlankLookupKeyTests
         await Assert.That(draws).IsEqualTo(1);
     }
 
+    [Test]
+    [Arguments("=MATCH(\"\",B1:B3,0)", false, false, "#N/A")]
+    [Arguments("=XMATCH(H10,B1:B3)", false, false, "#N/A")]
+    [Arguments("=XLOOKUP(\"\",B1:B3,C1:C3)", false, false, "#N/A")]
+    [Arguments("=VLOOKUP(H10,B1:C3,2,FALSE)", false, false, "#N/A")]
+    [Arguments("=HLOOKUP(\"\",B1:D2,2,FALSE)", false, true, "#N/A")]
+    [Arguments("=XLOOKUP(H10,B1:B3,C1:C3,0,0,-1)", false, false, "0")]
+    [Arguments("=MATCH(H10,B1:B4,0)", true, false, "3")]
+    [Arguments("=XMATCH(\"\",B1:B4)", true, false, "3")]
+    [Arguments("=XLOOKUP(H10,B1:B4,C1:C4)", true, false, "4")]
+    [Arguments("=VLOOKUP(\"\",B1:C4,2,FALSE)", true, false, "4")]
+    [Arguments("=HLOOKUP(H10,B1:E2,2,FALSE)", true, true, "4")]
+    [Arguments("=XLOOKUP(\"\",B1:B4,C1:C4,0,0,-1)", true, false, "4")]
+    public async Task ExactEmptyText_MatchesOnlyTextCandidates(
+        string formula,
+        bool textCandidate,
+        bool horizontal,
+        string expected
+    ) =>
+        await Assert
+            .That(EvaluateExactEmptyText(formula, textCandidate, horizontal))
+            .IsEqualTo(expected);
+
+    [Test]
+    [Arguments("=LOOKUP(\"\",B1:B3)", false, "#N/A")]
+    [Arguments("=LOOKUP(H10,B1:B3,C1:C3)", false, "#N/A")]
+    [Arguments("=LOOKUP(\"\",B1:B4)", true, "\"\"")]
+    [Arguments("=LOOKUP(H10,B1:B4,C1:C4)", true, "4")]
+    [Arguments("=LOOKUP(\"\",{0,\"\",5})", true, "\"\"")]
+    [Arguments("=LOOKUP(H10,{0,5})", true, "#N/A")]
+    public async Task Lookup_EmptyText_UsesTheLastExactTextCandidate(
+        string formula,
+        bool textCandidate,
+        string expected
+    ) =>
+        await Assert
+            .That(EvaluateExactEmptyText(formula, textCandidate, horizontal: false))
+            .IsEqualTo(expected);
+
+    [Test]
+    public async Task Lookup_EmptyText_SelectsTheLastOfSeveralTextCandidates()
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["B1"] = new NumberValue(0);
+        main["B2"] = ExpressionParser.Parse("=\"\"", main);
+        main["B3"] = ExpressionParser.Parse("=\"\"", main);
+        main["B4"] = new NumberValue(5);
+        main["C1"] = new NumberValue(1);
+        main["C2"] = new NumberValue(2);
+        main["C3"] = new NumberValue(4);
+        main["C4"] = new NumberValue(8);
+        main["AZ5000"] = ExpressionParser.Parse("=LOOKUP(\"\",B1:B4,C1:C4)", main);
+
+        // Aspose 26.7.0 PLAIN/CSE returns 4; choosing the first exact text returns the old value 2.
+        await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo("4");
+    }
+
+    [Test]
+    [Arguments("=LET(r,OFFSET(D1,TICK()*0,0,2,1),ROWS(r))", "2")]
+    [Arguments("=XLOOKUP(OFFSET(D1,TICK()*0,0,2,1),B1:B4,C1:C4)", "#N/A")]
+    public async Task MultiCellOffset_IsResolvedOnlyOnce(string formula, string expected)
+    {
+        var draws = 0;
+        var workbook = CreateWorkbook(Key.Absent, mixed: true);
+        workbook.RegisterFunction("TICK", (_, _) => ++draws);
+        var main = workbook.Sheets["Main"];
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo(expected);
+        await Assert.That(draws).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("=MATCH(\"\",{0,\"\",5},0)", "2")]
+    [Arguments("=MATCH(\"\",{0,5},0)", "#N/A")]
+    [Arguments("=XMATCH(\"\",{0,\"\",5})", "2")]
+    [Arguments("=XMATCH(\"\",{0,5})", "#N/A")]
+    [Arguments("=XLOOKUP(\"\",{0,\"\",5},{1,4,8})", "4")]
+    [Arguments("=XLOOKUP(\"\",{0,5},{1,8})", "#N/A")]
+    [Arguments("=XMATCH(\"\",B1:B3,2)", "2")]
+    [Arguments("=MATCH(2,{1,2,3},0)", "2")]
+    [Arguments("=MATCH(\"A\",{\"a\",\"b\"},0)", "1")]
+    public async Task ExactEmptyText_GuardsStayUnchanged(string formula, string expected)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["B1"] = new NumberValue(0);
+        main["B2"] = ExpressionParser.Parse("=\"\"", main);
+        main["B3"] = new NumberValue(5);
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo(expected);
+    }
+
     private static string Evaluate(string formula, Key key, bool mixed)
     {
         var workbook = CreateWorkbook(key, mixed);
         var main = workbook.Sheets["Main"];
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+        return Format(workbook.GetCellValue("Main", "AZ5000"));
+    }
+
+    private static string EvaluateExactEmptyText(
+        string formula,
+        bool textCandidate,
+        bool horizontal
+    )
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        if (horizontal)
+        {
+            main["B1"] = new NumberValue(0);
+            if (textCandidate)
+            {
+                main["D1"] = ExpressionParser.Parse("=\"\"", main);
+            }
+            main[textCandidate ? "E1" : "D1"] = new NumberValue(5);
+            for (var column = 0; column < 4; column++)
+            {
+                main[$"{(char)('B' + column)}2"] = new NumberValue(1 << column);
+            }
+        }
+        else
+        {
+            main["B1"] = new NumberValue(0);
+            if (textCandidate)
+            {
+                main["B3"] = ExpressionParser.Parse("=\"\"", main);
+            }
+            main[textCandidate ? "B4" : "B3"] = new NumberValue(5);
+            for (var row = 1; row <= 4; row++)
+            {
+                main[$"C{row}"] = new NumberValue(1 << (row - 1));
+            }
+        }
+        main["H10"] = new Danfma.MySheet.Expressions.StringValue(string.Empty);
         main["AZ5000"] = ExpressionParser.Parse(formula, main);
         return Format(workbook.GetCellValue("Main", "AZ5000"));
     }
