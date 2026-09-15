@@ -218,7 +218,7 @@ public sealed partial record OpenRangeReference(
     /// over every id. VLOOKUP/INDEX resolve their open table through here on every evaluation, so this must
     /// not re-enumerate the whole column.
     /// </summary>
-    private bool TryGetPopulatedBounds(
+    internal bool TryGetPopulatedBounds(
         EvaluationContext context,
         out int minColumn,
         out int maxColumn,

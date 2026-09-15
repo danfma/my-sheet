@@ -445,15 +445,32 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
     {
         if (reference is OpenRangeReference open)
         {
-            var populated = open.ToBoundedRange(context);
-            if (populated is null)
+            // A single bounded axis is structurally one-dimensional, independent of populated cells.
+            if (
+                (open.ColMin is { } colMin && open.ColMax == colMin)
+                || (open.RowMin is { } rowMin && open.RowMax == rowMin)
+            )
             {
-                bounds = default;
-                return false;
+                bounds = new RangeBounds(1, 1, 1, 1);
+                return true;
             }
 
-            bounds = populated.GetBounds();
-            return true;
+            if (
+                open.TryGetPopulatedBounds(
+                    context,
+                    out var minColumn,
+                    out var maxColumn,
+                    out var minRow,
+                    out var maxRow
+                )
+            )
+            {
+                bounds = new RangeBounds(minColumn, minRow, maxColumn, maxRow);
+                return true;
+            }
+
+            bounds = default;
+            return false;
         }
 
         return RangeBounds.TryFrom(reference, out bounds);
