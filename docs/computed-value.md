@@ -5,6 +5,8 @@ Evaluating an expression returns a `ComputedValue` — MySheet's single result t
 codes), one `object?` field (text, references), and a one-byte tag. Producing a number, boolean, blank
 or error **allocates nothing**; text and references only carry a reference that already existed.
 
+**Oracle version.** Excel behaviour in this document is measured on Aspose.Cells. Sentences that cite 26.6.0 were measured before the oracle moved to Aspose.Cells 26.7.0 (2026-09-14). A re-run of about 1,870 recorded formulas on both versions found no difference, and behaviour changed since then is measured on 26.7.0.
+
 ```csharp
 using Danfma.MySheet; // Workbook, ComputedValue, ComputedValueKind, Error
 

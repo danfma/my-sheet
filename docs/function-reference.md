@@ -18,6 +18,8 @@ Beyond these, you can add your own functions with
 Conventions below: `[argument]` is optional; `…` means the function is variadic. "Range-aware" means
 range arguments (`A1:B10`, unions, and reference results such as `OFFSET`'s) are expanded cell by cell.
 
+**Oracle version.** Excel behaviour in this document is measured on Aspose.Cells. Sentences that cite 26.6.0 were measured before the oracle moved to Aspose.Cells 26.7.0 (2026-09-14). A re-run of about 1,870 recorded formulas on both versions found no difference, and behaviour changed since then is measured on 26.7.0.
+
 ## Logical (12)
 
 | Function | Arguments | Description |

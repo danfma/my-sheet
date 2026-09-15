@@ -3,6 +3,8 @@
 This guide covers MySheet's object model — `Workbook`, `Sheet`, and the `Expression` tree — plus the
 parsing rules, the operator set, references, and how to turn an expression back into formula text.
 
+**Oracle version.** Excel behaviour in this document is measured on Aspose.Cells. Sentences that cite 26.6.0 were measured before the oracle moved to Aspose.Cells 26.7.0 (2026-09-14). A re-run of about 1,870 recorded formulas on both versions found no difference, and behaviour changed since then is measured on 26.7.0.
+
 ## Workbook
 
 A `Workbook` is the root object: a set of named sheets plus the evaluation services (memoization cache,

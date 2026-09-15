@@ -23,6 +23,8 @@ Convenções abaixo: `[argumento]` entre colchetes é opcional; `…` significa 
 "Aceita intervalos" (*range-aware*) significa que argumentos de intervalo (`A1:B10`, uniões e resultados
 de referência como o de `OFFSET`) são expandidos célula a célula.
 
+**Versão do oráculo.** O comportamento do Excel neste documento é medido no Aspose.Cells. As frases que citam 26.6.0 foram medidas antes de o oráculo migrar para o Aspose.Cells 26.7.0 (2026-09-14). Uma nova execução de cerca de 1.870 fórmulas registradas em ambas as versões não encontrou diferença, e o comportamento alterado desde então é medido na 26.7.0.
+
 ## Lógicas (12)
 
 | Função | Argumentos | Descrição |

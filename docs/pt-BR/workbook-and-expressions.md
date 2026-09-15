@@ -6,6 +6,8 @@ Este guia cobre o modelo de objetos do MySheet — `Workbook`, `Sheet` e a árvo
 das regras de parsing, do conjunto de operadores, das referências e de como transformar uma expressão de
 volta em texto de fórmula.
 
+**Versão do oráculo.** O comportamento do Excel neste documento é medido no Aspose.Cells. As frases que citam 26.6.0 foram medidas antes de o oráculo migrar para o Aspose.Cells 26.7.0 (2026-09-14). Uma nova execução de cerca de 1.870 fórmulas registradas em ambas as versões não encontrou diferença, e o comportamento alterado desde então é medido na 26.7.0.
+
 ## Workbook
 
 Um `Workbook` é o objeto raiz: um conjunto de planilhas nomeadas mais os serviços de avaliação (cache de

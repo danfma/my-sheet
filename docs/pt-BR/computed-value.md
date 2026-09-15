@@ -7,6 +7,8 @@ Avaliar uma expressão retorna um `ComputedValue` — o único tipo de resultado
 erro), um campo `object?` (texto, referências) e uma tag de um byte. Produzir um número, booleano, em
 branco ou erro **não aloca nada**; texto e referências apenas carregam uma referência que já existia.
 
+**Versão do oráculo.** O comportamento do Excel neste documento é medido no Aspose.Cells. As frases que citam 26.6.0 foram medidas antes de o oráculo migrar para o Aspose.Cells 26.7.0 (2026-09-14). Uma nova execução de cerca de 1.870 fórmulas registradas em ambas as versões não encontrou diferença, e o comportamento alterado desde então é medido na 26.7.0.
+
 ```csharp
 using Danfma.MySheet; // Workbook, ComputedValue, ComputedValueKind, Error
 
