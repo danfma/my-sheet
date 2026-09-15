@@ -89,6 +89,86 @@ public class IndexAreaNumTests
     }
 
     [Test]
+    [Arguments("=INDEX((A:A,C:C),2,1,2)", 20.0)]
+    [Arguments("=INDEX((Main!A1:A3,Other!A1:A3),2,1,2)", 2000.0)]
+    [Arguments("=OFFSET(INDEX((A1:A3,C1:C3),1,1,2),1,0)", 20.0)]
+    [Arguments("=SUM(INDEX((A1:A3,C1:C3),0,0,2):C3)", 60.0)]
+    [Arguments("=LET(u,(A1:A3,C1:C3),INDEX(u,2,1,2))", 20.0)]
+    [Arguments("=INDEX((A1:A3,C1:C3),2,1,D1)", 20.0)]
+    public async Task AreaNum_AdversarialReferenceShapesMatchTheOracle(
+        string formula,
+        double expected
+    )
+    {
+        await Assert.That(Eval(formula)).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task AreaNum_FromABlankCell_IsValueError()
+    {
+        await Assert.That(Eval("=INDEX((A1:A3,C1:C3),2,1,D2)")).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    public async Task DefinedNameUnion_UsesTheCoherentAreaSemantics()
+    {
+        var workbook = Fixture();
+        workbook.DefineName("U", "(Main!$A$1:$A$3,Main!$C$1:$C$3)");
+
+        // Aspose 26.7.0 answers #VALUE! in PLAIN and CSE despite AREAS(U)=2 and the equivalent direct and
+        // LET-bound unions returning 20. This pin keeps the coherent selected-area result as an oracle defect.
+        await Assert.That(Eval(workbook, "=INDEX(U,2,1,2)")).IsEqualTo(20.0);
+    }
+
+    [Test]
+    [Arguments("=INDEX((A1:A3,C1:C3),2,1,TICK())", 20.0)]
+    [Arguments("=SUM(INDEX((A1:A3,C1:C3),0,1,TICK()))", 60.0)]
+    [Arguments("=ROWS(INDEX((A1:A3,C1:C3),0,1,TICK()))", 3.0)]
+    public async Task AreaNum_IsEvaluatedOnce(string formula, double expected)
+    {
+        var workbook = Fixture();
+        var draws = 0;
+        workbook.RegisterFunction(
+            "TICK",
+            (_, _) =>
+            {
+                draws++;
+                return 2;
+            }
+        );
+
+        await Assert.That(Eval(workbook, formula)).IsEqualTo(expected);
+        await Assert.That(draws).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task AreaNum_IsEvaluatedOnceWhenResolvingAReferenceDirectly()
+    {
+        var workbook = Fixture();
+        var draws = 0;
+        workbook.RegisterFunction(
+            "TICK",
+            (_, _) =>
+            {
+                draws++;
+                return 2;
+            }
+        );
+        var expression = ExpressionParser.Parse(
+            "=INDEX((A1:A3,C1:C3),2,1,TICK())",
+            workbook["Main"]
+        );
+
+        await Assert
+            .That(
+                expression.TryResolveReference(new EvaluationContext(workbook), out var reference)
+            )
+            .IsTrue();
+        await Assert.That(reference).IsEqualTo(new CellReference("C2", "Main"));
+        await Assert.That(draws).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task AreaNum_CanSelectATableColumnFromAUnion()
     {
         var workbook = Fixture();
@@ -110,6 +190,7 @@ public class IndexAreaNumTests
     {
         var workbook = new Workbook();
         var sheet = workbook.Sheets.Add("Main");
+        var other = workbook.Sheets.Add("Other");
 
         foreach (
             var (cell, value) in new (string, double)[]
@@ -135,6 +216,10 @@ public class IndexAreaNumTests
 
         sheet["G1"] = new Danfma.MySheet.Expressions.StringValue("Value");
         sheet["H1"] = new Danfma.MySheet.Expressions.StringValue("Other");
+        sheet["D1"] = new Danfma.MySheet.Expressions.StringValue("2");
+        other["A1"] = new NumberValue(1000);
+        other["A2"] = new NumberValue(2000);
+        other["A3"] = new NumberValue(3000);
         return workbook;
     }
 }
