@@ -32,6 +32,7 @@ public readonly struct EvaluationContext
         public readonly ComputedValue Value;
         public readonly ArrayOperand? Operand;
         public readonly bool IsAbsent;
+        public readonly Reference? Reference;
         public readonly NameScope? Parent;
 
         public NameScope(
@@ -39,6 +40,7 @@ public readonly struct EvaluationContext
             ComputedValue value,
             ArrayOperand? operand,
             bool isAbsent,
+            Reference? reference,
             NameScope? parent
         )
         {
@@ -46,6 +48,7 @@ public readonly struct EvaluationContext
             Value = value;
             Operand = operand;
             IsAbsent = isAbsent;
+            Reference = reference;
             Parent = parent;
         }
     }
@@ -240,7 +243,7 @@ public readonly struct EvaluationContext
             Workbook,
             SheetName,
             CellId,
-            new NameScope(name, value, operand: null, isAbsent: false, _names),
+            new NameScope(name, value, operand: null, isAbsent: false, reference: null, _names),
             DeltaRow,
             DeltaColumn,
             _conditions,
@@ -258,7 +261,7 @@ public readonly struct EvaluationContext
             Workbook,
             SheetName,
             CellId,
-            new NameScope(name, value: default, operand, isAbsent: false, _names),
+            new NameScope(name, value: default, operand, isAbsent: false, reference: null, _names),
             DeltaRow,
             DeltaColumn,
             _conditions,
@@ -273,7 +276,14 @@ public readonly struct EvaluationContext
                 Workbook,
                 SheetName,
                 CellId,
-                new NameScope(name, binding.Value, operand: null, binding.IsAbsent, _names),
+                new NameScope(
+                    name,
+                    binding.Value,
+                    operand: null,
+                    binding.IsAbsent,
+                    binding.Reference,
+                    _names
+                ),
                 DeltaRow,
                 DeltaColumn,
                 _conditions,
@@ -281,6 +291,12 @@ public readonly struct EvaluationContext
             );
 
     internal bool IsAbsentName(string name) => Find(name) is { IsAbsent: true };
+
+    internal bool TryGetNameReference(string name, out Reference? reference)
+    {
+        reference = Find(name)?.Reference;
+        return reference is not null;
+    }
 
     /// <summary>
     /// G3 spike: pushes a shared-formula delta for the duration of evaluating a

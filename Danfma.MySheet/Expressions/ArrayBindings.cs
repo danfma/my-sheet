@@ -39,19 +39,22 @@ internal static class ArrayBindings
         public ArrayOperand? Operand { get; }
         public ComputedValue Value { get; }
         public bool IsAbsent { get; }
+        public Reference? Reference { get; }
 
         public Binding(ArrayOperand operand)
         {
             Operand = operand;
             Value = default;
             IsAbsent = false;
+            Reference = null;
         }
 
-        public Binding(ComputedValue value, bool isAbsent = false)
+        public Binding(ComputedValue value, bool isAbsent = false, Reference? reference = null)
         {
             Operand = null;
             Value = value;
             IsAbsent = isAbsent;
+            Reference = reference;
         }
 
         public bool IsArray => Operand is not null;
@@ -86,15 +89,26 @@ internal static class ArrayBindings
             return new Binding(operand);
         }
 
+        if (
+            NamedReferences.TryResolveReference(
+                expression,
+                context,
+                out var resolved,
+                boundOpenRanges: false
+            ) && TryGetSingletonCell(resolved, out var cell)
+        )
+        {
+            var absent =
+                context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet)
+                && !sheet.ContainsKey(cell.Id);
+            return new Binding(cell.Evaluate(context), absent, resolved);
+        }
+
         return new Binding(
             NamedReferences.CaptureValue(expression, context),
             expression switch
             {
-                CellReference cell => context.Workbook.Sheets.TryGetValue(
-                    cell.SheetName,
-                    out var sheet
-                ) && !sheet.ContainsKey(cell.Id),
-                AnchoredCellReference cell => LookupMatching.IsAbsent(cell, context),
+                AnchoredCellReference anchored => LookupMatching.IsAbsent(anchored, context),
                 NameReference name => context.IsAbsentName(name.Name),
                 _ => false,
             }
@@ -142,6 +156,31 @@ internal static class ArrayBindings
 
     private static bool IsValueArrayBinding(Expression expression, EvaluationContext context) =>
         expression is Lookup.XLookup || !ArrayEvaluation.IsBareReferenceNode(expression, context);
+
+    private static bool TryGetSingletonCell(Reference reference, out CellReference cell)
+    {
+        if (reference is CellReference direct)
+        {
+            cell = direct;
+            return true;
+        }
+
+        if (
+            reference is RangeReference range
+            && RangeBounds.TryFrom(range, out var bounds)
+            && bounds is { RowCount: 1, ColumnCount: 1 }
+        )
+        {
+            cell = new CellReference(
+                new CellAddress(bounds.LeftColumn, bounds.TopRow).ToId(),
+                range.SheetName
+            );
+            return true;
+        }
+
+        cell = null!;
+        return false;
+    }
 
     // The probe's array stand-in: IsArray is the only thing a probe reads off a binding. Its extent and
     // elements do not exist — a read means a probe path evaluated a bound name, which is a bug — so At

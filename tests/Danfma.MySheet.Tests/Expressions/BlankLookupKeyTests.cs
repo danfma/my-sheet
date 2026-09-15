@@ -12,14 +12,14 @@ public class BlankLookupKeyTests
     [Arguments("=MATCH(D1,B1:B4,-1)", "1")]
     [Arguments("=XMATCH(D1,B1:B4)", "3")]
     [Arguments("=XMATCH(D1,B1:B4,0,-1)", "2")]
-    [Arguments("=XLOOKUP(D1,B1:B4,C1:C4)", "30")]
-    [Arguments("=VLOOKUP(D1,B1:C4,2,FALSE)", "10")]
-    [Arguments("=VLOOKUP(D1,B1:C4,2,TRUE)", "10")]
+    [Arguments("=XLOOKUP(D1,B1:B4,C1:C4)", "4")]
+    [Arguments("=VLOOKUP(D1,B1:C4,2,FALSE)", "1")]
+    [Arguments("=VLOOKUP(D1,B1:C4,2,TRUE)", "1")]
     [Arguments("=COUNTIF(B1:B4,D1)", "1")]
     [Arguments("=COUNTIFS(B1:B4,D1)", "1")]
-    [Arguments("=SUMIF(B1:B4,D1,C1:C4)", "10")]
-    [Arguments("=AVERAGEIF(B1:B4,D1,C1:C4)", "10")]
-    [Arguments("=MAXIFS(C1:C4,B1:B4,D1)", "10")]
+    [Arguments("=SUMIF(B1:B4,D1,C1:C4)", "1")]
+    [Arguments("=AVERAGEIF(B1:B4,D1,C1:C4)", "1")]
+    [Arguments("=MAXIFS(C1:C4,B1:B4,D1)", "1")]
     [Arguments("=LET(k,D1,XMATCH(k,B1:B4))", "3")]
     public async Task AbsentKey_UsesTheConsumerFamilyRule(string formula, string expected) =>
         await Assert.That(Evaluate(formula, Key.Absent, mixed: true)).IsEqualTo(expected);
@@ -36,11 +36,11 @@ public class BlankLookupKeyTests
     [Arguments("=MATCH(D1,B1:B4,1)", "2")]
     [Arguments("=MATCH(D1,B1:B4,-1)", "2")]
     [Arguments("=XMATCH(D1,B1:B4)", "2")]
-    [Arguments("=XLOOKUP(D1,B1:B4,C1:C4)", "20")]
-    [Arguments("=VLOOKUP(D1,B1:C4,2,FALSE)", "20")]
-    [Arguments("=VLOOKUP(D1,B1:C4,2,TRUE)", "20")]
+    [Arguments("=XLOOKUP(D1,B1:B4,C1:C4)", "2")]
+    [Arguments("=VLOOKUP(D1,B1:C4,2,FALSE)", "2")]
+    [Arguments("=VLOOKUP(D1,B1:C4,2,TRUE)", "2")]
     [Arguments("=COUNTIF(B1:B4,D1)", "2")]
-    [Arguments("=SUMIF(B1:B4,D1,C1:C4)", "50")]
+    [Arguments("=SUMIF(B1:B4,D1,C1:C4)", "6")]
     [Arguments("=COUNTIFS(B1:B4,D1)", "2")]
     public async Task EmptyTextKey_RemainsDistinctFromAbsent(string formula, string expected) =>
         await Assert.That(Evaluate(formula, Key.FormulaEmpty, mixed: true)).IsEqualTo(expected);
@@ -96,8 +96,8 @@ public class BlankLookupKeyTests
         await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo("3");
     }
 
-    // Aspose 26.7.0 PLAIN/CSE resolves each key to the absent D1 before classifying it. Before this fix,
-    // XMATCH was 1 -> 3, approximate MATCH 4 -> 1, XLOOKUP "" -> 30, COUNTIF 2 -> 1, and SUMIF 50 -> 0.
+    // Aspose 26.7.0 PLAIN/CSE resolves each key to absent D1 before classifying it. The discriminating
+    // C1:C4 = 1,2,4,8 fixture proves SUMIF selected B1: the four derived pins move 0 -> 1, not to B3's 4.
     [Test]
     [Arguments("=XMATCH(INDEX(D1:D1,1),B1:B4)", "3")]
     [Arguments("=XMATCH(OFFSET(D1,0,0),B1:B4)", "3")]
@@ -107,20 +107,56 @@ public class BlankLookupKeyTests
     [Arguments("=MATCH(OFFSET(D1,0,0),B1:B4,-1)", "1")]
     [Arguments("=MATCH(IF(TRUE,D1),B1:B4,-1)", "1")]
     [Arguments("=MATCH(EmptyCell,B1:B4,-1)", "1")]
-    [Arguments("=XLOOKUP(INDEX(D1:D1,1),B1:B4,C1:C4)", "30")]
-    [Arguments("=XLOOKUP(OFFSET(D1,0,0),B1:B4,C1:C4)", "30")]
-    [Arguments("=XLOOKUP(IF(TRUE,D1),B1:B4,C1:C4)", "30")]
-    [Arguments("=XLOOKUP(EmptyCell,B1:B4,C1:C4)", "30")]
+    [Arguments("=XLOOKUP(INDEX(D1:D1,1),B1:B4,C1:C4)", "4")]
+    [Arguments("=XLOOKUP(OFFSET(D1,0,0),B1:B4,C1:C4)", "4")]
+    [Arguments("=XLOOKUP(IF(TRUE,D1),B1:B4,C1:C4)", "4")]
+    [Arguments("=XLOOKUP(EmptyCell,B1:B4,C1:C4)", "4")]
     [Arguments("=COUNTIF(B1:B4,INDEX(D1:D1,1))", "1")]
     [Arguments("=COUNTIF(B1:B4,OFFSET(D1,0,0))", "1")]
     [Arguments("=COUNTIF(B1:B4,IF(TRUE,D1))", "1")]
     [Arguments("=COUNTIF(B1:B4,EmptyCell)", "1")]
-    [Arguments("=SUMIF(B1:B4,INDEX(D1:D1,1),C1:C4)", "0")]
-    [Arguments("=SUMIF(B1:B4,OFFSET(D1,0,0),C1:C4)", "0")]
-    [Arguments("=SUMIF(B1:B4,IF(TRUE,D1),C1:C4)", "0")]
-    [Arguments("=SUMIF(B1:B4,EmptyCell,C1:C4)", "0")]
+    [Arguments("=SUMIF(B1:B4,INDEX(D1:D1,1),C1:C4)", "1")]
+    [Arguments("=SUMIF(B1:B4,OFFSET(D1,0,0),C1:C4)", "1")]
+    [Arguments("=SUMIF(B1:B4,IF(TRUE,D1),C1:C4)", "1")]
+    [Arguments("=SUMIF(B1:B4,EmptyCell,C1:C4)", "1")]
     public async Task DerivedAbsentKey_UsesTheConsumerFamilyRule(string formula, string expected) =>
         await Assert.That(Evaluate(formula, Key.Absent, mixed: true)).IsEqualTo(expected);
+
+    [Test]
+    [Arguments("LET(r,INDEX(D1:D1,1),r)")]
+    [Arguments("LET(r,OFFSET(D1,0,0),r)")]
+    [Arguments("LET(r,IF(TRUE,D1),r)")]
+    [Arguments("LET(r,EmptyCell,r)")]
+    [Arguments("LET(a,OFFSET(D1,0,0),LET(b,a,b))")]
+    public async Task LetWrappedDerivedAbsentKey_UsesTheConsumerFamilyRule(string key)
+    {
+        await Assert.That(Evaluate($"=XMATCH({key},B1:B4)", Key.Absent, true)).IsEqualTo("3");
+        await Assert.That(Evaluate($"=MATCH({key},B1:B4,-1)", Key.Absent, true)).IsEqualTo("1");
+        await Assert
+            .That(Evaluate($"=XLOOKUP({key},B1:B4,C1:C4)", Key.Absent, true))
+            .IsEqualTo("4");
+        await Assert.That(Evaluate($"=COUNTIF(B1:B4,{key})", Key.Absent, true)).IsEqualTo("1");
+        await Assert.That(Evaluate($"=SUMIF(B1:B4,{key},C1:C4)", Key.Absent, true)).IsEqualTo("1");
+    }
+
+    [Test]
+    [Arguments("=MATCH(H10,B1:B3,1)", MatchFixture.AbsentCandidate, "#N/A")]
+    [Arguments("=MATCH(H10,B1:B3,-1)", MatchFixture.AbsentCandidate, "#N/A")]
+    [Arguments("=MATCH(H10,B1:B3,1)", MatchFixture.OneText, "2")]
+    [Arguments("=MATCH(H10,B1:B3,-1)", MatchFixture.OneText, "2")]
+    [Arguments("=MATCH(H10,B1:B4,1)", MatchFixture.SeveralTexts, "3")]
+    [Arguments("=MATCH(H10,B1:B4,-1)", MatchFixture.SeveralTexts, "2")]
+    [Arguments("=MATCH(H10,B1:B2,1)", MatchFixture.AllAbsent, "#N/A")]
+    [Arguments("=MATCH(H10,B1:B2,-1)", MatchFixture.AllAbsent, "#N/A")]
+    [Arguments("=MATCH(H10,{0,\"\",5},1)", MatchFixture.AllAbsent, "2")]
+    [Arguments("=MATCH(H10,{0,\"\",5},-1)", MatchFixture.AllAbsent, "2")]
+    [Arguments("=MATCH(H10,{0,5},1)", MatchFixture.AllAbsent, "#N/A")]
+    [Arguments("=MATCH(H10,{0,5},-1)", MatchFixture.AllAbsent, "#N/A")]
+    public async Task ApproximateMatch_EmptyTextRequiresAnExactTextCandidate(
+        string formula,
+        MatchFixture fixture,
+        string expected
+    ) => await Assert.That(EvaluateApproximateMatch(formula, fixture)).IsEqualTo(expected);
 
     [Test]
     public async Task IndexSelectingAnAbsentCellInsideARange_IsAnAbsentKey() =>
@@ -147,6 +183,8 @@ public class BlankLookupKeyTests
     [Test]
     [Arguments("=XMATCH(OFFSET(D1,TICK()*0,0),B1:B4)", "3")]
     [Arguments("=COUNTIF(B1:B4,OFFSET(D1,TICK()*0,0))", "1")]
+    [Arguments("=XMATCH(LET(r,OFFSET(D1,TICK()*0,0),r),B1:B4)", "3")]
+    [Arguments("=COUNTIF(B1:B4,LET(r,OFFSET(D1,TICK()*0,0),r))", "1")]
     public async Task DerivedAbsentKey_IsResolvedOnlyOnce(string formula, string expected)
     {
         var draws = 0;
@@ -180,7 +218,7 @@ public class BlankLookupKeyTests
         main["B4"] = new NumberValue(5);
         for (var row = 1; row <= 4; row++)
         {
-            main[$"C{row}"] = new NumberValue(row * 10);
+            main[$"C{row}"] = new NumberValue(1 << (row - 1));
         }
         workbook.DefineName("EmptyCell", "Main!D1");
         SetKey(main, key);
@@ -216,6 +254,28 @@ public class BlankLookupKeyTests
 
         main["H10"] = new Danfma.MySheet.Expressions.StringValue(string.Empty);
         var formula = horizontal ? "=HLOOKUP(H10,B1:F2,2,TRUE)" : "=VLOOKUP(H10,B1:C5,2,TRUE)";
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+        return Format(workbook.GetCellValue("Main", "AZ5000"));
+    }
+
+    private static string EvaluateApproximateMatch(string formula, MatchFixture fixture)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["H10"] = new Danfma.MySheet.Expressions.StringValue(string.Empty);
+        if (fixture is not MatchFixture.AllAbsent)
+        {
+            main["B1"] = new NumberValue(0);
+            main[fixture is MatchFixture.SeveralTexts ? "B4" : "B3"] = new NumberValue(5);
+        }
+        if (fixture is MatchFixture.OneText or MatchFixture.SeveralTexts)
+        {
+            main["B2"] = ExpressionParser.Parse("=\"\"", main);
+        }
+        if (fixture is MatchFixture.SeveralTexts)
+        {
+            main["B3"] = ExpressionParser.Parse("=\"\"", main);
+        }
         main["AZ5000"] = ExpressionParser.Parse(formula, main);
         return Format(workbook.GetCellValue("Main", "AZ5000"));
     }
@@ -259,5 +319,13 @@ public class BlankLookupKeyTests
         Absent,
         FormulaEmpty,
         ExplicitEmpty,
+    }
+
+    public enum MatchFixture
+    {
+        AbsentCandidate,
+        OneText,
+        SeveralTexts,
+        AllAbsent,
     }
 }

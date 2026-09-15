@@ -230,7 +230,8 @@ internal static class NamedReferences
 
         if (context.TryGetName(name.Name, out var bound))
         {
-            return bound.TryGetReference(out reference);
+            return context.TryGetNameReference(name.Name, out reference)
+                || bound.TryGetReference(out reference);
         }
 
         if (!context.Workbook.DefinedNames.TryGetValue(name.Name, out var definition))

@@ -186,8 +186,8 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         if (lookup.TryGetText(out var lookupText) && lookupText.Length == 0)
         {
-            var matcher = new LookupMatching.ExactMatcher(lookup);
             var textPosition = 0;
+            var textMatch = -1;
             var textCursor = RangeValueCursor.Open(
                 arrayReference ?? Arguments[1],
                 context,
@@ -196,13 +196,18 @@ public sealed partial record Match(Expression[] Arguments) : Function
             while (textCursor.MoveNext(out var value))
             {
                 textPosition++;
-                if (matcher.Matches(value))
+                if (LookupMatching.IsExactText(value, lookupText))
                 {
-                    return ComputedValue.Number(textPosition);
+                    if (matchType < 0)
+                    {
+                        return ComputedValue.Number(textPosition);
+                    }
+
+                    textMatch = textPosition;
                 }
             }
 
-            return ComputedValue.Error(Error.NA);
+            return textMatch >= 0 ? ComputedValue.Number(textMatch) : ComputedValue.Error(Error.NA);
         }
 
         if (absentLookup)

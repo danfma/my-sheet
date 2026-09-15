@@ -18,12 +18,8 @@ public sealed partial record SumIf(Expression[] Arguments) : Function
             Arguments[1],
             context,
             out var absentCriteria,
-            out var criteriaReference
+            out _
         );
-        if (absentCriteria && criteriaReference is not null && Arguments[1] is not Reference)
-        {
-            return ComputedValue.Number(0);
-        }
         var criteria = Criteria.Parse(criteriaValue, absentCriteria);
 
         var snapshot = Arguments[0] is Reference reference

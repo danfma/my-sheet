@@ -96,6 +96,10 @@ internal static class LookupMatching
 
     public static ExactMatcher TableExactMatcher(in ComputedValue lookup) => new(lookup);
 
+    public static bool IsExactText(in ComputedValue candidate, string lookupText) =>
+        candidate.TryGetText(out var candidateText)
+        && string.Equals(candidateText, lookupText, StringComparison.OrdinalIgnoreCase);
+
     public static int FindMatch(
         in ComputedValue lookup,
         IReadOnlyList<ComputedValue> array,
