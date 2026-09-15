@@ -28,6 +28,8 @@ ComputedValue value = workbook.GetCellValue("Sheet1", "A3");
 
 Computed numeric results never carry negative zero. `ComputedValue.Number(-0.0)`, including the implicit
 `double` conversion, is stored and exposed as positive `0.0`, matching Excel's value and text rendering.
+`TEXT` chooses a positive, negative, or zero format section from the original value's sign, before rounding.
+With one section, a negative value prints an automatic minus only when its scaled numeric pattern does not round to zero; literals in the section are preserved either way.
 
 > **Formula results are never blank at the cell boundary (Excel parity).** `Blank` is what you get from a
 > truly empty cell (`BlankValue` expression) or an omitted argument. But a cell that HAS content whose

@@ -415,15 +415,165 @@ internal static class NumberFormatting
 {
     public static string Format(double number, string format, IFormatProvider provider)
     {
-        var rendered = number.ToString(format, provider);
+        var sections = SplitSections(format);
+        var sectionIndex =
+            number < 0d && sections.Count > 1 ? 1
+            : number == 0d && sections.Count > 2 ? 2
+            : 0;
+        var section = sections[sectionIndex];
+        var magnitude = sectionIndex == 1 && sections.Count > 1 ? -number : number;
+        var pattern = AnalyzePattern(section, magnitude);
 
-        return
-            number < 0d
-            && double.TryParse(rendered, NumberStyles.Number, provider, out var rounded)
-            && rounded == 0d
-            ? (-number).ToString(format, provider)
-            : rendered;
+        if (sections.Count == 1 && number < 0d && pattern.RoundsToZero)
+        {
+            pattern = AnalyzePattern(section, -number);
+        }
+
+        return pattern.Value.ToString(pattern.Format, provider);
     }
+
+    private static List<string> SplitSections(string format)
+    {
+        var sections = new List<string>();
+        var start = 0;
+        var quoted = false;
+        var escaped = false;
+
+        for (var i = 0; i < format.Length; i++)
+        {
+            var character = format[i];
+            if (escaped)
+            {
+                escaped = false;
+            }
+            else if (character == '\\')
+            {
+                escaped = true;
+            }
+            else if (character == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (character == ';' && !quoted)
+            {
+                sections.Add(format[start..i]);
+                start = i + 1;
+            }
+        }
+
+        sections.Add(format[start..]);
+        return sections;
+    }
+
+    private static NumericPattern AnalyzePattern(string format, double value)
+    {
+        var active = new bool[format.Length];
+        var quoted = false;
+        var escaped = false;
+        var bracketed = false;
+        var percentCount = 0;
+        var exponent = false;
+        var decimalIndex = -1;
+        var lastPlaceholder = -1;
+
+        for (var i = 0; i < format.Length; i++)
+        {
+            var character = format[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (character == '\\')
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (character == '"')
+            {
+                quoted = !quoted;
+                continue;
+            }
+
+            if (quoted)
+            {
+                continue;
+            }
+
+            if (character == '[')
+            {
+                bracketed = true;
+                continue;
+            }
+
+            if (character == ']')
+            {
+                bracketed = false;
+                continue;
+            }
+
+            if (bracketed)
+            {
+                continue;
+            }
+
+            active[i] = true;
+            if (character == '%')
+            {
+                percentCount++;
+            }
+            else if (character == '.')
+            {
+                decimalIndex = i;
+            }
+            else if (character is '0' or '#')
+            {
+                lastPlaceholder = i;
+            }
+            else if (
+                character is 'E' or 'e'
+                && i + 2 < format.Length
+                && format[i + 1] is '+' or '-'
+                && format[i + 2] == '0'
+            )
+            {
+                exponent = true;
+            }
+        }
+
+        var scalingCommas = 0;
+        var commaStart = lastPlaceholder + 1;
+        while (commaStart < format.Length && active[commaStart] && format[commaStart] == ',')
+        {
+            scalingCommas++;
+            commaStart++;
+        }
+
+        var renderFormat =
+            scalingCommas == 0
+                ? format
+                : string.Concat(format.AsSpan(0, lastPlaceholder + 1), format.AsSpan(commaStart));
+        var scaledValue = value / Math.Pow(1000d, scalingCommas);
+        var scaledMagnitude = Math.Abs(scaledValue) * Math.Pow(100d, percentCount);
+        var decimalPlaces = 0;
+        if (decimalIndex >= 0)
+        {
+            for (var i = decimalIndex + 1; i < format.Length && i <= lastPlaceholder; i++)
+            {
+                if (active[i] && format[i] is '0' or '#')
+                {
+                    decimalPlaces++;
+                }
+            }
+        }
+
+        var roundsToZero = !exponent && scaledMagnitude < 0.5d * Math.Pow(10d, -decimalPlaces);
+        return new NumericPattern(renderFormat, scaledValue, roundsToZero);
+    }
+
+    private readonly record struct NumericPattern(string Format, double Value, bool RoundsToZero);
 
     public static double RoundToDigits(double number, int digits)
     {

@@ -74,6 +74,199 @@ public class NegativeZeroTests
     }
 
     [Test]
+    public async Task Text_UsesOriginalSignForSections_AndRoundedMagnitudeForSingleSectionMinus()
+    {
+        var values = new[] { "-0.4", "-0.04", "-0.0001", "-0.5", "-0.6", "-SUM(A1:A2)", "0.4" };
+        var formats = new[]
+        {
+            "0",
+            "0.0",
+            "00.00",
+            "#,##0",
+            "0%",
+            "0.0,",
+            "$0.00",
+            "0 \"units\"",
+            "\"-\"0",
+            "0.0E+0",
+            "0;(0)",
+            "0.0;-0.0",
+            "0;\"neg\"",
+            "0;(0);\"zero\"",
+            "0.0;(0.0);\"z\"",
+        };
+        var expected = new[]
+        {
+            new[]
+            {
+                "0",
+                "-0.4",
+                "-00.40",
+                "0",
+                "-40%",
+                "0.0",
+                "-$0.40",
+                "0 units",
+                "-0",
+                "-4.0E-1",
+                "(0)",
+                "-0.4",
+                "neg",
+                "(0)",
+                "(0.4)",
+            },
+            new[]
+            {
+                "0",
+                "0.0",
+                "-00.04",
+                "0",
+                "-4%",
+                "0.0",
+                "-$0.04",
+                "0 units",
+                "-0",
+                "-4.0E-2",
+                "(0)",
+                "-0.0",
+                "neg",
+                "(0)",
+                "(0.0)",
+            },
+            new[]
+            {
+                "0",
+                "0.0",
+                "00.00",
+                "0",
+                "0%",
+                "0.0",
+                "$0.00",
+                "0 units",
+                "-0",
+                "-1.0E-4",
+                "(0)",
+                "-0.0",
+                "neg",
+                "(0)",
+                "(0.0)",
+            },
+            new[]
+            {
+                "-1",
+                "-0.5",
+                "-00.50",
+                "-1",
+                "-50%",
+                "0.0",
+                "-$0.50",
+                "-1 units",
+                "--1",
+                "-5.0E-1",
+                "(1)",
+                "-0.5",
+                "neg",
+                "(1)",
+                "(0.5)",
+            },
+            new[]
+            {
+                "-1",
+                "-0.6",
+                "-00.60",
+                "-1",
+                "-60%",
+                "0.0",
+                "-$0.60",
+                "-1 units",
+                "--1",
+                "-6.0E-1",
+                "(1)",
+                "-0.6",
+                "neg",
+                "(1)",
+                "(0.6)",
+            },
+            new[]
+            {
+                "0",
+                "0.0",
+                "00.00",
+                "0",
+                "0%",
+                "0.0",
+                "$0.00",
+                "0 units",
+                "-0",
+                "0.0E+0",
+                "0",
+                "0.0",
+                "0",
+                "zero",
+                "z",
+            },
+            new[]
+            {
+                "0",
+                "0.4",
+                "00.40",
+                "0",
+                "40%",
+                "0.0",
+                "$0.40",
+                "0 units",
+                "-0",
+                "4.0E-1",
+                "0",
+                "0.4",
+                "0",
+                "0",
+                "0.4",
+            },
+        };
+
+        for (var valueIndex = 0; valueIndex < values.Length; valueIndex++)
+        {
+            for (var formatIndex = 0; formatIndex < formats.Length; formatIndex++)
+            {
+                var formula =
+                    $"=TEXT({values[valueIndex]},\"{formats[formatIndex].Replace("\"", "\"\"")}\")";
+                await Assert
+                    .That(Evaluate(formula).ToText())
+                    .IsEqualTo(expected[valueIndex][formatIndex]);
+            }
+        }
+    }
+
+    [Test]
+    [Arguments("=SQRT(-SUM(A1:A2))")]
+    [Arguments("=POWER(-SUM(A1:A2),3)")]
+    [Arguments("=(-SUM(A1:A2))^3")]
+    [Arguments("=PRODUCT(-1,A1)")]
+    [Arguments("=TRUNC(-0.5)")]
+    [Arguments("=CEILING.MATH(-0.5)")]
+    [Arguments("=MIN(-A1:A2)")]
+    [Arguments("=SUM(-A1:A2)")]
+    [Arguments("=ABS(-SUM(A1:A2))")]
+    [Arguments("=N(-SUM(A1:A2))")]
+    [Arguments("=IF(TRUE,-A1)")]
+    [Arguments("=CHOOSE(1,-A1)")]
+    public async Task AdversarialNumericZero_HasNoNegativeSign(string formula)
+    {
+        var value = Evaluate(formula);
+
+        await Assert.That(value.Kind).IsEqualTo(ComputedValueKind.Number);
+        await Assert.That(value.ToDouble()).IsEqualTo(0d);
+        await Assert.That(double.IsNegative(value.ToDouble())).IsFalse();
+    }
+
+    [Test]
+    public async Task CountIf_TreatsNegativeZeroAsZero()
+    {
+        await Assert.That(Evaluate("=COUNTIF(A1:A2,-0)").ToDouble()).IsEqualTo(2d);
+    }
+
+    [Test]
     public async Task ZeroDivisionAndEqualityGuards_StayUnchanged()
     {
         await Assert
