@@ -507,6 +507,15 @@ line says *typed* (all measured on Aspose.Cells 26.6.0, 2026-09-10). If you type
 real Excel and compare, expect the typed answer rather than ours; the one place where MySheet's own answer
 follows neither is [the cell boundary](#implicit-intersection-at-the-cell-boundary), below.
 
+## Array constants
+
+Array constants use braces, commas between columns and semicolons between rows: `{1,2,3}` is a row,
+`{1;2;3}` is a column and `{1,2;3,4}` is a 2x2 rectangle. Elements are literals only: numbers (with an
+optional leading minus), strings, booleans and Excel error literals. Expressions, references, empty elements,
+trailing separators and ragged rows are rejected at parse time. A bare constant shows its top-left element;
+array-aware consumers read its full shape, while criteria range slots such as `COUNTIF` reject it with `#REF!`.
+Formula text, binary Save/Load and `.xlsx` formula import/export preserve the constant.
+
 **Supported.** The consumers are the numeric aggregators (`SUM`, `COUNT`, `AVERAGE`, `MIN`, `MAX`, `PRODUCT`
 and — through the same fold — `MEDIAN`, the `STDEV`/`VAR` family, `SMALL`, `LARGE`, the percentiles and
 quartiles), `INDEX`, `ROWS`/`COLUMNS` (which report the array's *extent* rather than its values),

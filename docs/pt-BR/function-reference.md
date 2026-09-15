@@ -16,6 +16,10 @@ elevadas assim; veja
 [argumentos implícitos de array](workbook-and-expressions.md#argumentos-implícitos-de-array) para saber quais
 consumidores pedem um array, quais funções são elevadas e onde a elevação para.
 
+Constantes de array como `{1,2,3}` e `{1,2;3,4}` podem ser usadas onde uma função aceita um array computado.
+Vírgulas separam colunas e pontos e vírgulas separam linhas; slots de intervalo de critérios ainda as rejeitam
+com `#REF!`, como os demais arrays computados.
+
 Além dessas, você pode adicionar suas próprias funções com
 [`workbook.RegisterFunction`](custom-functions.md); nomes desconhecidos são avaliados como `#NAME?`.
 

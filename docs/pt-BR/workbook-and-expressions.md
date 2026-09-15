@@ -510,6 +510,16 @@ coluna.
 
 ## Argumentos implícitos de array
 
+## Constantes de array
+
+Constantes de array usam chaves, vírgulas entre colunas e ponto e vírgula entre linhas: `{1,2,3}` é uma linha,
+`{1;2;3}` é uma coluna e `{1,2;3,4}` é um retângulo 2x2. Os elementos são apenas literais: números (com sinal
+negativo inicial opcional), textos, booleanos e literais de erro do Excel. Expressões, referências, elementos
+vazios, separadores finais e linhas irregulares são rejeitados durante o parse. Uma constante isolada mostra seu
+elemento superior esquerdo; consumidores de array leem toda a forma, enquanto slots de intervalo de critérios,
+como `COUNTIF`, a rejeitam com `#REF!`. O texto da fórmula, o Save/Load binário e a importação/exportação de
+fórmulas `.xlsx` preservam a constante.
+
 Algumas funções avaliam um **argumento com valor de array** elemento a elemento, reproduzindo a semântica
 implícita (CSE) do Excel — sem `Ctrl+Shift+Enter`, sem *spilling* e sem um valor de array público: o vetor
 vive apenas dentro da avaliação da função consumidora. Isso fecha os idiomas comuns `SUM(IF(range=…))` /

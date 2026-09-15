@@ -12,6 +12,10 @@ in its row. 180 of the 310 entries can be lifted that way; see
 [implicit array arguments](workbook-and-expressions.md#implicit-array-arguments) for which consumers ask for
 an array, which functions are lifted, and where the lift stops.
 
+Array constants such as `{1,2,3}` and `{1,2;3,4}` can be supplied anywhere a function accepts a computed
+array. Commas separate columns and semicolons separate rows; criteria range slots still reject them with
+`#REF!`, matching other computed arrays.
+
 Beyond these, you can add your own functions with
 [`workbook.RegisterFunction`](custom-functions.md); unknown names evaluate to `#NAME?`.
 
