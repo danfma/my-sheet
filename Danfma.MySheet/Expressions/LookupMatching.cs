@@ -18,7 +18,7 @@ internal static class LookupMatching
     )
     {
         if (
-            ArrayBindings.TryClassifyResolvedReference(
+            ResolvedReferenceValue.TryClassify(
                 expression,
                 context,
                 out var reference,
@@ -29,10 +29,7 @@ internal static class LookupMatching
         )
         {
             resolvedReference = reference;
-            return
-                reference is RangeReference range
-                && RangeBounds.TryFrom(range, out var bounds)
-                && bounds is not { RowCount: 1, ColumnCount: 1 }
+            return expression is Reference && value.Kind == ComputedValueKind.Reference
                 ? ComputedValue.Error(Error.Value)
                 : value;
         }
@@ -47,10 +44,6 @@ internal static class LookupMatching
         };
         return evaluated;
     }
-
-    private static bool IsAbsent(CellReference cell, EvaluationContext context) =>
-        context.Workbook.Sheets.TryGetValue(cell.SheetName, out var sheet)
-        && !sheet.ContainsKey(cell.Id);
 
     internal static bool IsAbsent(AnchoredCellReference cell, EvaluationContext context)
     {
@@ -126,6 +119,11 @@ internal static class LookupMatching
                     return i;
                 }
             }
+        }
+
+        if (matchMode is -1 or 1 && lookup.TryGetText(out var exactText) && exactText.Length == 0)
+        {
+            return -1;
         }
 
         return matchMode switch

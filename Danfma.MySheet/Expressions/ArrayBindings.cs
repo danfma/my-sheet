@@ -64,35 +64,6 @@ internal static class ArrayBindings
             Operand is { } operand ? ArrayEvaluation.FirstElement(operand) : Value;
     }
 
-    internal static bool TryClassifyResolvedReference(
-        Expression expression,
-        EvaluationContext context,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Reference? reference,
-        out ComputedValue value,
-        out bool absent,
-        out ComputedValue? unresolvedValue
-    )
-    {
-        if (
-            NamedReferences.TryResolveReference(
-                expression,
-                context,
-                out reference,
-                out unresolvedValue,
-                boundOpenRanges: false
-            )
-        )
-        {
-            value = ResolvedReferenceValue.Read(reference, context, out absent);
-            return true;
-        }
-
-        reference = null!;
-        value = default;
-        absent = false;
-        return false;
-    }
-
     /// <summary>
     /// Captures <paramref name="expression"/> for binding — its SINGLE evaluation. The gate is
     /// <see cref="ArrayEvaluation.TryStream"/>'s own, in its order: a bare reference node (the context-aware
@@ -119,7 +90,7 @@ internal static class ArrayBindings
         }
 
         if (
-            TryClassifyResolvedReference(
+            ResolvedReferenceValue.TryClassify(
                 expression,
                 context,
                 out var resolved,

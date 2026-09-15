@@ -234,6 +234,30 @@ public class LookupReferenceFunctionTests
     }
 
     [Test]
+    [Arguments("=LOOKUP(3,{1,2,3,4},{10,20,30,40})", 30.0)]
+    [Arguments("=LOOKUP(2,A1:A4*1,B1:B4)", 20.0)]
+    [Arguments("=LOOKUP(2,A1:A4,{10,20,30,40})", 20.0)]
+    [Arguments("=LOOKUP(2,{1,2,3,4},B1:B4)", 20.0)]
+    public async Task Lookup_MaterializesBothVectorsOnce(string formula, double expected)
+    {
+        (string, object)[] values =
+        [
+            ("A1", 1.0),
+            ("A2", 2.0),
+            ("A3", 3.0),
+            ("A4", 4.0),
+            ("B1", 10.0),
+            ("B2", 20.0),
+            ("B3", 30.0),
+            ("B4", 40.0),
+        ];
+
+        // Aspose 26.7.0 PLAIN/CSE use the full vectors. Collapsing either stream to top-left
+        // changes these expected values from 30/20/20/20 to 10/#VALUE!/10/10 respectively.
+        await Assert.That(Calc(formula, values) as double?).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task Lookup_ArrayForm_WideArray_SearchesFirstRowReturnsLastRow()
     {
         // Regra documentada: "If array covers an area that is wider than it is tall (more columns

@@ -316,28 +316,35 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
         // Sweep item 34(b): the vector slot — an unresolved node reports its own error (the oracle
         // answers #NAME? for LOOKUP(1,NoSuch)) instead of streaming it as the one key the scan discards
         // into #N/A.
-        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        if (ReferenceGuard.MissingSheet(Arguments[1], context) is { } missingVector)
         {
-            return unresolved;
+            return ComputedValue.Error(missingVector);
         }
 
-        IReadOnlyList<ComputedValue> lookupVector;
-        if (ArrayEvaluation.TryStream(Arguments[1], context, out var lookupArray))
+        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
         {
-            var values = new ComputedValue[lookupArray.Length];
-            for (var index = 0; index < values.Length; index++)
+            if (!ArrayEvaluation.IsArrayEligible(Arguments[1], context))
             {
-                values[index] = lookupArray.ElementAt(index);
+                return unresolved;
             }
-            lookupVector = values;
+
+            var computedVector = ArgumentFlattening.MaterializeVector(Arguments[1], context);
+            if (computedVector.Count == 1 && computedVector[0].TryGetError(out var computedError))
+            {
+                return ComputedValue.Error(computedError);
+            }
+
+            var computedResults =
+                Arguments.Length == 3
+                    ? ArgumentFlattening.MaterializeVector(Arguments[2], context)
+                    : computedVector;
+            return Find(lookup, computedVector, computedResults);
         }
-        else
-        {
-            lookupVector = ArgumentFlattening.ExpandCached(Arguments[1], context, out _);
-        }
+
+        var lookupVector = ArgumentFlattening.MaterializeVector(Arguments[1], context);
         var resultVector =
             Arguments.Length == 3
-                ? ArgumentFlattening.ExpandCached(Arguments[2], context, out _)
+                ? ArgumentFlattening.MaterializeVector(Arguments[2], context)
                 : lookupVector;
 
         return Find(lookup, lookupVector, resultVector);

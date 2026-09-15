@@ -248,6 +248,29 @@ internal static class ArgumentFlattening
     }
 
     /// <summary>
+    /// Materializes a vector through the shared array gate, while bare references retain the cached range path.
+    /// The stream build is the expression's single evaluation.
+    /// </summary>
+    public static IReadOnlyList<ComputedValue> MaterializeVector(
+        Expression argument,
+        EvaluationContext context
+    )
+    {
+        if (!ArrayEvaluation.TryStream(argument, context, out var array))
+        {
+            return ExpandCached(argument, context, out _);
+        }
+
+        var values = new ComputedValue[array.Length];
+        for (var index = 0; index < values.Length; index++)
+        {
+            values[index] = array.ElementAt(index);
+        }
+
+        return values;
+    }
+
+    /// <summary>
     /// Expands an already-resolved reference through the same cache admission route as a syntactic reference.
     /// Consumers that resolve names or reference-returning functions must use this overload rather than turn
     /// the reference back into an element-wise computed array.

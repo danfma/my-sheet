@@ -2,6 +2,35 @@ namespace Danfma.MySheet.Expressions;
 
 internal static class ResolvedReferenceValue
 {
+    internal static bool TryClassify(
+        Expression expression,
+        EvaluationContext context,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Reference? reference,
+        out ComputedValue value,
+        out bool absent,
+        out ComputedValue? unresolvedValue
+    )
+    {
+        if (
+            NamedReferences.TryResolveReference(
+                expression,
+                context,
+                out reference,
+                out unresolvedValue,
+                boundOpenRanges: false
+            )
+        )
+        {
+            value = Read(reference, context, out absent);
+            return true;
+        }
+
+        reference = null!;
+        value = default;
+        absent = false;
+        return false;
+    }
+
     public static ComputedValue Read(
         Reference reference,
         EvaluationContext context,

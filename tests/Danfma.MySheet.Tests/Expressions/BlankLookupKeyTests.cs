@@ -55,6 +55,23 @@ public class BlankLookupKeyTests
         string expected
     ) => await Assert.That(Evaluate(formula, Key.ExplicitEmpty, mixed: false)).IsEqualTo(expected);
 
+    [Test]
+    [Arguments("=XMATCH(\"\",B1:B3,-1,1)")]
+    [Arguments("=XMATCH(H10,B1:B3,-1,-1)")]
+    [Arguments("=XMATCH(\"\",B1:B3,1,2)")]
+    [Arguments("=XMATCH(H10,B1:B3,1,-2)")]
+    [Arguments("=XLOOKUP(\"\",B1:B3,C1:C3,,-1,1)")]
+    [Arguments("=XLOOKUP(H10,B1:B3,C1:C3,,-1,-1)")]
+    [Arguments("=XLOOKUP(\"\",B1:B3,C1:C3,,1,2)")]
+    [Arguments("=XLOOKUP(H10,B1:B3,C1:C3,,1,-2)")]
+    public async Task ApproximateModernLookup_EmptyTextWithoutTextCandidate_IsNotAvailable(
+        string formula
+    ) =>
+        // Aspose 26.7.0 PLAIN/CSE are #N/A; before the fix mode -1 returned position 3/result 4.
+        await Assert
+            .That(EvaluateExactEmptyText(formula, false, horizontal: false))
+            .IsEqualTo("#N/A");
+
     // Aspose 26.7.0 PLAIN/CSE: LOOKUP's old zero/position-2 results become #N/A without exact text and
     // select the last exact-text candidate with it (empty text in two-argument form, result 4 in three).
     [Test]
@@ -273,6 +290,31 @@ public class BlankLookupKeyTests
 
         await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo(expected);
         await Assert.That(draws).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("D1:D2", "#VALUE!")]
+    [Arguments("D:D", "#VALUE!")]
+    [Arguments("(D1,D2)", "#VALUE!")]
+    [Arguments("OFFSET(D1,0,0,2,1)", "4")]
+    [Arguments("INDEX(D1:E2,0,1)", "4")]
+    [Arguments("LET(r,D1:D2,r)", "4")]
+    [Arguments("KeyRange", "4")]
+    public async Task MultiCellLookupKey_UsesOneRuleAcrossReferenceKinds(
+        string key,
+        string expected
+    )
+    {
+        var workbook = CreateWorkbook(Key.FormulaEmpty, mixed: true);
+        var main = workbook.Sheets["Main"];
+        main["D1"] = new NumberValue(5);
+        main["D2"] = new NumberValue(0);
+        workbook.DefineName("KeyRange", "Main!D1:D2");
+        main["AZ5000"] = ExpressionParser.Parse($"=MATCH({key},B1:B4,1)", main);
+
+        // Item 75 lifting remains deferred. Aspose 26.7.0 CSE is 4 for every row; the direct-reference
+        // rows intentionally retain their pre-Phase-5b #VALUE! boundary while derived references retain 4.
+        await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo(expected);
     }
 
     [Test]

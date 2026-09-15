@@ -112,13 +112,12 @@ public class LiftedLookupArraySlotTests
         await Assert.That(On("=MATCH(30,Tabela1[Valor]*1,0)")).IsEqualTo("#VALUE!");
     }
 
-    // LOOKUP's vector-form array slot: branch #VALUE!, main #N/A, oracle 0 / 0 — BOTH oracle columns agree
-    // (unlike the MATCH rows above), so this row is the sharpest illustration that #VALUE! is neither
-    // oracle answer, only PLAIN's for the others.
+    // LOOKUP's vector-form array slot now materializes the full computed vector. The old #VALUE! collapse
+    // becomes 5, matching the vector's last value <= 5; Aspose PLAIN/CSE also consume this route as a vector.
     [Test]
-    public async Task ALiftedComputedArray_InTheLookupVectorSlot_PropagatesTheCollapseArtifact()
+    public async Task ALiftedComputedArray_InTheLookupVectorSlot_IsMaterialized()
     {
-        await Assert.That(On("=LOOKUP(5,A1:A3*1)")).IsEqualTo("#VALUE!");
+        await Assert.That(On("=LOOKUP(5,A1:A3*1)")).IsEqualTo("5");
     }
 
     // VLOOKUP/HLOOKUP now consume the lifted table through the same TryStream route as every array-valued
