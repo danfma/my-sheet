@@ -7,7 +7,7 @@ namespace Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 public static class OpenRangeLookupHarness
 {
     private const int DataCells = 100_000;
-    private const int FormulaCells = 200;
+    private const int FormulaCells = 1_000;
 
     public static void Run()
     {
