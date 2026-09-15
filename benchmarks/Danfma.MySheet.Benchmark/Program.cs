@@ -61,7 +61,8 @@ if (args.Contains("--open-range-match"))
     return;
 }
 
-// Uncached formula-cell gate for open-range lookup paths: `dotnet run -c Release -- --open-range-lookup`.
+// VLOOKUP/HLOOKUP exact/approximate closed/open gates over 100k cells and 200 distinct uncached formulas,
+// plus XLOOKUP/MATCH/XMATCH open-range controls: `dotnet run -c Release -- --open-range-lookup`.
 if (args.Contains("--open-range-lookup"))
 {
     OpenRangeLookupHarness.Run();

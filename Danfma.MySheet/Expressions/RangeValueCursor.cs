@@ -148,11 +148,6 @@ internal struct RangeValueCursor
             argument = selectedReference;
         }
 
-        if (ArrayEvaluation.TryStream(argument, context, out var array))
-        {
-            return new RangeValueCursor(Stream(array));
-        }
-
         switch (argument)
         {
             case RangeReference rectangle:
@@ -167,6 +162,11 @@ internal struct RangeValueCursor
                 return new RangeValueCursor(union.ExpandComputedValues(context).GetEnumerator());
 
             default:
+                if (ArrayEvaluation.TryStream(argument, context, out var array))
+                {
+                    return new RangeValueCursor(Stream(array));
+                }
+
                 // Sweep item 34(a), mirroring PositionalRange.Open's fallback arm: an argument whose OWN
                 // value is an error (PositionalRange.IsOwnSlotError carries the guard — a cell reference
                 // to an error cell is content, not the argument's error) is carried on

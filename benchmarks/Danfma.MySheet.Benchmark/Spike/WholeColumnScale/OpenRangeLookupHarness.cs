@@ -6,56 +6,112 @@ namespace Danfma.MySheet.Benchmark.Spike.WholeColumnScale;
 
 public static class OpenRangeLookupHarness
 {
-    private const int DataCells = 500_000;
-    private const int FormulaCells = 1_000;
+    private const int DataCells = 100_000;
+    private const int FormulaCells = 200;
 
     public static void Run()
     {
-        foreach (var hasGaps in new[] { false, true })
-        {
-            var workbook = new Workbook();
-            var sheet = workbook.Sheets.Add("Sheet1");
-            for (var row = 1; row <= DataCells; row++)
-            {
-                if (hasGaps && row % 7 == 0)
-                {
-                    continue;
-                }
+        MeasureVertical("VLOOKUP exact closed", "Data!A1:B100000", approximate: false);
+        MeasureVertical("VLOOKUP approximate closed", "Data!A1:B100000", approximate: true);
+        MeasureVertical("VLOOKUP exact open", "Data!A:B", approximate: false);
+        MeasureVertical("VLOOKUP approximate open", "Data!A:B", approximate: true);
+        MeasureHorizontal("HLOOKUP exact closed", "Data!A1:CVW2", approximate: false);
+        MeasureHorizontal("HLOOKUP approximate closed", "Data!A1:CVW2", approximate: true);
+        MeasureHorizontal("HLOOKUP exact open", "Data!1:2", approximate: false);
+        MeasureHorizontal("HLOOKUP approximate open", "Data!1:2", approximate: true);
 
-                sheet[$"A{row}"] = new NumberValue(row);
-                sheet[$"B{row}"] = new NumberValue(row * 10);
-                sheet[$"C{row}"] = new NumberValue(row * 100);
-            }
-
-            Console.WriteLine(hasGaps ? "blank every 7th row" : "gap-free column");
-            Measure(workbook, sheet, "XLOOKUP(499999,A:A,B:B)", "Z");
-            Measure(workbook, sheet, "COUNTIF(XLOOKUP(499999,A:A,B:C),\">0\")", "Y");
-            Measure(workbook, sheet, "SUM(XLOOKUP(499999,A:A,B:C))", "X");
-            Measure(workbook, sheet, "MATCH(499999,A:A,0)", "W");
-            Measure(workbook, sheet, "XMATCH(499999,A:A)", "V");
-        }
+        // Retain the existing open-range cache gates beside the table-lookup scenarios.
+        var workbook = BuildVerticalWorkbook();
+        var sheet = workbook["Formulas"];
+        Measure(workbook, sheet, "XLOOKUP", "=XLOOKUP(99999,Data!A:A,Data!B:B)", "B");
+        Measure(workbook, sheet, "MATCH", "=MATCH(99999,Data!A:A,0)", "C");
+        Measure(workbook, sheet, "XMATCH", "=XMATCH(99999,Data!A:A)", "D");
     }
 
-    private static void Measure(Workbook workbook, Sheet sheet, string expression, string column)
+    private static void MeasureVertical(string name, string table, bool approximate)
     {
-        var formula = $"={expression}";
-        sheet[$"{column}1"] = ExpressionParser.Parse(formula, sheet);
-        _ = workbook.GetCellValue("Sheet1", $"{column}1");
+        var workbook = BuildVerticalWorkbook();
+        Measure(
+            workbook,
+            workbook["Formulas"],
+            name,
+            $"=VLOOKUP(99999,{table},2,{(approximate ? "TRUE" : "FALSE")})",
+            "A"
+        );
+    }
 
-        for (var index = 0; index < FormulaCells; index++)
+    private static Workbook BuildVerticalWorkbook()
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        workbook.Sheets.Add("Formulas");
+        for (var row = 1; row <= DataCells; row++)
         {
-            sheet[$"{column}{index + 10}"] = ExpressionParser.Parse(formula, sheet);
+            data[$"A{row}"] = new NumberValue(row);
+            data[$"B{row}"] = new NumberValue(row * 2);
+        }
+
+        return workbook;
+    }
+
+    private static void MeasureHorizontal(string name, string table, bool approximate)
+    {
+        var workbook = new Workbook();
+        var data = workbook.Sheets.Add("Data");
+        var formulas = workbook.Sheets.Add("Formulas");
+        for (var column = 1; column <= DataCells; column++)
+        {
+            var id = ColumnId(column);
+            data[$"{id}1"] = new NumberValue(column);
+            data[$"{id}2"] = new NumberValue(column * 2);
+        }
+
+        Measure(
+            workbook,
+            formulas,
+            name,
+            $"=HLOOKUP(99999,{table},2,{(approximate ? "TRUE" : "FALSE")})",
+            "A"
+        );
+    }
+
+    private static void Measure(
+        Workbook workbook,
+        Sheet sheet,
+        string name,
+        string formula,
+        string formulaColumn
+    )
+    {
+        for (var index = 1; index <= FormulaCells; index++)
+        {
+            sheet[$"{formulaColumn}{index}"] = ExpressionParser.Parse(formula, sheet);
         }
 
         var stopwatch = Stopwatch.StartNew();
-        for (var index = 0; index < FormulaCells; index++)
+        for (var index = 1; index <= FormulaCells; index++)
         {
-            _ = workbook.GetCellValue("Sheet1", $"{column}{index + 10}");
+            _ = workbook.GetCellValue(sheet.Name, $"{formulaColumn}{index}");
         }
         stopwatch.Stop();
 
         Console.WriteLine(
-            $"{expression, -44} {stopwatch.Elapsed.TotalMilliseconds / FormulaCells, 12:F6} ms/evaluation"
+            $"{name}\t{stopwatch.Elapsed.TotalMilliseconds / FormulaCells:F6}\t"
+                + $"{DataCells} cells\t{FormulaCells} distinct formulas"
         );
+    }
+
+    private static string ColumnId(int column)
+    {
+        Span<char> buffer = stackalloc char[8];
+        var index = buffer.Length;
+        while (column > 0)
+        {
+            column--;
+            buffer[--index] = (char)('A' + (column % 26));
+            column /= 26;
+        }
+
+        return new string(buffer[index..]);
     }
 }
