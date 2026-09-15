@@ -101,49 +101,79 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
     private ComputedValue EvaluateAreaForm(EvaluationContext context)
     {
+        if (!TrySelectArea(context, out var reference, out var error))
+        {
+            return error;
+        }
+
+        return IndexIntoSelectedReference(reference, context);
+    }
+
+    private bool TrySelectArea(
+        EvaluationContext context,
+        out Reference reference,
+        out ComputedValue error
+    )
+    {
+        reference = null!;
+        error = default;
+
         if (Arguments[3].Evaluate(context).CoerceToNumber(out var areaValue) is { } areaError)
         {
-            return ComputedValue.Error(areaError);
+            error = ComputedValue.Error(areaError);
+            return false;
         }
 
         var areaNumber = (int)areaValue;
         if (areaNumber < 1)
         {
-            return ComputedValue.Error(Error.Value);
+            error = ComputedValue.Error(Error.Value);
+            return false;
         }
 
         if (
             !NamedReferences.TryResolveReference(
                 Arguments[0],
                 context,
-                out var reference,
+                out var resolved,
                 boundOpenRanges: false
             )
         )
         {
-            return ReferencePosition.TryUnresolvedError(Arguments[0], context, out var unresolved)
+            error = ReferencePosition.TryUnresolvedError(Arguments[0], context, out var unresolved)
                 ? unresolved
                 : ComputedValue.Error(Error.Value);
+            return false;
         }
+
+        reference = resolved!;
 
         if (reference is UnionReference union)
         {
             if (areaNumber > union.Areas.Length)
             {
-                return ComputedValue.Error(Error.Ref);
+                error = ComputedValue.Error(Error.Ref);
+                return false;
             }
 
-            if (!TryResolveArea(union.Areas[areaNumber - 1], context, out reference, out var error))
+            if (!TryResolveArea(union.Areas[areaNumber - 1], context, out reference, out error))
             {
-                return error;
+                return false;
             }
         }
         else if (areaNumber != 1)
         {
-            return ComputedValue.Error(Error.Ref);
+            error = ComputedValue.Error(Error.Ref);
+            return false;
         }
 
-        return IndexIntoSelectedReference(reference, context);
+        if (ReferenceGuard.MissingSheet(reference, context) is { } missing)
+        {
+            error = ComputedValue.Error(missing);
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryResolveArea(
@@ -606,41 +636,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (Arguments.Length == 4)
         {
-            if (Arguments[3].Evaluate(context).CoerceToNumber(out var areaValue) is not null)
-            {
-                return false;
-            }
-
-            var areaNumber = (int)areaValue;
-            if (
-                areaNumber < 1
-                || !NamedReferences.TryResolveReference(
-                    Arguments[0],
-                    context,
-                    out var areaReference,
-                    boundOpenRanges: false
-                )
-            )
-            {
-                return false;
-            }
-
-            if (areaReference is UnionReference union)
-            {
-                if (
-                    areaNumber > union.Areas.Length
-                    || !TryResolveArea(
-                        union.Areas[areaNumber - 1],
-                        context,
-                        out areaReference,
-                        out _
-                    )
-                )
-                {
-                    return false;
-                }
-            }
-            else if (areaNumber != 1)
+            if (!TrySelectArea(context, out var areaReference, out _))
             {
                 return false;
             }
