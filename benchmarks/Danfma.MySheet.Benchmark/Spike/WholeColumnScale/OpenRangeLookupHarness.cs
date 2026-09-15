@@ -44,12 +44,16 @@ public static class OpenRangeLookupHarness
         {
             data[$"A{row}"] = new NumberValue(row);
             data[$"B{row}"] = new NumberValue(row * 2);
+            data[$"C{row}"] = new StringValue($"k{row:D6}");
+            data[$"D{row}"] = new NumberValue(row * 3);
         }
 
         Measure(vertical, formulas, "VLOOKUP(99999,Data!A1:B100000,2,FALSE)", "Z");
         Measure(vertical, formulas, "VLOOKUP(99999,Data!A1:B100000,2,TRUE)", "Y");
         Measure(vertical, formulas, "VLOOKUP(99999,Data!A:B,2,FALSE)", "X");
         Measure(vertical, formulas, "VLOOKUP(99999,Data!A:B,2,TRUE)", "W");
+        Measure(vertical, formulas, "VLOOKUP(\"k099999\",Data!C:D,2,FALSE)", "V");
+        Measure(vertical, formulas, "VLOOKUP(\"k09999*\",Data!C:D,2,FALSE)", "U");
 
         var horizontal = new Workbook();
         var hFormulas = horizontal.Sheets.Add("Sheet1");
@@ -59,12 +63,16 @@ public static class OpenRangeLookupHarness
             var id = ColumnId(column);
             hData[$"{id}1"] = new NumberValue(column);
             hData[$"{id}2"] = new NumberValue(column * 2);
+            hData[$"{id}3"] = new StringValue($"k{column:D6}");
+            hData[$"{id}4"] = new NumberValue(column * 3);
         }
 
         Measure(horizontal, hFormulas, "HLOOKUP(99999,Data!A1:EQXD2,2,FALSE)", "Z");
         Measure(horizontal, hFormulas, "HLOOKUP(99999,Data!A1:EQXD2,2,TRUE)", "Y");
         Measure(horizontal, hFormulas, "HLOOKUP(99999,Data!1:2,2,FALSE)", "X");
         Measure(horizontal, hFormulas, "HLOOKUP(99999,Data!1:2,2,TRUE)", "W");
+        Measure(horizontal, hFormulas, "HLOOKUP(\"k099999\",Data!3:4,2,FALSE)", "V");
+        Measure(horizontal, hFormulas, "HLOOKUP(\"k09999*\",Data!3:4,2,FALSE)", "U");
     }
 
     private static void Measure(Workbook workbook, Sheet sheet, string expression, string column)

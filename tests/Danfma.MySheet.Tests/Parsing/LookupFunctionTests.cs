@@ -151,6 +151,25 @@ public class LookupFunctionTests
     }
 
     [Test]
+    public async Task LookupWildcards_UseExcelTildeEscapes()
+    {
+        // Fixture A1:A4 = "a*", "ab", "a?", "a~". Aspose.Cells 26.7.0 PLAIN/CSE: MATCH and
+        // XMATCH both return 1. Before this fix MATCH returned #N/A and XMATCH returned 4.
+        var cells = new (string, object)[]
+        {
+            ("A1", "a*"),
+            ("A2", "ab"),
+            ("A3", "a?"),
+            ("A4", "a~"),
+        };
+        await Assert.That(CalcMixed("=MATCH(\"a~*\",A1:A4,0)", cells) as double?).IsEqualTo(1.0);
+        await Assert.That(CalcMixed("=XMATCH(\"a~*\",A1:A4,2)", cells) as double?).IsEqualTo(1.0);
+
+        // SEARCH already had the same measured answer; pin the agreeing consumer beside the lookup rows.
+        await Assert.That(CalcMixed("=SEARCH(\"~*\",\"a*b\")") as double?).IsEqualTo(2.0);
+    }
+
+    [Test]
     public async Task Match_ApproximateAscending()
     {
         // Largest value <= 25 is 20, at position 2.

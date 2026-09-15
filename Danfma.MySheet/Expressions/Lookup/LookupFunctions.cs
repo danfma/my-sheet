@@ -227,9 +227,10 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
 
             if (matchColumn < 1)
             {
+                var matches = LookupMatching.TableExactMatcher(lookup);
                 for (var column = 1; column <= grid.Columns; column++)
                 {
-                    if (LookupMatching.IsTableExactMatch(lookup, grid.At(1, column)))
+                    if (matches.Matches(grid.At(1, column)))
                     {
                         matchColumn = column;
                         break;

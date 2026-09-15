@@ -120,9 +120,10 @@ public sealed partial record VLookup(Expression[] Arguments) : Function
 
             if (matchRow < 1)
             {
+                var matches = LookupMatching.TableExactMatcher(lookup);
                 for (var row = 1; row <= grid.Rows; row++)
                 {
-                    if (LookupMatching.IsTableExactMatch(lookup, grid.At(row, 1)))
+                    if (matches.Matches(grid.At(row, 1)))
                     {
                         matchRow = row;
                         break;

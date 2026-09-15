@@ -82,6 +82,37 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         if (matchType == 0)
         {
+            if (LookupMatching.UsesWildcards(lookup))
+            {
+                var wildcardCursor = RangeValueCursor.Open(
+                    arrayReference ?? Arguments[1],
+                    context,
+                    snapshot
+                );
+                var wildcardValues = new List<ComputedValue>();
+                while (wildcardCursor.MoveNext(out var value))
+                {
+                    wildcardValues.Add(value);
+                }
+
+                var wildcardPosition = LookupMatching.FindMatch(
+                    lookup,
+                    wildcardValues,
+                    wildcardValues.Count,
+                    matchMode: 2,
+                    reverse: false
+                );
+                if (wildcardPosition < 0)
+                {
+                    return ComputedValue.Error(Error.NA);
+                }
+
+                var oneBasedPosition = wildcardPosition + 1;
+                return ComputedValue.Number(
+                    snapshot?.SourcePosition(oneBasedPosition) ?? oneBasedPosition
+                );
+            }
+
             // Exact (type 0) → O(1) via the value→first-position hash; a blank-equivalent lookup (0/""/FALSE)
             // is the one case the hash cannot answer (Excel's intransitive blank rule) → linear fallback.
             if (snapshot is not null)

@@ -85,6 +85,21 @@ public class ConditionalAggregationTests
     }
 
     [Test]
+    public async Task Criteria_TildeEscapesWildcardCharacters()
+    {
+        // Fixture A1:A4 = "a*", "ab", "a?", "a~". Aspose.Cells 26.7.0 PLAIN/CSE agrees on
+        // every value. Before the shared translator fix, a~? and a~~ were 0; all other rows were
+        // already the values pinned here.
+        var cells = new[] { T("A1", "a*"), T("A2", "ab"), T("A3", "a?"), T("A4", "a~") };
+        await Assert.That(Calc("=COUNTIF(A1:A4,\"a~*\")", cells) as double?).IsEqualTo(1.0);
+        await Assert.That(Calc("=COUNTIF(A1:A4,\"a~?\")", cells) as double?).IsEqualTo(1.0);
+        await Assert.That(Calc("=COUNTIF(A1:A4,\"a~~\")", cells) as double?).IsEqualTo(1.0);
+        await Assert.That(Calc("=COUNTIF(A1:A4,\"a~\")", cells) as double?).IsEqualTo(1.0);
+        await Assert.That(Calc("=SUMIF(A1:A4,\"a~*\")", cells) as double?).IsEqualTo(0.0);
+        await Assert.That(Calc("=COUNTIFS(A1:A4,\"a~*\")", cells) as double?).IsEqualTo(1.0);
+    }
+
+    [Test]
     public async Task SumIf_WithAndWithoutSumRange()
     {
         await Assert
