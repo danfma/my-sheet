@@ -164,12 +164,24 @@ internal static class ReferencePosition
     public static bool TryUnresolvedError(
         Expression argument,
         EvaluationContext context,
-        out ComputedValue error
+        out ComputedValue error,
+        bool preserveComputedArray = false
     )
     {
         error = ComputedValue.Blank;
 
         if (NamedReferences.TryResolveReference(argument, context, out _, boundOpenRanges: false))
+        {
+            return false;
+        }
+
+        // A computed array's scalar error is only its collapse artifact. Its consumer must build the array
+        // once and decide how to handle individual errors; evaluating here would also draw volatiles twice.
+        if (
+            preserveComputedArray
+            && argument is not TableReference
+            && ArrayEvaluation.IsArrayEligible(argument, context)
+        )
         {
             return false;
         }

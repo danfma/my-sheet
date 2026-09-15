@@ -321,24 +321,16 @@ public sealed partial record Lookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missingVector);
         }
 
-        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
+        if (
+            ReferencePosition.TryUnresolvedError(
+                Arguments[1],
+                context,
+                out var unresolved,
+                preserveComputedArray: true
+            )
+        )
         {
-            if (!ArrayEvaluation.IsArrayEligible(Arguments[1], context))
-            {
-                return unresolved;
-            }
-
-            var computedVector = ArgumentFlattening.MaterializeVector(Arguments[1], context);
-            if (computedVector.Count == 1 && computedVector[0].TryGetError(out var computedError))
-            {
-                return ComputedValue.Error(computedError);
-            }
-
-            var computedResults =
-                Arguments.Length == 3
-                    ? ArgumentFlattening.MaterializeVector(Arguments[2], context)
-                    : computedVector;
-            return Find(lookup, computedVector, computedResults);
+            return unresolved;
         }
 
         var lookupVector = ArgumentFlattening.MaterializeVector(Arguments[1], context);

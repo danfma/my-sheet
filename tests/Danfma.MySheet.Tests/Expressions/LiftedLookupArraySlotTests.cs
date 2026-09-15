@@ -120,6 +120,59 @@ public class LiftedLookupArraySlotTests
         await Assert.That(On("=LOOKUP(5,A1:A3*1)")).IsEqualTo("5");
     }
 
+    [Test]
+    [Arguments("=LOOKUP(2,{1,2,3}*TICK()^0)", "2")]
+    [Arguments("=LOOKUP(2,{1,2,3}*TICK()^0,{10,20,30})", "20")]
+    [Arguments("=LOOKUP(2,{1,2,3},{10,20,30}*TICK()^0)", "20")]
+    [Arguments("=LOOKUP(2,B1:B4,{10,20,30,40}*TICK()^0)", "20")]
+    [Arguments("=LOOKUP(2,B1:B4*TICK()^0,C1:C4)", "20")]
+    [Arguments("=LOOKUP(2,B1:B4,C1:C4*TICK()^0)", "20")]
+    [Arguments("=LOOKUP(TICK()*0+2,B1:B4,C1:C4)", "20")]
+    public async Task Lookup_MaterializesEachVolatileVectorOnce(string formula, string expected)
+    {
+        var draws = 0;
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        for (var row = 1; row <= 4; row++)
+        {
+            main[$"B{row}"] = new NumberValue(row);
+            main[$"C{row}"] = new NumberValue(row * 10);
+        }
+
+        workbook.RegisterFunction("TICK", (_, _) => ++draws);
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        await Assert.That(OnCell(workbook)).IsEqualTo(expected);
+        await Assert.That(draws).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("=LOOKUP(1,{1,2}/0)", "#N/A")]
+    [Arguments("=LOOKUP(2,1/(B1:B4=2),C1:C4)", "20")]
+    [Arguments("=LOOKUP(2,{1,2}/{1,0},{10,20})", "10")]
+    [Arguments("=LOOKUP(3,{1,#N/A,3},{10,20,30})", "30")]
+    [Arguments("=LOOKUP(1,{1,2}/0,{10,20})", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4/(B1:B4<>3),C1:C4)", "20")]
+    public async Task Lookup_SkipsErrorElementsInAComputedLookupVector(
+        string formula,
+        string expected
+    )
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        for (var row = 1; row <= 4; row++)
+        {
+            main[$"B{row}"] = new NumberValue(row);
+            main[$"C{row}"] = new NumberValue(row * 10);
+        }
+
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE agree on every expected value above. Before computed-vector
+        // materialization, rows 1/2/4/5/6 were #DIV/0!, #VALUE!, 10, #DIV/0!, #VALUE!, respectively.
+        await Assert.That(OnCell(workbook)).IsEqualTo(expected);
+    }
+
     // VLOOKUP/HLOOKUP now consume the lifted table through the same TryStream route as every array-valued
     // table, following the oracle CSE values. Before that shared route they returned #VALUE!; OFFSET keeps
     // its existing scalar-collapse behavior and is not part of the lookup-table change.
@@ -144,5 +197,18 @@ public class LiftedLookupArraySlotTests
     public async Task TheSameLiftedComputation_ThroughALetBinding_FindsThePosition_TheRecordedInconsistency()
     {
         await Assert.That(On("=MATCH(5,LET(x,A1:A3*1,x),0)")).IsEqualTo("1");
+    }
+
+    private static string OnCell(Workbook workbook)
+    {
+        var value = workbook.GetCellValue("Main", "AZ5000");
+        if (value.TryGetError(out var error))
+        {
+            return error.ToString();
+        }
+
+        return value.TryGetNumber(out var number)
+            ? number.ToString(CultureInfo.InvariantCulture)
+            : value.AsString() ?? value.Kind.ToString();
     }
 }
