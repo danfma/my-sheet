@@ -276,21 +276,12 @@ internal struct PositionalRange
             argument,
             context,
             out var selectedReference,
-            out var unresolvedValue
+            out _
         );
         if (referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Resolved)
         {
             argument = selectedReference;
         }
-        else if (
-            referenceReturningNode == NamedReferences.ReferenceReturningNodeResolution.Unresolved
-        )
-        {
-            return new PositionalRange(
-                unresolvedValue.TryGetError(out var error) ? error : Error.Ref
-            );
-        }
-
         if (snapshot is not null)
         {
             // The snapshot hands its values over as a FLAT list, but the SHAPE still has to travel with them:
@@ -562,10 +553,15 @@ internal struct PositionalRange
     ) =>
         argument switch
         {
-            Logical.If or Logical.Let or Lookup.Choose => ClassifySelectedRoute(
+            Logical.Let => ClassifySelectedRoute(
                 argument,
                 resolvesAsReference,
                 new Dictionary<string, SelectorRoute>(StringComparer.OrdinalIgnoreCase)
+            ),
+            Logical.If or Lookup.Choose => ClassifySelectedRoute(
+                argument,
+                resolvesAsReference,
+                null
             ),
             Reference or NameReference => SelectorRoute.NotASelector,
             _ when resolvesAsReference => SelectorRoute.Structural,
@@ -575,7 +571,7 @@ internal struct PositionalRange
     private static SelectorRoute ClassifySelectedRoute(
         Expression argument,
         bool resolvesAsReference,
-        Dictionary<string, SelectorRoute> bindings
+        Dictionary<string, SelectorRoute>? bindings
     )
     {
         if (argument is Logical.Let let)
@@ -585,7 +581,9 @@ internal struct PositionalRange
                 return SelectorRoute.NotASelector;
             }
 
-            var nestedBindings = new Dictionary<string, SelectorRoute>(bindings, bindings.Comparer);
+            var nestedBindings = bindings is null
+                ? new Dictionary<string, SelectorRoute>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, SelectorRoute>(bindings, bindings.Comparer);
             for (var i = 0; i < let.Arguments.Length - 1; i += 2)
             {
                 if (let.Arguments[i] is not NameReference name)
@@ -615,6 +613,7 @@ internal struct PositionalRange
 
         if (
             argument is NameReference nameReference
+            && bindings is not null
             && bindings.TryGetValue(nameReference.Name, out var boundRoute)
         )
         {
