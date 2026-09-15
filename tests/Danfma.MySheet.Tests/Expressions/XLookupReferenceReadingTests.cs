@@ -75,6 +75,15 @@ public class XLookupReferenceReadingTests
         string expected
     ) => await Assert.That(Evaluate(formula)).IsEqualTo(expected);
 
+    // RangeValueCursor's direct MATCH path retains a selected XLOOKUP row as a reference. Aspose.Cells
+    // 26.7.0 PLAIN/CSE agree: the selected B2:C2 row makes 200 the second lookup-array item.
+    [Test]
+    [Arguments("=MATCH(200,XLOOKUP(2,A1:A3,B1:C3),0)", "2")]
+    [Arguments("=MATCH(20,XLOOKUP(9,A1:A3,B1:C3,0),0)", "#N/A")]
+    [Arguments("=MATCH(20,XLOOKUP(9,A1:A3,B1:C3,\"nf\"),0)", "#N/A")]
+    public async Task Match_UsesTheDirectXLookupCursorPath(string formula, string expected) =>
+        await Assert.That(Evaluate(formula)).IsEqualTo(expected);
+
     [Test]
     [Arguments("=COUNTIF(LET(r,XLOOKUP(2,A1:A3,B1:C3),r),\">0\")", "#REF!")]
     [Arguments("=COUNTIF(LET(r,XLOOKUP(2,A1:A3,B1:C3),s,r,s),\">0\")", "#REF!")]

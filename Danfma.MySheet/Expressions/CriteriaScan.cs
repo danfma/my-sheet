@@ -415,7 +415,6 @@ internal struct PositionalRange
                 argument,
                 context,
                 out var selected,
-                out _,
                 out var selectionError,
                 validateSelectedMissingSheet
             )
@@ -449,7 +448,6 @@ internal struct PositionalRange
         Expression argument,
         EvaluationContext context,
         out Expression selected,
-        out SelectorRoute route,
         out Error? error,
         bool validateMissingSheet = false
     )
@@ -466,7 +464,6 @@ internal struct PositionalRange
                 or NamedReferences.ReferenceReturningNodeResolution.Unresolved
         )
         {
-            route = SelectorRoute.Structural;
             if (
                 referenceReturningNode
                 == NamedReferences.ReferenceReturningNodeResolution.Unresolved
@@ -500,7 +497,7 @@ internal struct PositionalRange
             context,
             out resolvedReference
         );
-        route = ClassifySelectorRoute(argument, resolvesAsReference);
+        var route = ClassifySelectorRoute(argument, resolvesAsReference);
         if (route != SelectorRoute.NotASelector && resolvedReference is not null)
         {
             if (
