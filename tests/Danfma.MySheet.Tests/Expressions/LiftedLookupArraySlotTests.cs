@@ -129,6 +129,10 @@ public class LiftedLookupArraySlotTests
     [Arguments("=LOOKUP(2,B1:B4,C1:C4*TICK()^0)", "20")]
     [Arguments("=LOOKUP(TICK()*0+2,B1:B4,C1:C4)", "20")]
     [Arguments("=LOOKUP(2,IF(TICK()>0,NoSuch,B1:B4))", "#NAME?")]
+    [Arguments("=LOOKUP(2,CHOOSE(TICK()*0+1,B1:B4,C1:C4))", "2")]
+    [Arguments("=LOOKUP(2,B1:B4,CHOOSE(TICK()*0+1,C1:C4,B1:B4))", "20")]
+    [Arguments("=LOOKUP(2,IF(TICK()>0,B1:B4,NoSuch))", "2")]
+    [Arguments("=LOOKUP(2,B1:B4,IF(TICK()>0,C1:C4,NoSuch))", "20")]
     public async Task Lookup_MaterializesEachVolatileVectorOnce(string formula, string expected)
     {
         var draws = 0;
@@ -196,6 +200,13 @@ public class LiftedLookupArraySlotTests
     [Test]
     [Arguments("=LOOKUP(2,B1:B4,IF(TRUE,NoSuch,C1:C4))", "#N/A")]
     [Arguments("=LOOKUP(2,B1:B4,NoSheet!C1:C4*1)", "#REF!")]
+    [Arguments("=LOOKUP(2,B1:B4,NoSuch)", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4,1/0)", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4,{10,20,30,40}/0)", "#DIV/0!")]
+    [Arguments("=LOOKUP(2,B1:B4,NoSuch*1)", "#N/A")]
+    [Arguments("=LOOKUP(1,B1:B4,IF(TRUE,NoSheet!C1:C4,C1:C4))", "#REF!")]
+    [Arguments("=LOOKUP(2,B1:B4,IF(TRUE,NoSuch,C1:C4))", "#N/A")]
+    [Arguments("=LOOKUP(1,{1},NoSuch)", "#NAME?")]
     public async Task Lookup_ResultVectorPreservesItsMeasuredErrorSemantics(
         string formula,
         string expected
