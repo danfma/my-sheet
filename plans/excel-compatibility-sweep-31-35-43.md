@@ -209,14 +209,14 @@ Status: Complete (stopped by user decision 2026-09-14; the remaining coverage is
 - The user stopped the audit on 2026-09-14 to save tokens. Still open: about 127 of the 130 probe files in two old scratchpads, which were never re-run. That gap is registered in `.superpowers/sdd/pending-verifications.md`.
 
 ## Phase 6: Docs, sweep file, lessons, final review, merge
-Status: In progress. Merged locally into `main` at `5b51ffc` on 2026-09-14 (gates on `main`: csharpier clean, Release 0 warnings, core 3352/0, Excel 137/0, union 328; NOT pushed). What remains: the Fable 5.1 gate and its fix wave on 2026-09-15, then the user's push.
+Status: Complete. The Fable 5.1 gate and its fix wave are merged into `main` at `40a3f8f` (2026-09-15). Not pushed; the user owns the push.
 
 - [x] Docs twins, sentence-level parity for every behaviour changed (each phase review checked this). One oracle-version note per doc twin records the 26.7.0 migration and the zero-difference audit. The per-sentence 26.6.0 citations stay, because not every sentence was re-measured (terra `docs-oracle-note-brief.md`).
 - [ ] Sweep file: items 31 and 35-43 marked CLOSED-BY with hashes; the Phase 5 audit items added.
 - [x] Lessons appended to `tasks/lessons.md`: 15 from this sweep, plus the model-routing correction.
 - [x] Final divergence-probe run, branch vs `main`, recorded in the ledger. On Aspose 26.7.0, 141 rows: 48 changed, 46 toward CSE and 0 away; the other 2 throw everywhere. Every remaining non-CSE row is registered or ruled. The whole-branch quality review is the Fable gate on 2026-09-15.
 - [x] Rebase onto `main`, gates on `main`, local ff-only merge (`main` `b8d9968` → `5b51ffc`, via the integration branch `feat/sweep-31-integrate`). No push; the user owns the release.
-- [ ] **Final Fable 5.1 code-quality verification (user requirement, 2026-09-14):**
+- [x] **Final Fable 5.1 code-quality verification (user requirement, 2026-09-14):** done 2026-09-15; see the Phase Summary.
   - When: after EVERY branch of this correction effort is merged into `main` (sweep 32-34 is already merged; this branch, and any follow-up correction branch from the `~/MYSHEET-CALC-DIVERGENCES.md` list), and BEFORE any push.
   - Scope: the whole delta `98b330b..main`.
   - A Claude Fable 5.1 reviewer judges code quality: design, duplication, correctness risks, test quality, docs.
@@ -229,28 +229,42 @@ Status: In progress. Merged locally into `main` at `5b51ffc` on 2026-09-14 (gate
 - The divergence probe shows no DIFF row in the acceptance groups.
 
 ### Phase Summary
-_(finish after the Fable gate)_ So far:
-- **Integration order.**
-  - Phases 1 and 2, including the Phase 2 adversarial fixes, integrated first.
-  - Phase 4 went in next (`71abb67`).
-  - Phase 3 went in last (`07b43d0`). Its `Offset.cs` production conflict was resolved in Phase 4's favour.
-- **Integration fix rounds r1-r3** (`0edca24`..`3f066ae`, user-approved extra rounds) closed three things:
-  - the single-cell INDEX negative index;
-  - XLOOKUP `if_not_found` in reference slots;
-  - one resolve-then-read helper, a LET-bound XLOOKUP as a value array, and the removal of unobservable branches.
-- **Docs.** One oracle-version note per docs twin (`5b51ffc`).
-- **Final probe vs `main`.** 46 rows moved toward CSE and 0 away.
-- **Known leftover for the Fable fix wave.** A dead unresolved-XLOOKUP arm in `PositionalRange.Open` (`.superpowers/sdd/pending-verifications.md`).
-
-**Resume on 2026-09-15:**
-1. Confirm `git log origin/main..main` shows the sweep and that nothing is pushed.
-2. Run the Claude Fable 5.1 review from `.superpowers/sdd/sweep-31-35-43/final-gate/fable-brief.md` over `98b330b..main`.
-3. Run a fix wave for its Critical and Important findings, plus the dead arm, and merge it into `main` with gates.
-4. Write this summary, the Final Recap and the Deployment Plan.
-5. The user pushes.
-
+- **2026-09-14 — integration and local merge.**
+  - Integration order: Phases 1 and 2 (including the adversarial fixes) first, then Phase 4 (`71abb67`), then Phase 3 (`07b43d0`; the `Offset.cs` conflict was resolved in Phase 4's favour).
+  - Integration fix rounds r1-r3 (`0edca24`..`3f066ae`), then a docs oracle note (`5b51ffc`).
+  - Final probe against the old `main`: 46 rows moved toward CSE and 0 away.
+  - Local ff merge, followed by the plans/lessons commit `e1a3270`.
+- **2026-09-15 — Fable 5.1 final gate** (`.superpowers/sdd/sweep-31-35-43/final-gate/fable.md`) over `98b330b..main`: 1 Critical, 3 Important, 8 Minor.
+  - C1: XLOOKUP was evaluated 2-9× per consumer, which gave silently wrong values under volatile arguments.
+  - I1: MATCH resolved its lookup array 3×.
+  - I2: SUMIF/COUNTIF/AVERAGEIF built the snapshot on first read.
+  - I3 (pre-existing): open-range XLOOKUP mapped the populated ordinal to a row.
+  - Minors: VLOOKUP/HLOOKUP duplication, dead code, an allocation, a docs overclaim, stale comments, style.
+  - Item 57 was measured and refuted.
+- **Fix wave.**
+  - Part A (sol): `3dd0dcf` one memo per XLOOKUP node, `489b592`, `5e4848d` open-range XLOOKUP selected by cell coordinate (oracle-measured 30/50/50/9), `41d9ca3`.
+  - Part B (terra): `9d7419d` second-use snapshot admission restored, `da5417d`, `9d324a9` shared `LookupTable`.
+  - The combined closure review was Clean.
+  - A controller benchmark over DISTINCT formula cells then showed the wave had regressed open-range XMATCH ~50,000× and XLOOKUP ~2.3×. The review's timing was a cache hit.
+  - Part C (sol): `a1b01d9` added the uncached `--open-range-lookup` benchmark mode; `40a3f8f` restored the snapshot/exact-index paths.
+  - Result vs the pre-gate `main`: XLOOKUP 8.2 → 0.18 ms, SUM/COUNTIF over XLOOKUP 16.5/8.0 → 0.003/0.14 ms, MATCH/XMATCH ≤ 0.001 ms. An independent benchmark closure review was Clean.
+- **Final `main` `40a3f8f`.** Core 3392/0, Excel 137/0, Release 0 warnings, union 328, attribution 0. The divergence probe is byte-identical to `e1a3270`.
 ## Final Recap
-_(write when all phases complete)_
+Sweep 31/35-43 closed sweep items 31 and 35-43, migrated the Excel oracle to Aspose.Cells 26.7.0, and passed a whole-range code-quality gate.
+- **Oracle.** Phase 0 measured 115 rows and the Phase 5 audit about 1,870 formulas, with 0 differences between 26.6.0 and 26.7.0.
+- **Fixes by item.**
+  - Item 43 (Phase 1): error literals in formula text.
+  - Item 37 (Phase 2): zero-axis INDEX, absolute open-range coordinates, INDEX/OFFSET lifting.
+  - Items 38/40/41 (Phase 3): XLOOKUP shape, axis and reference semantics; resolving consumers over non-references.
+  - Items 35/36/39/42/31 (Phase 4): SUMIF resize, OFFSET windows, LET-bound references, the scalar-consumer family, criteria selectors behind one route classifier.
+- **Process.** Every phase ran implement → review loops on opencode (GPT-5.6 sol/terra, bounded by explicit rules in `.superpowers/sdd/AGENT-RULES.md`) against the measured oracle, with extra rounds approved by the user where a loop hit its limit.
+  - Registered, not fixed: items 44-56 and the ROWS/COLUMNS oracle defects (phase-11 sweep file).
+  - The final Claude Fable 5.1 review found real evaluation-count and performance defects that the loops had missed. Both were fixed and benchmark-verified with uncached measurements.
+  - Lessons are in `tasks/lessons.md`: unmeasured controller rulings, fixture-bound expected values, subagent stalls, cache-hit benchmarks.
 
 ## Deployment Plan
-_(write when all phases complete)_
+The user owns the release; agents never push.
+1. `git fetch origin` and confirm `git log --oneline origin/main..main` lists the sweep 32-34 + 31/35-43 commits and that `origin/main` has not moved (`git merge-base --is-ancestor origin/main main`).
+2. Optional re-check on the release machine: `dotnet csharpier check .`, `dotnet build Danfma.MySheet.slnx -c Release --no-incremental` (0 warnings), `dotnet run --project tests/Danfma.MySheet.Tests/Danfma.MySheet.Tests.csproj -c Release` and the Excel suite (both `failed: 0`), and `dotnet run -c Release --project benchmarks/Danfma.MySheet.Benchmark -- --open-range-lookup` (XLOOKUP under 1 ms, MATCH/XMATCH at or under 0.001 ms).
+3. `git push origin main`.
+4. Follow-ups stay in the phase-11 sweep file (items 44-56) and `.superpowers/sdd/pending-verifications.md`.

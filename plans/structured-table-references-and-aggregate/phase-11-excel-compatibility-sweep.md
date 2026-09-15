@@ -624,7 +624,7 @@ These were measured on Aspose.Cells 26.7.0 during [sweep 31/35-43](../excel-comp
       *Source:* `reports/integration-p3.md`.
 - [ ] **56.** `AREAS` over a computed XLOOKUP return: `AREAS(XLOOKUP(2,SEQUENCE(3),SEQUENCE(3,3)))` is `#VALUE!` here and 0/0 on the oracle.
       *Source:* `review/phase-3-round-4.md`.
-- [ ] **57.** A possible volatile double draw at three resolve-then-evaluate sites: `ArrayEvaluation`'s IF-branch resolution, the CHOOSE selected branch in `LookupFunctions`, and `ReferencePosition`'s unresolved-error probe. This is the pattern fixed for `ScalarReferenceValue` in Phase 4; none of the three is measured yet. Verify each with a counting-producer pin.
+- [x] **57.** **REFUTED 2026-09-15 by the Fable 5.1 final gate** (`.superpowers/sdd/sweep-31-35-43/final-gate/fable.md`, "Verified clean"). A counting-producer harness drew exactly once at all three sites: `SUM(IF(TICK()>0,…))`, `COUNTIF(IF(…))`, `SUM(CHOOSE(TICK(),…))`, `ROWS(INDEX(A1:A3,TICK()*0,1))`, `COUNTIF(OFFSET(A1,TICK()*0,…))`, `ISERROR(IF(TICK()>0,A1,0))`. The real double draw was in XLOOKUP and MATCH; the final-gate fix wave fixed it. *Original record:* A possible volatile double draw at three resolve-then-evaluate sites: `ArrayEvaluation`'s IF-branch resolution, the CHOOSE selected branch in `LookupFunctions`, and `ReferencePosition`'s unresolved-error probe. This is the pattern fixed for `ScalarReferenceValue` in Phase 4; none of the three is measured yet. Verify each with a counting-producer pin.
       *Source:* `reports/phase-4-fix-r2.md`.
 
 **Registered oracle defects** (MySheet keeps its coherent answer; do not "fix"):
