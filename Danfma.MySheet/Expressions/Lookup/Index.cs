@@ -236,7 +236,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row == 0 || column == 0)
         {
-            if (ReferenceGuard.MissingSheet(Arguments[0], context) is { } missing)
+            if (ReferenceGuard.MissingSheet(reference, context) is { } missing)
             {
                 return ComputedValue.Error(missing);
             }
@@ -735,7 +735,7 @@ public sealed partial record Index(Expression[] Arguments) : Function
 
         if (row == 0 || column == 0)
         {
-            if (ReferenceGuard.MissingSheet(Arguments[0], context) is not null)
+            if (ReferenceGuard.MissingSheet(resolved, context) is not null)
             {
                 return false;
             }

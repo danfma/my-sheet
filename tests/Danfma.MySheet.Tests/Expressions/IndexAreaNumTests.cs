@@ -70,6 +70,25 @@ public class IndexAreaNumTests
     }
 
     [Test]
+    [Arguments("=INDEX((Ghost!A1:A3,C1:C3),2,1,2)", 20.0)]
+    [Arguments("=SUM(INDEX((Ghost!A1:A3,C1:C3),0,1,2))", 60.0)]
+    public async Task MissingSheet_InAnUnselectedArea_DoesNotPoisonTheSelectedArea(
+        string formula,
+        double expected
+    )
+    {
+        await Assert.That(Eval(formula)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("=INDEX((A1:A3,Ghost!C1:C3),2,1,2)")]
+    [Arguments("=SUM(INDEX((A1:A3,Ghost!C1:C3),0,1,2))")]
+    public async Task MissingSheet_InTheSelectedArea_IsRefError(string formula)
+    {
+        await Assert.That(Eval(formula)).IsEqualTo(ErrorValue.Reference);
+    }
+
+    [Test]
     public async Task AreaNum_CanSelectATableColumnFromAUnion()
     {
         var workbook = Fixture();
