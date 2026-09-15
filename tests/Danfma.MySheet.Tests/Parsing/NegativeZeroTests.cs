@@ -76,6 +76,8 @@ public class NegativeZeroTests
     [Test]
     public async Task Text_UsesOriginalSignForSections_AndRoundedMagnitudeForSingleSectionMinus()
     {
+        // Before the formatter fix, representative rows were -0% instead of 0%, -$0.00 instead of
+        // $0.00, -0 units instead of 0 units, --0 instead of -0, and 0 instead of (0).
         var values = new[] { "-0.4", "-0.04", "-0.0001", "-0.5", "-0.6", "-SUM(A1:A2)", "0.4" };
         var formats = new[]
         {
