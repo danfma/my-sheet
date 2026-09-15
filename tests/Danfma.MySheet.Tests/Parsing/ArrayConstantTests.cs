@@ -144,6 +144,43 @@ public class ArrayConstantTests
     }
 
     [Test]
+    [Arguments("=XMATCH(1,SEQUENCE(2,2),0)")]
+    [Arguments("=XMATCH(1,IF(TRUE,{1,2;3,4}),0)")]
+    [Arguments("=XMATCH(1,LET(t,{1,2;3,4},t),0)")]
+    [Arguments("=XMATCH(1,CHOOSE(1,{1,2;3,4}),0)")]
+    public async Task XMatch_RejectsEveryTwoDimensionalComputedArray(string formula)
+    {
+        // Aspose.Cells 26.7.0 PLAIN/CSE both return #VALUE!; before the general shape rule MySheet returned 1.
+        await Assert.That(Calc(formula)).IsEqualTo(ErrorValue.NotValue);
+    }
+
+    [Test]
+    [Arguments("=XMATCH(\"a\",A:B,0)", "#VALUE!")]
+    [Arguments("=XMATCH(\"a\",1:2,0)", "#VALUE!")]
+    [Arguments("=XMATCH(\"a\",(A1:A2,B1:B2),0)", "#N/A")]
+    [Arguments("=XMATCH(\"a\",(A1:A2,A3:A4),0)", "#N/A")]
+    [Arguments("=XMATCH(\"a\",(A1:A2,B1),0)", "#N/A")]
+    [Arguments("=XMATCH(\"a*\",(A1:A2,B1:B2),2)", "#N/A")]
+    [Arguments("=XMATCH(\"a\",(A1:A2,B1:B2),1)", "#N/A")]
+    public async Task XMatch_ValidatesOpenAndUnionReferenceShapes(string formula, string expected)
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new Danfma.MySheet.Expressions.StringValue("a");
+        sheet["A2"] = new Danfma.MySheet.Expressions.StringValue("b");
+        sheet["A3"] = new Danfma.MySheet.Expressions.StringValue("c");
+        sheet["A4"] = new Danfma.MySheet.Expressions.StringValue("d");
+        sheet["B1"] = new Danfma.MySheet.Expressions.StringValue("b");
+        sheet["B2"] = new Danfma.MySheet.Expressions.StringValue("d");
+
+        // Aspose.Cells 26.7.0 PLAIN/CSE agree: populated 2D open ranges are #VALUE!, while every measured
+        // union is #N/A regardless of geometry or match mode. Before the shared rule every row returned 1.
+        var value = ExpressionParser.Parse(formula, sheet).Evaluate(workbook);
+        await Assert.That(value.TryGetError(out var error)).IsTrue();
+        await Assert.That(error.Display).IsEqualTo(expected);
+    }
+
+    [Test]
     public async Task XLookup_WildcardMode_RejectsTwoDimensionalArrays()
     {
         // Aspose.Cells 26.7.0 PLAIN/CSE both return #VALUE! when the lookup array is two-dimensional.

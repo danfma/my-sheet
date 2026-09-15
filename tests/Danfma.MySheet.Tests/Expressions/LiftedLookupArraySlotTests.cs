@@ -87,16 +87,15 @@ public class LiftedLookupArraySlotTests
         return value.TryGetText(out var text) ? $"\"{text}\"" : value.Kind.ToString();
     }
 
-    // MATCH/XMATCH's VALUE slot over a lifted array. Branch #VALUE! (this class's own measurement); main
-    // #N/A (a02ed5d, measured); oracle PLAIN #VALUE! / CSE 1, except MATCH(9,A1:A3+0,0) whose CSE is 3 (the
-    // "+0" row lifts to a different position than the "*1" rows on the oracle — recorded exactly as Fable's
-    // table has it, not reconciled here).
+    // MATCH's VALUE slot over a lifted array stays on its scalar path. XMATCH now applies its general computed-
+    // array shape/scan rule, changing #VALUE! -> 1 to match CSE (PLAIN remains #VALUE!). The MATCH(9,...+0)
+    // CSE result is 3; that separate consumer keeps the previously measured scalar behavior.
     [Test]
     [Arguments("=MATCH(5,A1:A3*1,0)", "#VALUE!")]
     [Arguments("=MATCH(9,A1:A3+0,0)", "#VALUE!")]
     [Arguments("=MATCH(5,Rng*1,0)", "#VALUE!")]
     [Arguments("=MATCH(5,CHOOSE(1,A1:A3)*1,0)", "#VALUE!")]
-    [Arguments("=XMATCH(5,A1:A3*1)", "#VALUE!")]
+    [Arguments("=XMATCH(5,A1:A3*1)", "1")]
     public async Task ALiftedComputedArray_InTheMatchValueSlot_PropagatesTheCollapseArtifact(
         string formula,
         string expected

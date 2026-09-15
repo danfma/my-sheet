@@ -245,40 +245,30 @@ public class RangeValueCacheEquivalenceTests
     }
 
     [Test]
-    public async Task XMatchWildcardMode_ReferenceForms_KeepTheSnapshotRoute()
+    [Arguments("=XMATCH(\"a*\",A1:A300,2)")]
+    [Arguments("=XMATCH(\"a*\",Rng,2)")]
+    [Arguments("=XMATCH(\"a*\",OFFSET(A1,0,0,300,1),2)")]
+    [Arguments("=XMATCH(\"a*\",INDEX(A1:B300,0,1),2)")]
+    [Arguments("=XMATCH(\"a*\",Tbl[Col],2)")]
+    public async Task XMatchWildcardMode_ReferenceForms_KeepTheSnapshotRoute(string formula)
     {
-        var formulas = new[]
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Data");
+        for (var row = 1; row <= Rows; row++)
         {
-            "=XMATCH(\"a*\",A1:A300,2)",
-            "=XMATCH(\"a*\",Rng,2)",
-            "=XMATCH(\"a*\",OFFSET(A1,0,0,300,1),2)",
-            "=XMATCH(\"a*\",INDEX(A1:B300,0,1),2)",
-            "=XMATCH(\"a*\",Tbl[Col],2)",
-        };
-
-        foreach (var formula in formulas)
-        {
-            var workbook = new Workbook();
-            var sheet = workbook.Sheets.Add("Data");
-            for (var row = 1; row <= Rows; row++)
-            {
-                sheet[$"A{row}"] = new StringValue(row == 2 ? "ab" : "x");
-            }
-
-            workbook.DefineName("Rng", ExpressionParser.Parse("=A1:A300", sheet));
-            workbook.DefineTable("Tbl", "Data", "A1:A300", ["Col"], hasHeaderRow: false);
-            var expression = ExpressionParser.Parse(formula, sheet);
-            var context = new EvaluationContext(workbook, "Data");
-            var literal = new RangeReference("A1", "A300", "Data");
-
-            // The first scan marks the resolved rectangle; the second builds its shared snapshot. A
-            // materialising mini-CSE branch never reaches this admission route.
-            _ = expression.Evaluate(context);
-            _ = expression.Evaluate(context);
-
-            await Assert.That(expression.Evaluate(context).ToDouble()).IsEqualTo(2d);
-            await Assert.That(workbook.TryGetRangeSnapshot(literal, context) is not null).IsTrue();
+            sheet[$"A{row}"] = new StringValue(row == 2 ? "ab" : "x");
         }
+
+        workbook.DefineName("Rng", ExpressionParser.Parse("=A1:A300", sheet));
+        workbook.DefineTable("Tbl", "Data", "A1:A300", ["Col"], hasHeaderRow: false);
+        var expression = ExpressionParser.Parse(formula, sheet);
+        var diagnostics = new XMatchRouteDiagnostics();
+        var context = new EvaluationContext(workbook, "Data", diagnostics);
+        var result = expression.Evaluate(context);
+
+        await Assert.That(result.ToDouble()).IsEqualTo(2d);
+        await Assert.That(diagnostics.ArrayMaterializations).IsEqualTo(0);
+        await Assert.That(diagnostics.ReferenceExpansions).IsEqualTo(1);
     }
 
     [Test]

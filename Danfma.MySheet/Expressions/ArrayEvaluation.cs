@@ -1353,7 +1353,12 @@ internal static class ArrayEvaluation
 
     private static bool TryBuildIf(If ifNode, EvaluationContext context, out ArrayOperand operand)
     {
-        if (!TryBuildOperand(ifNode.Arguments[0], context, out var condition))
+        ArrayOperand condition;
+        if (context.TryGetEvaluatedCondition(ifNode.Arguments[0], out var cachedCondition))
+        {
+            condition = new ScalarOperand(cachedCondition);
+        }
+        else if (!TryBuildOperand(ifNode.Arguments[0], context, out condition))
         {
             operand = null!;
             return false;

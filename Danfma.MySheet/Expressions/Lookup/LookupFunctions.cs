@@ -4,6 +4,16 @@ using MemoryPack;
 
 namespace Danfma.MySheet.Expressions.Lookup;
 
+internal sealed class XMatchRouteDiagnostics
+{
+    public int ArrayMaterializations { get; private set; }
+    public int ReferenceExpansions { get; private set; }
+
+    public void RecordArrayMaterialization() => ArrayMaterializations++;
+
+    public void RecordReferenceExpansion() => ReferenceExpansions++;
+}
+
 // Onda 3 — lookup & reference escalar: CHOOSE (lazy), HLOOKUP (espelho horizontal do VLOOKUP),
 // LOOKUP (formas vetor e array), COLUMN/COLUMNS (espelhos de ROW/ROWS), XMATCH (mesmo engine de
 // match do XLOOKUP), ADDRESS, AREAS (checagem sintática) e FORMULATEXT (reusa o FormulaWriter).
@@ -414,6 +424,38 @@ public sealed partial record Columns(Expression[] Arguments) : Function
 [MemoryPackable]
 public sealed partial record XMatch(Expression[] Arguments) : Function
 {
+    private static bool TryMaterializeArray(
+        Expression expression,
+        EvaluationContext context,
+        out ArrayEvaluationResult result
+    )
+    {
+        context.RecordArrayMaterialization();
+        return ArrayEvaluation.TryEvaluate(expression, context, out result);
+    }
+
+    private static bool TryGetShape(
+        Reference reference,
+        EvaluationContext context,
+        out RangeBounds bounds
+    )
+    {
+        if (reference is OpenRangeReference open)
+        {
+            var populated = open.ToBoundedRange(context);
+            if (populated is null)
+            {
+                bounds = default;
+                return false;
+            }
+
+            bounds = populated.GetBounds();
+            return true;
+        }
+
+        return RangeBounds.TryFrom(reference, out bounds);
+    }
+
     // XMATCH(lookup, array, [match_mode], [search_mode]) — the 1-based POSITION of the match, with
     // the same mode semantics as XLOOKUP (shared LookupMatching engine): match_mode 0 exact
     // (default), -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard; search_mode 1
@@ -458,13 +500,6 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return ComputedValue.Error(searchError);
         }
 
-        // CSE validates match/search modes before it inspects an invalid lookup array. In particular,
-        // XMATCH("a",1/0,"bad") is #VALUE!, not #DIV/0!.
-        if (ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved))
-        {
-            return unresolved;
-        }
-
         _ = NamedReferences.TryResolveReference(
             Arguments[1],
             context,
@@ -473,9 +508,14 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         );
         var open = arrayReference as OpenRangeReference;
 
+        if (arrayReference is UnionReference)
+        {
+            return ComputedValue.Error(Error.NA);
+        }
+
         if (
             arrayReference is not null
-            && RangeBounds.TryFrom(arrayReference, out var referenceBounds)
+            && TryGetShape(arrayReference, context, out var referenceBounds)
             && referenceBounds.RowCount != 1
             && referenceBounds.ColumnCount != 1
         )
@@ -487,11 +527,28 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         RangeSnapshot? snapshot;
         List<int>? openPositions = null;
         var computedArray =
-            arrayReference is null
-            && ((int)matchMode == 2 || Arguments[1] is ArrayConstant)
-            && ArrayEvaluation.TryEvaluate(Arguments[1], context, out var result)
+            arrayReference is null && TryMaterializeArray(Arguments[1], context, out var result)
                 ? result
                 : default;
+        // CSE validates modes first, then preserves a non-array argument's own error. Array producers must be
+        // built before this fallback so their vector is not collapsed to a scalar #VALUE! by Evaluate.
+        if (
+            arrayReference is null
+            && computedArray.Values is null
+            && ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved)
+        )
+        {
+            return unresolved;
+        }
+        if (
+            arrayReference is null
+            && Arguments[1] is TableReference
+            && computedArray.Values is [var tableError]
+            && tableError.TryGetError(out _)
+        )
+        {
+            return tableError;
+        }
         if (
             computedArray.Values is not null
             && computedArray.Rows != 1
@@ -527,9 +584,10 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         }
         else if (arrayReference is not null)
         {
+            context.RecordReferenceExpansion();
             array = ArgumentFlattening.ExpandCached(arrayReference, context, out snapshot);
         }
-        else if ((int)matchMode == 2 && computedArray.Values is not null)
+        else if (computedArray.Values is not null)
         {
             // Only non-reference computed arrays materialize. References retain their shared snapshot route.
             array = computedArray.Values;

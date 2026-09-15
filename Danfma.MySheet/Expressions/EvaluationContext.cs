@@ -1,5 +1,7 @@
 namespace Danfma.MySheet.Expressions;
 
+using Danfma.MySheet.Expressions.Lookup;
+
 /// <summary>
 /// Evaluation context threaded through <see cref="Expression.Evaluate(EvaluationContext)"/>: the workbook,
 /// the cell currently being evaluated (null at the root), and local LET name bindings. A readonly struct so
@@ -129,6 +131,9 @@ public readonly struct EvaluationContext
         return value;
     }
 
+    internal bool TryGetEvaluatedCondition(Expression condition, out ComputedValue value) =>
+        _conditions.TryGet(condition, out value);
+
     internal bool TryGetNodeMemo<T>(Expression node, out T value)
         where T : class => _conditions.TryGetNodeMemo(node, out value);
 
@@ -151,6 +156,21 @@ public readonly struct EvaluationContext
     public int DeltaRow { get; }
     public int DeltaColumn { get; }
 
+    // Internal route diagnostics let tests prove that a consumer retained a resolved reference instead of
+    // materializing it. They belong to the top-level evaluation context, just like the condition cache.
+    private readonly XMatchRouteDiagnostics? _routeDiagnostics;
+
+    internal void RecordArrayMaterialization() => _routeDiagnostics?.RecordArrayMaterialization();
+
+    internal void RecordReferenceExpansion() => _routeDiagnostics?.RecordReferenceExpansion();
+
+    internal EvaluationContext(
+        Workbook workbook,
+        string? sheetName,
+        XMatchRouteDiagnostics routeDiagnostics
+    )
+        : this(workbook, sheetName, null, null, 0, 0, null, routeDiagnostics) { }
+
     public EvaluationContext(Workbook workbook, string? sheetName = null, string? cellId = null)
         : this(
             workbook,
@@ -159,7 +179,8 @@ public readonly struct EvaluationContext
             names: null,
             deltaRow: 0,
             deltaColumn: 0,
-            conditions: null
+            conditions: null,
+            routeDiagnostics: null
         ) { }
 
     private EvaluationContext(
@@ -169,7 +190,8 @@ public readonly struct EvaluationContext
         NameScope? names,
         int deltaRow,
         int deltaColumn,
-        ConditionCache? conditions
+        ConditionCache? conditions,
+        XMatchRouteDiagnostics? routeDiagnostics
     )
     {
         Workbook = workbook;
@@ -182,6 +204,7 @@ public readonly struct EvaluationContext
         // WithCell both pass null), so a new cache is made HERE — the one point that must run before any
         // WithName/WithDelta derivation copies the reference onward. See the remarks on the field above.
         _conditions = conditions ?? new ConditionCache();
+        _routeDiagnostics = routeDiagnostics;
     }
 
     // LET names are local to a formula and do not leak into referenced cells, so they are dropped here. The
@@ -198,7 +221,8 @@ public readonly struct EvaluationContext
             names: null,
             deltaRow: 0,
             deltaColumn: 0,
-            conditions: null
+            conditions: null,
+            routeDiagnostics: null
         );
 
     public EvaluationContext WithName(string name, ComputedValue value) =>
@@ -209,7 +233,8 @@ public readonly struct EvaluationContext
             new NameScope(name, value, operand: null, _names),
             DeltaRow,
             DeltaColumn,
-            _conditions
+            _conditions,
+            _routeDiagnostics
         );
 
     /// <summary>
@@ -226,7 +251,8 @@ public readonly struct EvaluationContext
             new NameScope(name, value: default, operand, _names),
             DeltaRow,
             DeltaColumn,
-            _conditions
+            _conditions,
+            _routeDiagnostics
         );
 
     /// <summary>Binds whichever form <paramref name="binding"/> holds — the one call a binding site makes.</summary>
@@ -240,7 +266,16 @@ public readonly struct EvaluationContext
     /// (still the slave's own cell — only the anchored nodes inside Master read the delta).
     /// </summary>
     public EvaluationContext WithDelta(int deltaRow, int deltaColumn) =>
-        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn, _conditions);
+        new(
+            Workbook,
+            SheetName,
+            CellId,
+            _names,
+            deltaRow,
+            deltaColumn,
+            _conditions,
+            _routeDiagnostics
+        );
 
     /// <summary>
     /// The nearest SCALAR-form binding of <paramref name="name"/> — a scalar or a captured reference value.
