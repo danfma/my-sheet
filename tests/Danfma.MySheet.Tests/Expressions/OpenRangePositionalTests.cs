@@ -96,6 +96,49 @@ public class OpenRangePositionalTests
         return address;
     }
 
+    private static RangeSnapshot? SnapshotForOpenRange(Workbook workbook)
+    {
+        var cache =
+            typeof(Workbook)
+                .GetField(
+                    "_rangeCache",
+                    System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.NonPublic
+                )!
+                .GetValue(workbook) as System.Collections.IEnumerable;
+
+        if (cache is null)
+        {
+            return null;
+        }
+
+        foreach (var item in cache)
+        {
+            var itemType = item!.GetType();
+            if (itemType.GetProperty("Key")!.GetValue(item) is not OpenRangeReference)
+            {
+                continue;
+            }
+
+            var entry = itemType.GetProperty("Value")!.GetValue(item)!;
+            return (RangeSnapshot?)entry.GetType().GetProperty("Snapshot")!.GetValue(entry);
+        }
+
+        return null;
+    }
+
+    private static bool ExactIndexWasBuilt(RangeSnapshot snapshot)
+    {
+        var field = snapshot
+            .GetType()
+            .GetField(
+                "_exact",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic
+            )!;
+        var lazy = field.GetValue(snapshot)!;
+        return (bool)field.FieldType.GetProperty("IsValueCreated")!.GetValue(lazy)!;
+    }
+
     // === Absolute coordinates over an open base ============================================================
 
     [Test]
@@ -195,6 +238,26 @@ public class OpenRangePositionalTests
 
         // Aspose.Cells 26.7.0 PLAIN/CSE: 7 / 7. The second distinct formula cell uses the admitted snapshot.
         await Assert.That(Num(EvalAdmitted(workbook, "=XMATCH(30,C:C)"))).IsEqualTo(7.0);
+    }
+
+    [Test]
+    [Arguments("=XMATCH(30,C:C)", 7.0)]
+    [Arguments("=XLOOKUP(30,C:C,D:D)", 70.0)]
+    public async Task ExactOpenLookup_OverAnAdmittedSparseColumn_UsesTheSnapshotIndex(
+        string formula,
+        double expected
+    )
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Main");
+        sheet["C7"] = new NumberValue(30);
+        sheet["D7"] = new NumberValue(70);
+        FillColumnForCacheAdmission(sheet, 8, 0);
+
+        await Assert.That(Num(EvalAdmitted(workbook, formula))).IsEqualTo(expected);
+        var snapshot = SnapshotForOpenRange(workbook);
+        await Assert.That(snapshot is not null).IsTrue();
+        await Assert.That(ExactIndexWasBuilt(snapshot!)).IsTrue();
     }
 
     [Test]

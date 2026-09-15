@@ -66,12 +66,12 @@ public readonly struct EvaluationContext
     // SIBLING copy, so a cache created on first use inside ArrayBindings.Shape would be invisible to the
     // later, separately-constructed ArrayBindings.Capture call — the exact bug this class exists to close.
     private readonly ConditionCache _conditions;
-    private readonly NodeMemoCache _nodeMemos;
 
     /// <summary>See the remarks on <see cref="EvaluationContext"/>'s <c>_conditions</c> field.</summary>
     private sealed class ConditionCache
     {
         private Dictionary<Expression, ComputedValue>? _values;
+        private Dictionary<Expression, object>? _nodeMemos;
 
         public bool TryGet(Expression condition, out ComputedValue value)
         {
@@ -91,16 +91,11 @@ public readonly struct EvaluationContext
                     ReferenceEqualityComparer.Instance
                 )
             )[condition] = value;
-    }
 
-    private sealed class NodeMemoCache
-    {
-        private Dictionary<Expression, object>? _values;
-
-        public bool TryGet<T>(Expression node, out T value)
+        public bool TryGetNodeMemo<T>(Expression node, out T value)
             where T : class
         {
-            if (_values is not null && _values.TryGetValue(node, out var cached))
+            if (_nodeMemos is not null && _nodeMemos.TryGetValue(node, out var cached))
             {
                 value = (T)cached;
                 return true;
@@ -110,8 +105,8 @@ public readonly struct EvaluationContext
             return false;
         }
 
-        public void Set(Expression node, object value) =>
-            (_values ??= new Dictionary<Expression, object>(ReferenceEqualityComparer.Instance))[
+        public void SetNodeMemo(Expression node, object value) =>
+            (_nodeMemos ??= new Dictionary<Expression, object>(ReferenceEqualityComparer.Instance))[
                 node
             ] = value;
     }
@@ -135,9 +130,10 @@ public readonly struct EvaluationContext
     }
 
     internal bool TryGetNodeMemo<T>(Expression node, out T value)
-        where T : class => _nodeMemos.TryGet(node, out value);
+        where T : class => _conditions.TryGetNodeMemo(node, out value);
 
-    internal void SetNodeMemo(Expression node, object value) => _nodeMemos.Set(node, value);
+    internal void SetNodeMemo(Expression node, object value) =>
+        _conditions.SetNodeMemo(node, value);
 
     public Workbook Workbook { get; }
     public string? SheetName { get; }
@@ -163,8 +159,7 @@ public readonly struct EvaluationContext
             names: null,
             deltaRow: 0,
             deltaColumn: 0,
-            conditions: null,
-            nodeMemos: null
+            conditions: null
         ) { }
 
     private EvaluationContext(
@@ -174,8 +169,7 @@ public readonly struct EvaluationContext
         NameScope? names,
         int deltaRow,
         int deltaColumn,
-        ConditionCache? conditions,
-        NodeMemoCache? nodeMemos
+        ConditionCache? conditions
     )
     {
         Workbook = workbook;
@@ -188,7 +182,6 @@ public readonly struct EvaluationContext
         // WithCell both pass null), so a new cache is made HERE — the one point that must run before any
         // WithName/WithDelta derivation copies the reference onward. See the remarks on the field above.
         _conditions = conditions ?? new ConditionCache();
-        _nodeMemos = nodeMemos ?? new NodeMemoCache();
     }
 
     // LET names are local to a formula and do not leak into referenced cells, so they are dropped here. The
@@ -205,8 +198,7 @@ public readonly struct EvaluationContext
             names: null,
             deltaRow: 0,
             deltaColumn: 0,
-            conditions: null,
-            nodeMemos: null
+            conditions: null
         );
 
     public EvaluationContext WithName(string name, ComputedValue value) =>
@@ -217,8 +209,7 @@ public readonly struct EvaluationContext
             new NameScope(name, value, operand: null, _names),
             DeltaRow,
             DeltaColumn,
-            _conditions,
-            _nodeMemos
+            _conditions
         );
 
     /// <summary>
@@ -235,8 +226,7 @@ public readonly struct EvaluationContext
             new NameScope(name, value: default, operand, _names),
             DeltaRow,
             DeltaColumn,
-            _conditions,
-            _nodeMemos
+            _conditions
         );
 
     /// <summary>Binds whichever form <paramref name="binding"/> holds — the one call a binding site makes.</summary>
@@ -250,7 +240,7 @@ public readonly struct EvaluationContext
     /// (still the slave's own cell — only the anchored nodes inside Master read the delta).
     /// </summary>
     public EvaluationContext WithDelta(int deltaRow, int deltaColumn) =>
-        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn, _conditions, _nodeMemos);
+        new(Workbook, SheetName, CellId, _names, deltaRow, deltaColumn, _conditions);
 
     /// <summary>
     /// The nearest SCALAR-form binding of <paramref name="name"/> — a scalar or a captured reference value.

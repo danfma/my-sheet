@@ -47,12 +47,12 @@ public sealed partial record Match(Expression[] Arguments) : Function
         }
 
         if (
-            (
+            arrayReference is null
+            && (
                 Arguments[1] is NameReference or TableReference
                 || ArrayEvaluation.IsArrayEligible(Arguments[1], context)
                 || Arguments[1] is ErrorValue
             )
-            && arrayReference is null
             && ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved)
         )
         {

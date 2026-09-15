@@ -469,38 +469,40 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
             return unresolved;
         }
 
-        OpenRangeReference? open = null;
-        if (
-            NamedReferences.TryResolveReference(
-                Arguments[1],
-                context,
-                out var arrayReference,
-                boundOpenRanges: false
-            ) && arrayReference is OpenRangeReference openReference
-        )
-        {
-            open = openReference;
-        }
+        _ = NamedReferences.TryResolveReference(
+            Arguments[1],
+            context,
+            out var arrayReference,
+            boundOpenRanges: false
+        );
+        var open = arrayReference as OpenRangeReference;
 
         IReadOnlyList<ComputedValue> array;
         RangeSnapshot? snapshot;
         List<int>? openPositions = null;
         if (open is not null)
         {
-            var workbook = context.Workbook;
-            var handle = workbook.ResolveDenseHandle(open.SheetName);
-            var values = new List<ComputedValue>();
-            openPositions = [];
-            foreach (var (column, row) in open.PopulatedCells(context))
+            snapshot = context.Workbook.TryGetRangeSnapshot(open, context);
+            if (snapshot is not null)
             {
-                values.Add(workbook.GetCellValueDense(handle, open.SheetName, column, row));
-                openPositions.Add(
-                    open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row)
-                );
+                array = snapshot.Values;
             }
+            else
+            {
+                var workbook = context.Workbook;
+                var handle = workbook.ResolveDenseHandle(open.SheetName);
+                var values = new List<ComputedValue>();
+                openPositions = [];
+                foreach (var (column, row) in open.PopulatedCells(context))
+                {
+                    values.Add(workbook.GetCellValueDense(handle, open.SheetName, column, row));
+                    openPositions.Add(
+                        open.IsSingleRow ? open.ColumnPosition(column) : open.RowPosition(row)
+                    );
+                }
 
-            array = values;
-            snapshot = null;
+                array = values;
+            }
         }
         else
         {

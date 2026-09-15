@@ -216,6 +216,13 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
         if ((int)matchMode == 0 && searchMode >= 0)
         {
+            if (lookupArray.TryExactPosition(lookup, out var sourcePosition, out var outcome))
+            {
+                return outcome is ExactMatchOutcome.Found
+                    ? returnArray.Select(sourcePosition - 1, lookupAxis)
+                    : Result(NotFound(context));
+            }
+
             using var lookupValues = lookupArray.Entries().GetEnumerator();
             while (lookupValues.MoveNext())
             {
@@ -316,7 +323,8 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
                 var rows = (open.RowMax ?? OpenRangeReference.GridMaxRow) - (open.RowMin ?? 1) + 1;
                 var columns =
                     (open.ColMax ?? OpenRangeReference.GridMaxColumn) - (open.ColMin ?? 1) + 1;
-                array = new LookupArray(reference, default, rows, columns, context);
+                var snapshot = context.Workbook.TryGetRangeSnapshot(open, context);
+                array = new LookupArray(reference, default, rows, columns, context, snapshot);
                 return true;
             }
 
@@ -366,12 +374,35 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
         ArrayEvaluation.ArrayStream stream,
         int rows,
         int columns,
-        EvaluationContext context
+        EvaluationContext context,
+        RangeSnapshot? snapshot = null
     )
     {
         public int Rows { get; } = rows;
         public int Columns { get; } = columns;
         public int Length => Rows * Columns;
+
+        public bool TryExactPosition(
+            ComputedValue lookup,
+            out int sourcePosition,
+            out ExactMatchOutcome outcome
+        )
+        {
+            sourcePosition = 0;
+            outcome = ExactMatchOutcome.Unsupported;
+            if (snapshot is null)
+            {
+                return false;
+            }
+
+            outcome = snapshot.TryExactPosition(lookup, out var populatedPosition);
+            if (outcome is ExactMatchOutcome.Found)
+            {
+                sourcePosition = snapshot.SourcePosition(populatedPosition);
+            }
+
+            return outcome is not ExactMatchOutcome.Unsupported;
+        }
 
         public IEnumerable<(ComputedValue Value, int Position)> Entries()
         {
@@ -388,6 +419,19 @@ public sealed partial record XLookup(Expression[] Arguments) : Function, IArrayP
 
             if (reference is OpenRangeReference open)
             {
+                if (snapshot is not null)
+                {
+                    for (var index = 0; index < snapshot.Count; index++)
+                    {
+                        yield return (
+                            snapshot.Values[index],
+                            snapshot.SourcePosition(index + 1) - 1
+                        );
+                    }
+
+                    yield break;
+                }
+
                 var workbook = context.Workbook;
                 var handle = workbook.ResolveDenseHandle(open.SheetName);
                 foreach (var (column, row) in open.PopulatedCells(context))
