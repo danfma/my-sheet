@@ -306,6 +306,8 @@ internal sealed class Tokenizer(string text)
                             and not '>'
                             and not '&'
                             and not ','
+                            and not ';'
+                            and not '}'
                             and not ':'
                             and not ')'
                 )
@@ -372,6 +374,15 @@ internal sealed class Tokenizer(string text)
             case ')':
                 _position++;
                 return new Token(TokenType.RParen, ")", start);
+            case '{':
+                _position++;
+                return new Token(TokenType.LBrace, "{", start);
+            case '}':
+                _position++;
+                return new Token(TokenType.RBrace, "}", start);
+            case ';':
+                _position++;
+                return new Token(TokenType.Semicolon, ";", start);
             case '=':
                 _position++;
                 return new Token(TokenType.Equal, "=", start);

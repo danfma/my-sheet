@@ -22,6 +22,9 @@ internal enum TokenType
     Colon,
     LParen,
     RParen,
+    LBrace,
+    RBrace,
+    Semicolon,
     Bang,
     DeletedReferenceSpill,
 

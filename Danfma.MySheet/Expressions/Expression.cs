@@ -361,6 +361,8 @@ namespace Danfma.MySheet.Expressions;
 // A wire-old file never contains it; a new file that does will not open in a pre-Phase-4 build (append-only
 // tags are read-safe going forward, not backward).
 [MemoryPackUnion(327, typeof(TableReference))]
+// Array constants ({1,2;3,4}) need their own shape-preserving node; append-only after TableReference.
+[MemoryPackUnion(328, typeof(ArrayConstant))]
 public abstract partial record Expression
 {
     // The one evaluation contract: evaluate the node to a value type, with no boxing. Callers that want a

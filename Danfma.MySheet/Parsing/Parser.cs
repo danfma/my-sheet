@@ -164,6 +164,9 @@ internal sealed class Parser(
                 Expect(TokenType.RParen);
                 return inner;
 
+            case TokenType.LBrace:
+                return ParseArrayConstant(token);
+
             case TokenType.BracketedSpecifier:
                 // A `[...]` with no table name before it — the three shapes S1 keeps permanently out of
                 // scope, each with its own message so the error names what the user wrote instead of
@@ -185,6 +188,83 @@ internal sealed class Parser(
                     token.Text
                 );
         }
+    }
+
+    private Expression ParseArrayConstant(Token opening)
+    {
+        var values = new List<Expression>();
+        var columns = 0;
+        var currentColumns = 0;
+
+        while (true)
+        {
+            var sign = 1d;
+            if (Current.Type == TokenType.Minus)
+            {
+                Advance();
+                sign = -1d;
+            }
+
+            var token = Advance();
+            Expression value = token.Type switch
+            {
+                TokenType.Number => new NumberValue(
+                    sign * double.Parse(token.Text, CultureInfo.InvariantCulture)
+                ),
+                TokenType.String when sign > 0 => new StringValue(token.Text),
+                TokenType.Identifier when sign > 0 && IsBoolean(token.Text, out var boolean) =>
+                    new BooleanValue(boolean),
+                TokenType.Error when sign > 0 => Error.FromDisplay(token.Text).ToErrorValue(),
+                _ => throw InvalidArrayElement(token),
+            };
+
+            values.Add(value);
+            currentColumns++;
+
+            if (Current.Type == TokenType.Comma)
+            {
+                Advance();
+                continue;
+            }
+
+            if (Current.Type == TokenType.Semicolon)
+            {
+                if (columns == 0)
+                {
+                    columns = currentColumns;
+                }
+                else if (columns != currentColumns)
+                {
+                    throw InvalidArrayElement(Current);
+                }
+
+                currentColumns = 0;
+                Advance();
+                continue;
+            }
+
+            if (Current.Type != TokenType.RBrace)
+            {
+                throw InvalidArrayElement(Current);
+            }
+
+            Advance();
+            columns = columns == 0 ? currentColumns : columns;
+            if (currentColumns != columns)
+            {
+                throw InvalidArrayElement(Current);
+            }
+
+            return new ArrayConstant(values.ToArray(), values.Count / columns, columns);
+        }
+
+        ParseException InvalidArrayElement(Token token) =>
+            new(
+                ParseErrorKind.UnexpectedToken,
+                "Array constants accept only rectangular literal values",
+                token.Position,
+                token.Text
+            );
     }
 
     // Classifies only the measured deleted-reference continuations. Reference-shaped endpoints are

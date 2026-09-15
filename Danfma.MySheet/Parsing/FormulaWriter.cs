@@ -110,6 +110,10 @@ public static class FormulaWriter
                 builder.Append(error.ErrorCode);
                 break;
 
+            case ArrayConstant array:
+                WriteArrayConstant(builder, array, context, depth + 1, deltaRow, deltaColumn);
+                break;
+
             case CellReference cell:
                 WriteSheetQualifier(builder, cell.SheetName, context);
                 builder.Append(cell.Id);
@@ -324,6 +328,29 @@ public static class FormulaWriter
 
             Write(builder, items[i], context, minPrecedence: 0, depth, deltaRow, deltaColumn);
         }
+    }
+
+    private static void WriteArrayConstant(
+        StringBuilder builder,
+        ArrayConstant array,
+        string context,
+        int depth,
+        int deltaRow,
+        int deltaColumn
+    )
+    {
+        builder.Append('{');
+        for (var i = 0; i < array.Values.Length; i++)
+        {
+            if (i > 0)
+            {
+                builder.Append(i % array.Columns == 0 ? ';' : ',');
+            }
+
+            Write(builder, array.Values[i], context, 0, depth, deltaRow, deltaColumn);
+        }
+
+        builder.Append('}');
     }
 
     // Renders one endpoint of an open range: the column letters (when the column is known) followed by the
