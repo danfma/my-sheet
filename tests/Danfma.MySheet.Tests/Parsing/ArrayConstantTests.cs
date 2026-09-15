@@ -144,6 +144,70 @@ public class ArrayConstantTests
     }
 
     [Test]
+    public async Task LookupConsumers_UseWildcardMatchingForReferenceAndArrayTables()
+    {
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        sheet["A1"] = new Danfma.MySheet.Expressions.StringValue("ab");
+        sheet["B1"] = new Danfma.MySheet.Expressions.StringValue("x");
+        sheet["A2"] = new Danfma.MySheet.Expressions.StringValue("cd");
+        sheet["B2"] = new Danfma.MySheet.Expressions.StringValue("y");
+
+        async Task AssertValue(string formula, string expected) =>
+            await Assert
+                .That(ExpressionParser.Parse(formula, sheet).Evaluate(workbook).AsString())
+                .IsEqualTo(expected);
+
+        await AssertValue("=VLOOKUP(\"a*\",A1:B2,2,FALSE)", "x");
+        await AssertValue("=VLOOKUP(\"a*\",{\"ab\",\"x\";\"cd\",\"y\"},2,FALSE)", "x");
+        await AssertValue("=HLOOKUP(\"a*\",{\"ab\",\"cd\";\"x\",\"y\"},2,FALSE)", "x");
+        await AssertValue("=VLOOKUP(\"a?\",{\"ab\",\"x\";\"acd\",\"y\"},2,FALSE)", "x");
+        await AssertValue("=VLOOKUP(\"a~*\",{\"a*\",\"x\";\"ab\",\"y\"},2,FALSE)", "x");
+
+        sheet["A1"] = new Danfma.MySheet.Expressions.StringValue("ab");
+        sheet["B1"] = new Danfma.MySheet.Expressions.StringValue("cd");
+        sheet["A2"] = new Danfma.MySheet.Expressions.StringValue("x");
+        sheet["B2"] = new Danfma.MySheet.Expressions.StringValue("y");
+        await AssertValue("=HLOOKUP(\"a*\",A1:B2,2,FALSE)", "x");
+
+        await Assert
+            .That(Calc("=VLOOKUP(\"a*\",{\"ab\",\"x\";\"cd\",\"y\"},2,TRUE)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Calc("=VLOOKUP(\"1*\",{1,\"x\";12,\"y\"},2,FALSE)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+    }
+
+    [Test]
+    public async Task LookupConsumers_AcceptArrayValuedTableExpressions()
+    {
+        await Assert
+            .That(Calc("=VLOOKUP(2,LET(t,{1,10;2,20},t),2,FALSE)") as double?)
+            .IsEqualTo(20d);
+        await Assert
+            .That(Calc("=HLOOKUP(2,LET(t,{1,2;10,20},t),2,FALSE)") as double?)
+            .IsEqualTo(20d);
+        await Assert
+            .That(Calc("=VLOOKUP(2,LET(t,SEQUENCE(2,2),t),2,FALSE)"))
+            .IsEqualTo(ErrorValue.NotAvailable);
+        await Assert
+            .That(Calc("=VLOOKUP(2,IF(TRUE,{1,10;2,20}),2,FALSE)") as double?)
+            .IsEqualTo(20d);
+
+        var workbook = new Workbook();
+        var sheet = workbook.Sheets.Add("Sheet1");
+        workbook.DefineName("ArrayName", ExpressionParser.Parse("={1,10;2,20}", sheet));
+        await Assert
+            .That(
+                ExpressionParser
+                    .Parse("=VLOOKUP(2,ArrayName,2,FALSE)", sheet)
+                    .Evaluate(workbook)
+                    .ToDouble()
+            )
+            .IsEqualTo(20d);
+    }
+
+    [Test]
     public async Task FormulaTextAndMemoryPack_RoundTripArrayConstant()
     {
         var workbook = new Workbook();

@@ -17,15 +17,16 @@ namespace Danfma.MySheet.Tests.Expressions;
 /// collapse artifact sweep item 32 removed from the C1 branch shape, <c>RangeReference.Evaluate</c>'s
 /// unconditional rule). <c>TryUnresolvedError</c> then reads that <c>#VALUE!</c> as the argument's "own
 /// error" and propagates it — silently turning main's <c>#N/A</c>/<c>#REF!</c> into <c>#VALUE!</c> for
-/// every resolving consumer routed through the shared site (MATCH, XMATCH, LOOKUP, VLOOKUP, HLOOKUP,
-/// OFFSET).
+/// resolving consumers routed through that shared site (MATCH, XMATCH, LOOKUP and OFFSET). VLOOKUP and
+/// HLOOKUP now choose an array-valued table through <c>ArrayEvaluation.TryStream</c> before resolution.
 /// </para>
 /// <para>
 /// This is NOT a regression against the oracle — <c>#VALUE!</c> equals Aspose.Cells' PLAIN-entry answer on
 /// every row below — but it MOVED SILENTLY (no pin, no commit-body line, across T1's <c>a542f56</c> and the
 /// MATCH fix's <c>5975c63</c>) and the branch does not reach the oracle's CSE (array-entered) answer
 /// either. The controller registers "a lookup array slot over a lifted computation (oracle CSE lifts)" as a
-/// NEW sweep item; this class only records the numbers, it changes nothing.
+/// NEW sweep item. This class retains those pins and records the table consumers that have since moved to
+/// the CSE route.
 /// </para>
 /// <para>
 /// Fixture: Main!A1:A3 = 5, 0, 9; B1:B3 = 1, 2, 3; the defined name <c>Rng</c> = <c>Main!$A$1:$A$3</c>;
@@ -121,14 +122,14 @@ public class LiftedLookupArraySlotTests
         await Assert.That(On("=LOOKUP(5,A1:A3*1)")).IsEqualTo("#VALUE!");
     }
 
-    // VLOOKUP/HLOOKUP's table slot and OFFSET's base: branch #VALUE! for all three, main #REF! for all
-    // three, oracle PLAIN #VALUE! for all three; oracle CSE differs per formula — VLOOKUP 1, HLOOKUP 0,
-    // OFFSET #REF! (Fable's table, transcribed, not re-derived).
+    // VLOOKUP/HLOOKUP now consume the lifted table through the same TryStream route as every array-valued
+    // table, following the oracle CSE values. Before that shared route they returned #VALUE!; OFFSET keeps
+    // its existing scalar-collapse behavior and is not part of the lookup-table change.
     [Test]
-    [Arguments("=VLOOKUP(5,A1:B3*1,2,FALSE)", "#VALUE!")]
-    [Arguments("=HLOOKUP(5,A1:B3*1,2,FALSE)", "#VALUE!")]
+    [Arguments("=VLOOKUP(5,A1:B3*1,2,FALSE)", "1")]
+    [Arguments("=HLOOKUP(5,A1:B3*1,2,FALSE)", "0")]
     [Arguments("=OFFSET(A1:A3*1,0,0)", "#VALUE!")]
-    public async Task ALiftedComputedArray_InTheTableSlotOrOffsetsBase_PropagatesTheCollapseArtifact(
+    public async Task ALiftedComputedArray_UsesTheConsumerSpecificRoute(
         string formula,
         string expected
     )

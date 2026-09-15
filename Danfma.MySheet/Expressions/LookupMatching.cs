@@ -10,6 +10,17 @@ namespace Danfma.MySheet.Expressions;
 /// </summary>
 internal static class LookupMatching
 {
+    public static bool UsesWildcards(in ComputedValue lookup) =>
+        lookup.TryGetText(out var pattern)
+        && (pattern.Contains('*') || pattern.Contains('?') || pattern.Contains('~'));
+
+    public static bool IsTableExactMatch(in ComputedValue lookup, in ComputedValue candidate) =>
+        UsesWildcards(lookup)
+            ? lookup.TryGetText(out var pattern)
+                && candidate.TryGetText(out var text)
+                && Criteria.WildcardMatch(pattern, text)
+            : ValueCoercion.AreEqual(candidate, lookup);
+
     public static int FindMatch(
         in ComputedValue lookup,
         IReadOnlyList<ComputedValue> array,

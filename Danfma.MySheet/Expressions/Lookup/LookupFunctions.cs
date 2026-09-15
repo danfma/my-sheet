@@ -122,27 +122,9 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             return ComputedValue.Error(missing);
         }
 
-        LookupGrid grid;
-        if (
-            Arguments[1] is IArrayProducer
-            && ArrayEvaluation.TryStream(Arguments[1], context, out var array)
-        )
-        {
-            grid = new LookupGrid(array);
-        }
-        else if (
-            !LookupTable.TryResolveTable(Arguments, context, out var reference, out var tableAnswer)
-        )
+        if (!LookupGrid.TryCreate(Arguments, context, out var grid, out var tableAnswer))
         {
             return tableAnswer;
-        }
-        else if (!RangeBounds.TryFrom(reference, out var bounds))
-        {
-            return ComputedValue.Error(Error.Ref);
-        }
-        else
-        {
-            grid = new LookupGrid(reference as RangeReference, bounds, context);
         }
 
         var lookup = Arguments[0].Evaluate(context);
@@ -207,7 +189,7 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             // Largest first-row key <= lookup, assuming the row is sorted ascending. Cross-type
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like
             // the <= operator — not only numeric keys.
-            if (keySnapshot is not null)
+            if (keySnapshot is not null && !LookupMatching.UsesWildcards(lookup))
             {
                 var position = keySnapshot.ApproximateAscendingPosition(lookup);
                 matchColumn = position >= 1 ? position : -1;
@@ -247,7 +229,7 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             {
                 for (var column = 1; column <= grid.Columns; column++)
                 {
-                    if (ValueCoercion.AreEqual(grid.At(1, column), lookup))
+                    if (LookupMatching.IsTableExactMatch(lookup, grid.At(1, column)))
                     {
                         matchColumn = column;
                         break;

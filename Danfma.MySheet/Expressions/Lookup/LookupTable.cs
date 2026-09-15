@@ -147,6 +147,41 @@ internal readonly struct LookupGrid
     public int Rows { get; }
     public int Columns { get; }
 
+    public static bool TryCreate(
+        Expression[] arguments,
+        EvaluationContext context,
+        out LookupGrid grid,
+        out ComputedValue answer
+    )
+    {
+        if (
+            arguments[1] is not Reference
+            && ArrayEvaluation.TryStream(arguments[1], context, out var array)
+        )
+        {
+            grid = new LookupGrid(array);
+            answer = default;
+            return true;
+        }
+
+        if (!LookupTable.TryResolveTable(arguments, context, out var reference, out answer))
+        {
+            grid = default;
+            return false;
+        }
+
+        if (!RangeBounds.TryFrom(reference, out var bounds))
+        {
+            grid = default;
+            answer = ComputedValue.Error(Error.Ref);
+            return false;
+        }
+
+        grid = new LookupGrid(reference as RangeReference, bounds, context);
+        answer = default;
+        return true;
+    }
+
     public ComputedValue At(int row, int column) =>
         _range is null
             ? _array.ElementAt((row - 1) * Columns + column - 1)

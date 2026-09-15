@@ -193,8 +193,15 @@ internal sealed class Criteria
     {
         var builder = new StringBuilder("^");
 
-        foreach (var c in pattern)
+        for (var i = 0; i < pattern.Length; i++)
         {
+            var c = pattern[i];
+            if (c == '~' && i + 1 < pattern.Length && pattern[i + 1] is '*' or '?' or '~')
+            {
+                builder.Append(Regex.Escape(pattern[++i].ToString()));
+                continue;
+            }
+
             builder.Append(
                 c switch
                 {
