@@ -18,7 +18,14 @@ public sealed partial record Match(Expression[] Arguments) : Function
 
         var matchType = 1.0;
 
-        OpenRangeReference? open = null;
+        Reference? arrayReference = null;
+        _ = NamedReferences.TryResolveReference(
+            Arguments[1],
+            context,
+            out arrayReference,
+            boundOpenRanges: false
+        );
+        var open = arrayReference as OpenRangeReference;
         if (
             Arguments.Length == 3
             && Arguments[2].Evaluate(context).CoerceToNumber(out matchType) is { } typeError
@@ -44,7 +51,9 @@ public sealed partial record Match(Expression[] Arguments) : Function
                 Arguments[1] is NameReference or TableReference
                 || ArrayEvaluation.IsArrayEligible(Arguments[1], context)
                 || Arguments[1] is ErrorValue
-            ) && ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved)
+            )
+            && arrayReference is null
+            && ReferencePosition.TryUnresolvedError(Arguments[1], context, out var unresolved)
         )
         {
             return unresolved;
@@ -58,24 +67,12 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // each populated cell's OWN coordinate, which neither carries — but still only ever visits
         // POPULATED cells via the structural index (OpenRangeReference.PopulatedCells), never the whole
         // grid, so the "never materialise the full row" contract holds.
-        if (
-            NamedReferences.TryResolveReference(
-                Arguments[1],
-                context,
-                out var arrayReference,
-                boundOpenRanges: false
-            ) && arrayReference is OpenRangeReference openReference
-        )
-        {
-            open = openReference;
-        }
-
         // Serve the lookup array from the Layer-2 range cache when the argument is a big populated range:
         // the snapshot is materialized once and every derived accelerator (exact hash, sorted prefix/suffix)
         // reproduces this scan's result bit for bit. A small range (or a non-range argument) streams the
         // memoized cells positionally (no materialized vector) via RangeValueCursor.
-        var snapshot = Arguments[1] is Reference reference
-            ? context.Workbook.TryGetRangeSnapshot(open ?? reference, context)
+        var snapshot = arrayReference is { } reference
+            ? context.Workbook.TryGetRangeSnapshot(reference, context)
             : null;
 
         if (open is not null && snapshot is null)
@@ -102,7 +99,11 @@ public sealed partial record Match(Expression[] Arguments) : Function
             // that answered Unsupported above is reused zero-copy; a still-null snapshot stays on its first,
             // streaming read instead of a second probe eagerly admitting it — see SUMIF's identical pattern).
             var exactPosition = 0;
-            var exactCursor = RangeValueCursor.Open(Arguments[1], context, snapshot);
+            var exactCursor = RangeValueCursor.Open(
+                arrayReference ?? Arguments[1],
+                context,
+                snapshot
+            );
 
             while (exactCursor.MoveNext(out var value))
             {
@@ -157,7 +158,7 @@ public sealed partial record Match(Expression[] Arguments) : Function
         // through — rather than letting Open re-probe — keeps this the range's first, streaming read.
         var position = -1;
         var index = 0;
-        var approxCursor = RangeValueCursor.Open(Arguments[1], context, snapshot);
+        var approxCursor = RangeValueCursor.Open(arrayReference ?? Arguments[1], context, snapshot);
 
         while (approxCursor.MoveNext(out var value))
         {
