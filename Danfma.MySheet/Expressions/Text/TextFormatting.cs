@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using MemoryPack;
 
@@ -415,36 +416,36 @@ internal static class NumberFormatting
 {
     public static string Format(double number, string format, IFormatProvider provider)
     {
-        var sections = SplitSections(format);
+        var analyzed = TextFormatCache.Get(format);
         var sectionIndex =
-            number < 0d && sections.Count > 1 ? 1
-            : number == 0d && sections.Count > 2 ? 2
+            number < 0d && analyzed.Sections.Length > 1 ? 1
+            : number == 0d && analyzed.Sections.Length > 2 ? 2
             : 0;
-        var section = sections[sectionIndex];
+        var section = analyzed.Sections[sectionIndex];
 
-        if (section.Length == 0)
+        if (section.IsEmpty)
         {
             return string.Empty;
         }
 
-        var magnitude = sectionIndex == 1 && sections.Count > 1 ? -number : number;
-        var pattern = AnalyzePattern(section, magnitude);
+        var magnitude = sectionIndex == 1 && analyzed.Sections.Length > 1 ? -number : number;
+        var pattern = section.Apply(magnitude);
 
         if (
-            sections.Count == 1
+            analyzed.Sections.Length == 1
             && number < 0d
             && pattern.HasNumericPlaceholder
             && !pattern.HasFractionPlaceholder
             && pattern.RoundsToZero
         )
         {
-            pattern = AnalyzePattern(section, -number);
+            pattern = section.Apply(-number);
         }
 
         return pattern.Value.ToString(pattern.Format, provider);
     }
 
-    private static List<string> SplitSections(string format)
+    internal static AnalyzedFormat Analyze(string format)
     {
         var sections = new List<string>();
         var start = 0;
@@ -474,129 +475,161 @@ internal static class NumberFormatting
         }
 
         sections.Add(format[start..]);
-        return sections;
+        return new AnalyzedFormat(
+            sections.Select(static section => new AnalyzedSection(section)).ToArray()
+        );
     }
 
-    private static NumericPattern AnalyzePattern(string format, double value)
+    internal sealed class AnalyzedFormat(AnalyzedSection[] sections)
     {
-        var active = new bool[format.Length];
-        var quoted = false;
-        var escaped = false;
-        var bracketed = false;
-        var percentCount = 0;
-        var exponent = false;
-        var hasFractionPlaceholder = false;
-        var decimalIndex = -1;
-        var lastPlaceholder = -1;
+        public AnalyzedSection[] Sections { get; } = sections;
+    }
 
-        for (var i = 0; i < format.Length; i++)
+    internal sealed class AnalyzedSection
+    {
+        public AnalyzedSection(string format)
         {
-            var character = format[i];
-            if (escaped)
-            {
-                escaped = false;
-                continue;
-            }
+            IsEmpty = format.Length == 0;
+            var active = new bool[format.Length];
+            var quoted = false;
+            var escaped = false;
+            var bracketed = false;
+            var percentCount = 0;
+            var exponent = false;
+            var hasFractionPlaceholder = false;
+            var decimalIndex = -1;
+            var lastPlaceholder = -1;
 
-            if (character == '\\')
+            for (var i = 0; i < format.Length; i++)
             {
-                escaped = true;
-                continue;
-            }
-
-            if (character == '"')
-            {
-                quoted = !quoted;
-                continue;
-            }
-
-            if (quoted)
-            {
-                continue;
-            }
-
-            if (character == '[')
-            {
-                bracketed = true;
-                continue;
-            }
-
-            if (character == ']')
-            {
-                bracketed = false;
-                continue;
-            }
-
-            if (bracketed)
-            {
-                continue;
-            }
-
-            active[i] = true;
-            if (character == '%')
-            {
-                percentCount++;
-            }
-            else if (character == '.')
-            {
-                decimalIndex = i;
-            }
-            else if (character is '0' or '#')
-            {
-                lastPlaceholder = i;
-            }
-            else if (character == '?')
-            {
-                hasFractionPlaceholder = true;
-            }
-            else if (
-                character is 'E' or 'e'
-                && i + 2 < format.Length
-                && format[i + 1] is '+' or '-'
-                && format[i + 2] == '0'
-            )
-            {
-                exponent = true;
-            }
-        }
-
-        var scalingCommas = 0;
-        var commaStart = lastPlaceholder + 1;
-        while (commaStart < format.Length && active[commaStart] && format[commaStart] == ',')
-        {
-            scalingCommas++;
-            commaStart++;
-        }
-
-        var renderFormat =
-            scalingCommas == 0
-                ? format
-                : string.Concat(format.AsSpan(0, lastPlaceholder + 1), format.AsSpan(commaStart));
-        var scaledValue = value / Math.Pow(1000d, scalingCommas);
-        var scaledMagnitude = Math.Abs(scaledValue) * Math.Pow(100d, percentCount);
-        var decimalPlaces = 0;
-        if (decimalIndex >= 0)
-        {
-            for (var i = decimalIndex + 1; i < format.Length && i <= lastPlaceholder; i++)
-            {
-                if (active[i] && format[i] is '0' or '#')
+                var character = format[i];
+                if (escaped)
                 {
-                    decimalPlaces++;
+                    escaped = false;
+                    continue;
+                }
+
+                if (character == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+
+                if (character == '"')
+                {
+                    quoted = !quoted;
+                    continue;
+                }
+
+                if (quoted)
+                {
+                    continue;
+                }
+
+                if (character == '[')
+                {
+                    bracketed = true;
+                    continue;
+                }
+
+                if (character == ']')
+                {
+                    bracketed = false;
+                    continue;
+                }
+
+                if (bracketed)
+                {
+                    continue;
+                }
+
+                active[i] = true;
+                if (character == '%')
+                {
+                    percentCount++;
+                }
+                else if (character == '.')
+                {
+                    decimalIndex = i;
+                }
+                else if (character is '0' or '#')
+                {
+                    lastPlaceholder = i;
+                }
+                else if (character == '?')
+                {
+                    hasFractionPlaceholder = true;
+                }
+                else if (
+                    character is 'E' or 'e'
+                    && i + 2 < format.Length
+                    && format[i + 1] is '+' or '-'
+                    && format[i + 2] == '0'
+                )
+                {
+                    exponent = true;
+                }
+            }
+
+            var scalingCommas = 0;
+            var commaStart = lastPlaceholder + 1;
+            while (commaStart < format.Length && active[commaStart] && format[commaStart] == ',')
+            {
+                scalingCommas++;
+                commaStart++;
+            }
+
+            Format =
+                scalingCommas == 0
+                    ? format
+                    : string.Concat(
+                        format.AsSpan(0, lastPlaceholder + 1),
+                        format.AsSpan(commaStart)
+                    );
+            Scale = Math.Pow(1000d, scalingCommas);
+            PercentScale = Math.Pow(100d, percentCount);
+            HasNumericPlaceholder = lastPlaceholder >= 0;
+            HasFractionPlaceholder = hasFractionPlaceholder;
+            Exponent = exponent;
+
+            if (decimalIndex >= 0)
+            {
+                for (var i = decimalIndex + 1; i < format.Length && i <= lastPlaceholder; i++)
+                {
+                    if (active[i] && format[i] is '0' or '#')
+                    {
+                        DecimalPlaces++;
+                    }
                 }
             }
         }
 
-        var roundsToZero = !exponent && scaledMagnitude < 0.5d * Math.Pow(10d, -decimalPlaces);
-        return new NumericPattern(
-            renderFormat,
-            scaledValue,
-            lastPlaceholder >= 0,
-            hasFractionPlaceholder,
-            roundsToZero
-        );
+        public bool IsEmpty { get; }
+        public string Format { get; }
+        public double Scale { get; }
+        public double PercentScale { get; }
+        public bool HasNumericPlaceholder { get; }
+        public bool HasFractionPlaceholder { get; }
+        public bool Exponent { get; }
+        public int DecimalPlaces { get; }
+
+        public NumericPattern Apply(double value)
+        {
+            var scaledValue = value / Scale;
+            var roundsToZero =
+                !Exponent
+                && Math.Abs(scaledValue) * PercentScale < 0.5d * Math.Pow(10d, -DecimalPlaces);
+            return new NumericPattern(
+                Format,
+                scaledValue,
+                HasNumericPlaceholder,
+                HasFractionPlaceholder,
+                roundsToZero
+            );
+        }
     }
 
-    private readonly record struct NumericPattern(
+    internal readonly record struct NumericPattern(
         string Format,
         double Value,
         bool HasNumericPlaceholder,
@@ -620,4 +653,27 @@ internal static class NumberFormatting
     }
 
     private static double NormalizeZero(double value) => value == 0d ? 0d : value;
+}
+
+/// <summary>
+/// A bounded process-wide cache of the immutable analysis for numeric TEXT format strings. Like
+/// <see cref="RegexCache"/>, eviction is a wholesale clear: after <see cref="Capacity"/> entries, the next
+/// distinct key clears the cache. The benign race avoids per-entry eviction bookkeeping while preserving the
+/// one-analysis steady state for formats reused across a column.
+/// </summary>
+internal static class TextFormatCache
+{
+    private const int Capacity = 256;
+    private static readonly ConcurrentDictionary<string, NumberFormatting.AnalyzedFormat> Cache =
+        new();
+
+    public static NumberFormatting.AnalyzedFormat Get(string format)
+    {
+        if (Cache.Count >= Capacity && !Cache.ContainsKey(format))
+        {
+            Cache.Clear();
+        }
+
+        return Cache.GetOrAdd(format, NumberFormatting.Analyze);
+    }
 }
