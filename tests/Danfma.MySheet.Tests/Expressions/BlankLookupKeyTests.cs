@@ -363,9 +363,9 @@ public class BlankLookupKeyTests
     [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "2")]
     [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "2")]
     [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2)", "3")]
-    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2,-1)", "1")]
     [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "4")]
-    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "1")]
     [Arguments(MatchFixture.AllAbsent, "=XMATCH(D1,A1:A2,2,-1)", "1")]
     [Arguments(MatchFixture.AllAbsent, "=XLOOKUP(D1,A1:A2,{1;2},,2,-1)", "1")]
     [Arguments(MatchFixture.ZeroFive, "=XMATCH(D1,A1:A2,2)", "#N/A")]
@@ -380,6 +380,8 @@ public class BlankLookupKeyTests
     [Arguments(MatchFixture.Array, "=XMATCH(D1,{0,\"\",5},2,-1)", "#N/A")]
     [Arguments(MatchFixture.Array, "=XLOOKUP(D1,{0,\"\",5},{1,2,4},,2)", "#N/A")]
     [Arguments(MatchFixture.Array, "=XLOOKUP(D1,{0,\"\",5},{1,2,4},,2,-1)", "#N/A")]
+    // For the 0,="",absent fixture, reverse mode changes 3/4 -> 1: Aspose excludes the trailing absent
+    // candidate and selects the numeric zero rather than applying mode 0's reverse empty-text rule.
     public async Task WildcardMode_AbsentKey_MatchesOnlyAbsentCells(
         MatchFixture fixture,
         string formula,

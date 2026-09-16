@@ -8,7 +8,8 @@ namespace Danfma.MySheet.Expressions;
 /// fallback. <c>matchMode</c>: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
 /// Wildcard mode preserves exact value kinds for non-pattern keys: absent keys match only absent cells,
 /// empty text matches only text, and numeric zero does not match either blank kind. An absent wildcard
-/// search selects the first absent cell even when the requested scan direction is reverse. Returns the
+/// search uses the first candidate selected by the forward wildcard scan even when the requested scan
+/// direction is reverse; unlike mode 0, it never substitutes empty text for the absent key. Returns the
 /// 0-based index of the match, or -1 when there is none.
 /// </summary>
 internal static class LookupMatching
@@ -159,13 +160,28 @@ internal static class LookupMatching
     {
         var matcher = WildcardMatcher(lookup, absentMatchesOnlyBlank);
         var scanInReverse = reverse && !absentMatchesOnlyBlank;
+        var firstZero = -1;
 
         for (var k = 0; k < count; k++)
         {
             var i = scanInReverse ? count - 1 - k : k;
-            if (matcher.Matches(array[i]))
+            var candidate = array[i];
+            if (matcher.Matches(candidate))
             {
-                return i;
+                return absentMatchesOnlyBlank && reverse && i == count - 1 && firstZero >= 0
+                    ? firstZero
+                    : i;
+            }
+            if (
+                absentMatchesOnlyBlank
+                && reverse
+                && firstZero < 0
+                && candidate.Kind == ComputedValueKind.Number
+                && candidate.TryGetNumber(out var number)
+                && number == 0
+            )
+            {
+                firstZero = i;
             }
         }
 

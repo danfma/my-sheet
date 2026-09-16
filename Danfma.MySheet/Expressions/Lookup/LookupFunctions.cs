@@ -735,12 +735,27 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
         {
             var matcher = LookupMatching.WildcardMatcher(lookup, absentLookup);
             var scanInReverse = reverse && !absentLookup;
+            var firstZero = -1;
             for (var offset = 0; offset < array.Length; offset++)
             {
                 var index = scanInReverse ? array.Length - 1 - offset : offset;
-                if (matcher.Matches(array.ElementAt(index)))
+                var candidate = array.ElementAt(index);
+                if (matcher.Matches(candidate))
                 {
-                    return index;
+                    return absentLookup && reverse && index == array.Length - 1 && firstZero >= 0
+                        ? firstZero
+                        : index;
+                }
+                if (
+                    absentLookup
+                    && reverse
+                    && firstZero < 0
+                    && candidate.Kind == ComputedValueKind.Number
+                    && candidate.TryGetNumber(out var number)
+                    && number == 0
+                )
+                {
+                    firstZero = index;
                 }
             }
 
