@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file. See [versionize](https://github.com/versionize/versionize) for commit guidelines.
 
+<a name="3.22.0"></a>
+## [3.22.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.22.0) (2026-09-16)
+
+### Features
+
+* **eval:** evaluate array constants as computed arrays ([4b46c4c](https://www.github.com/danfma/my-sheet/commit/4b46c4c680740f0b375e1c41aa01bbda4898d26a))
+* **lookup:** index area_num selects an area of a union reference ([ef0d677](https://www.github.com/danfma/my-sheet/commit/ef0d677f2cbaa4e9f24b0f21a29cbe7a00cff4af))
+* **parsing:** array constants ([8e7572f](https://www.github.com/danfma/my-sheet/commit/8e7572fe74760389e853dace3a09e3ad15649c33))
+
+### Bug Fixes
+
+* **dates:** workday never throws on out-of-range day counts ([c8ffcfa](https://www.github.com/danfma/my-sheet/commit/c8ffcfabe88ce16d420ee5e84eeb025667e0d3fd))
+* **eval:** normalize computed negative zero ([2574408](https://www.github.com/danfma/my-sheet/commit/2574408f6b75346b93e8c3d7082108d3bde006df))
+* **lookup:** align empty keys and vectors ([fe2c7bc](https://www.github.com/danfma/my-sheet/commit/fe2c7bc02f2c9a5220dee87b22a9c823e876267b))
+* **lookup:** classify resolved absent keys ([e9ddbda](https://www.github.com/danfma/my-sheet/commit/e9ddbda9d1d009b29109d36b8bccbb862f5f0667))
+* **lookup:** distinguish absent and empty keys ([c31b0cf](https://www.github.com/danfma/my-sheet/commit/c31b0cf83bee940b4be0746dede7b5736c7fc134))
+* **lookup:** match exact empty text keys ([7e1262d](https://www.github.com/danfma/my-sheet/commit/7e1262d88ea451fdf13e5089df67a2a9986d750c))
+* **lookup:** match non-text wildcard keys exactly ([a06bfce](https://www.github.com/danfma/my-sheet/commit/a06bfcebed2ef99d963316fa71a01f0511ea656d))
+* **lookup:** match reverse absent wildcard order ([20c1f52](https://www.github.com/danfma/my-sheet/commit/20c1f52ae9a7bf63c5aec2e5ac60757971a8409b))
+* **lookup:** match wildcards over computed arrays ([0b3c0bd](https://www.github.com/danfma/my-sheet/commit/0b3c0bd157e4d3e1b483972a5b2b566b614864f5))
+* **lookup:** preserve computed vector evaluation ([9f252ae](https://www.github.com/danfma/my-sheet/commit/9f252ae4dc4a7ca6c266c60790023fe20b194eaa))
+* **lookup:** preserve derived blank key semantics ([f5fde75](https://www.github.com/danfma/my-sheet/commit/f5fde75b0975efcdaf88e8f3509b0fc34800244a))
+* **lookup:** preserve selector and structural errors ([aa683fb](https://www.github.com/danfma/my-sheet/commit/aa683fb583eb10be0bbf5e00453751fbeec68659))
+* **lookup:** preserve structural vector errors ([5092106](https://www.github.com/danfma/my-sheet/commit/509210624264dd5657edd5d6693a04df462ab8a6))
+* **lookup:** preserve wildcard blank key kinds ([a206fd3](https://www.github.com/danfma/my-sheet/commit/a206fd3d16f6bcdcbff0c08d626b3c5a5980f108))
+* **lookup:** preserve XMATCH reference arrays ([22b4721](https://www.github.com/danfma/my-sheet/commit/22b47212ae9e41bef758bcd6018f498f90955565))
+* **lookup:** resolve wildcard strategy once ([450694e](https://www.github.com/danfma/my-sheet/commit/450694eb6d34b3b34d865e93de686eae9373b3af))
+* **lookup:** return ref errors for scalar positions ([efcfae3](https://www.github.com/danfma/my-sheet/commit/efcfae3ed1b98f8cdfe214de9adcc267a9372a94))
+* **lookup:** row and column over a computed array ([df876ca](https://www.github.com/danfma/my-sheet/commit/df876ca10d213cbcbd7bbaabcd0f9a972038d963))
+* **lookup:** scan absent wildcards symmetrically ([46a47a9](https://www.github.com/danfma/my-sheet/commit/46a47a98d1f93a2c49f350675e75b2faf2d33ad2))
+* **lookup:** stream computed XMATCH arrays ([e5730b6](https://www.github.com/danfma/my-sheet/commit/e5730b63d18ac09784fd867470af0a87f174114f))
+* **lookup:** unify table lookup semantics ([e9f5171](https://www.github.com/danfma/my-sheet/commit/e9f517157bd2a4395162c6b49f86acfe353e2e1c))
+* **lookup:** validate every XMATCH array shape ([d453421](https://www.github.com/danfma/my-sheet/commit/d4534217a56934ca74e5880f2f08053829195a4e))
+* **lookup:** validate only the selected index area for a missing sheet ([3301afc](https://www.github.com/danfma/my-sheet/commit/3301afc5e86d5eb0a2fcb73f40da42ab9296778f))
+* **parsing:** reject negative zero in array constants ([c724f5d](https://www.github.com/danfma/my-sheet/commit/c724f5d906105e6103ded965b944985e1c7d0138))
+* **parsing:** support structured column spans ([e6c6796](https://www.github.com/danfma/my-sheet/commit/e6c6796836844383d4c0425daf70c541e0e8bfd7))
+* **text:** preserve unsupported format divergences ([985c46b](https://www.github.com/danfma/my-sheet/commit/985c46bd133d907d2a66df978d7590f8e46d569a))
+* **text:** preserve zero-format section semantics ([b72c335](https://www.github.com/danfma/my-sheet/commit/b72c335a45b8a67276cd1120463f8ed03a367949))
+* **text:** render selected empty sections ([462bcc9](https://www.github.com/danfma/my-sheet/commit/462bcc97e26ec80346222ed2789af5d7e412f093))
+
 <a name="3.21.0"></a>
 ## [3.21.0](https://www.github.com/danfma/my-sheet/releases/tag/v3.21.0) (2026-09-15)
 
