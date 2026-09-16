@@ -204,15 +204,14 @@ public sealed partial record HLookup(Expression[] Arguments) : Function
             // ordering (ValueCoercion.Compare) lets text keys sort lexicographically, exactly like
             // the <= operator — not only numeric keys.
             else if (
-                matchColumn < 1
-                && keySnapshot is not null
+                keySnapshot is not null
                 && (lookup.Kind != ComputedValueKind.Text || !LookupMatching.UsesWildcards(lookup))
             )
             {
                 var position = keySnapshot.ApproximateAscendingPosition(lookup);
                 matchColumn = position >= 1 ? position : -1;
             }
-            else if (matchColumn < 1)
+            else
             {
                 for (var column = 1; column <= grid.Columns; column++)
                 {

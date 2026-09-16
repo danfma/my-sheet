@@ -428,7 +428,7 @@ internal static class NumberFormatting
             return string.Empty;
         }
 
-        var magnitude = sectionIndex == 1 && analyzed.Sections.Length > 1 ? -number : number;
+        var magnitude = sectionIndex == 1 ? -number : number;
         var pattern = section.Apply(magnitude);
 
         if (

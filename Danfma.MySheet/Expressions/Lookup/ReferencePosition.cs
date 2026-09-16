@@ -219,15 +219,6 @@ internal static class ReferencePosition
         out ComputedValue error
     )
     {
-        error = lookup;
-        if (
-            lookup.TryGetError(out var lookupError)
-            && PositionalRange.IsOwnSlotError(argument, lookupError, context)
-        )
-        {
-            return true;
-        }
-
         _ = NamedReferences.TryResolveReference(argument, context, out var reference);
         return IsLookupValueError(argument, lookup, reference, context, out error);
     }
