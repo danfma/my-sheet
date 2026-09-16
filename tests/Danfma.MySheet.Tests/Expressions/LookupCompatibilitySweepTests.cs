@@ -279,4 +279,57 @@ public class LookupCompatibilitySweepTests
             .That(workbook.GetCellValue("Main", "AZ5000"))
             .IsEqualTo(ComputedValue.Number(1));
     }
+
+    // Fixture: A1:A2 = 5,6; B1:B2 = 10,20; C1:C2 = TRUE,FALSE; D1:D2 =
+    // DATE(2024,1,1),DATE(2024,1,2); E1:E3 = 0,absent,""; formula at AZ5000.
+    // Aspose.Cells 26.7.0 PLAIN/CSE agree on every expected value except the registered reverse-array
+    // wildcard defect: XMATCH("a*",{"x","ab"},2,-1) is 1 in both oracle modes, while MySheet keeps 2.
+    // Before this fix the numeric, boolean and date reference rows returned #N/A instead of 1/2/10.
+    [Test]
+    [Arguments("=XMATCH(5,A1:A2,2)", "1")]
+    [Arguments("=XMATCH(6,A1:A2,2,-1)", "2")]
+    [Arguments("=XLOOKUP(5,A1:A2,B1:B2,,2)", "10")]
+    [Arguments("=XLOOKUP(5,{5,6},{10,20},,2)", "10")]
+    [Arguments("=XMATCH(TRUE,C1:C2,2)", "1")]
+    [Arguments("=XMATCH(5,{5,6},2)", "1")]
+    [Arguments("=XMATCH(TRUE,{TRUE,FALSE},2)", "1")]
+    [Arguments("=XMATCH(5,A1:A2,0)", "1")]
+    [Arguments("=XMATCH(DATE(2024,1,2),D1:D2,2)", "2")]
+    [Arguments("=XMATCH(\"5\",A1:A2,2)", "#N/A")]
+    [Arguments("=XMATCH(5,{\"5\",\"x\"},2)", "#N/A")]
+    [Arguments("=XMATCH(\"a*\",{\"x\",\"ab\"},2)", "2")]
+    [Arguments("=XMATCH(\"a~*\",{\"a*\",\"ab\"},2)", "1")]
+    [Arguments("=XMATCH(\"\",E1:E3,2)", "3")]
+    [Arguments("=XMATCH(5,A1:A2,2,-1)", "1")]
+    [Arguments("=XMATCH(TRUE,C1:C2,2,-1)", "1")]
+    [Arguments("=XMATCH(DATE(2024,1,2),D1:D2,2,-1)", "2")]
+    [Arguments("=XMATCH(\"5\",A1:A2,2,-1)", "#N/A")]
+    [Arguments("=XMATCH(5,{\"5\",\"x\"},2,-1)", "#N/A")]
+    [Arguments("=XMATCH(\"a*\",{\"x\",\"ab\"},2,-1)", "2")]
+    [Arguments("=XMATCH(\"a~*\",{\"a*\",\"ab\"},2,-1)", "1")]
+    [Arguments("=XMATCH(\"\",E1:E3,2,-1)", "3")]
+    public async Task WildcardMode_UsesExactMatchingForNonTextKeys(string formula, string expected)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["A1"] = new NumberValue(5);
+        main["A2"] = new NumberValue(6);
+        main["B1"] = new NumberValue(10);
+        main["B2"] = new NumberValue(20);
+        main["C1"] = ExpressionParser.Parse("=TRUE", main);
+        main["C2"] = ExpressionParser.Parse("=FALSE", main);
+        main["D1"] = ExpressionParser.Parse("=DATE(2024,1,1)", main);
+        main["D2"] = ExpressionParser.Parse("=DATE(2024,1,2)", main);
+        main["E1"] = new NumberValue(0);
+        main["E3"] = ExpressionParser.Parse("=\"\"", main);
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+
+        var value = workbook.GetCellValue("Main", "AZ5000");
+        var actual =
+            value.TryGetError(out var error) ? error.ToString()
+            : value.TryGetNumber(out var number) ? number.ToString(CultureInfo.InvariantCulture)
+            : value.Kind.ToString();
+
+        await Assert.That(actual).IsEqualTo(expected);
+    }
 }

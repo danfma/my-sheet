@@ -142,18 +142,12 @@ internal static class LookupMatching
         bool reverse
     )
     {
-        var pattern = lookup.TryGetText(out var p) ? p : string.Empty;
-
-        // The pattern is resolved to a compiled Regex ONCE, ahead of the scan — not per cell. RegexCache
-        // already avoided recompiling the same pattern, but Criteria.WildcardMatch still rebuilt the "^…$"
-        // pattern STRING (a fresh StringBuilder) on every call; hoisting this out means the whole scan pays
-        // that cost exactly once regardless of how many cells it examines.
-        var regex = Criteria.BuildWildcardRegex(pattern);
+        var matcher = TableExactMatcher(lookup);
 
         for (var k = 0; k < count; k++)
         {
             var i = reverse ? count - 1 - k : k;
-            if (array[i].TryGetText(out var text) && IsWildcardMatch(regex, text))
+            if (matcher.Matches(array[i]))
             {
                 return i;
             }
@@ -162,9 +156,7 @@ internal static class LookupMatching
         return -1;
     }
 
-    // Same fail-safe timeout handling as Criteria.WildcardMatch: no error channel here (XLOOKUP/XMATCH/LOOKUP
-    // wildcard scans treat this as a per-element bool), so a timeout reports "no match" for that cell rather
-    // than propagating or aborting the rest of the scan.
+    // A timeout makes only that candidate a non-match; lookup scans have no error channel for it.
     private static bool IsWildcardMatch(Regex regex, string text)
     {
         try
