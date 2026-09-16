@@ -3,8 +3,10 @@ namespace Danfma.MySheet.Expressions.Lookup;
 /// <summary>
 /// Builds LOOKUP's vector slots exactly once after selecting scalar <c>IF</c>/<c>CHOOSE</c> paths.
 /// Measured Aspose.Cells 26.7.0 rule: lookup-slot scalar errors propagate; element errors remain in a
-/// materialized vector and are skipped by matching; a result-slot singleton error against multiple keys is
-/// <c>#N/A</c>; structural missing sheets on the selected path are always <c>#REF!</c>.
+/// materialized vector and are skipped by matching; a result-slot selector's own error propagates before a
+/// selected singleton error against multiple keys becomes <c>#N/A</c>. A binary lookup vector propagates a
+/// structural missing sheet only when its opposite operand is scalar; result vectors preserve structural
+/// errors for either operand.
 /// </summary>
 internal static class LookupVector
 {
@@ -15,7 +17,15 @@ internal static class LookupVector
         out ComputedValue error
     )
     {
-        if (TrySelectedPathError(expression, context, propagateOwnError: true, out error))
+        if (
+            TrySelectedPathError(
+                expression,
+                context,
+                propagateScalarError: true,
+                broadBinaryStructuralError: false,
+                out error
+            )
+        )
         {
             values = [];
             return false;
@@ -33,7 +43,15 @@ internal static class LookupVector
         out ComputedValue error
     )
     {
-        if (TrySelectedPathError(expression, context, propagateOwnError: false, out error))
+        if (
+            TrySelectedPathError(
+                expression,
+                context,
+                propagateScalarError: false,
+                broadBinaryStructuralError: true,
+                out error
+            )
+        )
         {
             values = [];
             return false;
@@ -52,7 +70,8 @@ internal static class LookupVector
     private static bool TrySelectedPathError(
         Expression expression,
         EvaluationContext context,
-        bool propagateOwnError,
+        bool propagateScalarError,
+        bool broadBinaryStructuralError,
         out ComputedValue error
     )
     {
@@ -71,11 +90,8 @@ internal static class LookupVector
                     .CoerceToBoolAllowingTextWords(out var condition);
                 if (conditionError is not null)
                 {
-                    if (propagateOwnError)
-                    {
-                        error = ComputedValue.Error(conditionError.Value);
-                    }
-                    return propagateOwnError;
+                    error = ComputedValue.Error(conditionError.Value);
+                    return true;
                 }
 
                 var selected =
@@ -83,26 +99,37 @@ internal static class LookupVector
                     : ifNode.Arguments.Length == 3 ? ifNode.Arguments[2]
                     : null;
                 return selected is not null
-                    && TrySelectedPathError(selected, context, propagateOwnError, out error);
+                    && TrySelectedPathError(
+                        selected,
+                        context,
+                        propagateScalarError,
+                        broadBinaryStructuralError,
+                        out error
+                    );
 
             case Choose choose:
                 if (choose.TryChoose(context, out var chosen) is { } chooseError)
                 {
-                    if (propagateOwnError)
-                    {
-                        error = chooseError;
-                    }
-                    return propagateOwnError;
+                    error = chooseError;
+                    return true;
                 }
 
-                return TrySelectedPathError(chosen, context, propagateOwnError, out error);
+                return TrySelectedPathError(
+                    chosen,
+                    context,
+                    propagateScalarError,
+                    broadBinaryStructuralError,
+                    out error
+                );
 
-            case BinaryOperation binary
-                when !ArrayEvaluation.IsArrayEligible(binary.Left, context)
-                    || !ArrayEvaluation.IsArrayEligible(binary.Right, context):
+            case BinaryOperation binary:
+                var leftIsArray = ArrayEvaluation.IsArrayEligible(binary.Left, context);
+                var rightIsArray = ArrayEvaluation.IsArrayEligible(binary.Right, context);
                 if (
-                    TryStructuralError(binary.Left, context, out error)
-                    || TryStructuralError(binary.Right, context, out error)
+                    (broadBinaryStructuralError || !rightIsArray)
+                        && TryStructuralError(binary.Left, context, out error)
+                    || (broadBinaryStructuralError || !leftIsArray)
+                        && TryStructuralError(binary.Right, context, out error)
                 )
                 {
                     return true;
@@ -111,7 +138,7 @@ internal static class LookupVector
         }
 
         if (
-            propagateOwnError
+            propagateScalarError
             && !IsComputedVector(expression, context)
             && ReferencePosition.TryUnresolvedError(expression, context, out error)
         )
@@ -126,7 +153,14 @@ internal static class LookupVector
         Expression expression,
         EvaluationContext context,
         out ComputedValue error
-    ) => TrySelectedPathError(expression, context, propagateOwnError: false, out error);
+    ) =>
+        TrySelectedPathError(
+            expression,
+            context,
+            propagateScalarError: false,
+            broadBinaryStructuralError: false,
+            out error
+        );
 
     private static bool IsComputedVector(Expression expression, EvaluationContext context) =>
         expression is not TableReference

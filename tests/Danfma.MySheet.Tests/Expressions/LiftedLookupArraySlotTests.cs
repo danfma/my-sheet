@@ -133,6 +133,8 @@ public class LiftedLookupArraySlotTests
     [Arguments("=LOOKUP(2,B1:B4,CHOOSE(TICK()*0+1,C1:C4,B1:B4))", "20")]
     [Arguments("=LOOKUP(2,IF(TICK()>0,B1:B4,NoSuch))", "2")]
     [Arguments("=LOOKUP(2,B1:B4,IF(TICK()>0,C1:C4,NoSuch))", "20")]
+    [Arguments("=LOOKUP(2,OFFSET(B1,TICK()*0,0,4,1))", "2")]
+    [Arguments("=LOOKUP(2,INDEX(B1:C4,0,TICK()*0+1))", "2")]
     public async Task Lookup_MaterializesEachVolatileVectorOnce(string formula, string expected)
     {
         var draws = 0;
@@ -204,13 +206,41 @@ public class LiftedLookupArraySlotTests
     [Arguments("=LOOKUP(2,B1:B4,1/0)", "#N/A")]
     [Arguments("=LOOKUP(2,B1:B4,{10,20,30,40}/0)", "#DIV/0!")]
     [Arguments("=LOOKUP(2,B1:B4,NoSuch*1)", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4,CHOOSE(9,C1:C4))", "#VALUE!")]
+    [Arguments("=LOOKUP(2,B1:B4,CHOOSE(0,C1:C4))", "#VALUE!")]
+    [Arguments("=LOOKUP(2,B1:B4,CHOOSE(NA(),C1:C4))", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4,CHOOSE(\"x\",C1:C4))", "#VALUE!")]
+    [Arguments("=LOOKUP(2,B1:B4,IF(NA(),C1:C4,B1:B4))", "#N/A")]
+    [Arguments("=LOOKUP(2,B1:B4,CHOOSE(1,NoSuch,C1:C4))", "#N/A")]
     [Arguments("=LOOKUP(1,B1:B4,IF(TRUE,NoSheet!C1:C4,C1:C4))", "#REF!")]
     [Arguments("=LOOKUP(2,B1:B4,IF(TRUE,NoSuch,C1:C4))", "#N/A")]
     [Arguments("=LOOKUP(1,{1},NoSuch)", "#NAME?")]
     public async Task Lookup_ResultVectorPreservesItsMeasuredErrorSemantics(
         string formula,
         string expected
-    ) => await Assert.That(OnLookupFixture(formula)).IsEqualTo(expected);
+    ) =>
+        // Invalid result selectors 9, 0, and "x" were #N/A before these pins; their own #VALUE! now
+        // propagates before singleton normalization. CHOOSE(NA(),...) remains #N/A.
+        await Assert.That(OnLookupFixture(formula)).IsEqualTo(expected);
+
+    [Test]
+    [Arguments("=LOOKUP(1,(A1:A3)*NoSheet!A1)", "#N/A")]
+    [Arguments("=LOOKUP(1,NoSheet!A1*(A1:A3))", "#N/A")]
+    [Arguments("=LOOKUP(1,-NoSheet!A1:A3)", "#N/A")]
+    [Arguments("=LOOKUP(1,NoSheet!A1:A3+A1:A3)", "#N/A")]
+    [Arguments("=LOOKUP(1,NoSheet!A1:A3*1)", "#REF!")]
+    [Arguments("=LOOKUP(1,1*NoSheet!A1:A3)", "#REF!")]
+    [Arguments("=LOOKUP(1,NoSheet!A1*1)", "#REF!")]
+    [Arguments("=LOOKUP(1,NoSheet!A1:A3*{1;1;1})", "#N/A")]
+    [Arguments("=LOOKUP(1,(NoSheet!A1:A3)*(A1:A3))", "#N/A")]
+    [Arguments("=LOOKUP(1,IF(TRUE,NoSheet!A1:A3,A1:A3))", "#REF!")]
+    [Arguments("=LOOKUP(2,B1:B4,(C1:C4)*NoSheet!A1)", "#REF!")]
+    public async Task Lookup_PropagatesStructuralErrorsOnlyForMeasuredSlotShapes(
+        string formula,
+        string expected
+    ) =>
+        // The two mixed lookup-vector rows were #REF! before this pin and must be #N/A like both oracle modes.
+        await Assert.That(OnLookupFixture(formula)).IsEqualTo(expected);
 
     // VLOOKUP/HLOOKUP now consume the lifted table through the same TryStream route as every array-valued
     // table, following the oracle CSE values. Before that shared route they returned #VALUE!; OFFSET keeps
