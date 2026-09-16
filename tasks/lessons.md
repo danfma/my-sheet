@@ -428,3 +428,11 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
   - **Rule:** when a phase is born from a consumer's report, map every new finding against that report first.
   - **Rule:** a finding outside the report that is not a regression against the phase's base is registered, not fixed in the phase.
   - **Rule:** when proposing a scope choice, show the mapping to the originating document up front, before any option list.
+
+- **A rule fitted to a few oracle rows can encode an oracle bug.** Fix-wave round 2 derived "reverse absent key: scan forward, and for a trailing absent candidate use an earlier zero" from three fixtures, even though forward search showed zero never matches an absent key. Eight discriminating rows showed that Aspose returns position 1 whenever the last candidate is absent, even when position 1 does not match: the same shape as the registered reverse-wildcard array defect.
+  - **Rule:** when a measured rule contradicts another measured row of the same family, run discriminating rows (vary the non-matching candidates, the positions and the used range) before implementing it.
+  - **Rule:** if the oracle is internally incoherent, register it as a defect and implement the coherent symmetric rule in one place.
+- **Host memory pressure kills agent wrappers and controller watchdogs.** Four kills in one hour came from resident MSBuild/VBCSCompiler servers plus desktop apps.
+  - **Rule:** run `dotnet build-server shutdown` between dispatches.
+  - **Rule:** keep watchdogs short-windowed and renew them.
+  - **Rule:** after any kill, first check the session's parts and `GET /permission`. Serve sessions keep running and only need their permission prompts answered.

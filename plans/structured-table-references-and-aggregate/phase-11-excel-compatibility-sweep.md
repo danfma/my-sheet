@@ -752,9 +752,26 @@ These were measured on Aspose.Cells 26.7.0 during [sweep 31/35-43](../excel-comp
       - Fix: in `LookupVector`, propagate the CHOOSE index error but not the IF condition error in the result slot. Pin `IF(1/0,…)`, `IF("x",…)` and `IF(NA(),…)`.
       - HEAD equals `b8e6cf9`, so this is not a phase regression. Deferred by user scope, 2026-09-16.
       *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5b-round-8.md` (rows to register).
+- [ ] **82.** Lookup matching engine duplication, from the Fable 5.1 final gate of sweep robustness-parser (I2, M1, M4).
+      - `XMatch.FindMatch` (`Lookup/LookupFunctions.cs`) re-implements `LookupMatching.FindMatch`/`Closest` over `ArrayStream`. The absent-key forward/reverse rule appears three times (the `LookupMatching.FindMatch` ternary, the `XMatch.FindMatch` ternary, and `ExactMatcher._blankOnly`).
+      - The "last exact empty-text candidate" rule is implemented three times: `LookupGrid.FindLastExactText`, the `Match` approximate loop, and LOOKUP's reverse mode-0 search.
+      - The unresolved-key absent fallback is duplicated in `LookupMatching.EvaluateKey` and `ArrayBindings.Capture`.
+      - Fix:
+        - a generic `FindMatch<TList> where TList : IReadOnlyList<ComputedValue>` with a `readonly struct` `ArrayStream` adapter (zero allocation);
+        - the absent rule inside `ExactMatcher` (pass `reverse`);
+        - one `FindExactText(..., last)` helper;
+        - `ResolvedReferenceValue.IsAbsentUnresolved`.
+      - Keep the 153 B/eval and 32 B/eval XMATCH allocation gates. No behaviour change; the existing route and blank-key pins guard it.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/final-gate/fable.md`. Deferred by user scope (release first), 2026-09-16.
+- [ ] **83.** The approximate VLOOKUP/HLOOKUP wildcard guard is dead logic that costs O(n). `Lookup/VLookup.cs:90` and `Lookup/LookupFunctions.cs:212` send a wildcard text key to a linear scan whose rule (`Compare <= 0`, order-only) matches `ApproximateAscendingPosition`'s documented "last qualifying position".
+      - [Likely] Drop the guard. If a measured row needs wildcard semantics in approximate mode, implement them in the scan instead. Measure first.
+      *Source:* same (M3).
+- [ ] **84.** `ROW`/`COLUMN` build an array stream only to answer `#REF!`: `ArrayEvaluation.TryStream(only, context, out _)` at `Lookup/Row.cs:40` and `Lookup/LookupFunctions.cs:396`. Use the reject-only probe (`!IsBareReferenceNode && IsArrayEligible`) that `Index.TryResolveReference` uses. This is cost only, with no double draw.
+      *Source:* same (M6).
 
 **Registered oracle defects** (MySheet keeps its coherent answer; do not "fix"):
 - Reversed structured column span: `Tabela1[[Qtd]:[Valor]]` is internally incoherent on Aspose 26.7.0, with PLAIN = CSE. It gives `ROWS` 3 but `COLUMNS` 0, `INDEX(...,1,1)` `#REF!`, `COUNTIF(...,">15")` 0 and `SUM(OFFSET(...,0,0))` 6600, while `SUM` is 660 and `XLOOKUP(2,Main!A1:A3,...)` returns the full two-column row (220). Aspose stores the text un-normalised. No single region explains those values together. MySheet normalises the endpoints to the forward region (3x2), so every consumer matches `Tabela1[[Valor]:[Qtd]]`: 3/2/10/60/660/220/5/1. Registered 2026-09-15; source `.superpowers/sdd/sweep-robustness-parser/reports/phase-4-fix-r1.md`.
+- Reverse wildcard-mode search with an ABSENT key when the LAST candidate is absent: Aspose PLAIN and CSE return position 1 even when position 1 does not match. `XMATCH(D1,A1:A3,2,-1)` with `D1` absent gives 1 over `5,="",absent`, `7,0,absent`, `="",0,absent`, `0,absent,absent`, `0,="",absent` and `absent,absent`. The same key returns the absent position when it is not last (`0,absent,=""` gives 2, `="",absent,0` gives 2), a populated `A10` changes nothing, and forward search over `0,5` is `#N/A` (zero never matches an absent key). [Likely] this is the same last-position reverse-search defect as the array row below. MySheet keeps the coherent symmetric answer: the last absent cell, else `#N/A`. Registered 2026-09-16; source `.superpowers/sdd/sweep-robustness-parser/final-gate/fix-wave-review-r2.md`.
 - Reverse wildcard search over an ARRAY: `XMATCH("a*",{"x","ab"},2,-1)` gives 1 on Aspose PLAIN and CSE. Its range twin `XMATCH("a*",A1:A2,2,-1)` over the same values gives 2, and position 1 holds `"x"`, which does not match `"a*"`. `XLOOKUP("a*",{"x","ab"},{1,2},,2,-1)` returns the value at position 1 for the same reason. MySheet keeps 2, the range answer. Registered 2026-09-15; source `.superpowers/sdd/sweep-robustness-parser/reports/phase-2-fix-r5.md`.
 - `ROWS(OFFSET(A1:A3,0,0,2))` is 3 and `ROWS(OFFSET(A:A,2,0,-2,1))` is 1048576 on the oracle, while its own `SUM`/`COUNT` prove the window size.
 - `ROWS(XLOOKUP(1,A1,B1:B3))` is 1 while its own `INDEX(...,2)` gives 20 and its `SUM` gives 60.

@@ -396,7 +396,7 @@ The document's other items are downstream harness work, or were already fixed in
 - **Status for the consumer list:** A needs harness work (table metadata); B is closed by 5b; C is closed by 5c; Bugs 6/8/9 and `IF("1")` already agree.
 
 ## Phase 6: Integration, sweep file, lessons, Fable 5.1 final gate, local merge
-Status: In progress (local merge and final gate).
+Status: **Complete** (2026-09-16); `main` is ready for the user's push and release.
 - 2026-09-16: `feat/rp-integrate` fast-forwarded to `aa683fb` (45 commits since `856a6c5`). Gates are green: csharpier 420, Release build 0/0, core 3803/0, Excel 138/0, union count 329, attribution 0. Since the last perf gate (`fe2c7bc`, PASS), only LOOKUP code changed, so no new gate is needed.
 - 2026-09-15 19:53: `feat/rp-integrate` was fast-forwarded to `2bbda0d` (Phase 5b through fix round 7; 44 commits since `856a6c5`). Gates are green: csharpier 420, Release build 0/0, core 3784/0, Excel 138/0, union count 329, attribution 0, `plans/`/`tasks/` untouched, fences unchanged. Phase 5b review round 7 is pending; later fix commits can fast-forward again.
 - Earlier: `feat/rp-integrate` in worktree `MySheet-rpint` was @ `48e01c0`, carrying Phase 1, Phase 3 and Phase 5c, all cherry-picked with clean merge-tree forecasts.
@@ -407,19 +407,50 @@ Status: In progress (local merge and final gate).
 
 - [x] Integrate the phase branches onto a single branch off `main`: forecast conflicts with `git merge-tree` and resolve them. Run semantic checks and the divergence probe.
 - [x] Sweep file: items 19, 27, 52, 53, 54 and 59 CLOSED-BY with hashes; the Phase 0 classifications recorded; follow-ups registered as items 58-81.
-- [ ] Housekeeping of `.superpowers/sdd/pending-verifications.md`. Lessons appended to `tasks/lessons.md`.
-- [ ] Claude Fable 5.1 code-quality review of the sweep range, then the fix wave on opencode, then closure review.
-- [ ] Local ff-only merge into `main` with gates on `main`, then notify the user. No push.
+- [x] Housekeeping of `.superpowers/sdd/pending-verifications.md`. Lessons appended to `tasks/lessons.md`.
+- [x] Claude Fable 5.1 code-quality review of the sweep range, then the fix wave on opencode, then closure review.
+- [x] Local ff-only merge into `main` with gates on `main`, then notify the user. No push.
 
 ### Verification Plan
 - Both suites `failed: 0` on `main`; csharpier clean; Release build with 0 warnings; union 329; attribution grep 0.
 - The divergence probe shows no row moving away from CSE compared with `856a6c5`.
 
 ### Phase Summary
-_(write when phase completes)_
+- **Integration:** every phase branch landed on `feat/rp-integrate` and was fast-forwarded into `main` locally. Code went through `aa683fb`, followed by the docs commit `1eb9e00`. Gates on `main` were green (csharpier, Release build 0/0, core 3803/0, Excel 138/0, union count 329, attribution 0).
+- **Claude Fable 5.1 final gate** (`final-gate/fable.md`): Fixes required, with 0 Critical, 4 Important and 7 Minor.
+  - Fixed in the fix wave on `feat/rp-final-fixes`:
+    - I1: a numeric, boolean or date key in wildcard mode returned `#N/A` on the reference route (`a06bfce`);
+    - I3: a pt-BR sentence was untranslated (`44709ff`);
+    - I4: the vacuous `ArrayMaterializations` counter, with the route pins now proven by mutation (`f71394a`);
+    - M2, M5, M7: mechanical cleanups (`11ddf70`).
+  - Registered instead: I2 + M1 + M4 as item 82 (matching engine consolidation), M3 as item 83 and M6 as item 84.
+- **Fix-wave closure loop:**
+  - Round 1 found that the new wildcard matcher dropped the absent-key rule (a blank-key row). Fix r2 (`a206fd3`, `20c1f52`) measured a 120-row matrix (5 key forms × 6 ranges × XMATCH/XLOOKUP in both directions) and matched CSE on all rows.
+  - Round 2 found fix r2's reverse absent-key rule overfitted. Eight attack rows showed that Aspose returns position 1 whenever the last candidate is absent, even when position 1 does not match.
+  - Controller ruling: this is registered as an oracle defect. Fix r3 (`46a47a9`) implements the symmetric rule (last absent cell, else `#N/A`) in one zero-allocation `ScanWildcard<TSource>` helper shared by the list and stream routes.
+- **Result:** the consumer's calc-divergences list is closed on the engine side. B is fixed by 5b and C by 5c; A needs the consumer to register table metadata.
+- **Handed on:** open sweep items 14-30, 44-56, 58 and 60-84 are evaluated after the user's release.
 
 ## Final Recap
-_(write when all phases complete)_
+- **Closed:**
+  - item 19 (WORKDAY overflow);
+  - item 27 (huge column references);
+  - item 52 (INDEX `area_num`);
+  - item 53 (array constants);
+  - item 54 (structured column spans);
+  - item 59 (blank lookup keys);
+  - the negative-zero contract (5c).
+- **Also fixed on the way:**
+  - LOOKUP over array constants and computed vectors, including the `1/(cond)` idiom;
+  - TEXT section and sign semantics;
+  - wildcard-mode lookups with non-text keys;
+  - the absent-key and empty-text rules across the lookup and criteria families.
+- **Registered for later:** items 58-84, plus the oracle defects listed in the sweep file (reversed spans, the reverse wildcard array search, the reverse absent last-position search).
+- **Process cost:** Phase 2 took 9 review rounds and Phase 5b took 8 fix rounds, plus the final-gate wave with 3 rounds. The lessons are in `tasks/lessons.md` under 2026-09-15.
 
 ## Deployment Plan
-_(write when all phases complete)_
+- `main` holds the whole sweep locally; the controller never pushes. The user pushes `main` and cuts the release, bumping the version and writing the changelog.
+- The consumer (`~/MYSHEET-CALC-DIVERGENCES.md`) should re-run its corpus after upgrading. Expected movement:
+  - family B blank-key cells (70 `AsposeOnlyError` in Part II Spillover);
+  - `-0` serialisation.
+- Structured references still need table metadata registered in the consumer's harness.
