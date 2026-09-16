@@ -267,28 +267,27 @@ public class RangeValueCacheEquivalenceTests
         var result = expression.Evaluate(context);
 
         await Assert.That(result.ToDouble()).IsEqualTo(2d);
-        await Assert.That(diagnostics.ArrayMaterializations).IsEqualTo(0);
+        await Assert.That(diagnostics.ArrayStreams).IsEqualTo(0);
         await Assert.That(diagnostics.ReferenceExpansions).IsEqualTo(1);
     }
 
     [Test]
-    [Arguments("SEQUENCE(1000)", 0, 1, 0)]
-    [Arguments("IF(TRUE,{1;2;3})", 0, 1, 0)]
-    [Arguments("LET(t,SEQUENCE(5),t)", 0, 1, 0)]
-    [Arguments("CHOOSE(1,{1;2})", 0, 1, 0)]
-    [Arguments("SEQUENCE(1000)", 1, 1, 0)]
-    [Arguments("IF(TRUE,{1;2;3})", 1, 1, 0)]
-    [Arguments("LET(t,SEQUENCE(5),t)", 1, 1, 0)]
-    [Arguments("CHOOSE(1,{1;2})", 1, 1, 0)]
-    [Arguments("SEQUENCE(1000)", 2, 1, 0)]
-    [Arguments("IF(TRUE,{1;2;3})", 2, 1, 0)]
-    [Arguments("LET(t,SEQUENCE(5),t)", 2, 1, 0)]
-    [Arguments("CHOOSE(1,{1;2})", 2, 1, 0)]
+    [Arguments("SEQUENCE(1000)", 0, 1)]
+    [Arguments("IF(TRUE,{1;2;3})", 0, 1)]
+    [Arguments("LET(t,SEQUENCE(5),t)", 0, 1)]
+    [Arguments("CHOOSE(1,{1;2})", 0, 1)]
+    [Arguments("SEQUENCE(1000)", 1, 1)]
+    [Arguments("IF(TRUE,{1;2;3})", 1, 1)]
+    [Arguments("LET(t,SEQUENCE(5),t)", 1, 1)]
+    [Arguments("CHOOSE(1,{1;2})", 1, 1)]
+    [Arguments("SEQUENCE(1000)", 2, 1)]
+    [Arguments("IF(TRUE,{1;2;3})", 2, 1)]
+    [Arguments("LET(t,SEQUENCE(5),t)", 2, 1)]
+    [Arguments("CHOOSE(1,{1;2})", 2, 1)]
     public async Task XMatchComputedArray_UsesTheRequiredScanRoute(
         string source,
         int matchMode,
-        int expectedStreams,
-        int expectedMaterializations
+        int expectedStreams
     )
     {
         var workbook = new Workbook();
@@ -300,7 +299,6 @@ public class RangeValueCacheEquivalenceTests
         _ = expression.Evaluate(context);
 
         await Assert.That(diagnostics.ArrayStreams).IsEqualTo(expectedStreams);
-        await Assert.That(diagnostics.ArrayMaterializations).IsEqualTo(expectedMaterializations);
         await Assert.That(diagnostics.ReferenceExpansions).IsEqualTo(0);
     }
 

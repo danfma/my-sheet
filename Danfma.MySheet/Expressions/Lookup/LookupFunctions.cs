@@ -6,11 +6,8 @@ namespace Danfma.MySheet.Expressions.Lookup;
 
 internal sealed class XMatchRouteDiagnostics
 {
-    public int ArrayMaterializations { get; private set; }
     public int ArrayStreams { get; private set; }
     public int ReferenceExpansions { get; private set; }
-
-    public void RecordArrayMaterialization() => ArrayMaterializations++;
 
     public void RecordArrayStream() => ArrayStreams++;
 

@@ -171,8 +171,6 @@ public readonly struct EvaluationContext
     // materializing it. They belong to the top-level evaluation context, just like the condition cache.
     private readonly XMatchRouteDiagnostics? _routeDiagnostics;
 
-    internal void RecordArrayMaterialization() => _routeDiagnostics?.RecordArrayMaterialization();
-
     internal void RecordArrayStream() => _routeDiagnostics?.RecordArrayStream();
 
     internal void RecordReferenceExpansion() => _routeDiagnostics?.RecordReferenceExpansion();
