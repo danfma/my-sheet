@@ -355,6 +355,65 @@ public class BlankLookupKeyTests
         await Assert.That(Format(workbook.GetCellValue("Main", "AZ5000"))).IsEqualTo(expected);
     }
 
+    // Aspose.Cells 26.7.0 PLAIN/CSE agree on every row. Before the fix, wildcard mode treated the
+    // absent key as numeric zero or empty text; these 22 rows instead require an actually absent cell.
+    [Test]
+    [Arguments(MatchFixture.ZeroAbsentText, "=XMATCH(D1,A1:A3,2)", "2")]
+    [Arguments(MatchFixture.ZeroAbsentText, "=XMATCH(D1,A1:A3,2,-1)", "2")]
+    [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "2")]
+    [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "2")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2)", "3")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "4")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.AllAbsent, "=XMATCH(D1,A1:A2,2,-1)", "1")]
+    [Arguments(MatchFixture.AllAbsent, "=XLOOKUP(D1,A1:A2,{1;2},,2,-1)", "1")]
+    [Arguments(MatchFixture.ZeroFive, "=XMATCH(D1,A1:A2,2)", "#N/A")]
+    [Arguments(MatchFixture.ZeroFive, "=XMATCH(D1,A1:A2,2,-1)", "#N/A")]
+    [Arguments(MatchFixture.ZeroFive, "=XLOOKUP(D1,A1:A2,{1;2},,2)", "#N/A")]
+    [Arguments(MatchFixture.ZeroFive, "=XLOOKUP(D1,A1:A2,{1;2},,2,-1)", "#N/A")]
+    [Arguments(MatchFixture.TextAbsentZero, "=XMATCH(D1,A1:A3,2)", "2")]
+    [Arguments(MatchFixture.TextAbsentZero, "=XMATCH(D1,A1:A3,2,-1)", "2")]
+    [Arguments(MatchFixture.TextAbsentZero, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "2")]
+    [Arguments(MatchFixture.TextAbsentZero, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "2")]
+    [Arguments(MatchFixture.Array, "=XMATCH(D1,{0,\"\",5},2)", "#N/A")]
+    [Arguments(MatchFixture.Array, "=XMATCH(D1,{0,\"\",5},2,-1)", "#N/A")]
+    [Arguments(MatchFixture.Array, "=XLOOKUP(D1,{0,\"\",5},{1,2,4},,2)", "#N/A")]
+    [Arguments(MatchFixture.Array, "=XLOOKUP(D1,{0,\"\",5},{1,2,4},,2,-1)", "#N/A")]
+    public async Task WildcardMode_AbsentKey_MatchesOnlyAbsentCells(
+        MatchFixture fixture,
+        string formula,
+        string expected
+    ) => await Assert.That(EvaluateWildcardAbsent(formula, fixture)).IsEqualTo(expected);
+
+    // Aspose.Cells 26.7.0 PLAIN/CSE agree: wildcard-mode numeric zero matches numeric zero only.
+    // Before the fix these reverse or blank-only rows selected an absent/formula-empty candidate.
+    [Test]
+    [Arguments(MatchFixture.ZeroAbsentText, "=XMATCH(0,A1:A3,2,-1)", "1")]
+    [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(0,A1:A3,{1;2;4},,2,-1)", "1")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(0,A1:A3,2,-1)", "1")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(0,A1:A3,{1;2;4},,2,-1)", "1")]
+    [Arguments(MatchFixture.AllAbsent, "=XMATCH(0,A1:A2,2)", "#N/A")]
+    [Arguments(MatchFixture.AllAbsent, "=XMATCH(0,A1:A2,2,-1)", "#N/A")]
+    [Arguments(MatchFixture.AllAbsent, "=XLOOKUP(0,A1:A2,{1;2},,2)", "#N/A")]
+    [Arguments(MatchFixture.AllAbsent, "=XLOOKUP(0,A1:A2,{1;2},,2,-1)", "#N/A")]
+    [Arguments(MatchFixture.TextAbsentZero, "=XMATCH(0,A1:A3,2)", "3")]
+    [Arguments(MatchFixture.TextAbsentZero, "=XLOOKUP(0,A1:A3,{1;2;4},,2)", "4")]
+    public async Task WildcardMode_ZeroKey_MatchesOnlyNumericZero(
+        MatchFixture fixture,
+        string formula,
+        string expected
+    ) => await Assert.That(EvaluateWildcardAbsent(formula, fixture)).IsEqualTo(expected);
+
+    [Test]
+    [Arguments("=XMATCH(\"\",A1:A2,2)")]
+    [Arguments("=XMATCH(H10,A1:A2,2,-1)")]
+    [Arguments("=XLOOKUP(IF(TRUE,\"\"),A1:A2,{1;2},,2)")]
+    public async Task WildcardMode_EmptyText_DoesNotMatchAbsentCells(string formula) =>
+        await Assert
+            .That(EvaluateWildcardAbsent(formula, MatchFixture.AllAbsent))
+            .IsEqualTo("#N/A");
+
     private static string Evaluate(string formula, Key key, bool mixed)
     {
         var workbook = CreateWorkbook(key, mixed);
@@ -477,6 +536,35 @@ public class BlankLookupKeyTests
         return Format(workbook.GetCellValue("Main", "AZ5000"));
     }
 
+    private static string EvaluateWildcardAbsent(string formula, MatchFixture fixture)
+    {
+        var workbook = new Workbook();
+        var main = workbook.Sheets.Add("Main");
+        main["H10"] = new Danfma.MySheet.Expressions.StringValue(string.Empty);
+        if (fixture == MatchFixture.ZeroAbsentText)
+        {
+            main["A1"] = new NumberValue(0);
+            main["A3"] = ExpressionParser.Parse("=\"\"", main);
+        }
+        else if (fixture == MatchFixture.ZeroTextAbsent)
+        {
+            main["A1"] = new NumberValue(0);
+            main["A2"] = ExpressionParser.Parse("=\"\"", main);
+        }
+        else if (fixture == MatchFixture.ZeroFive)
+        {
+            main["A1"] = new NumberValue(0);
+            main["A2"] = new NumberValue(5);
+        }
+        else if (fixture == MatchFixture.TextAbsentZero)
+        {
+            main["A1"] = ExpressionParser.Parse("=\"\"", main);
+            main["A3"] = new NumberValue(0);
+        }
+        main["AZ5000"] = ExpressionParser.Parse(formula, main);
+        return Format(workbook.GetCellValue("Main", "AZ5000"));
+    }
+
     private static string EvaluateApproximateMatchWithGaps(string formula, bool descending)
     {
         var workbook = new Workbook();
@@ -535,5 +623,10 @@ public class BlankLookupKeyTests
         OneText,
         SeveralTexts,
         AllAbsent,
+        ZeroAbsentText,
+        ZeroTextAbsent,
+        ZeroFive,
+        TextAbsentZero,
+        Array,
     }
 }

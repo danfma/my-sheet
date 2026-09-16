@@ -6,7 +6,10 @@ namespace Danfma.MySheet.Expressions;
 /// The shared match engine behind XLOOKUP, XMATCH and LOOKUP (extracted from XLOOKUP so the mode
 /// semantics stay identical): exact match first, in the chosen direction, then the mode-specific
 /// fallback. <c>matchMode</c>: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
-/// Returns the 0-based index of the match, or -1 when there is none.
+/// Wildcard mode preserves exact value kinds for non-pattern keys: absent keys match only absent cells,
+/// empty text matches only text, and numeric zero does not match either blank kind. An absent wildcard
+/// search selects the first absent cell even when the requested scan direction is reverse. Returns the
+/// 0-based index of the match, or -1 when there is none.
 /// </summary>
 internal static class LookupMatching
 {
@@ -61,12 +64,18 @@ internal static class LookupMatching
         private readonly ComputedValue _lookup;
         private readonly Regex? _wildcard;
         private readonly bool _blankOnly;
+        private readonly bool _sameKindOnly;
         private readonly string? _exactText;
 
-        public ExactMatcher(in ComputedValue lookup, bool blankOnly = false)
+        public ExactMatcher(
+            in ComputedValue lookup,
+            bool blankOnly = false,
+            bool sameKindOnly = false
+        )
         {
             _lookup = lookup;
             _blankOnly = blankOnly;
+            _sameKindOnly = sameKindOnly;
             _exactText = lookup.TryGetText(out var text) && text.Length == 0 ? text : null;
             _wildcard =
                 UsesWildcards(lookup) && lookup.TryGetText(out var pattern)
@@ -77,7 +86,9 @@ internal static class LookupMatching
         public bool Matches(in ComputedValue candidate) =>
             _blankOnly ? candidate.Kind == ComputedValueKind.Blank
             : _exactText is not null ? IsExactText(candidate, _exactText)
-            : _wildcard is null ? ValueCoercion.AreEqual(candidate, _lookup)
+            : _wildcard is null
+                ? ValueCoercion.AreEqual(candidate, _lookup)
+                    && (!_sameKindOnly || candidate.Kind == _lookup.Kind)
             : candidate.TryGetText(out var text) && IsWildcardMatch(_wildcard, text);
     }
 
@@ -86,6 +97,9 @@ internal static class LookupMatching
         && (pattern.Contains('*') || pattern.Contains('?') || pattern.Contains('~'));
 
     public static ExactMatcher TableExactMatcher(in ComputedValue lookup) => new(lookup);
+
+    public static ExactMatcher WildcardMatcher(in ComputedValue lookup, bool absentLookup) =>
+        new(lookup, absentLookup, sameKindOnly: true);
 
     public static bool IsExactText(in ComputedValue candidate, string lookupText) =>
         candidate.TryGetText(out var candidateText)
@@ -128,7 +142,7 @@ internal static class LookupMatching
 
         return matchMode switch
         {
-            2 => Wildcard(lookup, array, count, reverse),
+            2 => Wildcard(lookup, array, count, reverse, absentMatchesOnlyBlank),
             -1 => Closest(lookup, array, count, below: true),
             1 => Closest(lookup, array, count, below: false),
             _ => -1,
@@ -139,14 +153,16 @@ internal static class LookupMatching
         in ComputedValue lookup,
         IReadOnlyList<ComputedValue> array,
         int count,
-        bool reverse
+        bool reverse,
+        bool absentMatchesOnlyBlank
     )
     {
-        var matcher = TableExactMatcher(lookup);
+        var matcher = WildcardMatcher(lookup, absentMatchesOnlyBlank);
+        var scanInReverse = reverse && !absentMatchesOnlyBlank;
 
         for (var k = 0; k < count; k++)
         {
-            var i = reverse ? count - 1 - k : k;
+            var i = scanInReverse ? count - 1 - k : k;
             if (matcher.Matches(array[i]))
             {
                 return i;

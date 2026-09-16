@@ -733,10 +733,11 @@ public sealed partial record XMatch(Expression[] Arguments) : Function
 
         if (matchMode == 2)
         {
-            var matcher = LookupMatching.TableExactMatcher(lookup);
+            var matcher = LookupMatching.WildcardMatcher(lookup, absentLookup);
+            var scanInReverse = reverse && !absentLookup;
             for (var offset = 0; offset < array.Length; offset++)
             {
-                var index = reverse ? array.Length - 1 - offset : offset;
+                var index = scanInReverse ? array.Length - 1 - offset : offset;
                 if (matcher.Matches(array.ElementAt(index)))
                 {
                     return index;
