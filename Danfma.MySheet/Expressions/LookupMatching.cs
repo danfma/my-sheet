@@ -7,13 +7,36 @@ namespace Danfma.MySheet.Expressions;
 /// semantics stay identical): exact match first, in the chosen direction, then the mode-specific
 /// fallback. <c>matchMode</c>: 0 exact, -1 exact-or-next-smaller, 1 exact-or-next-larger, 2 wildcard.
 /// Wildcard mode preserves exact value kinds for non-pattern keys: absent keys match only absent cells,
-/// empty text matches only text, and numeric zero does not match either blank kind. An absent wildcard
-/// search uses the first candidate selected by the forward wildcard scan even when the requested scan
-/// direction is reverse; unlike mode 0, it never substitutes empty text for the absent key. Returns the
-/// 0-based index of the match, or -1 when there is none.
+/// empty text matches only text, and numeric zero does not match either blank kind. Absent wildcard
+/// searches are symmetric: forward selects the first absent cell and reverse selects the last. Aspose's
+/// reverse last-position behavior is a registered oracle defect. Unlike mode 0, wildcard mode never
+/// substitutes empty text for an absent key. Returns the 0-based index of the match, or -1 when none exists.
 /// </summary>
 internal static class LookupMatching
 {
+    internal interface IWildcardSource
+    {
+        int Count { get; }
+
+        ComputedValue ElementAt(int index);
+    }
+
+    internal readonly struct ListWildcardSource(IReadOnlyList<ComputedValue> values, int count)
+        : IWildcardSource
+    {
+        public int Count => count;
+
+        public ComputedValue ElementAt(int index) => values[index];
+    }
+
+    internal readonly struct StreamWildcardSource(ArrayEvaluation.ArrayStream stream)
+        : IWildcardSource
+    {
+        public int Count => stream.Length;
+
+        public ComputedValue ElementAt(int index) => stream.ElementAt(index);
+    }
+
     public static ComputedValue EvaluateKey(
         Expression expression,
         EvaluationContext context,
@@ -143,45 +166,35 @@ internal static class LookupMatching
 
         return matchMode switch
         {
-            2 => Wildcard(lookup, array, count, reverse, absentMatchesOnlyBlank),
+            2 => ScanWildcard(
+                lookup,
+                new ListWildcardSource(array, count),
+                reverse,
+                absentMatchesOnlyBlank
+            ),
             -1 => Closest(lookup, array, count, below: true),
             1 => Closest(lookup, array, count, below: false),
             _ => -1,
         };
     }
 
-    private static int Wildcard(
+    internal static int ScanWildcard<TSource>(
         in ComputedValue lookup,
-        IReadOnlyList<ComputedValue> array,
-        int count,
+        TSource source,
         bool reverse,
         bool absentMatchesOnlyBlank
     )
+        where TSource : struct, IWildcardSource
     {
         var matcher = WildcardMatcher(lookup, absentMatchesOnlyBlank);
-        var scanInReverse = reverse && !absentMatchesOnlyBlank;
-        var firstZero = -1;
 
-        for (var k = 0; k < count; k++)
+        for (var offset = 0; offset < source.Count; offset++)
         {
-            var i = scanInReverse ? count - 1 - k : k;
-            var candidate = array[i];
+            var index = reverse ? source.Count - 1 - offset : offset;
+            var candidate = source.ElementAt(index);
             if (matcher.Matches(candidate))
             {
-                return absentMatchesOnlyBlank && reverse && i == count - 1 && firstZero >= 0
-                    ? firstZero
-                    : i;
-            }
-            if (
-                absentMatchesOnlyBlank
-                && reverse
-                && firstZero < 0
-                && candidate.Kind == ComputedValueKind.Number
-                && candidate.TryGetNumber(out var number)
-                && number == 0
-            )
-            {
-                firstZero = i;
+                return index;
             }
         }
 

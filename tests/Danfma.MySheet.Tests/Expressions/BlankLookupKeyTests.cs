@@ -363,11 +363,11 @@ public class BlankLookupKeyTests
     [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "2")]
     [Arguments(MatchFixture.ZeroAbsentText, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "2")]
     [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2)", "3")]
-    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2,-1)", "1")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
     [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2)", "4")]
-    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "1")]
-    [Arguments(MatchFixture.AllAbsent, "=XMATCH(D1,A1:A2,2,-1)", "1")]
-    [Arguments(MatchFixture.AllAbsent, "=XLOOKUP(D1,A1:A2,{1;2},,2,-1)", "1")]
+    [Arguments(MatchFixture.ZeroTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.AllAbsent, "=XMATCH(D1,A1:A2,2,-1)", "2")]
+    [Arguments(MatchFixture.AllAbsent, "=XLOOKUP(D1,A1:A2,{1;2},,2,-1)", "2")]
     [Arguments(MatchFixture.ZeroFive, "=XMATCH(D1,A1:A2,2)", "#N/A")]
     [Arguments(MatchFixture.ZeroFive, "=XMATCH(D1,A1:A2,2,-1)", "#N/A")]
     [Arguments(MatchFixture.ZeroFive, "=XLOOKUP(D1,A1:A2,{1;2},,2)", "#N/A")]
@@ -380,8 +380,21 @@ public class BlankLookupKeyTests
     [Arguments(MatchFixture.Array, "=XMATCH(D1,{0,\"\",5},2,-1)", "#N/A")]
     [Arguments(MatchFixture.Array, "=XLOOKUP(D1,{0,\"\",5},{1,2,4},,2)", "#N/A")]
     [Arguments(MatchFixture.Array, "=XLOOKUP(D1,{0,\"\",5},{1,2,4},,2,-1)", "#N/A")]
-    // For the 0,="",absent fixture, reverse mode changes 3/4 -> 1: Aspose excludes the trailing absent
-    // candidate and selects the numeric zero rather than applying mode 0's reverse empty-text rule.
+    [Arguments(MatchFixture.FiveTextAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.FiveTextAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.ZeroFiveAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.ZeroFiveAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.SevenZeroAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.SevenZeroAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.TextZeroAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.TextZeroAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.ZeroAbsentAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.ZeroAbsentAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    [Arguments(MatchFixture.AbsentZeroAbsent, "=XMATCH(D1,A1:A3,2,-1)", "3")]
+    [Arguments(MatchFixture.AbsentZeroAbsent, "=XLOOKUP(D1,A1:A3,{1;2;4},,2,-1)", "4")]
+    // Registered oracle defect: reverse absent last-position. The 0,"",absent reverse pins change
+    // XMATCH 1 -> 3 and XLOOKUP 1 -> 4; all six attack fixtures likewise use 3/4 although Aspose
+    // 26.7.0 PLAIN/CSE returns 1. For absent,absent the reverse pins change 1 -> 2 while Aspose is 1.
     public async Task WildcardMode_AbsentKey_MatchesOnlyAbsentCells(
         MatchFixture fixture,
         string formula,
@@ -415,6 +428,10 @@ public class BlankLookupKeyTests
         await Assert
             .That(EvaluateWildcardAbsent(formula, MatchFixture.AllAbsent))
             .IsEqualTo("#N/A");
+
+    [Test]
+    public async Task WildcardMode_StreamRouteScansInRequestedDirection() =>
+        await Assert.That(Evaluate("=XMATCH(5,{5,6,5},2,-1)", Key.Absent, true)).IsEqualTo("3");
 
     private static string Evaluate(string formula, Key key, bool mixed)
     {
@@ -563,6 +580,34 @@ public class BlankLookupKeyTests
             main["A1"] = ExpressionParser.Parse("=\"\"", main);
             main["A3"] = new NumberValue(0);
         }
+        else if (fixture == MatchFixture.FiveTextAbsent)
+        {
+            main["A1"] = new NumberValue(5);
+            main["A2"] = ExpressionParser.Parse("=\"\"", main);
+        }
+        else if (fixture == MatchFixture.ZeroFiveAbsent)
+        {
+            main["A1"] = new NumberValue(0);
+            main["A2"] = new NumberValue(5);
+        }
+        else if (fixture == MatchFixture.SevenZeroAbsent)
+        {
+            main["A1"] = new NumberValue(7);
+            main["A2"] = new NumberValue(0);
+        }
+        else if (fixture == MatchFixture.TextZeroAbsent)
+        {
+            main["A1"] = ExpressionParser.Parse("=\"\"", main);
+            main["A2"] = new NumberValue(0);
+        }
+        else if (fixture == MatchFixture.ZeroAbsentAbsent)
+        {
+            main["A1"] = new NumberValue(0);
+        }
+        else if (fixture == MatchFixture.AbsentZeroAbsent)
+        {
+            main["A2"] = new NumberValue(0);
+        }
         main["AZ5000"] = ExpressionParser.Parse(formula, main);
         return Format(workbook.GetCellValue("Main", "AZ5000"));
     }
@@ -629,6 +674,12 @@ public class BlankLookupKeyTests
         ZeroTextAbsent,
         ZeroFive,
         TextAbsentZero,
+        FiveTextAbsent,
+        ZeroFiveAbsent,
+        SevenZeroAbsent,
+        TextZeroAbsent,
+        ZeroAbsentAbsent,
+        AbsentZeroAbsent,
         Array,
     }
 }
