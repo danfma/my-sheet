@@ -360,3 +360,71 @@ Padrões aprendidos com correções e descobertas, para não repetir erros.
 - **An agent can turn a mechanism sentence into an expected value and cite "the brief" to pin against the oracle.** The integration fix-r1 brief said "treat the XLOOKUP route as Structural" and, separately, "measure and pin `COUNTIF(LET(r,XLOOKUP(…),r),">0")`", with no value. The agent measured `#REF!/#REF!` and pinned 2 anyway. Two changes: separate mechanism guidance from expected values in the brief, and add to the stop rule that only an explicit expected value, or a named registered defect, may diverge from a consistent oracle. The review brief now audits every new pin for oracle divergence without a defect comment.
 - **An expected value is only valid with the fixture it was measured on.** I copied a Phase 4 control value (2, measured on `A1:A3=5,0,9`) into a brief whose fixture was `1,2,3`. The implementer correctly reported Blocked, since the oracle gives 3 there, and a round was lost. When a brief reuses a measured row, it must carry that row's fixture with it, or state the value re-derived for the new fixture.
 - **A "ms per evaluation" number is evidence only if every timed evaluation actually ran.** Several reviewers reported open-range XLOOKUP at 0.002-0.00002 ms, and one reported 19 ns. Those were cache hits on already-computed cells. With 1,000 DISTINCT formula cells the same formula measured 8 ms on `main`. The same harness exposed a 50,000x XMATCH regression that a green closure review had passed. Time distinct uncached formulas (or invalidate between runs), always against the base commit, and treat any sub-microsecond evaluation time as a measurement bug until proven otherwise.
+
+## 2026-09-15 — Sweep robustness-parser (items 19, 27, 52, 53, 54; calc-divergence follow-ups)
+
+- **A scope-freeze line with no measured value makes an agent pin against a consistent oracle.** The Phase 2 fix-r1 brief said "scalar arguments stay unchanged". The agent kept `ROW(1)` = `#VALUE!`, while Aspose returns `#REF!` in both PLAIN and CSE. Every "unchanged" or out-of-scope line in a brief must name its measured oracle value. If that value diverges, the line says "register a new item, do not pin".
+- **Classify a consumer's divergence report before fixing anything.** Measured with fair fixtures, the calc-divergences document split into four classes:
+  - HARNESS-ONLY: structured references, once the table is registered on both engines;
+  - ENGINE-GAP: blank lookup keys;
+  - CONTRACT-CHOICE: negative zero, which the user decided;
+  - controls that already agreed.
+
+  Measure and classify first; dispatch fixes only for ENGINE-GAPs.
+- **Perf evidence needs one harness, interleaved runs and per-run values.**
+  - Runs on a shared machine drifted by multiples (MATCH at 0.0011 / 0.0043 / 0.0051 ms), so separate A-then-B runs cannot tell regression from contention.
+  - A breach can be bimodal: 3 of 5 runs 5x slower. Only per-run values show that.
+  - Gates therefore run interleaved pairs from a controller-owned harness identical on both commits, report medians, per-run values and load, and are re-run with no agent active when a result is borderline.
+- **The committed one-warm-up open-range gate mostly measures the snapshot BUILD.** Second-use admission puts the build inside the timed batch: gap-free XLOOKUP measured 0.188 ms with one warm-up and 0.0025 ms with two. The two-warm-up run exposed a +80% closed-range approximate VLOOKUP regression that one warm-up blurred to +20%. Report build cost and steady state as separate bars (the harness now has `--steady`).
+- **Agents told to "add" to a maintained benchmark rewrote it, and agents told to "use your scratch" used the controller's copies.**
+  - One agent replaced the gate harness. It dropped the 500k variants and the warm-up, and used a range 38x too small. That produced a false "+83% XLOOKUP".
+  - Another edited the controller's base benchmark copy and left counter instrumentation in `VLookup.cs`.
+  - Rules that followed:
+    - diff any benchmark change before trusting its numbers;
+    - extend maintained gates, never rewrite them;
+    - briefs name the agent's own scratch path and declare the controller's directories read-only;
+    - before every perf run, verify zero changes outside the benchmark project and identical harnesses (cmp).
+- **Measure a cheap, deterministic hypothesis before briefing a fix.** A TEXT perf round went out on "the residual gap is allocation", and the agent measured identical allocations. The real costs were visible in about 40 lines of the hot path:
+  - `ConcurrentDictionary.Count` on every cache hit, which takes all locks;
+  - `Math.Pow` on every call.
+
+  When counters, allocations or a code read can confirm a hypothesis, the controller does that first.
+- **A route pin can be vacuous: its assertion built the state it claimed to observe.** The fix-r6 XMATCH pin called `TryGetRangeSnapshot` inside the assertion, which admits the snapshot itself, so a mutation sending every reference through materialisation stayed green. Route proofs need a seam that counts the real branch (`XMatchRouteDiagnostics`), with a mutation run for each form.
+- **General admission can silently turn a streaming path into materialisation.** Removing a concrete-type check (`is ArrayConstant`) in favour of "any computed array" made `XMATCH(1,SEQUENCE(1000),0)` allocate 70x more. A shape check does not need the values: `TryEvaluateStream` gives dimensions and O(1) `ElementAt`. Run an allocation harness whenever the admission of a lookup source changes.
+- **A per-evaluation convenience conversion can cause GC-driven bimodality in unrelated scenarios.** `ToBoundedRange` on every XMATCH over `A:A` allocated a `RangeReference` and two id strings. XMATCH itself ran +65%, and MATCH and VLOOKUP later in the same process ran 3-4x slower in 3 of 4 runs. Structural extents (`A:A` is one column) avoid the scan and the allocation.
+- **An internally incoherent oracle is a registered defect, not a target.** Aspose gives:
+  - for a reversed column span: COLUMNS 0, but SUM 660 and a two-column XLOOKUP result;
+  - for a reverse wildcard search over an array: position 1, where position 1 holds a non-match.
+
+  Pre-authorised conditional rulings with measurable conditions let the agent stop cleanly (Blocked) when neither condition holds, and the controller then registers the defect.
+- **Correctness fixes may carry a residual cost; accept it only with evidence.** TEXT section and sign semantics kept about +2-9% after removing every avoidable cost, with identical allocations. The XMATCH shape and union rules kept about +12% gap-free, with half the runs overlapping base. Each was accepted as a documented ruling, not waved through.
+- **Controller self-error: I wrote a [Certain] ledger claim in the same command that produced its evidence, and the output contradicted it.** Never write a claim in the command that gathers its evidence. Read the output first.
+- **opencode serve mode has two silent failure modes.**
+  1. A session resumed without an attached `--auto` client hangs forever on its first permission prompt, typically `external_directory`. The first diagnostic is `GET /permission?directory=<worktree>`. Recover by approving the request and re-attaching `opencode run --attach --session <id> --auto`, never with `oc-say` alone.
+  2. An agent can end its first turn after only announcing a step. The client exits with rc=0 after 30 s and no report, which a stall watchdog cannot catch. After every dispatch, confirm the session has progressed or the report exists.
+- **Three concurrent build- and suite-running agents triggered host memory kills.** Resident Roslyn compiler servers alone held about 1.3 GB. Cap at 2. When the host kills client wrappers:
+  1. check permissions;
+  2. re-attach `--auto` clients;
+  3. pause (`oc-abort`) the agent that has done the least work.
+
+- **A flag from an 8-round median can be a mode flip, not a regression.** Numeric HLOOKUP alternated between two speed modes on every commit, base included. One 8-round pass read +30% (and later +70% and +396% on other lookups), and a 12-round FILTERed rerun erased it. Before acting on a flag, rerun that scenario alone with more rounds and compare each commit's mode ranges, not just medians.
+- **A fixture whose return values are all equal cannot tell which row matched.** With every return value 10, SUMIF over a derived absent key looked like "0 vs 10", and the implementer added a SUMIF-only early return to match. Returns of 1/2/4/8 showed every criteria function selects `B1`, so the true answer was 1 and the arm was wrong. Selection fixtures use distinct, sum-unambiguous returns, and a per-function arm that "matches the oracle" triggers a discriminating re-measurement.
+- **Check a reviewer's causal claim against the base column in the reviewer's own table.** A round blamed `LET(r,INDEX(B1:B4,2),SUM(r:B4))` = 20 on the Phase 5b LET reference carry and proposed removing it. The table showed 20 at `856a6c5` too, and the oracle's 5 (`SUM(B2:B4)`) proved the oracle treats `r` as a reference, so removing the carry would have broken the `ISREF`/`ROW` rows. The row was registered (item 74) instead.
+- **Volatile draw findings need a call stack per draw, at base and at HEAD.** A round reported "LET drew 2 at `856a6c5`", which would have made the regression look pre-existing. A stack capture showed 1 at base and 2 at `f5fde75`, a 5b regression. Classify "pre-existing" only from stacks.
+- **A closure review must state which evidence has to be independent.** A terra closure accepted the implementer's 126-cell matrix and mutation results without regenerating them, and left a changed row without an oracle value. The next sol review regenerated everything and found three real defects. Closure briefs list the mandatory independent checks (matrix, mutations, an oracle for every changed row). A report that skips one is incomplete, not Clean, and a fix that opens a new behaviour surface gets a sol closure.
+- **For a semantic item that cuts across a function family, brief the full matrix up front.** Phase 5b (absent versus empty-text keys) took seven fix rounds, and each review found a new slice:
+  - derived and LET keys;
+  - exact versus approximate routes;
+  - VLOOKUP/HLOOKUP tables;
+  - LOOKUP vectors;
+  - multi-cell keys;
+  - error-element vectors.
+
+  The first brief should demand family × route × key form × fixture measured before any code.
+- **When fix rounds pile special cases across shared helpers, consolidate before reviewing again.** Rounds 5-6 spread LOOKUP's vector error rules over `ReferenceGuard`, `ReferencePosition` (shared with MATCH/XMATCH/XLOOKUP) and `Lookup`, with duplicated IF/CHOOSE selection. A consolidation round moved them into one `LookupVector` companion, restored the shared helpers, and gated itself on "tests diff adds pins only". Read each fix diff for sprawl, not just its verdict.
+
+- **An unquoted heredoc silently ate part of a brief.** In zsh, `cat > file <<EOF` still runs command substitution, so a Markdown line with backticks inside parentheses lost the text between them, after the dispatch had started. Write briefs with `<<'EOF'` or through Python, and grep the written file for backtick lines before dispatching.
+- **User correction, 2026-09-16: sweep scope follows the consumer's list first.** After eight Phase 5b rounds kept surfacing adjacent LOOKUP error semantics, the user asked which open items actually belong to `~/MYSHEET-CALC-DIVERGENCES.md` and to close those before releasing. Only item 59 did. Everything the reviews found beyond that list (items 74-81) is registered for after the release.
+  - **Rule:** when a phase is born from a consumer's report, map every new finding against that report first.
+  - **Rule:** a finding outside the report that is not a regression against the phase's base is registered, not fixed in the phase.
+  - **Rule:** when proposing a scope choice, show the mapping to the originating document up front, before any option list.

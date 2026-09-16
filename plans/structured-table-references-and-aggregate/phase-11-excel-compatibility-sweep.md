@@ -275,7 +275,7 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
       *Why:* Cheap, and it is the clearest live example of the addendum's rule: a page-sourced golden that the
       oracle contradicts.
 
-- [ ] **19.** `WORKDAY` and `WORKDAY.INTL` CRASH instead of answering, for a whole interval of inputs rather than one
+- [x] **19.** **CLOSED 2026-09-15 by sweep robustness-parser Phase 1** (`c8ffcfa`, on `feat/rp-integrate`): `Workday.Advance` rejects non-finite and out-of-`Int32` day counts; every extreme returns `#NUM!`, and a 450-evaluation fuzz raised 0 exceptions. `.superpowers/sdd/sweep-robustness-parser/` (plan `plans/sweep-robustness-parser.md`). *Original record:* `WORKDAY` and `WORKDAY.INTL` CRASH instead of answering, for a whole interval of inputs rather than one
       literal value. Measured by Phase 9's fix wave: `WORKDAY(45362,-3000000000)` throws
       `OverflowException: Negating the minimum value of a twos complement number is invalid.` at
       `Danfma.MySheet/Expressions/Dates/WorkdayFunctions.cs:393` (`var remaining = Math.Abs(days);`), reached from
@@ -401,7 +401,7 @@ The (a) matrix, all 48 cells, on both sides; every (b) row including `Sete`/`Rng
 
 ## Controller additions after the Phase 3 final review (2026-09-10)
 
-- [ ] **27.** A huge column reference CRASHES instead of answering `#REF!`, and it reaches every cell. Phase 3's
+- [x] **27.** **CLOSED 2026-09-15 by sweep robustness-parser Phase 1** (`9a24eb9`, tests only): the crash no longer reproduces. An out-of-grid range such as `COUNTA(FXSHRXW1:FXSHRXW1)` gives `#REF!`, a bare 24-letter token gives `#NAME?` (oracle agrees), `XFD1` gives 0, and `XFE1` gives `#REF!`. `.superpowers/sdd/sweep-robustness-parser/` (plan `plans/sweep-robustness-parser.md`). *Original record:* A huge column reference CRASHES instead of answering `#REF!`, and it reaches every cell. Phase 3's
       correction M2 bounded `TryParseColumn`, but the sibling accumulators are still unbounded: `CellAddress.Parse`
       (`CellAddress.cs:23-27`) and `CellAddress.TryGetColumnRow` (`:38-70`), the latter reached by EVERY plain cell
       or range reference through `Parser.cs`, whose own comment calls it unguarded. Measured on both this branch and
@@ -608,17 +608,26 @@ the same workbook — which is why the probe for these rows evaluates one formul
 there, and MySheet answers 1 in both modes, so nothing is pending; the note exists because the crash looks like a
 probe bug and is not one.
 
+## Re-measurement of items 14-30 on Aspose.Cells 26.7.0 (2026-09-15)
+
+Source: `.superpowers/sdd/sweep-robustness-parser/reports/phase-0-remeasure.md` (terra, one formula per workbook, PLAIN and CSE). None of the cited 26.6.0 oracle values moved.
+- **STILL-DIVERGENT:** 14, 15, 16, 17, 18, 20, 21, 23 (partly), 24, 28, 29.
+- **NOW-MATCHES:** 22, which Phase 11a had already closed; the re-measurement confirms MySheet gives the CSE `#REF!` for every criteria-family shape.
+- **ROBUSTNESS:** 19 and 27 are handled by sweep robustness-parser Phase 1. For 26 and 30 the oracle contradicts itself, so a rule is needed first.
+- **NOT-MEASURABLE:** 25, because its original fixture values were never recorded.
+- **Suggested order for a follow-up sweep:** 17, 18, 29, 28, then 14/16/20/21/15, then 23-24.
+
 ## Controller additions after sweep 31/35-43 (2026-09-14)
 
 These were measured on Aspose.Cells 26.7.0 during [sweep 31/35-43](../excel-compatibility-sweep-31-35-43.md). All are pre-existing or out of that sweep's scope; each source report lives under `.superpowers/sdd/sweep-31-35-43/`.
 
 - [ ] **51.** HLOOKUP with a row index past a one-row literal table: `HLOOKUP(2,A1:C1,2,FALSE)` is `#REF!` here and `#N/A`/`#N/A` on the oracle. The oracle is self-inconsistent: its single-cell form `HLOOKUP(1,A1,2,FALSE)` answers `#REF!`. [Likely] real Excel answers `#REF!`. Decide on principle.
       *Source:* `review/phase-2-adversarial.md`.
-- [ ] **52.** INDEX's fourth argument (`area_num`) is not supported: the registry arity is 3, so `INDEX(A1,1,1,1)` fails to parse, while the oracle gives 1, and `INDEX(A1,1,1,2)` gives `#REF!`. This is feature work: parse the argument, then select an area of a union reference.
+- [x] **52.** **CLOSED 2026-09-15 by sweep robustness-parser Phase 3** (`ef0d677`, `aa65565`, `3301afc`, `f68401e`, `83c8985`): INDEX arity is now 2-4, and one `TrySelectArea` helper selects the union area before `ValidateAxes`. A missing sheet in an unselected area does not poison the result. Registered oracle defect: `INDEX(U,2,1,2)` over a defined-name union, where MySheet keeps 20. `.superpowers/sdd/sweep-robustness-parser/` (plan `plans/sweep-robustness-parser.md`). *Original record:* INDEX's fourth argument (`area_num`) is not supported: the registry arity is 3, so `INDEX(A1,1,1,1)` fails to parse, while the oracle gives 1, and `INDEX(A1,1,1,2)` gives `#REF!`. This is feature work: parse the argument, then select an area of a union reference.
       *Source:* `review/phase-3-round-2.md` I5.
-- [ ] **53.** Array constants (`{1}`, `{1,2,3}`) do not parse. The oracle evaluates `XLOOKUP(1,{1},B1:B3)` as 10 and `INDEX({1,2,3},-1)` as `#VALUE!`.
+- [x] **53.** **CLOSED 2026-09-15 by sweep robustness-parser Phase 2** (`8e7572f`..`5150723`, 19 commits): array constants through the `ArrayConstant` node (MemoryPack union count 329) and the `IArrayProducer` streaming route. The same phase unified VLOOKUP/HLOOKUP table sources and wildcard matching, made scalar ROW/COLUMN return `#REF!`, and gave XMATCH its shape, union and route handling plus allocation-free open-range checks. Follow-ups are registered as items 65, 69, 70 and 71, plus the reverse-array oracle defect. `.superpowers/sdd/sweep-robustness-parser/` (plan `plans/sweep-robustness-parser.md`). *Original record:* Array constants (`{1}`, `{1,2,3}`) do not parse. The oracle evaluates `XLOOKUP(1,{1},B1:B3)` as 10 and `INDEX({1,2,3},-1)` as `#VALUE!`.
       *Source:* `reports/phase-2-adv-fix.md`, `reports/phase-3-fix-r3.md`.
-- [ ] **54.** A structured-reference column span (`Tabela1[[Valor]:[Qtd]]`) throws "column span is not supported". The oracle evaluates `COUNTIF(XLOOKUP(2,A1:A3,Tabela1[[Valor]:[Qtd]]),">0")` as 2.
+- [x] **54.** **CLOSED 2026-09-15 by sweep robustness-parser Phase 4** (`e6c6796`, `b8e6cf9`): column spans resolve through `Table.GetRegion` (first/last column, normalised), and INDIRECT works over the same path. Reversed spans are a registered oracle defect (MySheet keeps the forward region). Follow-ups: items 70, 72 and 73. `.superpowers/sdd/sweep-robustness-parser/` (plan `plans/sweep-robustness-parser.md`). *Original record:* A structured-reference column span (`Tabela1[[Valor]:[Qtd]]`) throws "column span is not supported". The oracle evaluates `COUNTIF(XLOOKUP(2,A1:A3,Tabela1[[Valor]:[Qtd]]),">0")` as 2.
       *Source:* `review/phase-3-round-5.md` I2.
 - [ ] **55.** A lookup VALUE given as an array does not lift: `MATCH(B1:B3,B1:B3)` is `#VALUE!` here and 1 in the oracle's CSE column; `SUM(MATCH(B1:B3,B1:B3))` is `#VALUE!` here and 6 there. Companion of item 44 (divergence-probe group FableI1).
       *Source:* `reports/integration-p3.md`.
@@ -626,8 +635,127 @@ These were measured on Aspose.Cells 26.7.0 during [sweep 31/35-43](../excel-comp
       *Source:* `review/phase-3-round-4.md`.
 - [x] **57.** **REFUTED 2026-09-15 by the Fable 5.1 final gate** (`.superpowers/sdd/sweep-31-35-43/final-gate/fable.md`, "Verified clean"). A counting-producer harness drew exactly once at all three sites: `SUM(IF(TICK()>0,…))`, `COUNTIF(IF(…))`, `SUM(CHOOSE(TICK(),…))`, `ROWS(INDEX(A1:A3,TICK()*0,1))`, `COUNTIF(OFFSET(A1,TICK()*0,…))`, `ISERROR(IF(TICK()>0,A1,0))`. The real double draw was in XLOOKUP and MATCH; the final-gate fix wave fixed it. *Original record:* A possible volatile double draw at three resolve-then-evaluate sites: `ArrayEvaluation`'s IF-branch resolution, the CHOOSE selected branch in `LookupFunctions`, and `ReferencePosition`'s unresolved-error probe. This is the pattern fixed for `ScalarReferenceValue` in Phase 4; none of the three is measured yet. Verify each with a counting-producer pin.
       *Source:* `reports/phase-4-fix-r2.md`.
+- [ ] **58.** An extreme scalar passed as the NETWORKDAYS holidays argument does not error. `NETWORKDAYS(45362,45363,3000000000)` returns 2 here and `#NUM!`/`#NUM!` on the oracle. It does not throw (the Phase 1 fuzz ran 450 date-function evaluations with 0 exceptions). Check the NETWORKDAYS.INTL and WORKDAY/WORKDAY.INTL holiday twins with the same rule.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-1.md`.
+- [x] **59.** **CLOSED 2026-09-16 by sweep robustness-parser Phase 5b** (`c31b0cf`, `e9ddbda`, `f5fde75`, `7e1262d`, `fe2c7bc`, `9f252ae`, `5092106`, `b466562`, `2bbda0d`, `aa683fb`; review round 8 Clean).
+      - An absent key is distinct from an `=""` key across exact and approximate MATCH/XMATCH/XLOOKUP/VLOOKUP/HLOOKUP/LOOKUP and the criteria family.
+      - Derived and LET keys are classified once.
+      - LOOKUP vectors materialise through `LookupVector`.
+      - Follow-ups are registered as items 74-81.
+      *Original record:* Blank and absent lookup keys (calc-divergences document, family B). Fixture: an absent key `D1` over `B1:B4 = 0, ="", blank, 5`. PLAIN and CSE agree on every row.
+      - `MATCH(D1,B1:B4,-1)` is 4 here and 1 on the oracle.
+      - `XMATCH` is 1 here and 3 on the oracle.
+      - `XLOOKUP` is 10 here and 30 on the oracle.
+      - `COUNTIF`/`COUNTIFS` is 2 here and 1 on the oracle.
+      - `SUMIF` is 50 here and 10 on the oracle.
+      - An empty-text key with approximate `MATCH(D1,B1:B4,1)` is 4 here and 2 on the oracle; over a column with no blank it is 4 here and `#N/A` on the oracle.
+      - `COUNTIF(B1:B4,"=")` is 2 here and 1 on the oracle.
+      - Exact empty-text keys over an absent candidate (found in Phase 5b review round 3). Fixture `B1:B3 = 0, absent, 5`, `C1:C3 = 1,2,4`, key `""` or `H10=""`.
+        - `MATCH(..,0)`, `XMATCH`, `XLOOKUP`, `VLOOKUP(..,FALSE)` and `HLOOKUP(..,FALSE)` are 2 here and `#N/A` on the oracle; reverse `XLOOKUP` with `if_not_found` 0 is 2 here and 0 on the oracle.
+        - With a real empty-text candidate at `B3`, the same functions pick the absent `B2` here, while the oracle picks `B3` (3 or 4).
+        - `LOOKUP` is 0 here and `#N/A` on the oracle, or the empty text when a candidate exists; the array routes `{0,"",5}` and `{0,5}` also diverge for `LOOKUP`.
+        - Pre-existing at `856a6c5`; in scope for Phase 5b fix round 3.
+      - Scheduled as Phase 5b of `plans/sweep-robustness-parser.md`.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-5a-divergences.md` section B.
+- [ ] **60.** TEXT with a color section: `TEXT(-0.4,"0.0;[Red]-0.0")` is `#VALUE!` here and `"-0.4"`/`"-0.4"` on the oracle.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5c-round-1.md`.
+- [ ] **61.** TEXT fraction formats are not modelled: `TEXT(-0.4,"# ?/?")` is `"- ?/?"` here and `"- 2/5"`/`"- 2/5"` on the oracle.
+      *Source:* same.
+- [ ] **62.** TEXT with the `General` format is treated as literal text: `TEXT(-0.0001,"General")` is `"-General"` here and `"-0.0001"`/`"-0.0001"` on the oracle.
+      *Source:* same.
+- [ ] **63.** DOLLAR of a negative value that rounds to zero keeps the parentheses on the oracle: `DOLLAR(-0.004)` is `"$0.00"` here, both at `856a6c5` and after Phase 5c, and `"($0.00)"`/`"($0.00)"` on the oracle. `FIXED(-0.04,1)` is `"0.0"` on both engines, so the rule differs by function.
+      *Source:* same.
+- [ ] **64.** XLOOKUP with a lifted computed return over a single cell: `XLOOKUP(1,B1,-A1)` with `B1=1`, `A1=0` is `#VALUE!` here and 0/0 on the oracle. This is pre-existing at `856a6c5`. Companion of item 44 (`MATCH(0,-A1:A2,0)` is `#VALUE!` here, PLAIN `#VALUE!`, CSE 1).
+      *Source:* same.
+- [ ] **65.** The tilde rule for the lookup family (MATCH, XMATCH mode 2, VLOOKUP, HLOOKUP) differs from criteria (COUNTIF) and from SEARCH.
+      - **Oracle** (Aspose.Cells 26.7.0; PLAIN and CSE agree). Candidates `"a~b","ab","~","a~","a","a*","a?"` in positions 1-7:
+
+        | Key | Lookup family | COUNTIF | SEARCH |
+        |---|---|---|---|
+        | `"a~b"` | 2 | 1 | 1 |
+        | `"~"` | `#N/A` | 1 | 2 |
+        | `"a~"` | 5 | 1 | 1 |
+        | `"~~"` | 3 | 1 | 2 |
+        | `"~a"` | 5 | 0 | `#VALUE!` |
+        | `"a~*"` | 6 | 1 | 15 |
+        | `"a~?"` | 7 | 1 | 18 |
+
+      - [Likely] lookup rule: `~x` becomes the literal `x`, a trailing `~` is dropped, and a lone `~` matches nothing.
+      - MySheet uses one shared translator, so `VLOOKUP("a~b",{"a~b","x"},2,FALSE)` and `VLOOKUP("~",{"~","x"},2,FALSE)` return `"x"` here and `#N/A` on the oracle.
+      - Fix: a family-specific translation for lookup keys, pinned against this matrix. COUNTIF and SEARCH keep their own measured rules.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-2-fix-r3.md`.
+- [ ] **66.** The TEXT text-section placeholder `@` over a number is treated as a literal. `TEXT(-0.4,"@")` gives `"-@"` here and `"-0.4"` on the oracle, in both PLAIN and CSE. It was `"-@"` at `856a6c5` too.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5c-round-2.md`.
+- [ ] **67.** TEXT conditional sections are not parsed. `TEXT(-0.4,"[>0]0;[<0](0)")` gives `"[<0](0)"` here and `"(0)"` on the oracle, in both PLAIN and CSE. It was `"-[>0]0"` at `856a6c5`; Phase 5c's section split changed the text, but it is still wrong.
+      *Source:* same.
+- [ ] **68.** The two process-wide caches `RegexCache` (`Expressions/Text/RegexCache.cs`) and `TextFormatCache` (`Expressions/Text/TextFormatting.cs`, Phase 5c) share a check-then-clear-then-`GetOrAdd` pattern with three weaknesses:
+      - **Arbitrary key length.** Neither caps the cacheable key length, so up to 256 arbitrarily long format or pattern strings, which can come from cell values, stay in memory.
+      - **Capacity overshoot.** Capacity is only approximate: concurrent distinct misses can overshoot 256, bounded by the number of concurrent callers, and the next miss clears the cache.
+      - **Duplicate factory runs.** The value factory can run more than once under concurrency. Results stay correct.
+      - **Global lock on every hit.** Both caches check `Cache.Count >= Capacity` on every call, including hits. [Likely] `ConcurrentDictionary.Count` acquires all internal locks, so every lookup takes a global lock. Phase 5c perf round 3 fixes `TextFormatCache` (hit path through `TryGetValue`); `RegexCache` still does this.
+
+      **Fix, for both caches together:**
+      - bypass the cache above a documented maximum key length, with a test showing oversized keys are not retained;
+      - document the capacity and duplicate-factory races in both class docs, or serialise the miss path if a strict bound is wanted.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5c-perf-r1.md` (I1, I2, Minor). A controller ruling accepted all three for Phase 5c, because the pattern matches the existing `RegexCache`.
+- [ ] **69.** `TRANSPOSE` is not implemented. `XMATCH("a*",TRANSPOSE(A1:A3),2)` over `A1:A3 = "x","ab","y"` is `#NAME?` here and 2/2 on the oracle (PLAIN/CSE).
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-2-round-6.md`.
+- [ ] **70.** The space intersection operator does not parse. `XMATCH("a*",A1:A3 A1:A2,2)` fails to parse here. The oracle row was not measured, because the shared probe stops at the parse failure. Measure `SUM(A1:B2 B1:C3)` and friends before implementing. The operator is also rejected between structured references: `SUM(Tabela1[[Valor]:[Qtd]] Tabela1[[Qtd]:[Sales Amount]])` throws `ParseException: Expected RParen but found 'Tabela1'` here and gives 600/600 on the oracle (PLAIN/CSE; `Tabela1` on `Data!A1:D4` with rows `(1,10,100,1000)`…`(3,30,300,3000)`).
+      *Source:* same, plus `.superpowers/sdd/sweep-robustness-parser/review/phase-4-round-1.md`.
+- [ ] **71.** A lifted computed lookup array in XMATCH mode 2: `XMATCH("a*",A1:A3&"",2)` is `#VALUE!` here and on the oracle's PLAIN, and 2 on its CSE. Same family as item 44 (a lookup array slot over a lifted computation).
+      *Source:* same.
+- [ ] **72.** xlsx export does not write table definitions. `ExcelExport.cs:50-132` emits no table parts or relationships, so a workbook with a registered table and structured-reference formulas does not round-trip:
+      - **MySheet reload:** the reload has `tables=0`, and `SUM(Tabela1[[Valor]:[Qtd]])` keeps its text but evaluates to `#NAME?`.
+      - **Aspose load:** Aspose loads `tables=0` and rewrites the formula to `=SUM(#REF!)`, while the cached value stays 660.
+      - **Scope:** this predates Phase 4, which did not touch `ExcelExport.cs`, and it affects every structured reference, not only spans.
+      - **Fix:** export table parts and relationships. Add an Excel integration test that exports a registered table with single-column and span formulas, reloads through MySheet and Aspose, and asserts the table count and metadata, the formula text and the values.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-4-round-1.md` (Important 1).
+- [ ] **73.** Current-row structured references are rejected in MySheet: `[@Col]`, `[@[A]:[B]]` and `[[#This Row],[Col]]`, a deliberate S1 scope exclusion. The oracle evaluates them.
+      - Evidence: `SUM(Tabela1[@[Valor]:[Qtd]])` placed in a data row of `Tabela1` (`Data!A1:D4`, row `(1,10,100,1000)`) gives 110/110 on the oracle (PLAIN/CSE).
+      - Earlier measurements recorded `Tabela1[@Valor]` outside the table as `#VALUE!` on the oracle; those rows are pinned in `ParseExceptionTests`.
+      - Implementing this needs formula-cell context in structured-reference resolution. Measure the inside-table, outside-table and span forms first.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-4.md`, `reports/phase-4-fix-r2.md`.
+- [ ] **74.** A LET-bound reference used as a range-operator endpoint. `LET(r,INDEX(B1:B4,2),SUM(r:B4))` over `B1:B4 = 0, ="", absent, 5` gives 20 here, at `856a6c5`, `e9ddbda` and `f5fde75` alike. The oracle gives 5/5 (PLAIN/CSE), which is `SUM(B2:B4)`: the oracle treats `r` as the reference `B2`.
+      - Measure the direct form `SUM(INDEX(B1:B4,2):B4)` and other LET-bound constructions (`B1:r`, OFFSET-derived endpoints) before fixing.
+      - Controller ruling: review round 3 attributed this to the Phase 5b LET reference carry and proposed removing that carry from `TryResolveRaw`. Both are rejected, because `856a6c5` already returned 20 and the carried reference makes `ISREF`/`ROW` match the oracle.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5b-round-3.md` (Important 4).
+- [ ] **75.** Multi-cell reference lookup keys are not lifted. Fixture: `B1:B4 = 0, ="", absent, 5`, with absent `D1:D2`.
+      - `XMATCH(D1:D2,B1:B4)`, `XMATCH(OFFSET(D1,0,0,2,1),B1:B4)` and `LET(r,D1:D2,XMATCH(r,B1:B4))` are `#N/A` here and 3/3 on the oracle (PLAIN/CSE). The oracle lifts the key and reads the top-left element.
+      - Pre-existing at `856a6c5`. Same family as items 44, 64 and 71: a lifted lookup slot.
+      - Measure MATCH, XLOOKUP, VLOOKUP and HLOOKUP with multi-cell keys, in both PLAIN and CSE, before implementing.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-5b-fix-r3.md` (F3; pre-authorised conditional ruling: the direct form diverges too, so this was not fixed in Phase 5b).
+- [ ] **76.** MATCH over a volatile computed lookup array evaluates it twice. With `TICK` counting draws, `MATCH(2,{1,2,3}*TICK()^0,0)` draws 2 at `b8e6cf9`, `7e1262d`, `fe2c7bc` and `9f252ae`. The value (2) is correct.
+      - Stack 1 is `ReferencePosition.TryUnresolvedError`, which scalar-evaluates the computed array. Stack 2 is `RangeValueCursor.Open -> ArrayEvaluation.TryStream`.
+      - Phase 5b fixed the same pattern for LOOKUP in `9f252ae` (`TryUnresolvedError(..., preserveComputedArray: true)`). Apply it to MATCH, and audit every other `TryUnresolvedError` caller over array-eligible arguments with counting pins.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-5b-fix-r5.md` (rows to register).
+- [ ] **77.** LOOKUP over a scalar value error follows PLAIN rather than CSE. `LOOKUP(1,1/0)` is `#DIV/0!` here (since `b8e6cf9`, unchanged by Phase 5b), `#DIV/0!` on the oracle's PLAIN and `#N/A` on its CSE. The project rule follows CSE on a split.
+      - Its one-element siblings already follow the element-skipping CSE route: `LOOKUP(1,{1}/0)`, `LOOKUP(1,A1/0)` and `LOOKUP(1,A1:A1/0)` all give `#N/A` = PLAIN = CSE.
+      - Decide whether a literal scalar vector should also skip. Measure `LOOKUP(1,NA())`, `LOOKUP(1,#DIV/0!)` and `LOOKUP(1,SQRT(-1))` first.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-5b-fix-r6.md` (rows to register).
+- [ ] **78.** A LOOKUP result slot that selects an unresolved name through CHOOSE splits on the oracle and contradicts its IF twin. `LOOKUP(2,B1:B4,CHOOSE(1,NoSuch,C1:C4))` gives PLAIN `#N/A` and CSE `#NAME?`, while `LOOKUP(2,B1:B4,IF(TRUE,NoSuch,C1:C4))` gives `#N/A` in both modes.
+      - MySheet gives `#N/A` for both. It was `#NAME?` at `fe2c7bc` and became `#N/A` with Phase 5b's structural-vector work (`5092106`).
+      - Controller ruling (2026-09-15): the oracle is split and its CSE value is incoherent with its own IF twin, so MySheet keeps the IF-consistent `#N/A` and this is an oracle-defect candidate. Re-measure with other selectors (`INDEX`, `SWITCH`) before deciding whether to follow CSE.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/reports/phase-5b-fix-r7.md`.
+- [ ] **79.** LOOKUP with a result vector shorter than the lookup vector:
+      - `LOOKUP(2,{1,2},{10})` is 10 here and `#N/A`/`#N/A` on the oracle.
+      - `LOOKUP(2,B1:B4,C1)` is 10 here and 0/0 on the oracle (fixture `B1:B4 = 1,2,3,4`, `C1:C4 = 10,20,30,40`). Excel's documented behaviour offsets a single-cell result vector.
+      - Both are pre-existing at `fe2c7bc`. Measure the offset rule, the shape rule for arrays versus references, and horizontal twins before implementing.
+      *Source:* same.
+- [ ] **80.** LOOKUP over a computed `INDEX` vector: `LOOKUP(2,INDEX(B1:B4*1,0))` gives `#N/A` here (at `9f252ae` and `2bbda0d`) and 2/2 on the oracle (PLAIN/CSE). Fixture `A1:A3 = 1,2,3`, `B1:B4 = 1,2,3,4`, `C1:C4 = 10,20,30,40`.
+      - `LookupVector.IsComputedVector` classifies by syntax (`ContainsReference`), so a reference-returning function over a computed array is not seen as a vector.
+      - Measure the `INDEX`/`OFFSET`/`XLOOKUP`/`FILTER`/`SEQUENCE` vector twins in both slots before implementing.
+      - Result-slot companion: `LOOKUP(2,B1:B4,INDEX(C1:C4*1,0))` is `#N/A` here and 20/20 on the oracle; it was `#REF!` at `b8e6cf9` (review round 8).
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5b-round-7.md` (I1). Deferred to after the release by user scope, 2026-09-16.
+- [ ] **81.** A LOOKUP result-slot IF whose condition is an error. `LOOKUP(2,B1:B4,IF(1/0,C1:C4,B1:B4))` gives `#DIV/0!` here and `#N/A`/`#N/A` on the oracle (PLAIN/CSE). Fixture `B1:B4 = 1,2,3,4`, `C1:C4 = 10,20,30,40`.
+      - History: `#DIV/0!` at `b8e6cf9`, `#N/A` at `2bbda0d`, and `#DIV/0!` again at `aa683fb`.
+      - Fix round 8 made a result-slot selector's OWN error propagate, which is correct for a CHOOSE index (`CHOOSE(9,…)` gives CSE `#VALUE!`), and applied the same rule to IF conditions. The oracle instead normalises an IF condition error in the result slot to `#N/A`; `IF(NA(),…)` is `#N/A` in either reading.
+      - Fix: in `LookupVector`, propagate the CHOOSE index error but not the IF condition error in the result slot. Pin `IF(1/0,…)`, `IF("x",…)` and `IF(NA(),…)`.
+      - HEAD equals `b8e6cf9`, so this is not a phase regression. Deferred by user scope, 2026-09-16.
+      *Source:* `.superpowers/sdd/sweep-robustness-parser/review/phase-5b-round-8.md` (rows to register).
 
 **Registered oracle defects** (MySheet keeps its coherent answer; do not "fix"):
+- Reversed structured column span: `Tabela1[[Qtd]:[Valor]]` is internally incoherent on Aspose 26.7.0, with PLAIN = CSE. It gives `ROWS` 3 but `COLUMNS` 0, `INDEX(...,1,1)` `#REF!`, `COUNTIF(...,">15")` 0 and `SUM(OFFSET(...,0,0))` 6600, while `SUM` is 660 and `XLOOKUP(2,Main!A1:A3,...)` returns the full two-column row (220). Aspose stores the text un-normalised. No single region explains those values together. MySheet normalises the endpoints to the forward region (3x2), so every consumer matches `Tabela1[[Valor]:[Qtd]]`: 3/2/10/60/660/220/5/1. Registered 2026-09-15; source `.superpowers/sdd/sweep-robustness-parser/reports/phase-4-fix-r1.md`.
+- Reverse wildcard search over an ARRAY: `XMATCH("a*",{"x","ab"},2,-1)` gives 1 on Aspose PLAIN and CSE. Its range twin `XMATCH("a*",A1:A2,2,-1)` over the same values gives 2, and position 1 holds `"x"`, which does not match `"a*"`. `XLOOKUP("a*",{"x","ab"},{1,2},,2,-1)` returns the value at position 1 for the same reason. MySheet keeps 2, the range answer. Registered 2026-09-15; source `.superpowers/sdd/sweep-robustness-parser/reports/phase-2-fix-r5.md`.
 - `ROWS(OFFSET(A1:A3,0,0,2))` is 3 and `ROWS(OFFSET(A:A,2,0,-2,1))` is 1048576 on the oracle, while its own `SUM`/`COUNT` prove the window size.
 - `ROWS(XLOOKUP(1,A1,B1:B3))` is 1 while its own `INDEX(...,2)` gives 20 and its `SUM` gives 60.
 - `COLUMNS(XLOOKUP(3,A1:A4,B1:D4))` is 1 while its own `SUM` gives 2220.
